@@ -1031,6 +1031,15 @@ class FishSpeechEngine {
                 reference_id: '4540a261de68409396afc3a8e86255ad',
                 description: 'Funtime Freddy German voice (Fazbear And Friends)',
                 supportedEmotions: true
+            },
+            'fish-custom-voice-3c402b': {
+                name: 'Custom Voice 3c402b',
+                lang: 'de',
+                gender: 'male',
+                model: 's1',
+                reference_id: '3c402b86cb174f3484803941880414fc',
+                description: 'Custom fish 1',
+                supportedEmotions: true
             }
         };
     }
