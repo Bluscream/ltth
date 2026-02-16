@@ -22,6 +22,9 @@ describe('Profile Switch localStorage Cleanup', () => {
     removeItem: (key) => { delete mockLocalStorage[key]; }
   };
 
+  const profilesMatch = (a, b) =>
+    typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+
   test('should clear localStorage when profiles match after load', () => {
     // Simulate scenario:
     // 1. User switched to 'shadesteryt'
@@ -81,6 +84,24 @@ describe('Profile Switch localStorage Cleanup', () => {
     }
 
     // Verify localStorage was cleared
+    expect(localStorage.getItem('selectedProfile')).toBeNull();
+  });
+
+  test('should treat profile names as equal regardless of case', () => {
+    localStorage.setItem('selectedProfile', 'Pupcid');
+
+    const activeProfile = 'pupcid';
+    const selectedProfile = localStorage.getItem('selectedProfile');
+
+    let profileSwitchPending = false;
+
+    if (selectedProfile && !profilesMatch(selectedProfile, activeProfile)) {
+      profileSwitchPending = true;
+    } else if (profilesMatch(selectedProfile, activeProfile)) {
+      localStorage.removeItem('selectedProfile');
+    }
+
+    expect(profileSwitchPending).toBe(false);
     expect(localStorage.getItem('selectedProfile')).toBeNull();
   });
 
