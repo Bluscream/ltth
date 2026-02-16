@@ -18,6 +18,12 @@
     let profileSwitchPending = false;
     let restartCountdown = null;
 
+    function profilesMatch(a, b) {
+        return typeof a === 'string'
+            && typeof b === 'string'
+            && a.toLowerCase() === b.toLowerCase();
+    }
+
     // Initialize on DOMContentLoaded
     document.addEventListener('DOMContentLoaded', async () => {
         await initializeProfileManager();
@@ -59,10 +65,10 @@
             selectedProfile = localStorage.getItem('selectedProfile') || activeProfile;
 
             // Check if profiles differ (pending restart)
-            if (selectedProfile && selectedProfile !== activeProfile) {
+            if (selectedProfile && !profilesMatch(selectedProfile, activeProfile)) {
                 profileSwitchPending = true;
                 showProfileSwitchWarning();
-            } else if (selectedProfile === activeProfile) {
+            } else if (profilesMatch(selectedProfile, activeProfile)) {
                 // Profiles match - clear localStorage to prevent false warnings after restart
                 localStorage.removeItem('selectedProfile');
                 console.log('✅ Profile switch completed successfully - localStorage cleared');
@@ -303,12 +309,12 @@
     function checkPendingProfileSwitch() {
         const storedSelected = localStorage.getItem('selectedProfile');
         
-        if (storedSelected && storedSelected !== activeProfile) {
+        if (storedSelected && !profilesMatch(storedSelected, activeProfile)) {
             profileSwitchPending = true;
             selectedProfile = storedSelected;
             showProfileSwitchWarning();
             updateProfileDisplay();
-        } else if (storedSelected && storedSelected === activeProfile) {
+        } else if (storedSelected && profilesMatch(storedSelected, activeProfile)) {
             // Profiles match - clear localStorage to prevent false warnings
             localStorage.removeItem('selectedProfile');
             console.log('✅ Profile switch completed - localStorage cleared on page load');
