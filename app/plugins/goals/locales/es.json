@@ -18,7 +18,8 @@
         "coin": "🪙 Coins",
         "likes": "❤️ Likes",
         "follower": "👥 Followers",
-        "custom": "⭐ Custom"
+        "custom": "⭐ Custom",
+        "superfans": "⭐ Superfans"
       },
       "template_label": "Template",
       "templates": {

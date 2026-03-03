@@ -2764,7 +2764,8 @@ io.on('connection', (socket) => {
                 coins: 'gifts',
                 followers: 'follow',
                 likes: 'like',
-                subs: 'subscribe'
+                subs: 'subscribe',
+                superfans: 'superfan'
             }
         };
         

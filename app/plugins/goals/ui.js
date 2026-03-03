@@ -544,6 +544,12 @@ function getDefaultTheme(goalType) {
             secondaryColor: '#8b5cf6',
             textColor: '#ffffff',
             bgColor: 'rgba(15, 23, 42, 0.95)'
+        },
+        superfans: {
+            primaryColor: '#a78bfa',
+            secondaryColor: '#7c3aed',
+            textColor: '#ffffff',
+            bgColor: 'rgba(15, 23, 42, 0.95)'
         }
     };
 
@@ -705,6 +711,7 @@ function getGoalTypeIcon(type) {
         coin: '🪙',
         likes: '❤️',
         follower: '👥',
+        superfans: '⭐',
         custom: '⭐'
     };
     return icons[type] || '🎯';

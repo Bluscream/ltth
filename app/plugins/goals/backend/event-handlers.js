@@ -37,6 +37,11 @@ class GoalsEventHandlers {
             this.handleFollow(data);
         });
 
+        // Superfan event
+        this.api.registerTikTokEvent('superfan', (data) => {
+            this.handleSuperfan(data);
+        });
+
         // Listen for TikTok connection to sync likes goals
         this.api.registerTikTokEvent('connected', () => {
             // Wait a moment for stats to be populated, then sync
@@ -193,6 +198,25 @@ class GoalsEventHandlers {
             this.api.log(`New follower: ${data.uniqueId || 'unknown'}`, 'debug');
         } catch (error) {
             this.api.log(`Error handling follow event: ${error.message}`, 'error');
+        }
+    }
+
+    /**
+     * Handle superfan event
+     */
+    handleSuperfan(data) {
+        try {
+            // Get all enabled superfans goals
+            const goals = this.db.getGoalsByType('superfans');
+            const enabledGoals = goals.filter(g => g.enabled);
+
+            for (const goal of enabledGoals) {
+                this.incrementGoal(goal.id, 1);
+            }
+
+            this.api.log(`New superfan: ${data.uniqueId || 'unknown'}`, 'debug');
+        } catch (error) {
+            this.api.log(`Error handling superfan event: ${error.message}`, 'error');
         }
     }
 
