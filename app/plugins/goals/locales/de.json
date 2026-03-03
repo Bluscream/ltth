@@ -18,7 +18,8 @@
         "coin": "🪙 Münzen",
         "likes": "❤️ Likes",
         "follower": "👥 Follower",
-        "custom": "⭐ Benutzerdefiniert"
+        "custom": "⭐ Benutzerdefiniert",
+        "superfans": "⭐ Superfans"
       },
       "template_label": "Vorlage",
       "templates": {
