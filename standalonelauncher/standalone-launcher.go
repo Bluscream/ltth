@@ -1,9 +1,13 @@
 package main
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bufio"
+	"compress/gzip"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -43,6 +47,13 @@ const (
 	nodeWinURL   = "https://nodejs.org/dist/v20.18.1/node-v20.18.1-win-x64.zip"
 	nodeLinuxURL = "https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.xz"
 	nodeMacURL   = "https://nodejs.org/dist/v20.18.1/node-v20.18.1-darwin-x64.tar.gz"
+)
+
+// Release asset naming conventions for prebuilt bundles
+const (
+	releaseAssetWindows = "ltth-win-x64.zip"
+	releaseAssetLinux   = "ltth-linux-x64.tar.gz"
+	releaseAssetMacOS   = "ltth-macos-x64.tar.gz"
 )
 
 // Compiled regex for parsing npm output (compiled once for efficiency)
@@ -830,19 +841,29 @@ func (sl *StandaloneLauncher) downloadFromBranch() error {
 // Extract embedded application files (true standalone mode)
 // Download all files from GitHub
 func (sl *StandaloneLauncher) downloadRepository() error {
-	// Try release-based download first (best option)
-	sl.logger.Println("Trying release-based download...")
-	err := sl.downloadFromRelease()
-	
-	if err == nil {
-		sl.logger.Println("Release-based download successful!")
+	// Try prebuilt release artifact first (fastest, no npm install needed)
+	sl.logger.Println("Trying prebuilt release artifact...")
+	release, releaseErr := sl.getLatestRelease()
+	if releaseErr != nil || release == nil {
+		sl.logger.Printf("Could not get latest release: %v\n", releaseErr)
+	} else {
+		if err := sl.downloadReleaseArtifact(release); err != nil {
+			sl.logger.Printf("Prebuilt artifact failed: %v\n", err)
+		} else {
+			sl.logger.Println("Prebuilt release artifact download successful!")
+			return nil
+		}
+	}
+
+	// Prebuilt artifact not available – fall back to release source download
+	sl.logger.Println("Falling back to release source download...")
+	if err := sl.downloadFromRelease(); err == nil {
 		return nil
 	}
-	
-	// Release not available - use branch download as fallback
-	sl.logger.Printf("Release unavailable, falling back to branch download: %v\n", err)
+
+	// Last resort: branch download
+	sl.logger.Println("⚠️ Release source unavailable, falling back to branch download...")
 	sl.updateProgress(5, "⚠️ Kein Release gefunden, lade direkt von Branch...")
-	
 	return sl.downloadFromBranch()
 }
 
@@ -1104,6 +1125,280 @@ func (sl *StandaloneLauncher) extractZip(zipPath, destDir string) error {
 	}
 	
 	return nil
+}
+
+// resolveReleaseAssetName returns the platform-specific prebuilt bundle filename.
+func (sl *StandaloneLauncher) resolveReleaseAssetName() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		return releaseAssetWindows, nil
+	case "linux":
+		return releaseAssetLinux, nil
+	case "darwin":
+		return releaseAssetMacOS, nil
+	default:
+		return "", fmt.Errorf("Nicht unterstützte Plattform: %s", runtime.GOOS)
+	}
+}
+
+// verifyFileSHA256 computes the SHA256 hash of the file at filePath and compares it
+// (case-insensitive) with expectedHash. Returns an error on mismatch.
+func (sl *StandaloneLauncher) verifyFileSHA256(filePath, expectedHash string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("Konnte Datei für SHA256-Prüfung nicht öffnen: %v", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("SHA256-Berechnung fehlgeschlagen: %v", err)
+	}
+
+	actual := hex.EncodeToString(h.Sum(nil))
+	sl.logger.Printf("SHA256 of %s: %s\n", filepath.Base(filePath), actual)
+
+	if !strings.EqualFold(actual, expectedHash) {
+		return fmt.Errorf("SHA256-Prüfsumme stimmt nicht überein: erwartet %s, erhalten %s", expectedHash, actual)
+	}
+	return nil
+}
+
+// downloadChecksums looks for a checksums.txt asset in the release, downloads it, and
+// returns the expected hash for assetName. Returns an error if not found.
+func (sl *StandaloneLauncher) downloadChecksums(release *GitHubRelease, assetName string) (string, error) {
+	var checksumURL string
+	for _, asset := range release.Assets {
+		if asset.Name == "checksums.txt" {
+			checksumURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+	if checksumURL == "" {
+		return "", fmt.Errorf("checksums.txt not found in release assets")
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(checksumURL)
+	if err != nil {
+		return "", fmt.Errorf("Download von checksums.txt fehlgeschlagen: %v", err)
+	}
+	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Standard sha256sum format: "<hash>  <filename>" or "<hash> *<filename>"
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		hash := parts[0]
+		name := strings.TrimPrefix(parts[1], "*")
+		if name == assetName {
+			return hash, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("Fehler beim Lesen von checksums.txt: %v", err)
+	}
+	return "", fmt.Errorf("Kein Eintrag für %s in checksums.txt gefunden", assetName)
+}
+
+// extractPrebuiltZip extracts a prebuilt ZIP bundle directly into sl.baseDir.
+func (sl *StandaloneLauncher) extractPrebuiltZip(zipPath string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("Konnte ZIP nicht öffnen: %v", err)
+	}
+	defer r.Close()
+
+	total := len(r.File)
+	extracted := 0
+
+	for i, f := range r.File {
+		// Security: use filepath.Clean to prevent path traversal
+		fpath := filepath.Join(sl.baseDir, f.Name)
+		if !strings.HasPrefix(filepath.Clean(fpath)+string(os.PathSeparator), filepath.Clean(sl.baseDir)+string(os.PathSeparator)) {
+			sl.logger.Printf("Skipping potentially unsafe path: %s\n", f.Name)
+			continue
+		}
+
+		progress := 60 + int(float64(i)/float64(total)*30)
+		sl.updateProgress(progress, fmt.Sprintf("Entpacke Prebuilt-Bundle... %d/%d", i+1, total))
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(fpath, os.ModePerm)
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+			return err
+		}
+
+		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			outFile.Close()
+			return err
+		}
+
+		_, err = io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+
+		if err != nil {
+			return err
+		}
+		extracted++
+	}
+
+	sl.logger.Printf("Extracted %d files from prebuilt ZIP\n", extracted)
+	if extracted == 0 {
+		return fmt.Errorf("Keine Dateien aus dem Prebuilt-ZIP extrahiert")
+	}
+	return nil
+}
+
+// extractTarGz extracts a .tar.gz archive to destDir.
+func (sl *StandaloneLauncher) extractTarGz(tarPath, destDir string) error {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return fmt.Errorf("Konnte Archiv nicht öffnen: %v", err)
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("Gzip-Reader fehlgeschlagen: %v", err)
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	extracted := 0
+	i := 0
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("Fehler beim Lesen des Tar-Archivs: %v", err)
+		}
+
+		// Security: use filepath.Clean to prevent path traversal
+		fpath := filepath.Join(destDir, header.Name)
+		if !strings.HasPrefix(filepath.Clean(fpath)+string(os.PathSeparator), filepath.Clean(destDir)+string(os.PathSeparator)) {
+			sl.logger.Printf("Skipping potentially unsafe path: %s\n", header.Name)
+			continue
+		}
+
+		i++
+		sl.updateProgress(60+int(float64(i%300)/300.0*30), fmt.Sprintf("Entpacke Prebuilt-Bundle... %s", header.Name))
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(fpath, os.FileMode(header.Mode)); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+				return err
+			}
+			outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(header.Mode))
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(outFile, tr)
+			outFile.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			extracted++
+		}
+	}
+
+	sl.logger.Printf("Extracted %d files from tar.gz\n", extracted)
+	if extracted == 0 {
+		return fmt.Errorf("Keine Dateien aus dem Prebuilt-Archiv extrahiert")
+	}
+	return nil
+}
+
+// extractPrebuiltBundle dispatches to the correct extractor based on file extension.
+func (sl *StandaloneLauncher) extractPrebuiltBundle(archivePath string) error {
+	sl.updateProgress(60, "Entpacke Prebuilt-Bundle...")
+	name := strings.ToLower(archivePath)
+	if strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".tgz") {
+		return sl.extractTarGz(archivePath, sl.baseDir)
+	}
+	return sl.extractPrebuiltZip(archivePath)
+}
+
+// assetNames returns just the Name field from each release asset (for error messages).
+func assetNames(assets []GitHubReleaseAsset) []string {
+	names := make([]string, len(assets))
+	for i, a := range assets {
+		names[i] = a.Name
+	}
+	return names
+}
+
+// downloadReleaseArtifact downloads, optionally verifies, and extracts the prebuilt
+// platform bundle from the given GitHub release.
+func (sl *StandaloneLauncher) downloadReleaseArtifact(release *GitHubRelease) error {
+	assetName, err := sl.resolveReleaseAssetName()
+	if err != nil {
+		return err
+	}
+
+	sl.logger.Printf("Looking for release asset: %s\n", assetName)
+
+	var found *GitHubReleaseAsset
+	for i := range release.Assets {
+		if release.Assets[i].Name == assetName {
+			found = &release.Assets[i]
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("Release-Asset '%s' nicht gefunden. Verfügbare Assets: %v", assetName, assetNames(release.Assets))
+	}
+
+	sl.logger.Printf("Found release asset: %s (%d bytes)\n", found.Name, found.Size)
+
+	// Try to get checksum (non-fatal if unavailable)
+	expectedHash, checksumErr := sl.downloadChecksums(release, assetName)
+	if checksumErr != nil {
+		sl.logger.Printf("Warning: Could not get checksum: %v\n", checksumErr)
+	}
+
+	// Prepare temp directory
+	tempDir := filepath.Join(sl.baseDir, "temp")
+	os.MkdirAll(tempDir, 0755)
+	defer os.RemoveAll(tempDir)
+
+	sl.updateProgress(10, fmt.Sprintf("Lade Prebuilt-Bundle herunter: %s", assetName))
+
+	archivePath := filepath.Join(tempDir, assetName)
+	if err := sl.downloadZipWithProgress(found.BrowserDownloadURL, archivePath); err != nil {
+		return fmt.Errorf("Download des Prebuilt-Bundles fehlgeschlagen: %v", err)
+	}
+
+	// Verify integrity if we have a checksum
+	if expectedHash != "" {
+		sl.updateProgress(61, "Verifiziere Integrität (SHA256)...")
+		if err := sl.verifyFileSHA256(archivePath, expectedHash); err != nil {
+			return err
+		}
+	}
+
+	return sl.extractPrebuiltBundle(archivePath)
 }
 
 // findNpmPath finds npm binary path relative to Node.js or in system PATH
@@ -1975,53 +2270,63 @@ func (sl *StandaloneLauncher) run() error {
 			sl.sendError(err.Error())
 			return err
 		}
-		
+
 		// Save version info after successful download
-		if err := sl.saveVersionInfo(launcherVersion); err != nil {
+		versionToSave := launcherVersion
+		if sl.pendingRelease != nil {
+			versionToSave = strings.TrimPrefix(sl.pendingRelease.TagName, "v")
+		}
+		if err := sl.saveVersionInfo(versionToSave); err != nil {
 			sl.logger.Printf("Warning: Could not save version info: %v\n", err)
 		}
 	} else {
 		sl.updateProgress(70, "Überspringe Download, verwende vorhandene Installation...")
 	}
-	
+
 	// Check Node.js
 	nodePath, err := sl.checkNodeJS()
 	if err != nil {
 		sl.sendError(err.Error())
 		return err
 	}
-	
-	// Run pre-flight checks (BEFORE installDependencies)
+
+	// Check if prebuilt bundle with dependencies was extracted (skip npm install if so)
 	appDir := filepath.Join(sl.baseDir, "app")
-	if !sl.skipUpdate {
+	betterSqlitePath := filepath.Join(appDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node")
+	hasPrebuiltDeps := false
+	if _, statErr := os.Stat(betterSqlitePath); statErr == nil {
+		hasPrebuiltDeps = true
+		sl.logger.Println("✅ Prebuilt bundle detected (better_sqlite3.node found), skipping npm install")
+	}
+
+	// Run pre-flight checks and install dependencies only if no prebuilt bundle
+	if !sl.skipUpdate && !hasPrebuiltDeps {
 		results, allPassed := sl.runPreflightChecks(nodePath)
 		if !allPassed {
 			sl.logger.Println("⚠️ Pre-flight checks failed - some dependencies are missing")
-			// Log missing dependencies
 			for _, result := range results {
 				if !result.Found && result.Required {
 					sl.logger.Printf("   ❌ Missing: %s - %s\n", result.Name, result.InstallHint)
 				}
 			}
-			
+
 			// Give user 30 seconds to read the warnings and potentially install missing deps
 			sl.updateProgress(73, "⚠️ Fehlende Abhängigkeiten erkannt - prüfe Details oben. Versuche trotzdem npm install in 30s...")
 			time.Sleep(30 * time.Second)
 		} else {
 			sl.logger.Println("✅ All pre-flight checks passed!")
 		}
-	}
-	
-	// Install dependencies (only if we downloaded new files or first install)
-	if !sl.skipUpdate {
+
 		if err := sl.installDependencies(appDir); err != nil {
 			sl.sendError(err.Error())
 			return err
 		}
+	} else if hasPrebuiltDeps {
+		sl.updateProgress(90, "✅ Abhängigkeiten aus Prebuilt-Bundle geladen!")
 	} else {
 		sl.updateProgress(90, "Überspringe Abhängigkeiten-Installation...")
 	}
-	
+
 	// Start application
 	return sl.startApplication(nodePath, appDir)
 }
