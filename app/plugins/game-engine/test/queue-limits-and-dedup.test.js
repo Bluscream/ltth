@@ -239,7 +239,7 @@ describe('Queue Size Limits and Gift Deduplication', () => {
       gameEnginePlugin.handleGiftTrigger(giftData);
 
       expect(gameEnginePlugin.recentGiftEvents.size).toBe(1);
-      const dedupKey = 'user1_Rose_5655';
+      const dedupKey = 'user1_5655'; // key: ${userKey}_${giftIdStr}
       expect(gameEnginePlugin.recentGiftEvents.has(dedupKey)).toBe(true);
     });
 
@@ -387,6 +387,84 @@ describe('Queue Size Limits and Gift Deduplication', () => {
       expect(gameEnginePlugin.wheelGame.triggerSpin.mock.calls.length).toBe(0);
       // Should not add to dedup map (because it was not processed)
       expect(gameEnginePlugin.recentGiftEvents.size).toBe(0);
+    });
+
+    test('should block duplicate gift events with different giftName casing', () => {
+      const giftData1 = {
+        uniqueId: 'user1',
+        giftName: 'Rose',
+        giftId: undefined,
+        nickname: 'User 1',
+        repeatEnd: true
+      };
+      const giftData2 = {
+        uniqueId: 'user1',
+        giftName: ' rose ',  // different casing + whitespace
+        giftId: undefined,
+        nickname: 'User 1',
+        repeatEnd: true
+      };
+
+      // First event
+      gameEnginePlugin.handleGiftTrigger(giftData1);
+      const firstCallCount = mockDb.findWheelByGiftTrigger.mock.calls.length;
+
+      // Second event with different casing should be blocked (normalizes to same key)
+      gameEnginePlugin.handleGiftTrigger(giftData2);
+      const secondCallCount = mockDb.findWheelByGiftTrigger.mock.calls.length;
+
+      expect(secondCallCount).toBe(firstCallCount);
+
+      // Both events produce key 'user1_rose' (giftIdStr empty → giftNameLower used)
+      expect(gameEnginePlugin.recentGiftEvents.has('user1_rose')).toBe(true);
+    });
+
+    test('should use giftNameLower key when giftId is absent', () => {
+      const giftData = {
+        uniqueId: 'user1',
+        giftName: 'Diamond',
+        giftId: null,
+        nickname: 'User 1',
+        repeatEnd: true
+      };
+
+      gameEnginePlugin.handleGiftTrigger(giftData);
+
+      // Key should use giftNameLower since giftId is absent
+      expect(gameEnginePlugin.recentGiftEvents.has('user1_diamond')).toBe(true);
+    });
+
+    test('should fall back to userId when uniqueId is missing', () => {
+      const giftData = {
+        uniqueId: undefined,
+        userId: 'fallback_user',
+        giftName: 'Rose',
+        giftId: '5655',
+        nickname: 'Fallback User',
+        repeatEnd: true
+      };
+
+      gameEnginePlugin.handleGiftTrigger(giftData);
+
+      // Key should use userId as fallback
+      expect(gameEnginePlugin.recentGiftEvents.has('fallback_user_5655')).toBe(true);
+    });
+
+    test('should fall back to username when uniqueId and userId are missing', () => {
+      const giftData = {
+        uniqueId: undefined,
+        userId: undefined,
+        username: 'name_fallback',
+        giftName: 'Rose',
+        giftId: '5655',
+        nickname: 'Name Fallback',
+        repeatEnd: true
+      };
+
+      gameEnginePlugin.handleGiftTrigger(giftData);
+
+      // Key should use username as fallback
+      expect(gameEnginePlugin.recentGiftEvents.has('name_fallback_5655')).toBe(true);
     });
   });
 

@@ -2192,10 +2192,27 @@ class GameEnginePlugin {
   }
 
   /**
+   * Builds a robust, normalized deduplication key for gift events.
+   * Normalizes giftName (trim, lowercase, collapse whitespace) and giftId.
+   * Uses giftIdStr as identifier if available, else giftNameLower.
+   * User key prefers uniqueId, falls back to userId, then username.
+   *
+   * @param {object} data - Gift event data
+   * @returns {string} Dedup key
+   */
+  buildGiftDedupKey(data) {
+    const userKey = (String(data.uniqueId || data.userId || data.username || '')).trim() || 'unknownUser';
+    const giftIdStr = this.normalizeGiftId(data.giftId);
+    const giftNameLower = (data.giftName || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    const giftIdentifier = giftIdStr || giftNameLower || 'noGift';
+    return `${userKey}_${giftIdentifier}`;
+  }
+
+  /**
    * Handle gift trigger
    */
   handleGiftTrigger(data) {
-    const { uniqueId, giftName, giftId, nickname, giftPictureUrl, profilePictureUrl = '', repeatEnd, repeatCount } = data;
+    const { uniqueId, userId, username: dataUsername, giftName, giftId, nickname, giftPictureUrl, profilePictureUrl = '', repeatEnd, repeatCount } = data;
     
     // Enhanced gift event logging for debugging
     this.logger.info(`[GIFT TRIGGER] Received: ${giftName} (ID: ${giftId}) from ${uniqueId}, repeatEnd: ${repeatEnd}, repeatCount: ${repeatCount ?? 1}`);
@@ -2207,21 +2224,23 @@ class GameEnginePlugin {
       this.logger.debug(`[GIFT TRIGGER] Gift ${giftName} (ID: ${giftId}) is part of a streak, waiting for repeatEnd`);
       return;
     }
-    
+
+    // Normalize gift fields early for consistent dedup and trigger matching
+    const giftIdStr = this.normalizeGiftId(giftId);
+    const giftNameLower = (giftName || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    const userKey = (String(uniqueId || userId || dataUsername || '')).trim() || 'unknownUser';
+
     // Deduplication check: Prevent same user + gift from being processed multiple times
     // within a short timeframe (e.g., due to network issues, duplicate events, or rapid clicks)
-    const dedupKey = `${uniqueId}_${giftName}_${giftId || 'noId'}`;
+    const dedupKey = this.buildGiftDedupKey(data);
     const now = Date.now();
     const lastEventTime = this.recentGiftEvents.get(dedupKey);
     
-    if (lastEventTime && (now - lastEventTime) < this.GIFT_DEDUP_WINDOW_MS) {
-      this.logger.warn(`[GIFT DEDUP] Duplicate gift event blocked: ${giftName} from ${uniqueId} (${now - lastEventTime}ms since last event)`);
+    if (lastEventTime !== undefined && (now - lastEventTime) < this.GIFT_DEDUP_WINDOW_MS) {
+      const deltaMs = now - lastEventTime;
+      this.logger.warn(`[GIFT DEDUP] Duplicate gift event blocked: key="${dedupKey}", giftName="${giftNameLower}", giftIdStr="${giftIdStr}", user="${userKey}", delta=${deltaMs}ms`);
       return;
     }
-    
-    // Normalize gift ID for consistent comparisons (Bug #4 fix)
-    const giftIdStr = this.normalizeGiftId(giftId);
-    const giftNameLower = (giftName || '').toLowerCase().trim();
     
     // Check for Wheel (Glücksrad) gift triggers across ALL wheels
     const matchingWheel = this.wheelGame.findWheelByGiftTrigger(giftIdStr || giftName);
