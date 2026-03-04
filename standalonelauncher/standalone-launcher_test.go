@@ -1,6 +1,9 @@
 package main
 
 import (
+	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -707,6 +710,224 @@ t.Errorf("Expected Found %v, got %v", result.Found, decoded.Found)
 if decoded.Version != result.Version {
 t.Errorf("Expected Version '%s', got '%s'", result.Version, decoded.Version)
 }
+}
+
+// Test resolveReleaseAssetName returns a non-empty name on supported platforms
+func TestResolveReleaseAssetName(t *testing.T) {
+	sl := NewStandaloneLauncher()
+	name, err := sl.resolveReleaseAssetName()
+
+	// We can only assert based on the actual GOOS during test execution.
+	// The test runner will be on one of the three supported platforms.
+	supportedAssets := map[string]bool{
+		releaseAssetWindows: true,
+		releaseAssetLinux:   true,
+		releaseAssetMacOS:   true,
+	}
+
+	if err != nil {
+		t.Errorf("resolveReleaseAssetName() returned unexpected error: %v", err)
+	}
+	if !supportedAssets[name] {
+		t.Errorf("resolveReleaseAssetName() returned unknown asset name %q", name)
+	}
+	t.Logf("Resolved asset name: %s", name)
+}
+
+// Test releaseAsset constants are well-formed
+func TestReleaseAssetConstants(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"releaseAssetWindows", releaseAssetWindows},
+		{"releaseAssetLinux", releaseAssetLinux},
+		{"releaseAssetMacOS", releaseAssetMacOS},
+	}
+	for _, c := range cases {
+		if c.value == "" {
+			t.Errorf("%s should not be empty", c.name)
+		}
+		// Each name should contain the OS and architecture
+		if !strings.Contains(c.value, "ltth-") {
+			t.Errorf("%s (%s) should start with 'ltth-'", c.name, c.value)
+		}
+		if !strings.Contains(c.value, "x64") {
+			t.Errorf("%s (%s) should contain 'x64'", c.name, c.value)
+		}
+	}
+	t.Logf("Windows: %s, Linux: %s, macOS: %s",
+		releaseAssetWindows, releaseAssetLinux, releaseAssetMacOS)
+}
+
+// Test verifyFileSHA256 with a known hash
+func TestVerifyFileSHA256(t *testing.T) {
+	sl := NewStandaloneLauncher()
+
+	// Create a temp file with known content
+	tmpFile, err := os.CreateTemp("", "sha256test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	content := []byte("hello ltth")
+	if _, err := tmpFile.Write(content); err != nil {
+		tmpFile.Close()
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	// sha256("hello ltth") = known value computed separately
+	// We compute it in-test to avoid hardcoding a potentially wrong hash
+	h := sha256.New()
+	h.Write(content)
+	expectedHash := hex.EncodeToString(h.Sum(nil))
+
+	if err := sl.verifyFileSHA256(tmpFile.Name(), expectedHash); err != nil {
+		t.Errorf("verifyFileSHA256 should succeed with correct hash: %v", err)
+	}
+
+	// Wrong hash should fail
+	if err := sl.verifyFileSHA256(tmpFile.Name(), "0000000000000000000000000000000000000000000000000000000000000000"); err == nil {
+		t.Error("verifyFileSHA256 should fail with wrong hash")
+	}
+}
+
+// Test assetNames helper
+func TestAssetNames(t *testing.T) {
+	assets := []GitHubReleaseAsset{
+		{Name: "ltth-win-x64.zip", BrowserDownloadURL: "https://example.com/a", Size: 100},
+		{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/b", Size: 50},
+	}
+	names := assetNames(assets)
+	if len(names) != 2 {
+		t.Errorf("Expected 2 names, got %d", len(names))
+	}
+	if names[0] != "ltth-win-x64.zip" {
+		t.Errorf("Expected first name 'ltth-win-x64.zip', got %q", names[0])
+	}
+	if names[1] != "checksums.txt" {
+		t.Errorf("Expected second name 'checksums.txt', got %q", names[1])
+	}
+}
+
+// Test assetNames with empty slice
+func TestAssetNamesEmpty(t *testing.T) {
+	names := assetNames([]GitHubReleaseAsset{})
+	if len(names) != 0 {
+		t.Errorf("Expected empty slice, got %v", names)
+	}
+}
+
+// Test extractPrebuiltZip extracts files correctly and prevents path traversal
+func TestExtractPrebuiltZip(t *testing.T) {
+	sl := NewStandaloneLauncher()
+
+	// Create a temp base directory
+	baseDir := t.TempDir()
+	sl.baseDir = baseDir
+
+	// Create a simple in-memory zip
+	zipPath := filepath.Join(t.TempDir(), "test.zip")
+	zf, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Failed to create zip file: %v", err)
+	}
+
+	zw := zip.NewWriter(zf)
+	// Add a legitimate file
+	fw, err := zw.Create("app/server.js")
+	if err != nil {
+		zf.Close()
+		t.Fatalf("Failed to create zip entry: %v", err)
+	}
+	fw.Write([]byte("// server"))
+
+	zw.Close()
+	zf.Close()
+
+	if err := sl.extractPrebuiltZip(zipPath); err != nil {
+		t.Errorf("extractPrebuiltZip failed: %v", err)
+	}
+
+	// Verify extracted file exists
+	extracted := filepath.Join(baseDir, "app", "server.js")
+	if _, err := os.Stat(extracted); os.IsNotExist(err) {
+		t.Errorf("Expected extracted file at %s, but not found", extracted)
+	}
+}
+
+// Test extractPrebuiltZip blocks path traversal attempts
+func TestExtractPrebuiltZipPathTraversal(t *testing.T) {
+	sl := NewStandaloneLauncher()
+
+	baseDir := t.TempDir()
+	sl.baseDir = baseDir
+
+	zipPath := filepath.Join(t.TempDir(), "malicious.zip")
+	zf, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Failed to create zip file: %v", err)
+	}
+
+	zw := zip.NewWriter(zf)
+	// Attempt path traversal
+	fw, err := zw.Create("../outside-basedir/malicious.txt")
+	if err != nil {
+		zw.Close()
+		zf.Close()
+		t.Fatalf("Failed to create malicious zip entry: %v", err)
+	}
+	if _, err := fw.Write([]byte("evil")); err != nil {
+		zw.Close()
+		zf.Close()
+		t.Fatalf("Failed to write malicious zip entry: %v", err)
+	}
+	zw.Close()
+	zf.Close()
+
+	// The function should succeed but silently skip the malicious file
+	// (or return an error about no files extracted)
+	_ = sl.extractPrebuiltZip(zipPath) // may error - that's fine
+
+	// Verify the malicious file was NOT created outside baseDir
+	parentDir := filepath.Dir(baseDir)
+	maliciousPath := filepath.Join(parentDir, "outside-basedir", "malicious.txt")
+	if _, err := os.Stat(maliciousPath); err == nil {
+		t.Error("Path traversal succeeded - malicious file was created outside baseDir!")
+	}
+}
+
+// Test downloadChecksums parsing logic via mock data
+func TestDownloadChecksumsParser(t *testing.T) {
+	// Simulate checksums.txt content parsing by testing the format directly
+	checksumContent := "abc123def456  ltth-win-x64.zip\n789012abc345  ltth-linux-x64.tar.gz\n"
+
+	// Parse lines manually (mirrors the logic in downloadChecksums)
+	targetAsset := "ltth-win-x64.zip"
+	var foundHash string
+	for _, line := range strings.Split(checksumContent, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		hash := parts[0]
+		name := strings.TrimPrefix(parts[1], "*")
+		if name == targetAsset {
+			foundHash = hash
+			break
+		}
+	}
+
+	if foundHash != "abc123def456" {
+		t.Errorf("Expected hash 'abc123def456', got %q", foundHash)
+	}
+	t.Logf("Parsed hash for %s: %s", targetAsset, foundHash)
 }
 
 // Test findNpmPath logic

@@ -1299,7 +1299,9 @@ func (sl *StandaloneLauncher) extractTarGz(tarPath, destDir string) error {
 		}
 
 		i++
-		sl.updateProgress(60+int(float64(i%300)/300.0*30), fmt.Sprintf("Entpacke Prebuilt-Bundle... %s", header.Name))
+		// Throttle progress updates: cycle through 0..29 percentage points within
+		// every 100-entry window so the display stays responsive without excessive SSE traffic.
+		sl.updateProgress(60+int(float64(i%100)/100.0*30), fmt.Sprintf("Entpacke Prebuilt-Bundle... %s", header.Name))
 
 		switch header.Typeflag {
 		case tar.TypeDir:

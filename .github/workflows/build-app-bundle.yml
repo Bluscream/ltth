@@ -1,0 +1,253 @@
+name: Build App Bundle
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows x64 Bundle
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies (Windows x64)
+        working-directory: ./app
+        run: npm ci --omit=dev --no-audit --no-fund
+        env:
+          npm_config_build_from_source: false
+
+      - name: Verify better-sqlite3 native module
+        working-directory: ./app
+        run: |
+          $nodePath = node -e "require('better-sqlite3')" 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "better-sqlite3 failed to load: $nodePath"
+            exit 1
+          }
+          $nativeFile = "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+          if (-Not (Test-Path $nativeFile)) {
+            Write-Error "better_sqlite3.node not found at $nativeFile"
+            exit 1
+          }
+          Write-Output "✅ better_sqlite3.node verified at $nativeFile"
+        shell: pwsh
+
+      - name: Package Windows bundle
+        shell: pwsh
+        run: |
+          $bundleDir = "bundle-win"
+          New-Item -ItemType Directory -Force -Path "$bundleDir\app" | Out-Null
+
+          # Copy app directory (including node_modules with native binaries)
+          Copy-Item -Recurse -Force app\* "$bundleDir\app\"
+
+          # Remove dev-only and test artifacts from the bundle
+          $removePaths = @(
+            "$bundleDir\app\test",
+            "$bundleDir\app\docs",
+            "$bundleDir\app\wiki"
+          )
+          foreach ($p in $removePaths) {
+            if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+          }
+
+          # Create zip archive
+          Compress-Archive -Path "$bundleDir\app" -DestinationPath "ltth-win-x64.zip" -Force
+          Write-Output "✅ Created ltth-win-x64.zip"
+          $size = (Get-Item "ltth-win-x64.zip").Length
+          Write-Output "   Size: $([math]::Round($size / 1MB, 1)) MB"
+
+      - name: Generate SHA256 checksum (Windows)
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "ltth-win-x64.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ltth-win-x64.zip" | Out-File -Encoding ascii "checksums-win.txt"
+          Write-Output "SHA256: $hash  ltth-win-x64.zip"
+
+      - name: Upload Windows bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ltth-win-x64
+          path: |
+            ltth-win-x64.zip
+            checksums-win.txt
+          retention-days: 30
+
+  build-linux:
+    name: Build Linux x64 Bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install system build dependencies
+        run: sudo apt-get install -y python3 make g++
+
+      - name: Install dependencies (Linux x64)
+        working-directory: ./app
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: Verify better-sqlite3 native module
+        working-directory: ./app
+        run: |
+          node -e "require('better-sqlite3')" || (echo "❌ better-sqlite3 failed to load" && exit 1)
+          test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node \
+            && echo "✅ better_sqlite3.node verified" \
+            || (echo "❌ better_sqlite3.node not found" && exit 1)
+
+      - name: Package Linux bundle
+        run: |
+          mkdir -p bundle-linux/app
+          cp -r app/. bundle-linux/app/
+
+          # Remove dev-only and test artifacts from the bundle
+          rm -rf bundle-linux/app/test bundle-linux/app/docs bundle-linux/app/wiki
+
+          # Create tar.gz archive
+          tar -czf ltth-linux-x64.tar.gz -C bundle-linux app
+          echo "✅ Created ltth-linux-x64.tar.gz"
+          du -sh ltth-linux-x64.tar.gz
+
+      - name: Generate SHA256 checksum (Linux)
+        run: |
+          sha256sum ltth-linux-x64.tar.gz | tee checksums-linux.txt
+
+      - name: Upload Linux bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ltth-linux-x64
+          path: |
+            ltth-linux-x64.tar.gz
+            checksums-linux.txt
+          retention-days: 30
+
+  build-macos:
+    name: Build macOS x64 Bundle
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies (macOS)
+        working-directory: ./app
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: Verify better-sqlite3 native module
+        working-directory: ./app
+        run: |
+          node -e "require('better-sqlite3')" || (echo "❌ better-sqlite3 failed to load" && exit 1)
+          test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node \
+            && echo "✅ better_sqlite3.node verified" \
+            || (echo "❌ better_sqlite3.node not found" && exit 1)
+
+      - name: Package macOS bundle
+        run: |
+          mkdir -p bundle-macos/app
+          cp -r app/. bundle-macos/app/
+
+          # Remove dev-only and test artifacts from the bundle
+          rm -rf bundle-macos/app/test bundle-macos/app/docs bundle-macos/app/wiki
+
+          # Create tar.gz archive
+          tar -czf ltth-macos-x64.tar.gz -C bundle-macos app
+          echo "✅ Created ltth-macos-x64.tar.gz"
+          du -sh ltth-macos-x64.tar.gz
+
+      - name: Generate SHA256 checksum (macOS)
+        run: |
+          shasum -a 256 ltth-macos-x64.tar.gz | tee checksums-macos.txt
+
+      - name: Upload macOS bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ltth-macos-x64
+          path: |
+            ltth-macos-x64.tar.gz
+            checksums-macos.txt
+          retention-days: 30
+
+  publish-release:
+    name: Publish Release Assets
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-linux, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download Windows bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ltth-win-x64
+          path: artifacts/win
+
+      - name: Download Linux bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ltth-linux-x64
+          path: artifacts/linux
+
+      - name: Download macOS bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ltth-macos-x64
+          path: artifacts/macos
+
+      - name: Combine checksums into single file
+        run: |
+          cat artifacts/win/checksums-win.txt \
+              artifacts/linux/checksums-linux.txt \
+              artifacts/macos/checksums-macos.txt \
+            > checksums.txt
+          echo "Combined checksums.txt:"
+          cat checksums.txt
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/win/ltth-win-x64.zip
+            artifacts/linux/ltth-linux-x64.tar.gz
+            artifacts/macos/ltth-macos-x64.tar.gz
+            checksums.txt
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        run: |
+          echo "✅ Release assets published:"
+          echo "   - ltth-win-x64.zip"
+          echo "   - ltth-linux-x64.tar.gz"
+          echo "   - ltth-macos-x64.tar.gz"
+          echo "   - checksums.txt"
+          echo "View at: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
