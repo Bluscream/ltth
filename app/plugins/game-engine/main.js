@@ -2038,28 +2038,6 @@ class GameEnginePlugin {
           category: 'Games',
           handler: async (args, context) => await this.handlePlinkoCommand(args, context)
         },
-        {
-          name: 'wheel',
-          description: 'Spin the Wheel of Fortune (Glücksrad)',
-          syntax: '/wheel',
-          permission: 'all',
-          enabled: true,
-          minArgs: 0,
-          maxArgs: 0,
-          category: 'Games',
-          handler: async (args, context) => await this.handleWheelCommand(args, context)
-        },
-        {
-          name: 'gluecksrad',
-          description: 'Drehe das Glücksrad',
-          syntax: '/gluecksrad',
-          permission: 'all',
-          enabled: true,
-          minArgs: 0,
-          maxArgs: 0,
-          category: 'Games',
-          handler: async (args, context) => await this.handleWheelCommand(args, context)
-        }
       ];
 
       // Register custom triggers from database
@@ -2089,8 +2067,9 @@ class GameEnginePlugin {
           handler = async (args, context) => await this.handlePlinkoCommand(args, context);
           description = `Play Plinko (custom trigger: ${trigger.trigger_value})`;
         } else if (trigger.game_type === 'wheel') {
-          handler = async (args, context) => await this.handleWheelCommand(args, context);
-          description = `Spin the Wheel (custom trigger: ${trigger.trigger_value})`;
+          // Wheel is triggered exclusively via gifts, not chat commands - skip
+          this.logger.debug(`💬 [GAME ENGINE] Skipping wheel chat command trigger: ${trigger.trigger_value} (wheel uses gift triggers only)`);
+          return;
         } else {
           // Unknown game type, skip
           this.logger.warn(`💬 [GAME ENGINE] Unknown game type for trigger: ${trigger.game_type}`);
