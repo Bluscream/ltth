@@ -233,7 +233,8 @@ function render() {
                 
                 // Remove dead particles
                 if (p.alpha <= 0 || p.size < 0.5) {
-                    fw.particles.splice(j, 1);
+                    fw.particles[j] = fw.particles[fw.particles.length - 1];
+                    fw.particles.pop();
                     continue;
                 }
                 
@@ -249,7 +250,8 @@ function render() {
             
             // Remove firework if all particles are gone
             if (fw.particles.length === 0) {
-                engine.fireworks.splice(i, 1);
+                engine.fireworks[i] = engine.fireworks[engine.fireworks.length - 1];
+                engine.fireworks.pop();
             }
         }
     }

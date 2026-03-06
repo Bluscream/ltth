@@ -266,6 +266,7 @@ class Particle {
         this.maxLifespan = this.lifespan;
         this.trail = [];
         this.age = 0;
+        this._cachedColor = null;
         
         // Record creation time for secondary explosions
         if (this.willBurst || this.willSpiral) {
@@ -418,6 +419,7 @@ class Particle {
             this.maxLifespan = this.lifespan;
             this.trail.length = 0; // Clear trail array without reallocating
             this.age = 0;
+            this._cachedColor = null;
             
             if (this.willBurst || this.willSpiral) {
                 this.burstTime = performance.now();
@@ -459,6 +461,7 @@ class Particle {
             this.hasSpiraled = false;
             this.trail.length = 0;
             this.age = 0;
+            this._cachedColor = null;
         }
     }
 }
@@ -803,7 +806,8 @@ class Firework {
                 if (globalParticlePool) {
                     globalParticlePool.release(p);
                 }
-                this.particles.splice(i, 1);
+                this.particles[i] = this.particles[this.particles.length - 1];
+                this.particles.pop();
             }
         }
         
@@ -817,7 +821,8 @@ class Firework {
                 if (globalParticlePool) {
                     globalParticlePool.release(p);
                 }
-                this.secondaryExplosions.splice(i, 1);
+                this.secondaryExplosions[i] = this.secondaryExplosions[this.secondaryExplosions.length - 1];
+                this.secondaryExplosions.pop();
             }
         }
     }
@@ -2506,7 +2511,8 @@ class FireworksEngine {
             this.fireworks[i].update(deltaTime);
             
             if (this.fireworks[i].isDone()) {
-                this.fireworks.splice(i, 1);
+                this.fireworks[i] = this.fireworks[this.fireworks.length - 1];
+                this.fireworks.pop();
             }
         }
 
@@ -2541,16 +2547,12 @@ class FireworksEngine {
                         this.freezeWarningShown = true;
                     }
                     
-                    // Auto-reload after sustained freeze
+                    // Soft reset after sustained freeze (avoids black frame / OBS source reload)
                     if (this.frozenFrameCount >= this.maxFrozenFrames) {
-                        console.error(`[Fireworks] 🔄 FPS frozen for ${this.maxFrozenFrames} seconds, auto-reloading overlay to recover...`);
-                        // Show visual warning before reload
+                        console.error(`[Fireworks] 🔄 FPS frozen for ${this.maxFrozenFrames}s, performing soft reset`);
                         this.showFreezeWarning();
-                        // Reload after 2 seconds to allow warning to be visible
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 2000);
-                        return; // Stop processing this frame
+                        this.softReset();
+                        // DON'T return — let the render loop continue
                     }
                 } else {
                     // FPS recovered, reset freeze counter
@@ -2772,7 +2774,8 @@ class FireworksEngine {
                         // For fireworks with rocket
                         if (fw.rocket && fw.rocket.isDespawning) {
                             if (now - fw.rocket.despawnStartTime > minDespawnTime) {
-                                this.fireworks.splice(i, 1);
+                                this.fireworks[i] = this.fireworks[this.fireworks.length - 1];
+                                this.fireworks.pop();
                             }
                         }
                         // Bug #3 Fix: For instant-explode fireworks (no rocket)
@@ -2782,7 +2785,8 @@ class FireworksEngine {
                                 p.isDespawning && (now - p.despawnStartTime > minDespawnTime)
                             );
                             if (allParticlesDespawning || fw.particles.length === 0) {
-                                this.fireworks.splice(i, 1);
+                                this.fireworks[i] = this.fireworks[this.fireworks.length - 1];
+                                this.fireworks.pop();
                             }
                         }
                     }
@@ -2820,14 +2824,16 @@ class FireworksEngine {
                         
                         if (fw.rocket && fw.rocket.isDespawning) {
                             if (now - fw.rocket.despawnStartTime > minDespawnTime) {
-                                this.fireworks.splice(i, 1);
+                                this.fireworks[i] = this.fireworks[this.fireworks.length - 1];
+                                this.fireworks.pop();
                             }
                         } else if (!fw.rocket && fw.exploded) {
                             const allParticlesDespawning = fw.particles.every(p => 
                                 p.isDespawning && (now - p.despawnStartTime > minDespawnTime)
                             );
                             if (allParticlesDespawning || fw.particles.length === 0) {
-                                this.fireworks.splice(i, 1);
+                                this.fireworks[i] = this.fireworks[this.fireworks.length - 1];
+                                this.fireworks.pop();
                             }
                         }
                     }
@@ -2868,9 +2874,58 @@ class FireworksEngine {
         `;
         warning.innerHTML = `
             <div>⚠️ OVERLAY FROZEN ⚠️</div>
-            <div style="font-size: 18px; margin-top: 10px;">Auto-reloading in 2 seconds...</div>
+            <div style="font-size: 18px; margin-top: 10px;">Performing soft reset...</div>
         `;
         document.body.appendChild(warning);
+        // Remove warning after 3 seconds
+        setTimeout(() => warning.remove(), 3000);
+    }
+
+    /**
+     * Soft reset — clear all fireworks and restore render state without reloading the page.
+     * Replaces window.location.reload() to avoid black frames and socket reconnects in OBS.
+     * After this method returns the render loop resumes normally on the next animation frame.
+     * @returns {void}
+     */
+    softReset() {
+        console.warn('[Fireworks] Soft reset — clearing all fireworks');
+        
+        // Release all particles back to pool
+        for (const fw of this.fireworks) {
+            if (fw.particles && fw.particles.length > 0) {
+                this.particlePool.releaseAll(fw.particles);
+                fw.particles = [];
+            }
+            if (fw.secondaryExplosions && fw.secondaryExplosions.length > 0) {
+                this.particlePool.releaseAll(fw.secondaryExplosions);
+                fw.secondaryExplosions = [];
+            }
+        }
+        this.fireworks.length = 0;
+        
+        // Clear canvases
+        this.ctx.clearRect(0, 0, this.width, this.height);
+        if (this.trailCtx) {
+            this.trailCtx.clearRect(0, 0, this.width, this.height);
+        }
+        
+        // Reset performance state
+        this.performanceMode = 'normal';
+        this.applyPerformanceMode();
+        this.skippedFrames = 0;
+        this.cachedParticleCount = 0;
+        this.frozenFrameCount = 0;
+        this.freezeWarningShown = false;
+        this.fpsHistory = [];
+        this.adaptiveFpsHistory = [];
+        this.frameSkip = 0;
+        
+        // Reset timers
+        this.lastTime = performance.now();
+        this.lastRenderTime = performance.now();
+        this.fpsUpdateTime = performance.now();
+        
+        console.log('[Fireworks] ✅ Soft reset complete, render loop continues');
     }
 
     renderFirework(firework) {
@@ -3022,40 +3077,32 @@ class FireworksEngine {
     batchRenderCirclesNoTrails(particles) {
         const ctx = this.ctx;
         
-        // Render glows (if enabled)
+        // Render glows using 'lighter' composite — one save/restore for the whole batch
         if (this.config.glowEnabled) {
-            for (const p of particles) {
-                const rgb = hslToRgb(p.hue, p.saturation, p.brightness);
-                ctx.save();
-                ctx.translate(p.x, p.y);
-                ctx.rotate(p.rotation);
-                ctx.globalAlpha = p.alpha;
-                
-                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, p.size * 2);
-                gradient.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${p.alpha})`);
-                gradient.addColorStop(0.5, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${p.alpha * 0.5})`);
-                gradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-                ctx.fillStyle = gradient;
-                ctx.beginPath();
-                ctx.arc(0, 0, p.size * 2, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            }
-        }
-        
-        // Render core particles
-        for (const p of particles) {
-            const rgb = hslToRgb(p.hue, p.saturation, p.brightness);
             ctx.save();
-            ctx.translate(p.x, p.y);
-            ctx.rotate(p.rotation);
-            ctx.globalAlpha = p.alpha;
-            ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${p.alpha})`;
-            ctx.beginPath();
-            ctx.arc(0, 0, p.size, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.globalCompositeOperation = 'lighter';
+            for (const p of particles) {
+                if (p.alpha < CONFIG.ALPHA_CULL_THRESHOLD) continue;
+                ctx.globalAlpha = p.alpha * 0.4;
+                ctx.fillStyle = p._cachedColor || (p._cachedColor = this._makeHSL(p));
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
             ctx.restore();
         }
+        
+        // Render core particles — one save/restore for the whole batch
+        ctx.save();
+        for (const p of particles) {
+            if (p.alpha < CONFIG.ALPHA_CULL_THRESHOLD) continue;
+            ctx.globalAlpha = p.alpha;
+            ctx.fillStyle = p._cachedColor || (p._cachedColor = this._makeHSL(p));
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
     }
     
     isParticleVisible(p) {
@@ -3066,12 +3113,25 @@ class FireworksEngine {
         const margin = 100;
         return !(p.x < -margin || p.x > this.width + margin || p.y < -margin || p.y > this.height + margin);
     }
+
+    /**
+     * Build a cached HSL color string for a particle.
+     * Avoids repeated hslToRgb() conversions per frame — the result is stored
+     * on `p._cachedColor` and reused until the particle is reset.
+     * @param {Particle} p - Particle with hue, saturation, brightness properties
+     * @returns {string} CSS hsl() color string, e.g. "hsl(120,100%,50%)"
+     */
+    _makeHSL(p) {
+        return `hsl(${Math.round(p.hue)},${Math.round(p.saturation)}%,${Math.round(p.brightness)}%)`;
+    }
     
     batchRenderCircles(particles) {
         const ctx = this.ctx;
         
         // Render all trails in one batch with Path2D
         if (this.config.trailsEnabled) {
+            ctx.save();
+            ctx.lineCap = 'round';
             for (const p of particles) {
                 if (p.trail.length > 1) {
                     const trailPath = new Path2D();
@@ -3081,51 +3141,41 @@ class FireworksEngine {
                         trailPath.lineTo(p.trail[i].x, p.trail[i].y);
                     }
                     
-                    const rgb = hslToRgb(p.hue, p.saturation, p.brightness);
-                    ctx.save();
-                    ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${p.alpha * 0.3})`;
+                    ctx.strokeStyle = `${p._cachedColor || (p._cachedColor = this._makeHSL(p))}`;
+                    ctx.globalAlpha = p.alpha * 0.3;
                     ctx.lineWidth = p.size * 0.5;
-                    ctx.lineCap = 'round';
                     ctx.stroke(trailPath);
-                    ctx.restore();
                 }
             }
+            ctx.restore();
         }
         
-        // Render all glows in one batch (if enabled)
+        // Render all glows in one batch using 'lighter' composite
         if (this.config.glowEnabled) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
             for (const p of particles) {
-                const rgb = hslToRgb(p.hue, p.saturation, p.brightness);
-                ctx.save();
-                ctx.translate(p.x, p.y);
-                ctx.rotate(p.rotation);
-                ctx.globalAlpha = p.alpha;
-                
-                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, p.size * 2);
-                gradient.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${p.alpha})`);
-                gradient.addColorStop(0.5, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${p.alpha * 0.5})`);
-                gradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-                ctx.fillStyle = gradient;
+                if (p.alpha < CONFIG.ALPHA_CULL_THRESHOLD) continue;
+                ctx.globalAlpha = p.alpha * 0.4;
+                ctx.fillStyle = p._cachedColor || (p._cachedColor = this._makeHSL(p));
                 ctx.beginPath();
-                ctx.arc(0, 0, p.size * 2, 0, Math.PI * 2);
+                ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.restore();
             }
+            ctx.restore();
         }
         
         // Render all core particles in one batch
+        ctx.save();
         for (const p of particles) {
-            const rgb = hslToRgb(p.hue, p.saturation, p.brightness);
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            ctx.rotate(p.rotation);
+            if (p.alpha < CONFIG.ALPHA_CULL_THRESHOLD) continue;
             ctx.globalAlpha = p.alpha;
-            ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${p.alpha})`;
+            ctx.fillStyle = p._cachedColor || (p._cachedColor = this._makeHSL(p));
             ctx.beginPath();
-            ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
             ctx.fill();
-            ctx.restore();
         }
+        ctx.restore();
     }
     
     batchRenderImages(particles) {

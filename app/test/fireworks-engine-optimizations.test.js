@@ -61,12 +61,13 @@ describe('Fireworks Engine Optimizations', () => {
             expect(engineCode).toContain('// Bug #3 Fix: For instant-explode fireworks');
         });
         
-        test('Uses splice instead of pop for proper cleanup', () => {
+        test('Uses swap-and-pop instead of splice for O(1) cleanup', () => {
             const applyPerformanceSection = engineCode.substring(
                 engineCode.indexOf('applyPerformanceMode()'),
                 engineCode.indexOf('applyPerformanceMode()') + 5000
             );
-            expect(applyPerformanceSection).toContain('this.fireworks.splice(i, 1)');
+            expect(applyPerformanceSection).toContain('this.fireworks[i] = this.fireworks[this.fireworks.length - 1]');
+            expect(applyPerformanceSection).toContain('this.fireworks.pop()');
         });
     });
     
