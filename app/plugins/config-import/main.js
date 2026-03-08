@@ -44,7 +44,7 @@ class ConfigImportPlugin {
             res.sendFile(path.join(__dirname, 'ui.html'));
         });
 
-        // Validate path endpoint
+        // Legacy: Validate path endpoint
         this.api.registerRoute('POST', '/api/config-import/validate', async (req, res) => {
             try {
                 const { importPath } = req.body;
@@ -76,7 +76,7 @@ class ConfigImportPlugin {
             }
         });
 
-        // Import settings endpoint
+        // Legacy: Import settings endpoint
         this.api.registerRoute('POST', '/api/config-import/import', async (req, res) => {
             try {
                 const { importPath, profileName } = req.body;
@@ -124,7 +124,262 @@ class ConfigImportPlugin {
             }
         });
 
+        // ── New Backup & Restore routes ──────────────────────────────────────
+
+        this.registerBackupRoutes();
+
         this.api.log('Registered Config Import routes', 'info');
+    }
+
+    /**
+     * Register new Backup & Restore API routes under /api/config-backup/*
+     */
+    registerBackupRoutes() {
+        const multer = require('multer');
+        const os = require('os');
+
+        // Store uploads in the OS temp directory
+        const upload = multer({
+            dest: os.tmpdir(),
+            limits: {
+                fileSize: 500 * 1024 * 1024 // 500 MB
+            },
+            fileFilter: (req, file, cb) => {
+                if (file.mimetype === 'application/zip' ||
+                    file.mimetype === 'application/x-zip-compressed' ||
+                    file.originalname.endsWith('.zip')) {
+                    cb(null, true);
+                } else {
+                    cb(new Error('Only ZIP files are accepted'));
+                }
+            }
+        });
+
+        // GET /api/config-backup/capabilities
+        this.api.registerRoute('GET', '/api/config-backup/capabilities', (req, res) => {
+            try {
+                const backupManager = this.getBackupManager();
+                if (!backupManager) {
+                    return res.status(503).json({ success: false, error: 'Backup system not available' });
+                }
+                res.json({ success: true, ...backupManager.getCapabilities() });
+            } catch (error) {
+                this.api.log(`Capabilities error: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // POST /api/config-backup/export
+        this.api.registerRoute('POST', '/api/config-backup/export', async (req, res) => {
+            try {
+                const backupManager = this.getBackupManager();
+                if (!backupManager) {
+                    return res.status(503).json({ success: false, error: 'Backup system not available' });
+                }
+
+                const {
+                    includeGlobalSettings = true,
+                    includePluginSettings = true,
+                    includePluginData = true,
+                    includeUploads = false,
+                    includeUserData = false,
+                    pluginFilter = null
+                } = req.body || {};
+
+                const opts = {
+                    includeGlobalSettings: Boolean(includeGlobalSettings),
+                    includePluginSettings: Boolean(includePluginSettings),
+                    includePluginData: Boolean(includePluginData),
+                    includeUploads: Boolean(includeUploads),
+                    includeUserData: Boolean(includeUserData),
+                    pluginFilter: Array.isArray(pluginFilter) && pluginFilter.length > 0 ? pluginFilter : null
+                };
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `ltth-backup-${timestamp}.zip`;
+
+                res.setHeader('Content-Type', 'application/zip');
+                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+                const { stream, warnings } = await backupManager.export(opts);
+
+                // Pipe warnings into response headers before streaming
+                if (warnings && warnings.length > 0) {
+                    res.setHeader('X-Backup-Warnings', JSON.stringify(warnings.slice(0, 10)));
+                }
+
+                stream.on('error', err => {
+                    this.api.log(`Export stream error: ${err.message}`, 'error');
+                    if (!res.headersSent) {
+                        res.status(500).json({ success: false, error: err.message });
+                    }
+                });
+
+                stream.pipe(res);
+            } catch (error) {
+                this.api.log(`Export error: ${error.message}`, 'error');
+                if (!res.headersSent) {
+                    res.status(500).json({ success: false, error: error.message });
+                }
+            }
+        });
+
+        // POST /api/config-backup/validate  (accepts file upload)
+        this.api.registerRoute('POST', '/api/config-backup/validate', upload.single('backup'), async (req, res) => {
+            let tmpPath = null;
+            try {
+                const backupManager = this.getBackupManager();
+                if (!backupManager) {
+                    return res.status(503).json({ success: false, error: 'Backup system not available' });
+                }
+
+                if (!req.file) {
+                    return res.status(400).json({ success: false, error: 'No backup file uploaded' });
+                }
+
+                tmpPath = req.file.path;
+                const parsed = await backupManager.parseBackup(tmpPath, req.file.size);
+
+                if (parsed.errors && parsed.errors.length > 0) {
+                    return res.status(400).json({
+                        success: false,
+                        errors: parsed.errors,
+                        warnings: parsed.warnings
+                    });
+                }
+
+                res.json({
+                    success: true,
+                    manifest: parsed.manifest,
+                    pluginCount: Object.keys(parsed.pluginSettings || {}).length,
+                    dataFileCount: Object.values(parsed.dataFiles || {}).reduce((s, f) => s + f.length, 0),
+                    hasGlobalSettings: Boolean(parsed.globalSettings),
+                    uploadFiles: (parsed.uploadFiles || []).length,
+                    userDataFiles: (parsed.userDataFiles || []).length,
+                    warnings: parsed.warnings
+                });
+
+                // Clean up temp extraction dir (parsed.tmpDir) if parse succeeded
+                if (parsed.tmpDir) {
+                    const { cleanupTempDir } = require('../../modules/backup/importer');
+                    cleanupTempDir(parsed.tmpDir);
+                }
+            } catch (error) {
+                this.api.log(`Backup validation error: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            } finally {
+                // Remove the multer temp file
+                if (tmpPath) {
+                    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+                }
+            }
+        });
+
+        // POST /api/config-backup/preview-import  (accepts file upload)
+        this.api.registerRoute('POST', '/api/config-backup/preview-import', upload.single('backup'), async (req, res) => {
+            let tmpPath = null;
+            try {
+                const backupManager = this.getBackupManager();
+                if (!backupManager) {
+                    return res.status(503).json({ success: false, error: 'Backup system not available' });
+                }
+
+                if (!req.file) {
+                    return res.status(400).json({ success: false, error: 'No backup file uploaded' });
+                }
+
+                tmpPath = req.file.path;
+                const parsed = await backupManager.parseBackup(tmpPath, req.file.size);
+
+                if (parsed.errors && parsed.errors.length > 0) {
+                    return res.status(400).json({ success: false, errors: parsed.errors });
+                }
+
+                const pluginFilter = req.body && req.body.pluginFilter
+                    ? JSON.parse(req.body.pluginFilter)
+                    : null;
+
+                const preview = backupManager.previewImport(parsed, { pluginFilter });
+
+                // Clean up temp extraction dir
+                if (parsed.tmpDir) {
+                    const { cleanupTempDir } = require('../../modules/backup/importer');
+                    cleanupTempDir(parsed.tmpDir);
+                }
+
+                res.json({ success: true, preview, warnings: parsed.warnings });
+            } catch (error) {
+                this.api.log(`Preview import error: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            } finally {
+                if (tmpPath) {
+                    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+                }
+            }
+        });
+
+        // POST /api/config-backup/import  (accepts file upload)
+        this.api.registerRoute('POST', '/api/config-backup/import', upload.single('backup'), async (req, res) => {
+            let tmpPath = null;
+            try {
+                const backupManager = this.getBackupManager();
+                if (!backupManager) {
+                    return res.status(503).json({ success: false, error: 'Backup system not available' });
+                }
+
+                if (!req.file) {
+                    return res.status(400).json({ success: false, error: 'No backup file uploaded' });
+                }
+
+                tmpPath = req.file.path;
+                const parsed = await backupManager.parseBackup(tmpPath, req.file.size);
+
+                if (parsed.errors && parsed.errors.length > 0) {
+                    return res.status(400).json({ success: false, errors: parsed.errors });
+                }
+
+                const body = req.body || {};
+
+                const opts = {
+                    mode: body.mode === 'replace' ? 'replace' : 'merge',
+                    includeGlobalSettings: body.includeGlobalSettings !== 'false',
+                    includePluginSettings: body.includePluginSettings !== 'false',
+                    includePluginData: body.includePluginData !== 'false',
+                    includeUploads: body.includeUploads === 'true',
+                    includeUserData: body.includeUserData === 'true',
+                    pluginFilter: body.pluginFilter ? JSON.parse(body.pluginFilter) : null
+                };
+
+                const result = await backupManager.import(parsed, opts);
+
+                res.json({
+                    success: result.success,
+                    report: result.report,
+                    warnings: result.warnings,
+                    errors: result.errors
+                });
+            } catch (error) {
+                this.api.log(`Import error: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            } finally {
+                if (tmpPath) {
+                    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+                }
+            }
+        });
+
+        this.api.log('Registered Config Backup & Restore routes', 'info');
+    }
+
+    /**
+     * Get the BackupManager instance from the plugin API.
+     * @returns {import('../../modules/backup-manager')|null}
+     */
+    getBackupManager() {
+        if (typeof this.api.getBackupManager === 'function') {
+            return this.api.getBackupManager();
+        }
+        return null;
     }
 
     /**

@@ -29,6 +29,9 @@ class PluginAPI {
         this.registeredIFTTTTriggers = [];
         this.registeredIFTTTConditions = [];
         this.registeredIFTTTActions = [];
+
+        // Backup provider registration flag
+        this.backupProviderRegistered = false;
     }
 
     /**
@@ -429,6 +432,19 @@ class PluginAPI {
         this.registeredIFTTTConditions = [];
         this.registeredIFTTTActions = [];
 
+        // Unregister backup provider
+        if (this.backupProviderRegistered) {
+            try {
+                if (this.pluginLoader && typeof this.pluginLoader.unregisterBackupProvider === 'function') {
+                    this.pluginLoader.unregisterBackupProvider(this.pluginId);
+                    this.log('Backup provider unregistered');
+                }
+            } catch (error) {
+                this.log(`Failed to unregister backup provider: ${error.message}`, 'error');
+            }
+            this.backupProviderRegistered = false;
+        }
+
         this.log('All registrations cleared (except Express routes)');
     }
 
@@ -462,6 +478,17 @@ class PluginAPI {
     }
 
     /**
+     * Get the BackupManager instance (if initialised).
+     * Plugins may use this to trigger export/import programmatically or to
+     * check whether a backup is in progress.
+     *
+     * @returns {import('./backup-manager')|null}
+     */
+    getBackupManager() {
+        return this.pluginLoader ? (this.pluginLoader.backupManager || null) : null;
+    }
+
+    /**
      * Get the persistent data directory for this plugin
      * This directory is located in the user profile and survives updates
      * @returns {string} Absolute path to plugin's data directory
@@ -482,6 +509,48 @@ class PluginAPI {
             this.log(`Created plugin data directory: ${pluginDataDir}`);
         }
         return pluginDataDir;
+    }
+
+    /**
+     * Register a custom backup provider for this plugin.
+     *
+     * The provider is called by the BackupManager during export/import operations.
+     * If no provider is registered, the generic fallback (reading plugin:id:* settings
+     * from the database and the plugin data directory) is used automatically.
+     *
+     * @param {{ exportConfig?: Function, importConfig?: Function }} provider
+     *   - exportConfig(): Promise<{ version?, settings?, data?, files?, warnings? }>
+     *   - importConfig(payload): Promise<{ success, importedKeys?, importedFiles?, warnings? }>
+     * @returns {boolean} true if registered successfully
+     */
+    registerBackupProvider(provider) {
+        try {
+            if (!provider || typeof provider !== 'object') {
+                this.log('registerBackupProvider: provider must be an object', 'warn');
+                return false;
+            }
+
+            const hasExport = typeof provider.exportConfig === 'function';
+            const hasImport = typeof provider.importConfig === 'function';
+
+            if (!hasExport && !hasImport) {
+                this.log('registerBackupProvider: provider must implement exportConfig and/or importConfig', 'warn');
+                return false;
+            }
+
+            if (this.pluginLoader && typeof this.pluginLoader.registerBackupProvider === 'function') {
+                this.pluginLoader.registerBackupProvider(this.pluginId, provider);
+                this.backupProviderRegistered = true;
+                this.log('Backup provider registered');
+                return true;
+            }
+
+            this.log('registerBackupProvider: BackupManager not available', 'warn');
+            return false;
+        } catch (error) {
+            this.log(`Failed to register backup provider: ${error.message}`, 'error');
+            return false;
+        }
     }
 }
 
@@ -518,6 +587,10 @@ class PluginLoader extends EventEmitter {
         // This allows plugins to register triggers, conditions, and actions
         this.iftttEngine = null;
 
+        // BackupManager reference (set after BackupManager is initialized)
+        // Allows plugins to register custom backup providers
+        this.backupManager = null;
+
         // Create a dedicated router for plugin routes
         // This router is mounted on the main app and ensures plugin routes
         // are always matched before the 404 handler, even when plugins
@@ -553,6 +626,43 @@ class PluginLoader extends EventEmitter {
     setIFTTTEngine(iftttEngine) {
         this.iftttEngine = iftttEngine;
         this.logger.info('🔀 IFTTT engine reference set in PluginLoader - plugins can now register triggers, conditions, and actions');
+    }
+
+    /**
+     * Set the BackupManager reference so plugins can register custom backup providers.
+     * Should be called after BackupManager is initialized.
+     * @param {import('./backup-manager')} backupManager
+     */
+    setBackupManager(backupManager) {
+        this.backupManager = backupManager;
+        this.logger.info('💾 BackupManager reference set in PluginLoader - plugins can now register backup providers');
+    }
+
+    /**
+     * Register a plugin's custom backup provider via the BackupManager.
+     * Called by PluginAPI.registerBackupProvider() on behalf of the plugin.
+     *
+     * @param {string} pluginId
+     * @param {{ exportConfig?: Function, importConfig?: Function }} provider
+     */
+    registerBackupProvider(pluginId, provider) {
+        if (this.backupManager && typeof this.backupManager.registerBackupProvider === 'function') {
+            this.backupManager.registerBackupProvider(pluginId, provider);
+        } else {
+            this.logger.warn(`[PluginLoader] Cannot register backup provider for ${pluginId}: BackupManager not set`);
+        }
+    }
+
+    /**
+     * Unregister a plugin's custom backup provider.
+     * Called by PluginAPI.unregisterAll() on plugin unload.
+     *
+     * @param {string} pluginId
+     */
+    unregisterBackupProvider(pluginId) {
+        if (this.backupManager && typeof this.backupManager.unregisterBackupProvider === 'function') {
+            this.backupManager.unregisterBackupProvider(pluginId);
+        }
     }
 
     /**
