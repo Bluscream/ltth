@@ -998,6 +998,14 @@ class PluginLoader extends EventEmitter {
                 return false;
             }
 
+            // Remove TikTok event listeners to prevent duplicates on reload
+            if (this.tiktok && plugin.api.registeredTikTokEvents) {
+                for (const { event, callback } of plugin.api.registeredTikTokEvents) {
+                    this.tiktok.removeListener(event, callback);
+                }
+                this.logger.debug(`Removed TikTok event listeners for plugin ${pluginId}`);
+            }
+
             // Plugin cleanup aufrufen
             if (typeof plugin.instance.destroy === 'function') {
                 await plugin.instance.destroy();
@@ -1268,13 +1276,22 @@ class PluginLoader extends EventEmitter {
      * @param {string} pluginId - Optional: Register events for specific plugin only
      */
     registerPluginTikTokEvents(tiktok, pluginId = null) {
+        // Store tiktok reference so unloadPlugin() can remove listeners later
+        this.tiktok = tiktok;
+
         const pluginsToRegister = pluginId 
             ? [[pluginId, this.plugins.get(pluginId)]].filter(([_, p]) => p !== undefined)
             : Array.from(this.plugins.entries());
 
         let totalEventsRegistered = 0;
         for (const [id, plugin] of pluginsToRegister) {
-            for (const { event, callback } of plugin.api.registeredTikTokEvents) {
+            // CRITICAL FIX: Remove existing handlers before re-registering to prevent
+            // duplicate event handlers when plugins are enabled/disabled/reloaded
+            for (const { event, callback } of plugin.api.registeredTikTokEvents || []) {
+                tiktok.removeListener(event, callback);
+            }
+
+            for (const { event, callback } of plugin.api.registeredTikTokEvents || []) {
                 tiktok.on(event, callback);
                 totalEventsRegistered++;
             }
