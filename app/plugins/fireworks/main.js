@@ -46,6 +46,10 @@ class FireworksPlugin {
         
         // Combo timeout (ms) - reset combo if no gift within this time
         this.COMBO_TIMEOUT = 10000;
+
+        // Server-side active firework tracking (browser global not available server-side)
+        this.activeFireworkCount = 0;
+        this.activeFireworkTimers = new Map();
     }
 
     async init() {
@@ -882,25 +886,11 @@ class FireworksPlugin {
     }
 
     /**
-     * Get active firework count from overlay
-     * BUG FIX #2: Directly access engine instance instead of async socket
+     * Get active firework count - uses server-side counter (browser global not available server-side)
      */
     getActiveFireworkCount() {
-        // Try to get count directly from global engine instance (browser context)
-        if (typeof global !== 'undefined' && global.fireworksEngineInstance) {
-            return global.fireworksEngineInstance.fireworks.length;
-        }
-        
-        // Fallback: Use cached value from socket (for server-side calls)
-        if (!this.cachedActiveFireworkCount) {
-            this.cachedActiveFireworkCount = 0;
-        }
-        
-        // Still emit for cache updates
-        this.api.emit('fireworks:get-active-count');
-        
-        // Return cached value (updated via socket response)
-        return this.cachedActiveFireworkCount;
+        // Return server-side counter (accurate, no socket roundtrip needed)
+        return this.activeFireworkCount;
     }
 
     /**
@@ -1079,6 +1069,18 @@ class FireworksPlugin {
             giftPopupEnabled: this.config.giftPopupEnabled !== false,
             giftPopupPosition: this.config.giftPopupPosition || 'bottom'
         };
+
+        // Server-side tracking: increment counter and auto-decrement after estimated lifetime.
+        // Base lifetime: 3000ms minimum. Intensity multiplier: +2000ms per intensity unit.
+        // Capped at 8000ms to avoid counter staying high for unusually long fireworks.
+        this.activeFireworkCount++;
+        const fireworkId = payload.id;
+        const estimatedLifetime = Math.min(8000, 3000 + (options.intensity || 1) * 2000);
+        const timer = setTimeout(() => {
+            this.activeFireworkCount = Math.max(0, this.activeFireworkCount - 1);
+            this.activeFireworkTimers.delete(fireworkId);
+        }, estimatedLifetime);
+        this.activeFireworkTimers.set(fireworkId, timer);
 
         this.api.emit('fireworks:trigger', payload);
         
@@ -1295,6 +1297,13 @@ class FireworksPlugin {
         
         // Clear queue timestamps
         this.queueTimestamps = [];
+        
+        // Clear active firework timers
+        for (const timer of this.activeFireworkTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.activeFireworkTimers.clear();
+        this.activeFireworkCount = 0;
         
         // Remove socket event handler and disconnect all tracked sockets
         if (this.fpsUpdateHandler) {
