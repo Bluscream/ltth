@@ -280,6 +280,8 @@ ltth_desktop2/
 | `app/modules/validators.js` | 498 | Input validation |
 | `app/routes/plugin-routes.js` | 484 | Plugin manager REST API |
 | `app/public/js/plugin-manager.js` | 372 | Plugin manager frontend |
+| `app/modules/backup-manager.js` | 200+ | Config Backup & Restore orchestrator |
+| `app/modules/backup/` | 600+ | Modular backup subsystem (exporter, importer, manifest, validators…) |
 
 **Total:** ~15,000+ LOC
 
