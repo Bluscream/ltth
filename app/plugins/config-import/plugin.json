@@ -1,8 +1,8 @@
 {
   "id": "config-import",
-  "name": "Config Import",
-  "version": "1.0.0",
-  "description": "Import settings from old installation paths to the current config location",
+  "name": "Config Backup & Restore",
+  "version": "2.0.0",
+  "description": "Full configuration backup and restore system. Export all settings to a ZIP archive, import from a backup, preview conflicts, and migrate from legacy installations.",
   "author": "Pup Cid",
   "entry": "main.js",
   "enabled": true,
@@ -13,9 +13,9 @@
     "database"
   ],
   "descriptions": {
-    "en": "Import settings from old installation paths to the current config location. Utility for migrating configurations during updates or reinstallations.",
-    "de": "Importiert Einstellungen von alten Installationspfaden zum aktuellen Konfigurationsspeicherort. Dienstprogramm für die Migration von Konfigurationen bei Updates oder Neuinstallationen.",
-    "es": "Importa configuraciones desde rutas de instalación antiguas a la ubicación de configuración actual. Utilidad para migrar configuraciones durante actualizaciones o reinstalaciones.",
-    "fr": "Importe les paramètres depuis d'anciens chemins d'installation vers l'emplacement de configuration actuel. Utilitaire pour migrer les configurations lors de mises à jour ou réinstallations."
+    "en": "Full configuration backup and restore system. Export all settings to a ZIP archive, import from a backup, preview conflicts, and migrate from legacy installations.",
+    "de": "Vollständiges Konfigurations-Backup- und Wiederherstellungssystem. Exportieren Sie alle Einstellungen in ein ZIP-Archiv, importieren Sie aus einem Backup, zeigen Sie Konflikte in der Vorschau an und migrieren Sie von älteren Installationen.",
+    "es": "Sistema completo de copia de seguridad y restauración de configuración. Exporte todos los ajustes a un archivo ZIP, importe desde una copia de seguridad, previsualice conflictos y migre desde instalaciones antiguas.",
+    "fr": "Système complet de sauvegarde et restauration de configuration. Exportez tous les paramètres dans une archive ZIP, importez depuis une sauvegarde, prévisualisez les conflits et migrez depuis d'anciennes installations."
   }
 }

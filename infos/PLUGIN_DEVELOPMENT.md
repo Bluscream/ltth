@@ -213,6 +213,44 @@ Get ConfigPathManager instance for advanced path operations.
 
 **Returns:** ConfigPathManager instance
 
+#### registerBackupProvider(provider)
+
+Register a custom backup provider so the Backup & Restore system can use plugin-specific export/import logic.
+
+If no provider is registered, the system uses a generic fallback: reading `plugin:<id>:*` settings from the database and collecting files from the plugin data directory.
+
+**Parameters:**
+- `provider` – Object with at least one of:
+  - `exportConfig(): Promise<{ settings?, warnings? }>` – return the plugin's settings to include in the backup
+  - `importConfig(payload): Promise<{ success, importedKeys?, warnings? }>` – apply a previously-exported payload
+
+**Returns:** `boolean` – true if registration succeeded
+
+**Example:**
+```javascript
+async init() {
+    this.api.registerBackupProvider({
+        exportConfig: async () => ({
+            settings: { apiKey: this.config.apiKey, theme: this.config.theme },
+            warnings: this.config.apiKey ? [] : ['API key not set – backup may be incomplete']
+        }),
+        importConfig: async ({ settings, mode }) => {
+            if (settings.apiKey) {
+                await this.api.setConfig('config', { ...this.config, ...settings });
+                return { success: true, importedKeys: Object.keys(settings) };
+            }
+            return { success: false, warnings: ['No settings in payload'] };
+        }
+    });
+}
+```
+
+#### getBackupManager()
+
+Get the BackupManager instance (if initialised).
+
+**Returns:** `BackupManager|null`
+
 ### Route Registration
 
 #### registerRoute(method, path, handler)

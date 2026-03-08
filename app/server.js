@@ -112,6 +112,7 @@ const UpdateManager = require('./modules/update-manager');
 const { Validators, ValidationError } = require('./modules/validators');
 const getAutoStartManager = require('./modules/auto-start');
 const PresetManager = require('./modules/preset-manager');
+const BackupManager = require('./modules/backup-manager');
 const CloudSyncEngine = require('./modules/cloud-sync');
 
 // ========== EXPRESS APP ==========
@@ -444,6 +445,20 @@ pluginLoader.setTikTokModule(tiktok);
 
 // Set IFTTT engine reference for dynamic IFTTT component registration
 pluginLoader.setIFTTTEngine(iftttEngine);
+
+// Initialise the BackupManager and wire it to the PluginLoader
+const packageVersion = (() => {
+    try { return require('./package.json').version; } catch { return 'unknown'; }
+})();
+const backupManager = new BackupManager({
+    db,
+    configPathManager,
+    pluginLoader,
+    logger,
+    appVersion: packageVersion
+});
+pluginLoader.setBackupManager(backupManager);
+logger.info('💾 Backup Manager initialized');
 
 // Add pluginLoader to IFTTT services so actions can access plugins
 iftttServices.pluginLoader = pluginLoader;
