@@ -19,11 +19,15 @@ const GoalsWebSocket = require('./backend/websocket');
 const GoalsEventHandlers = require('./backend/event-handlers');
 const { StateMachineManager } = require('./engine/state-machine');
 const { ValidationError, NotFoundError } = require('../../modules/error-handler');
+const LifecycleTracker = require('../../modules/lifecycle-tracker');
 
 class GoalsPlugin extends EventEmitter {
     constructor(api) {
         super();
         this.api = api;
+
+        // Lifecycle tracker for timeouts/intervals/listeners registered during init
+        this._lifecycle = new LifecycleTracker();
 
         // Initialize modules
         this.db = new GoalsDatabase(api);
@@ -57,9 +61,9 @@ class GoalsPlugin extends EventEmitter {
 
             // Sync likes goals with current stream stats (if connected)
             // Use a short delay to ensure server is ready
-            setTimeout(() => {
+            this._lifecycle.trackTimeout(setTimeout(() => {
                 this.eventHandlers.syncLikesGoalsWithStream();
-            }, GoalsEventHandlers.SYNC_DELAY_ON_INIT_MS);
+            }, GoalsEventHandlers.SYNC_DELAY_ON_INIT_MS));
 
             this.api.log('✅ Goals Plugin initialized successfully', 'info');
             this.api.log(`   - Multi-goal system ready`, 'info');
@@ -345,12 +349,22 @@ class GoalsPlugin extends EventEmitter {
     async cleanup() {
         this.api.log('Cleaning up Goals Plugin...', 'info');
 
+        // Cancel any pending lifecycle timers/intervals/listeners
+        this._lifecycle.cleanupAll();
+
         // Remove all state machine listeners
         for (const machine of this.stateMachineManager.getAllMachines()) {
             machine.removeAllListeners();
         }
 
         this.api.log('Goals Plugin cleaned up', 'info');
+    }
+
+    /**
+     * Destroy on plugin disable/reload (called by plugin-loader)
+     */
+    async destroy() {
+        await this.cleanup();
     }
 }
 

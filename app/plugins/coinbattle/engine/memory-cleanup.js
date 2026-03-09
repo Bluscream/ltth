@@ -33,8 +33,11 @@ class MemoryCleanupScheduler {
       this.config.cleanupInterval
     );
     
-    // Initial cleanup after 30 seconds
-    setTimeout(() => this.performCleanup(), 30000);
+    // Initial cleanup after 30 seconds (tracked so it can be cancelled on destroy)
+    this._initialCleanupTimeout = setTimeout(() => {
+      this._initialCleanupTimeout = null;
+      this.performCleanup();
+    }, 30000);
     
     this.logger.info(`🧹 MemoryCleanupScheduler initialized (interval: ${this.config.cleanupInterval / 1000}s)`);
   }
@@ -296,6 +299,10 @@ class MemoryCleanupScheduler {
    * Destroy the scheduler
    */
   destroy() {
+    if (this._initialCleanupTimeout) {
+      clearTimeout(this._initialCleanupTimeout);
+      this._initialCleanupTimeout = null;
+    }
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
