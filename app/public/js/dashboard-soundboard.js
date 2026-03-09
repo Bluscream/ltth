@@ -3,6 +3,12 @@
  * Works both as standalone version for /soundboard/ui page and when included in main dashboard
  */
 
+// Structured logger for this module.
+/* global FrontendLogger */
+const log = (typeof FrontendLogger !== 'undefined')
+    ? FrontendLogger.createLogger('Soundboard')
+    : { debug: Function.prototype, info: Function.prototype, warn: Function.prototype, error: Function.prototype };
+
 // Socket connection
 // Reuse existing socket from dashboard.js (window.socket) if available,
 // otherwise create new connection for standalone /soundboard/ui page
@@ -10,23 +16,23 @@ const socket = window.socket || io();
 
 // Add connection status logging
 socket.on('connect', () => {
-    console.log('✅ [Soundboard Frontend] Socket.io connected, ID:', socket.id);
+    log.info('Socket.io connected', { id: socket.id });
     
     // Identify as dashboard client for preview sound support
     socket.emit('soundboard:identify', { client: 'dashboard' });
-    console.log('📡 [Soundboard Frontend] Sent identification as dashboard client');
+    log.info('Sent identification as dashboard client');
 });
 
 socket.on('soundboard:identified', (data) => {
-    console.log('✅ [Soundboard Frontend] Identified by server:', data);
+    log.info('Identified by server', data);
 });
 
 socket.on('disconnect', (reason) => {
-    console.warn('❌ [Soundboard Frontend] Socket.io disconnected:', reason);
+    log.warn('Socket.io disconnected', { reason });
 });
 
 socket.on('connect_error', (error) => {
-    console.error('❌ [Soundboard Frontend] Socket.io connection error:', error);
+    log.error('Socket.io connection error', { error: error?.message || String(error) });
 });
 
 // Helper function to escape HTML and prevent XSS
@@ -57,7 +63,7 @@ let currentPlayMode = 'overlap';     // Default to overlap mode ('overlap', 'que
 
 // ========== SOCKET EVENTS ==========
 socket.on('soundboard:play', (data) => {
-    console.log('📡 [Soundboard Frontend] Received soundboard:play event:', data);
+    log.info('Received soundboard:play event', data);
     
     // Check the audio target setting
     // audioTarget can be: 'dashboard', 'obs_overlay', or 'both'
@@ -70,19 +76,19 @@ socket.on('soundboard:play', (data) => {
         playDashboardSoundboard(data);
         logAudioEvent('play', `Playing sound: ${data.label} (target: ${audioTarget})`, data, true);
     } else {
-        console.log(`⏭️ [Soundboard Frontend] Skipping playback - audio target is '${audioTarget}', not dashboard`);
+        log.info(`Skipping playback - audio target is '${audioTarget}', not dashboard`, { label: data.label });
         logAudioEvent('info', `Skipped sound: ${data.label} (target: ${audioTarget}, plays in OBS overlay)`, data, true);
     }
 });
 
 socket.on('soundboard:preview', (payload) => {
-    console.log('📡 [Soundboard Frontend] Received soundboard:preview event:', payload);
+    log.info('Received soundboard:preview event', payload);
     logAudioEvent('preview', `Preview request received`, payload, true);
     
     // Note: Preview events have a nested structure from transport-ws.js:
     // { type: 'preview-sound', payload: { sourceType, filename/url, timestamp } }
     if (!payload || !payload.payload) {
-        console.error('❌ [Soundboard Frontend] Invalid preview payload structure');
+        log.error('Invalid preview payload structure', { payload });
         return;
     }
     
@@ -90,7 +96,7 @@ socket.on('soundboard:preview', (payload) => {
     
     // Validate sourceType
     if (!previewData.sourceType) {
-        console.error('❌ [Soundboard Frontend] Missing sourceType in preview');
+        log.error('Missing sourceType in preview', { previewData });
         return;
     }
     
@@ -99,7 +105,7 @@ socket.on('soundboard:preview', (payload) => {
     
     if (previewData.sourceType === 'local') {
         if (!previewData.filename) {
-            console.error('❌ [Soundboard Frontend] Missing filename in local preview');
+            log.error('Missing filename in local preview', { previewData });
             return;
         }
         soundData = {
@@ -110,7 +116,7 @@ socket.on('soundboard:preview', (payload) => {
         };
     } else if (previewData.sourceType === 'url') {
         if (!previewData.url) {
-            console.error('❌ [Soundboard Frontend] Missing URL in preview');
+            log.error('Missing URL in preview', { previewData });
             return;
         }
         soundData = {
@@ -120,7 +126,7 @@ socket.on('soundboard:preview', (payload) => {
             eventType: 'preview'
         };
     } else {
-        console.error('❌ [Soundboard Frontend] Unknown preview sourceType:', previewData.sourceType);
+        log.error('Unknown preview sourceType', { sourceType: previewData.sourceType });
         return;
     }
     
@@ -130,7 +136,7 @@ socket.on('soundboard:preview', (payload) => {
 
 // ========== AUDIO PLAYBACK ==========
 function playDashboardSoundboard(data) {
-    console.log('🔊 [Soundboard] Received sound:', data.label, 'Mode:', currentPlayMode, 'GiftId:', data.giftId);
+    log.info('Received sound', { label: data.label, mode: currentPlayMode, giftId: data.giftId || null });
     logAudioEvent('info', `Received sound: ${data.label} (mode: ${currentPlayMode}, giftId: ${data.giftId || 'none'})`, { url: data.url, volume: data.volume }, true);
     
     // Check play mode
@@ -250,12 +256,12 @@ function processPerGiftQueue(queueKey) {
  * @param {Function} onComplete - Callback when sound finishes (optional)
  */
 function playSound(data, onComplete) {
-    console.log('🔊 [Soundboard] Playing:', data.label);
+    log.info('Playing sound', { label: data.label });
     logAudioEvent('info', `Playing sound: ${data.label}`, { url: data.url, volume: data.volume }, true);
     
     // Validate sound data
     if (!data || !data.url) {
-        console.error('❌ [Soundboard] Invalid sound data - missing URL:', data);
+        log.error('Invalid sound data - missing URL', { label: data?.label || 'unknown', data });
         logAudioEvent('error', `Invalid sound data - missing URL for: ${data?.label || 'unknown'}`, data, true);
         if (onComplete) onComplete();
         return;
@@ -290,10 +296,10 @@ function playSound(data, onComplete) {
     
     // Play
     audio.play().then(() => {
-        console.log('✅ [Soundboard] Started playing:', data.label);
+        log.info('Started playing', { label: data.label });
         logAudioEvent('success', `Successfully started: ${data.label}`, { url: data.url }, true);
     }).catch(err => {
-        console.error('❌ [Soundboard] Playback error:', err);
+        log.error('Playback error', { label: data.label, error: err.message });
         logAudioEvent('error', `Playback failed: ${err.message}`, { url: data.url, error: err }, true);
         cleanup();
         // Call onComplete even on error to continue queue
@@ -302,7 +308,7 @@ function playSound(data, onComplete) {
     
     // Remove after playback
     audio.onended = () => {
-        console.log('✅ [Soundboard] Finished:', data.label);
+        log.info('Finished playing', { label: data.label });
         logAudioEvent('info', `Finished playing: ${data.label}`, null);
         cleanup();
         
@@ -311,7 +317,7 @@ function playSound(data, onComplete) {
     };
     
     audio.onerror = (e) => {
-        console.error('❌ [Soundboard] Error playing:', data.label, e);
+        log.error('Audio element error', { label: data.label, type: e.type });
         logAudioEvent('error', `Audio error for ${data.label}: ${e.type}`, { url: data.url, error: e }, true);
         cleanup();
         
@@ -357,7 +363,7 @@ async function loadSoundboardSettings() {
         const audioTarget = document.getElementById('soundboard-audio-target');
         if (audioTarget) {
             audioTarget.value = settings.soundboard_audio_target || 'both';
-            console.log('🎵 [Soundboard] Audio target set to:', audioTarget.value);
+            log.info('Audio target set', { value: audioTarget.value });
             logAudioEvent('info', `Audio target: ${audioTarget.value}`, null);
         }
         
@@ -365,7 +371,7 @@ async function loadSoundboardSettings() {
         let playModeValue = settings.soundboard_play_mode || 'overlap';
         if (playModeValue === 'sequential') {
             playModeValue = 'queue-all'; // Migrate old setting
-            console.log('🎵 [Soundboard] Migrated play mode from "sequential" to "queue-all"');
+            log.info('Migrated play mode from "sequential" to "queue-all"');
         }
         
         const playMode = document.getElementById('soundboard-play-mode');
@@ -373,7 +379,7 @@ async function loadSoundboardSettings() {
         
         // Store the play mode for use in playback
         currentPlayMode = playModeValue;
-        console.log('🎵 [Soundboard] Play mode set to:', currentPlayMode);
+        log.info('Play mode set', { mode: currentPlayMode });
         logAudioEvent('info', `Play mode: ${currentPlayMode}`, null);
         
         const maxQueue = document.getElementById('soundboard-max-queue');
@@ -423,13 +429,13 @@ async function loadSoundboardSettings() {
         if (likeWindow) likeWindow.value = settings.soundboard_like_window_seconds || '10';
         
     } catch (error) {
-        console.error('Error loading soundboard settings:', error);
+        log.error('Error loading soundboard settings', { error: error.message });
         logAudioEvent('error', `Failed to load settings: ${error.message}`, null);
         
         // Ensure currentPlayMode has a fallback value even if settings fail to load
         if (!currentPlayMode) {
             currentPlayMode = 'overlap';
-            console.warn('🎵 [Soundboard] Settings failed to load, using default play mode: overlap');
+            log.warn('Settings failed to load, using default play mode: overlap');
             logAudioEvent('warning', 'Using default play mode: overlap (settings failed to load)', null);
         }
     }
@@ -561,7 +567,7 @@ async function saveSoundboardSettings() {
             logAudioEvent('success', 'Settings saved successfully', null);
         }
     } catch (error) {
-        console.error('Error saving soundboard settings:', error);
+        log.error('Error saving soundboard settings', { error: error.message });
         alert('❌ Error saving soundboard settings!');
         logAudioEvent('error', `Failed to save settings: ${error.message}`, null);
     }
@@ -616,7 +622,7 @@ async function loadGiftSounds() {
         
         const tbody = document.getElementById('gift-sounds-list');
         if (!tbody) {
-            console.warn('gift-sounds-list element not found');
+            log.warn('gift-sounds-list element not found');
             return;
         }
         tbody.innerHTML = '';
@@ -742,7 +748,7 @@ async function loadGiftSounds() {
         });
         
     } catch (error) {
-        console.error('Error loading gift sounds:', error);
+        log.error('Error loading gift sounds', { error: error.message });
         logAudioEvent('error', `Failed to load gift sounds: ${error.message}`, null);
     }
 }
@@ -782,7 +788,7 @@ async function updateGiftVolume(gift, volume, volumeType) {
             logAudioEvent('error', `Failed to update ${volumeType} volume for gift ${gift.giftId}`, null);
         }
     } catch (error) {
-        console.error('Error updating gift volume:', error);
+        log.error('Error updating gift volume', { error: error.message });
         logAudioEvent('error', `Failed to update gift volume: ${error.message}`, null);
     }
 }
@@ -793,7 +799,7 @@ async function addGiftSound() {
     const urlEl = document.getElementById('new-gift-url');
     
     if (!giftIdEl || !labelEl || !urlEl) {
-        console.warn('Gift sound form elements not found');
+        log.warn('Gift sound form elements not found');
         return;
     }
     
@@ -838,7 +844,7 @@ async function addGiftSound() {
             await loadGiftCatalog(); // Reload catalog to update checkmarks
         }
     } catch (error) {
-        console.error('Error adding gift sound:', error);
+        log.error('Error adding gift sound', { error: error.message });
         alert('Error adding gift sound!');
         logAudioEvent('error', `Failed to add gift sound: ${error.message}`, null);
     }
@@ -859,7 +865,7 @@ async function deleteGiftSound(giftId) {
             await loadGiftCatalog(); // Reload catalog to update checkmarks
         }
     } catch (error) {
-        console.error('Error deleting gift sound:', error);
+        log.error('Error deleting gift sound', { error: error.message });
         logAudioEvent('error', `Failed to delete gift sound: ${error.message}`, null);
     }
 }
@@ -969,7 +975,7 @@ async function openEditGiftModal(giftId) {
         });
         
     } catch (error) {
-        console.error('Error opening edit modal:', error);
+        log.error('Error opening edit modal', { error: error.message });
         alert('Error opening edit modal!');
     }
 }
@@ -1023,7 +1029,7 @@ async function saveEditedGiftSound() {
             await loadGiftCatalog();
         }
     } catch (error) {
-        console.error('Error updating gift sound:', error);
+        log.error('Error updating gift sound', { error: error.message });
         alert('Error updating gift sound!');
         logAudioEvent('error', `Failed to update gift sound: ${error.message}`, null);
     }
@@ -1112,7 +1118,7 @@ async function testGiftSound(url, volume) {
         
     } catch (error) {
         isPreviewPlaying = false;
-        console.error('Error testing sound:', error);
+        log.error('Error testing sound', { error: error.message });
         logAudioEvent('error', `Failed to preview sound: ${error.message}`, { url }, true);
     }
 }
@@ -1223,7 +1229,7 @@ async function loadGiftCatalog() {
         });
         
     } catch (error) {
-        console.error('Error loading gift catalog:', error);
+        log.error('Error loading gift catalog', { error: error.message });
         document.getElementById('gift-catalog-info').innerHTML = '<span class="text-red-400">Error loading catalog</span>';
         logAudioEvent('error', `Failed to load gift catalog: ${error.message}`, null);
     }
@@ -1272,7 +1278,7 @@ async function refreshGiftCatalog() {
             logAudioEvent('error', `Failed to update catalog: ${result.error}`, null);
         }
     } catch (error) {
-        console.error('Error refreshing gift catalog:', error);
+        log.error('Error refreshing gift catalog', { error: error.message });
         infoDiv.innerHTML = '<span class="text-red-400">❌ Error updating catalog. Make sure you are connected to a stream.</span>';
         logAudioEvent('error', `Failed to refresh catalog: ${error.message}`, null);
     } finally {
@@ -1308,7 +1314,7 @@ async function loadExistingGiftSound(giftId) {
             document.getElementById('new-gift-animation-volume').value = existingGift.animationVolume || 1.0;
         }
     } catch (error) {
-        console.error('Error loading existing gift sound:', error);
+        log.error('Error loading existing gift sound', { error: error.message });
     }
 }
 
@@ -1407,7 +1413,7 @@ async function searchMyInstants() {
         }
         
     } catch (error) {
-        console.error('Error searching MyInstants:', error);
+        log.error('Error searching MyInstants', { error: error.message });
         resultsDiv.innerHTML = '<div class="text-red-400 text-sm">Error searching MyInstants</div>';
         logAudioEvent('error', `MyInstants search failed: ${error.message}`, null);
     }
@@ -1567,7 +1573,7 @@ async function loadCategories() {
             availableCategories = data.results;
             renderCategoryButtons();
         } else {
-            console.warn('No categories returned from API, using defaults');
+            log.warn('No categories returned from API, using defaults');
             availableCategories = [
                 { name: 'Memes', slug: 'memes' },
                 { name: 'Games', slug: 'games' },
@@ -1578,7 +1584,7 @@ async function loadCategories() {
             renderCategoryButtons();
         }
     } catch (error) {
-        console.error('Error loading categories:', error);
+        log.error('Error loading categories', { error: error.message });
         // Use fallback categories
         availableCategories = [
             { name: 'Memes', slug: 'memes' },
@@ -1652,7 +1658,7 @@ async function performAdvancedSearch() {
         
         renderSearchResults(data.results, resultsDiv);
     } catch (error) {
-        console.error('Error searching MyInstants:', error);
+        log.error('Error searching MyInstants', { error: error.message });
         resultsDiv.innerHTML = '<div class="text-red-400 text-sm text-center py-4">Error searching MyInstants. Please try again.</div>';
     }
 }
@@ -1672,7 +1678,7 @@ async function searchTrending() {
         
         renderSearchResults(data.results, resultsDiv);
     } catch (error) {
-        console.error('Error loading trending sounds:', error);
+        log.error('Error loading trending sounds', { error: error.message });
         resultsDiv.innerHTML = '<div class="text-red-400 text-sm text-center py-4">Error loading trending sounds.</div>';
     }
 }
@@ -1818,7 +1824,7 @@ async function openGiftCatalogModal(soundName, soundUrl) {
             });
         }
     } catch (error) {
-        console.error('Error loading gift catalog:', error);
+        log.error('Error loading gift catalog', { error: error.message });
         gridDiv.innerHTML = '<div class="text-red-400 text-sm text-center py-8">Error loading gifts. Please try again.</div>';
     }
     
@@ -1863,7 +1869,7 @@ async function bindSoundToGift(giftId, giftLabel) {
             alert('❌ Failed to bind sound to gift. Please try again.');
         }
     } catch (error) {
-        console.error('Error binding sound to gift:', error);
+        log.error('Error binding sound to gift', { error: error.message });
         alert('❌ Error binding sound to gift!');
     }
 }
@@ -1960,7 +1966,7 @@ async function enableAudioPermissions() {
             }
         }
     } catch (error) {
-        console.error('Error enabling audio:', error);
+        log.error('Error enabling audio', { error: error.message });
         logAudioEvent('error', `Failed to enable audio: ${error.message}`, null);
     }
 }
@@ -2109,7 +2115,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (playModeSelector) {
         playModeSelector.addEventListener('change', function() {
             currentPlayMode = this.value;
-            console.log('🎵 [Soundboard] Play mode changed to:', currentPlayMode);
+            log.info('Play mode changed', { mode: currentPlayMode });
             logAudioEvent('info', `Play mode changed to: ${currentPlayMode}`, null);
             
             // Clear all queues when switching modes to prevent confusion
@@ -2468,7 +2474,7 @@ function copyConfigTextarea() {
         navigator.clipboard.writeText(text).then(() => {
             showConfigCopySuccess();
         }).catch(err => {
-            console.error('Failed to copy:', err);
+            log.error('Failed to copy', { error: err?.message || String(err) });
             fallbackCopyConfig(text);
         });
     } else {
@@ -2492,7 +2498,7 @@ function fallbackCopyConfig(text) {
             alert('Kopieren fehlgeschlagen. Bitte manuell kopieren (Strg+C).');
         }
     } catch (err) {
-        console.error('Fallback copy failed:', err);
+        log.error('Fallback copy failed', { error: err?.message || String(err) });
         alert('Kopieren fehlgeschlagen. Bitte manuell kopieren (Strg+C).');
     }
     
@@ -2549,7 +2555,7 @@ function initializeOverlayUrl() {
                     navigator.clipboard.writeText(url).then(() => {
                         showCopySuccess(copyBtn);
                     }).catch(err => {
-                        console.error('Failed to copy URL:', err);
+                        log.error('Failed to copy URL', { error: err?.message || String(err) });
                         fallbackCopy(url, copyBtn);
                     });
                 } else {
@@ -2579,7 +2585,7 @@ function fallbackCopy(text, copyBtn) {
             alert('Failed to copy URL to clipboard');
         }
     } catch (err) {
-        console.error('Fallback copy failed:', err);
+        log.error('Fallback copy failed', { error: err?.message || String(err) });
         alert('Failed to copy URL to clipboard');
     }
     
