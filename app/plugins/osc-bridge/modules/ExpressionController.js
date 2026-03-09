@@ -361,6 +361,10 @@ class ExpressionController {
      * Start periodic cleanup
      */
     startCleanup(interval = 30000) {
+        if (this.cleanupInterval) {
+            // Already running — skip to prevent duplicate intervals on reload
+            return;
+        }
         this.cleanupInterval = setInterval(() => {
             this.cleanup();
         }, interval);
