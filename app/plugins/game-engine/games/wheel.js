@@ -382,22 +382,19 @@ class WheelGame {
     // Comprehensive config validation
     if (!config) {
       this.logger.error(`Failed to start spin: Wheel config not found (wheelId: ${wheelId}, spinId: ${spinId})`);
-      this.isSpinning = false;
-      this.currentSpin = null;
+      this._cleanupSpinState(spinId, 'config_not_found');
       return { success: false, error: 'Wheel not found' };
     }
     
     if (!config.segments || !Array.isArray(config.segments)) {
       this.logger.error(`Failed to start spin: Wheel segments is not an array (wheelId: ${wheelId}, spinId: ${spinId})`);
-      this.isSpinning = false;
-      this.currentSpin = null;
+      this._cleanupSpinState(spinId, 'segments_invalid');
       return { success: false, error: 'Wheel segments invalid' };
     }
     
     if (config.segments.length === 0) {
       this.logger.error(`Failed to start spin: Wheel has no segments (wheelId: ${wheelId}, spinId: ${spinId})`);
-      this.isSpinning = false;
-      this.currentSpin = null;
+      this._cleanupSpinState(spinId, 'no_segments');
       return { success: false, error: 'Wheel not configured' };
     }
     
@@ -405,11 +402,7 @@ class WheelGame {
     // If segment count changed, the rotation calculation would be completely wrong
     if (segmentCount && segmentCount !== config.segments.length) {
       this.logger.error(`❌ Segment count changed during queue: was ${segmentCount}, now ${config.segments.length}. Cannot proceed with spin (wheelId: ${wheelId}, spinId: ${spinId})`);
-      this.isSpinning = false;
-      this.currentSpin = null;
-      
-      // Remove from active spins
-      this.activeSpins.delete(spinId);
+      this._cleanupSpinState(spinId, 'segment_count_changed');
       
       // Emit error event
       this.io.emit('wheel:spin-error', {
@@ -431,8 +424,7 @@ class WheelGame {
     // Validate winning segment index
     if (winningSegmentIndex < 0 || winningSegmentIndex >= config.segments.length) {
       this.logger.error(`Invalid winning segment index ${winningSegmentIndex} (total segments: ${config.segments.length}, wheelId: ${wheelId}, spinId: ${spinId})`);
-      this.isSpinning = false;
-      this.currentSpin = null;
+      this._cleanupSpinState(spinId, 'invalid_segment_index');
       return { success: false, error: 'Invalid segment calculation' };
     }
     
@@ -441,8 +433,7 @@ class WheelGame {
     // Validate winning segment has required properties
     if (!winningSegment || !winningSegment.text) {
       this.logger.error(`Winning segment has no text (index: ${winningSegmentIndex}, wheelId: ${wheelId}, spinId: ${spinId})`);
-      this.isSpinning = false;
-      this.currentSpin = null;
+      this._cleanupSpinState(spinId, 'invalid_winning_segment');
       return { success: false, error: 'Invalid winning segment' };
     }
     
@@ -651,6 +642,11 @@ class WheelGame {
     
     if (!spinData) {
       this.logger.warn(`Spin ${spinId} not found in active spins`);
+      // Safety: ensure state is reset and queue can continue
+      this._cleanupSpinState(spinId, 'spin_data_missing');
+      if (this.unifiedQueue) {
+        this.unifiedQueue.completeProcessing();
+      }
       return { success: false, error: 'Spin not found' };
     }
 
@@ -660,6 +656,10 @@ class WheelGame {
     const config = this.getConfig(wheelId);
     if (!config || !config.segments || !Array.isArray(config.segments) || config.segments.length === 0) {
       this.logger.error(`Invalid wheel config for spin completion (wheelId: ${wheelId})`);
+      this._cleanupSpinState(spinId, 'invalid_config_on_complete');
+      if (this.unifiedQueue) {
+        this.unifiedQueue.completeProcessing();
+      }
       return { success: false, error: 'Invalid segment' };
     }
 
@@ -682,6 +682,10 @@ class WheelGame {
         this.logger.warn(`⚠️ Wheel spin fallback to reported segment index ${reportedIndex} (spinId: ${spinId}, wheelId: ${wheelId})`);
       } else {
         this.logger.error(`Invalid segment index for spin completion (expected: ${expectedSegmentIndex}, reported: ${reportedIndex}, segments: ${config.segments.length})`);
+        this._cleanupSpinState(spinId, 'invalid_segment_index_on_complete');
+        if (this.unifiedQueue) {
+          this.unifiedQueue.completeProcessing();
+        }
         return { success: false, error: 'Invalid segment' };
       }
     } else if (syncMismatch) {
@@ -774,10 +778,7 @@ class WheelGame {
     spinData.segmentIndex = finalSegmentIndex;
     spinData.reportedSegmentIndex = reportedIndex;
 
-    // Remove from active spins
-    this.activeSpins.delete(spinId);
-
-    // Emit result event
+    // Emit result event (before clearing state so spinData is still intact for the event)
     this.io.emit('wheel:spin-result', {
       spinId,
       username: spinData.username,
@@ -804,9 +805,8 @@ class WheelGame {
       `🎡 Wheel result (${config.name}): ${spinData.nickname} ${segment.isNiete ? 'got "Niete" (no win)' : `won "${segment.text}"`}${xpAwarded > 0 ? ` (+${xpAwarded} XP)` : ''}${shockScheduled ? ` ⚡ (shock scheduled: ${segment.shockIntensity}/${segment.shockDuration}ms, delay: ${SHOCK_DISPLAY_DELAY_MS}ms)` : ''} (spinId: ${spinId})`
     );
 
-    // Clear spinning state
-    this.isSpinning = false;
-    this.currentSpin = null;
+    // Clear spinning state (spinSafetyTimeout already cleared at the top of this function)
+    this._cleanupSpinState(spinId, 'completed');
 
     // Process next spin in queue after winner display duration
     const settings = config.settings || {};
@@ -850,8 +850,7 @@ class WheelGame {
     
     if (!spinData || !config) {
       this.logger.error(`Cannot force complete spin ${spinId}: missing data`);
-      this.isSpinning = false;
-      this.currentSpin = null;
+      this._cleanupSpinState(spinId, 'force_complete_missing_data');
       
       // Still notify queue to continue
       if (this.unifiedQueue) {
@@ -866,9 +865,7 @@ class WheelGame {
     // Validate segment index
     if (!Number.isInteger(finalSegmentIndex) || finalSegmentIndex < 0 || finalSegmentIndex >= config.segments.length) {
       this.logger.error(`Invalid segment index for force complete (spinId: ${spinId}, index: ${finalSegmentIndex})`);
-      this.isSpinning = false;
-      this.currentSpin = null;
-      this.activeSpins.delete(spinId);
+      this._cleanupSpinState(spinId, 'force_complete_invalid_index');
       
       if (this.unifiedQueue) {
         this.unifiedQueue.completeProcessing();
@@ -911,12 +908,8 @@ class WheelGame {
     spinData.result = segment.text;
     spinData.segmentIndex = finalSegmentIndex;
     
-    // Remove from active spins
-    this.activeSpins.delete(spinId);
-    
-    // Clear spinning state
-    this.isSpinning = false;
-    this.currentSpin = null;
+    // Clear spinning state and remove from active spins
+    this._cleanupSpinState(spinId, 'force_complete_timeout');
     
     // Emit timeout event to overlay
     this.io.emit('wheel:spin-timeout', {
@@ -1070,9 +1063,14 @@ class WheelGame {
       
       // Reset spinning state if current spin is stuck
       if (this.currentSpin && oldSpins.includes(this.currentSpin.spinId)) {
-        this.isSpinning = false;
-        this.currentSpin = null;
-        this.processNextSpin();
+        const stuckSpinId = this.currentSpin.spinId;
+        this._cleanupSpinState(stuckSpinId, 'cleanup_old_spins');
+        // Notify the appropriate queue so the next item can be processed
+        if (this.unifiedQueue) {
+          this.unifiedQueue.completeProcessing();
+        } else {
+          this.processNextSpin();
+        }
       }
     }
   }
@@ -1280,6 +1278,34 @@ class WheelGame {
     } else if (successCount < targetDevices.length) {
       this.logger.warn(`${actionType} command succeeded for ${successCount}/${targetDevices.length} devices`);
     }
+  }
+
+  /**
+   * Central cleanup for spin state.
+   * Cancels the safety timeout, removes the spin from activeSpins, and resets
+   * isSpinning / currentSpin. Must be called on every terminal path of a spin
+   * (success, any failure, timeout) to guarantee a consistent state.
+   *
+   * @param {string|null} spinId - Spin ID to remove from activeSpins (may be null)
+   * @param {string} reason - Short reason tag used in debug logging
+   */
+  _cleanupSpinState(spinId, reason) {
+    this.logger.debug(`🎡 [WHEEL] Spin state cleanup (spinId: ${spinId || 'none'}, reason: ${reason})`);
+
+    // Cancel server-side safety timeout
+    if (this.spinSafetyTimeout) {
+      clearTimeout(this.spinSafetyTimeout);
+      this.spinSafetyTimeout = null;
+    }
+
+    // Remove from active spins tracking
+    if (spinId) {
+      this.activeSpins.delete(spinId);
+    }
+
+    // Reset global spin busy-state
+    this.isSpinning = false;
+    this.currentSpin = null;
   }
 
   /**

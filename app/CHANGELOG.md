@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Game Engine – Wheel Queue / Spin-Hanger** - Resolved a bug where the unified queue
+  would permanently hang (stop processing further spins) when many gifts arrived in rapid
+  succession.
+  - Introduced `_cleanupSpinState(spinId, reason)` as a single, centralised cleanup method
+    that atomically resets `isSpinning`, `currentSpin`, `activeSpins`, and cancels the
+    spin safety timeout.
+  - `startSpin()` now calls `_cleanupSpinState()` on all validation-failure paths (missing
+    config, invalid/empty segments, segment-count change, invalid segment index, winning
+    segment without text), removing zombie entries from `activeSpins` that previously
+    accumulated under burst load.
+  - `handleSpinComplete()` now calls `_cleanupSpinState()` and
+    `unifiedQueue.completeProcessing()` on every early-return error path (missing spinData,
+    invalid config at completion time, invalid final segment index), preventing the queue
+    from blocking indefinitely on those error conditions.
+  - `forceCompleteSpin()` consolidated to use `_cleanupSpinState()`.
+  - `cleanupOldSpins()` now calls `unifiedQueue.completeProcessing()` instead of the
+    no-op `processNextSpin()` when the unified queue is active, so the periodic cleanup
+    timer correctly unblocks the queue after removing a stuck spin.
+
 ## [1.3.2] - 2026-02-07
 
 ### Changed
