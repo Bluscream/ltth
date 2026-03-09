@@ -717,7 +717,11 @@
 
             // Check if profile picture should be used
             const useProfilePicture = emoji === '{{profilePicture}}' && profilePictureUrl;
-            if (useProfilePicture) {
+            if (emoji === '{{profilePicture}}' && !profilePictureUrl) {
+                // User has profile-picture mapping but no URL was provided - use fallback emoji
+                console.warn(`⚠️ [PROFILE PICTURE] No profile picture URL for ${username}, using fallback emoji`);
+                emoji = '👤';
+            } else if (useProfilePicture) {
                 console.log(`🖼️ [PROFILE PICTURE] Using profile picture for ${username}: ${profilePictureUrl}`);
             }
 
