@@ -8,6 +8,9 @@
  * - Metadata extraction
  */
 
+importScripts('/js/frontend-logger.js');
+const log = self.FrontendLogger.createLogger('SoundWorker');
+
 self.addEventListener('message', async (event) => {
   const { type, data } = event.data;
 
@@ -138,8 +141,15 @@ async function batchDownload(sounds) {
         size: blob.size
       });
     } catch (error) {
-      // Skip failed downloads
-      console.error('Batch download error:', error);
+      // Report failed downloads as structured messages instead of swallowing them.
+      log.error('Batch download error', { index: i, url: sound.url, id: sound.id !== undefined ? sound.id : null, error: error.message });
+      self.postMessage({
+        type: 'batch_error',
+        index: i,
+        url: sound.url,
+        id: sound.id !== undefined ? sound.id : null,
+        error: error.message,
+      });
     }
   }
 

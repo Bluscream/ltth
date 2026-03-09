@@ -6,6 +6,9 @@
 (() => {
     'use strict';
 
+    // ========== LOGGING ==========
+    const log = window.FrontendLogger.createLogger('Wiki');
+
     // ========== STATE ==========
     let wikiStructure = null;
     let wikiCache = new Map();
@@ -57,7 +60,7 @@
     async function initializeWiki() {
         if (isInitialized) return;
         
-        console.log('📚 [Wiki] Initializing wiki system...');
+        log.info('Initializing wiki system');
         isInitialized = true;
 
         try {
@@ -66,7 +69,7 @@
             if (!response.ok) throw new Error('Failed to load wiki structure');
             
             wikiStructure = await response.json();
-            console.log('✅ [Wiki] Structure loaded:', wikiStructure);
+            log.info('Structure loaded', wikiStructure);
 
             // Build navigation
             buildNavigation();
@@ -86,7 +89,7 @@
                 lucide.createIcons();
             }
         } catch (error) {
-            console.error('❌ [Wiki] Initialization failed:', error);
+            log.error('Initialization failed', { error: error.message, stack: error.stack });
             showError('Failed to load wiki. Please try again later.');
         }
     }
@@ -220,7 +223,7 @@
 
     // ========== PAGE LOADING ==========
     async function loadPage(pageId) {
-        console.log(`📄 [Wiki] Loading page: ${pageId}`);
+        log.info(`Loading page: ${pageId}`);
         currentPage = pageId;
 
         const articleContainer = document.getElementById('wiki-article');
@@ -280,7 +283,7 @@
             }
 
         } catch (error) {
-            console.error(`❌ [Wiki] Failed to load page ${pageId}:`, error);
+            log.error(`Failed to load page ${pageId}`, { error: error.message });
             showError(`Failed to load page. Please try again.`);
         }
     }
@@ -456,7 +459,7 @@
             return;
         }
 
-        console.log(`🔍 [Wiki] Searching for: ${query}`);
+        log.info(`Searching for: ${query}`);
 
         try {
             const response = await fetch(`${WIKI_API_BASE}/search?q=${encodeURIComponent(query)}`);
@@ -465,7 +468,7 @@
             const results = await response.json();
             displaySearchResults(results);
         } catch (error) {
-            console.error('❌ [Wiki] Search failed:', error);
+            log.error('Search failed', { error: error.message });
         }
     }
 
@@ -634,7 +637,7 @@
         // Reset initialization flag
         isInitialized = false;
         
-        console.log('🧹 [Wiki] Cleanup completed');
+        log.debug('Cleanup completed');
     }
 
     // ========== LANGUAGE SECTION SCROLLING ==========
