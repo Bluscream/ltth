@@ -15,7 +15,7 @@ class TimerAPI {
         // Serve overlay HTML
         this.api.registerRoute('get', '/advanced-timer/overlay', (req, res) => {
             try {
-                res.sendFile(path.join(this.api.pluginDir, 'overlay.html'));
+                res.sendFile(path.join(this.api.getPluginDir(), 'overlay.html'));
             } catch (error) {
                 this.api.log(`Error serving overlay: ${error.message}`, 'error');
                 res.status(500).send('Error loading overlay');
@@ -25,7 +25,7 @@ class TimerAPI {
         // Serve overlay JavaScript
         this.api.registerRoute('get', '/advanced-timer/overlay.js', (req, res) => {
             try {
-                res.sendFile(path.join(this.api.pluginDir, 'overlay', 'overlay.js'));
+                res.sendFile(path.join(this.api.getPluginDir(), 'overlay', 'overlay.js'));
             } catch (error) {
                 this.api.log(`Error serving overlay JS: ${error.message}`, 'error');
                 res.status(500).send('Error loading overlay JS');
@@ -35,7 +35,7 @@ class TimerAPI {
         // Serve UI HTML
         this.api.registerRoute('get', '/advanced-timer/ui', (req, res) => {
             try {
-                res.sendFile(path.join(this.api.pluginDir, 'ui.html'));
+                res.sendFile(path.join(this.api.getPluginDir(), 'ui.html'));
             } catch (error) {
                 this.api.log(`Error serving UI: ${error.message}`, 'error');
                 res.status(500).send('Error loading UI');
@@ -45,7 +45,7 @@ class TimerAPI {
         // Serve UI JavaScript
         this.api.registerRoute('get', '/advanced-timer/ui.js', (req, res) => {
             try {
-                res.sendFile(path.join(this.api.pluginDir, 'ui', 'ui.js'));
+                res.sendFile(path.join(this.api.getPluginDir(), 'ui', 'ui.js'));
             } catch (error) {
                 this.api.log(`Error serving UI JS: ${error.message}`, 'error');
                 res.status(500).send('Error loading UI JS');
@@ -344,6 +344,7 @@ class TimerAPI {
                 const saved = this.plugin.db.saveTimer(timerData);
                 
                 if (!saved) {
+                    this.api.log(`Failed to persist timer '${timerData.name}' (${timerData.id}) to database`, 'error');
                     return res.status(500).json({ success: false, error: 'Failed to save timer' });
                 }
 

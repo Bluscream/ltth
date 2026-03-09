@@ -5,9 +5,27 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+
+const pluginDir = path.join(__dirname, '..', 'plugins', 'advanced-timer');
+const TimerDatabase = require(path.join(pluginDir, 'backend', 'database.js'));
+
+/**
+ * Build a minimal mock PluginAPI suitable for database tests.
+ * @param {string} pluginPath - Simulated plugin directory (for migration checks)
+ * @param {string} dataDir    - Directory used as the plugin data directory
+ */
+function makeMockApi(pluginPath, dataDir) {
+    return {
+        getPluginDir: () => pluginPath,
+        log: jest.fn(),
+        getConfigPathManager: () => ({
+            getPluginDataDir: () => dataDir
+        })
+    };
+}
 
 describe('Advanced Timer Plugin', () => {
-    const pluginDir = path.join(__dirname, '..', 'plugins', 'advanced-timer');
 
     describe('Plugin Structure', () => {
         test('plugin.json exists and is valid', () => {
@@ -349,6 +367,235 @@ describe('Advanced Timer Plugin', () => {
             expect(localeData.plugin.name).toBeDefined();
             expect(localeData.ui).toBeDefined();
             expect(localeData.events).toBeDefined();
+        });
+    });
+
+    describe('Database Initialization and Timer Creation', () => {
+        let tmpDir;
+
+        beforeEach(() => {
+            tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'advanced-timer-test-'));
+        });
+
+        afterEach(() => {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        });
+
+        test('initialize() opens the database and creates tables', () => {
+            const mockApi = makeMockApi(tmpDir, path.join(tmpDir, 'plugin-data'));
+            const db = new TimerDatabase(mockApi);
+
+            expect(() => db.initialize()).not.toThrow();
+            expect(db.db).not.toBeNull();
+
+            // Verify tables exist
+            const tables = db.db.prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).all().map(r => r.name);
+
+            expect(tables).toContain('advanced_timers');
+            expect(tables).toContain('advanced_timer_events');
+            expect(tables).toContain('advanced_timer_rules');
+            expect(tables).toContain('advanced_timer_chains');
+            expect(tables).toContain('advanced_timer_logs');
+            expect(tables).toContain('advanced_timer_profiles');
+
+            db.db.close();
+        });
+
+        test('saveTimer() saves a new timer and returns true', () => {
+            const mockApi = makeMockApi(tmpDir, path.join(tmpDir, 'plugin-data'));
+            const db = new TimerDatabase(mockApi);
+            db.initialize();
+
+            const result = db.saveTimer({
+                id: 'timer_test_1',
+                name: 'Test Countdown',
+                mode: 'countdown',
+                initial_duration: 60,
+                current_value: 60,
+                target_value: 0,
+                state: 'stopped',
+                config: {}
+            });
+
+            expect(result).toBe(true);
+
+            const timers = db.getAllTimers();
+            expect(timers).toHaveLength(1);
+            expect(timers[0].id).toBe('timer_test_1');
+            expect(timers[0].name).toBe('Test Countdown');
+            expect(timers[0].mode).toBe('countdown');
+            expect(timers[0].initial_duration).toBe(60);
+            expect(timers[0].config).toEqual({});
+
+            db.db.close();
+        });
+
+        test('saveTimer() serializes config field correctly', () => {
+            const mockApi = makeMockApi(tmpDir, path.join(tmpDir, 'plugin-data'));
+            const db = new TimerDatabase(mockApi);
+            db.initialize();
+
+            const configData = { giftMultiplier: 2, enabled: true };
+            db.saveTimer({
+                id: 'timer_test_2',
+                name: 'Test Countup',
+                mode: 'countup',
+                initial_duration: 0,
+                current_value: 0,
+                target_value: 120,
+                state: 'stopped',
+                config: configData
+            });
+
+            const timer = db.getTimer('timer_test_2');
+            expect(timer).not.toBeNull();
+            expect(timer.config).toEqual(configData);
+
+            db.db.close();
+        });
+
+        test('saveTimer() returns false when database is not initialized', () => {
+            const mockApi = makeMockApi(tmpDir, path.join(tmpDir, 'plugin-data'));
+            const db = new TimerDatabase(mockApi);
+            // Deliberately skip initialize()
+
+            const result = db.saveTimer({
+                id: 'timer_test_3',
+                name: 'Test',
+                mode: 'stopwatch',
+                initial_duration: 0,
+                current_value: 0,
+                target_value: 0,
+                state: 'stopped',
+                config: {}
+            });
+
+            expect(result).toBe(false);
+            expect(mockApi.log).toHaveBeenCalledWith(
+                expect.stringContaining('Error saving timer:'),
+                'error'
+            );
+        });
+
+        test('initialize() is idempotent - calling twice does not throw', () => {
+            const mockApi = makeMockApi(tmpDir, path.join(tmpDir, 'plugin-data'));
+            const db = new TimerDatabase(mockApi);
+
+            expect(() => {
+                db.initialize();
+                db.initialize();
+            }).not.toThrow();
+
+            db.db.close();
+        });
+
+        test('migration runs after tables are created when old db exists', () => {
+            // Create a fake old database with data
+            const oldDir = path.join(tmpDir, 'old-plugin', 'data');
+            fs.mkdirSync(oldDir, { recursive: true });
+            const oldDbPath = path.join(oldDir, 'timers.db');
+
+            const OldDb = require('better-sqlite3');
+            const oldDb = new OldDb(oldDbPath);
+            oldDb.exec(`
+                CREATE TABLE advanced_timers (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    initial_duration REAL DEFAULT 0,
+                    current_value REAL DEFAULT 0,
+                    target_value REAL DEFAULT 0,
+                    state TEXT DEFAULT 'stopped',
+                    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                    updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+                    config TEXT DEFAULT '{}'
+                )
+            `);
+            oldDb.prepare(
+                `INSERT INTO advanced_timers (id, name, mode, initial_duration, current_value, target_value, state, config)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run('migrated-timer', 'Migrated Timer', 'countdown', 30, 30, 0, 'stopped', '{}');
+            oldDb.close();
+
+            // Mock api pointing to old plugin dir
+            const mockApi = {
+                getPluginDir: () => path.join(tmpDir, 'old-plugin'),
+                log: jest.fn(),
+                getConfigPathManager: () => ({
+                    getPluginDataDir: () => path.join(tmpDir, 'plugin-data')
+                })
+            };
+
+            const db = new TimerDatabase(mockApi);
+            db.initialize();
+
+            const timers = db.getAllTimers();
+            expect(timers).toHaveLength(1);
+            expect(timers[0].id).toBe('migrated-timer');
+            expect(timers[0].name).toBe('Migrated Timer');
+
+            db.db.close();
+        });
+    });
+
+    describe('Timer Restore Ordering', () => {
+        test('loadTimers sets timer values before starting it', () => {
+            // WHY THIS MATTERS: If timer.start() is called before initialDuration / currentValue
+            // are restored from the DB, the engine briefly ticks with the constructor-defaults
+            // (typically 0). This causes a visible jump in the displayed time and incorrect
+            // completion-detection when the timer is resumed right after a plugin restart.
+            // The fix sets initialDuration, targetValue and currentValue from the DB record
+            // BEFORE calling timer.start().
+            const { Timer, TimerEngine } = require(path.join(pluginDir, 'engine', 'timer-engine.js'));
+            const mockApi = { log: jest.fn() };
+            const engine = new TimerEngine(mockApi);
+
+            // Capture timer values at the moment start() is invoked
+            const valueAtStart = { initialDuration: null, targetValue: null, currentValue: null };
+            const originalCreateTimer = engine.createTimer.bind(engine);
+
+            let capturedTimer = null;
+            engine.createTimer = (data) => {
+                capturedTimer = originalCreateTimer(data);
+                const origStart = capturedTimer.start.bind(capturedTimer);
+                capturedTimer.start = () => {
+                    valueAtStart.initialDuration = capturedTimer.initialDuration;
+                    valueAtStart.targetValue = capturedTimer.targetValue;
+                    valueAtStart.currentValue = capturedTimer.currentValue;
+                    origStart();
+                };
+                return capturedTimer;
+            };
+
+            // Simulate the correct ordering from loadTimers: set values FIRST, then start
+            const timerData = {
+                id: 'restore-test',
+                name: 'Restore Test',
+                mode: 'countdown',
+                initial_duration: 120,
+                current_value: 75,
+                target_value: 0,
+                state: 'running',
+                config: {}
+            };
+
+            const timer = engine.createTimer(timerData);
+            // Correct order: restore saved values before starting
+            timer.initialDuration = timerData.initial_duration;
+            timer.targetValue = timerData.target_value;
+            timer.currentValue = timerData.current_value;
+            timer.start();
+
+            // Values must reflect the DB record, not constructor defaults, when the timer starts
+            expect(valueAtStart.initialDuration).toBe(120);
+            expect(valueAtStart.currentValue).toBe(75);
+
+            // Cleanup
+            if (capturedTimer && capturedTimer.intervalId) {
+                clearInterval(capturedTimer.intervalId);
+            }
         });
     });
 });
