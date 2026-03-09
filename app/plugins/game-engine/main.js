@@ -1936,8 +1936,19 @@ class GameEnginePlugin {
       try {
         const machineId = parseInt(req.params.machineId, 10);
         const { username = 'TestUser', nickname = 'Test User', oddsProfile = 'chat' } = req.body || {};
+        // Validate oddsProfile against the machine's configured profiles
+        const config = this.slotGame.getConfig(machineId);
+        if (!config) return res.status(404).json({ error: 'Slot machine not found' });
+        const validProfiles = Object.keys(config.oddsProfiles || {});
+        const safeProfile = validProfiles.includes(oddsProfile) ? oddsProfile : (validProfiles[0] || 'chat');
         const result = await this.slotGame._triggerSpin(
-          username, nickname, '', 'test', 'test-spin', machineId, oddsProfile
+          String(username).slice(0, 50),
+          String(nickname).slice(0, 50),
+          '',
+          'test',
+          'test-spin',
+          machineId,
+          safeProfile
         );
         res.json(result);
       } catch (error) {

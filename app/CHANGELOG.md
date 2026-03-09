@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Game Engine – Slot Machine** – New server-authoritative slot machine game module
+  (`SlotGame`) within the existing game-engine plugin.
+  - 3-reel slot engine with configurable symbol sets (12 default emoji symbols) and
+    per-symbol weights.
+  - Six outcome categories: `loss`, `near_miss`, `small_win`, `medium_win`, `big_win`,
+    `jackpot`.
+  - Configurable odds profiles per trigger context (`chat`, `gift_common`, `gift_rare`)
+    with independent probability weights.
+  - Chat command trigger (`!spin` by default) with per-user cooldown, global cooldown,
+    and VIP/Sub cooldown settings.
+  - Gift trigger mapping: each gift maps to a specific machine and odds profile.
+  - Reward dispatcher supporting: `audio`, `overlay`, `openshock`, `xp`, `chat`,
+    `free_spin` actions – fully decoupled from the slot engine core.
+  - OpenShock integration mirrors the WheelGame pattern: clamped intensity/duration,
+    batch deduplication window, delayed fire after result display.
+  - Animated overlay (`/overlay/game-engine/slot`) with staggered reel-stop animation,
+    win glow, jackpot confetti, and socket.io event binding.
+  - Dashboard/Settings UI tab with symbol editor, odds-profile editor, gift mappings,
+    reward rules, cooldown settings, statistics panel, and test-spin button.
+  - REST API: `GET/POST /api/game-engine/slots/*` (CRUD, config, stats, test-spin,
+    cooldown query).
+  - Multi-machine support: multiple independent slot machines, each with their own
+    symbols, odds, gift mappings, and chat commands.
+  - Persistent storage via three new SQLite tables (`game_slot_config`,
+    `game_slot_sessions`, `game_slot_stats`) initialised automatically on first start.
+  - Slot overlay URL added to OBS Overlays tab.
+
 ### Fixed
 - **Game Engine – Wheel Queue / Spin-Hanger** - Resolved a bug where the unified queue
   would permanently hang (stop processing further spins) when many gifts arrived in rapid
