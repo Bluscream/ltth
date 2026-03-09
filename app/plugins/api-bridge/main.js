@@ -3,6 +3,14 @@
  * Ermöglicht externen Anwendungen die Steuerung des Tools via HTTP und WebSocket
  */
 
+const {
+    ValidationError,
+    NotFoundError,
+    safeRoute,
+    safeSocketHandler,
+    safeActionHandler
+} = require('../../modules/error-handler');
+
 class APIBridgePlugin {
     constructor(api) {
         this.api = api;
@@ -51,41 +59,30 @@ class APIBridgePlugin {
         });
 
         // Action ausführen
-        this.api.registerRoute('post', '/api/bridge/actions/exec', async (req, res) => {
-            try {
-                const { actionId, context } = req.body;
+        this.api.registerRoute('post', '/api/bridge/actions/exec', safeRoute(async (req, res) => {
+            const { actionId, context } = req.body;
 
-                if (!actionId) {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'actionId ist erforderlich'
-                    });
-                }
-
-                this.api.log(`Action ausführen: ${actionId}`, 'info');
-
-                const result = await this.executeAction(actionId, context || {});
-
-                // Broadcast über Socket.IO
-                this.api.emit('bridge:action-executed', {
-                    actionId,
-                    context,
-                    result,
-                    timestamp: Date.now()
-                });
-
-                res.json({
-                    success: true,
-                    data: result
-                });
-            } catch (error) {
-                this.api.log(`Fehler bei Action-Ausführung: ${error.message}`, 'error');
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+            if (!actionId) {
+                throw new ValidationError('actionId ist erforderlich');
             }
-        });
+
+            this.api.log(`Action ausführen: ${actionId}`, 'info');
+
+            const result = await this.executeAction(actionId, context || {});
+
+            // Broadcast über Socket.IO
+            this.api.emit('bridge:action-executed', {
+                actionId,
+                context,
+                result,
+                timestamp: Date.now()
+            });
+
+            res.json({
+                success: true,
+                data: result
+            });
+        }));
 
         // Event History abrufen
         this.api.registerRoute('get', '/api/bridge/events', (req, res) => {
@@ -104,39 +101,30 @@ class APIBridgePlugin {
         // ========== WebSocket Events ==========
 
         // Action via WebSocket ausführen
-        this.api.registerSocket('bridge:action', async (socket, data) => {
-            try {
-                const { actionId, context } = data;
+        this.api.registerSocket('bridge:action', safeSocketHandler('bridge:action', async (socket, data) => {
+            const { actionId, context } = data;
 
-                if (!actionId) {
-                    socket.emit('bridge:action:error', {
-                        error: 'actionId ist erforderlich'
-                    });
-                    return;
-                }
-
-                const result = await this.executeAction(actionId, context || {});
-
-                socket.emit('bridge:action:result', {
-                    actionId,
-                    context,
-                    result,
-                    timestamp: Date.now()
-                });
-
-                // An alle anderen Clients broadcasten
-                this.api.emit('bridge:action-executed', {
-                    actionId,
-                    context,
-                    result,
-                    timestamp: Date.now()
-                });
-            } catch (error) {
-                socket.emit('bridge:action:error', {
-                    error: error.message
-                });
+            if (!actionId) {
+                throw new ValidationError('actionId ist erforderlich');
             }
-        });
+
+            const result = await this.executeAction(actionId, context || {});
+
+            socket.emit('bridge:action:result', {
+                actionId,
+                context,
+                result,
+                timestamp: Date.now()
+            });
+
+            // An alle anderen Clients broadcasten
+            this.api.emit('bridge:action-executed', {
+                actionId,
+                context,
+                result,
+                timestamp: Date.now()
+            });
+        }));
 
         // ========== TikTok Event Broadcasting ==========
 
@@ -264,7 +252,7 @@ class APIBridgePlugin {
                 const { text, voice, username } = context;
 
                 if (!text) {
-                    throw new Error('Parameter "text" ist erforderlich');
+                    throw new ValidationError('Parameter "text" ist erforderlich', 'text');
                 }
 
                 // TTS Plugin nutzen
@@ -310,7 +298,7 @@ class APIBridgePlugin {
                 const { soundId, volume } = context;
 
                 if (!soundId) {
-                    throw new Error('Parameter "soundId" ist erforderlich');
+                    throw new ValidationError('Parameter "soundId" ist erforderlich', 'soundId');
                 }
 
                 const io = this.api.getSocketIO();
@@ -334,7 +322,7 @@ class APIBridgePlugin {
                 const { goalType, amount = 1 } = context;
 
                 if (!goalType) {
-                    throw new Error('Parameter "goalType" ist erforderlich');
+                    throw new ValidationError('Parameter "goalType" ist erforderlich', 'goalType');
                 }
 
                 const io = this.api.getSocketIO();
@@ -357,7 +345,7 @@ class APIBridgePlugin {
                 const { goalType, value } = context;
 
                 if (!goalType || value === undefined) {
-                    throw new Error('Parameter "goalType" und "value" sind erforderlich');
+                    throw new ValidationError('Parameter "goalType" und "value" sind erforderlich');
                 }
 
                 const io = this.api.getSocketIO();
@@ -379,7 +367,7 @@ class APIBridgePlugin {
                 const { goalType } = context;
 
                 if (!goalType) {
-                    throw new Error('Parameter "goalType" ist erforderlich');
+                    throw new ValidationError('Parameter "goalType" ist erforderlich', 'goalType');
                 }
 
                 const io = this.api.getSocketIO();
@@ -400,7 +388,7 @@ class APIBridgePlugin {
                 const { address, value } = context;
 
                 if (!address || value === undefined) {
-                    throw new Error('Parameter "address" und "value" sind erforderlich');
+                    throw new ValidationError('Parameter "address" und "value" sind erforderlich');
                 }
 
                 const io = this.api.getSocketIO();
@@ -422,7 +410,7 @@ class APIBridgePlugin {
                 const { emote } = context;
 
                 if (!emote) {
-                    throw new Error('Parameter "emote" ist erforderlich');
+                    throw new ValidationError('Parameter "emote" ist erforderlich', 'emote');
                 }
 
                 const io = this.api.getSocketIO();
@@ -443,7 +431,7 @@ class APIBridgePlugin {
                 const { message, type = 'info' } = context;
 
                 if (!message) {
-                    throw new Error('Parameter "message" ist erforderlich');
+                    throw new ValidationError('Parameter "message" ist erforderlich', 'message');
                 }
 
                 const io = this.api.getSocketIO();
@@ -467,7 +455,7 @@ class APIBridgePlugin {
                 const { event, data } = context;
 
                 if (!event) {
-                    throw new Error('Parameter "event" ist erforderlich');
+                    throw new ValidationError('Parameter "event" ist erforderlich', 'event');
                 }
 
                 const io = this.api.getSocketIO();
@@ -485,20 +473,20 @@ class APIBridgePlugin {
         const action = this.actionHandlers.get(actionId);
 
         if (!action) {
-            throw new Error(`Unbekannte Action: ${actionId}`);
+            throw new NotFoundError(`Unbekannte Action: ${actionId}`);
         }
 
         // Parameter Validierung
         if (action.parameters) {
             for (const [param, config] of Object.entries(action.parameters)) {
                 if (config.required && context[param] === undefined) {
-                    throw new Error(`Erforderlicher Parameter fehlt: ${param}`);
+                    throw new ValidationError(`Erforderlicher Parameter fehlt: ${param}`, param);
                 }
             }
         }
 
-        // Handler ausführen
-        return await action.handler(context);
+        // Handler ausführen mit safe wrapper
+        return await safeActionHandler(actionId, () => action.handler(context));
     }
 
     /**

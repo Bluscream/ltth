@@ -18,6 +18,7 @@ const GoalsAPI = require('./backend/api');
 const GoalsWebSocket = require('./backend/websocket');
 const GoalsEventHandlers = require('./backend/event-handlers');
 const { StateMachineManager } = require('./engine/state-machine');
+const { ValidationError, NotFoundError } = require('../../modules/error-handler');
 
 class GoalsPlugin extends EventEmitter {
     constructor(api) {
@@ -216,7 +217,7 @@ class GoalsPlugin extends EventEmitter {
                 const value = parseFloat(action.value);
                 
                 if (!goalId || isNaN(value)) {
-                    throw new Error('Goal ID and value are required');
+                    throw new ValidationError('Goal ID and value are required');
                 }
                 
                 this.eventHandlers.setGoalValue(goalId, value);
@@ -241,7 +242,7 @@ class GoalsPlugin extends EventEmitter {
                 const amount = parseFloat(action.amount) || 1;
                 
                 if (!goalId) {
-                    throw new Error('Goal ID is required');
+                    throw new ValidationError('Goal ID is required', 'goalId');
                 }
                 
                 this.eventHandlers.incrementGoal(goalId, amount);
@@ -264,7 +265,7 @@ class GoalsPlugin extends EventEmitter {
                 const goalId = parseInt(action.goalId);
                 
                 if (!goalId) {
-                    throw new Error('Goal ID is required');
+                    throw new ValidationError('Goal ID is required', 'goalId');
                 }
                 
                 const goal = this.db.resetGoal(goalId);
@@ -290,12 +291,12 @@ class GoalsPlugin extends EventEmitter {
                 const goalId = parseInt(action.goalId);
                 
                 if (!goalId) {
-                    throw new Error('Goal ID is required');
+                    throw new ValidationError('Goal ID is required', 'goalId');
                 }
                 
                 const goal = this.db.getGoal(goalId);
                 if (!goal) {
-                    throw new Error('Goal not found');
+                    throw new NotFoundError('Goal not found');
                 }
                 
                 const updated = this.db.updateGoal(goalId, {
