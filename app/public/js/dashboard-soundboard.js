@@ -251,6 +251,12 @@ function processPerGiftQueue(queueKey) {
 }
 
 /**
+ * Maximum time (ms) to wait for an audio element that has started playing to
+ * fire `ended` or `error`. Prevents the queue from stalling on broken streams.
+ */
+const PLAY_STALL_TIMEOUT_MS = 60000;
+
+/**
  * Play a single sound (used by all modes)
  * @param {Object} data - Sound data (url, volume, label, giftId, eventType)
  * @param {Function} onComplete - Callback when sound finishes (optional)
@@ -280,8 +286,34 @@ function playSound(data, onComplete) {
     audioPool.push(audio);
     updateActiveSoundsCount();
     
+    // Guard: ensure onComplete fires at most once regardless of which error/end
+    // path triggers first (play() rejection, onerror, and onended can all fire).
+    let completionFired = false;
+    const safeComplete = () => {
+        if (!completionFired) {
+            completionFired = true;
+            if (onComplete) onComplete();
+        }
+    };
+    
+    // Safety timeout: if the audio stalls after playback starts and never fires
+    // ended/error, advance the queue anyway to prevent a permanent hang.
+    let stallTimeoutId = null;
+    const startStallTimeout = () => {
+        stallTimeoutId = setTimeout(() => {
+            log.warn('Audio stall timeout reached, advancing queue', { label: data.label });
+            logAudioEvent('warning', `Audio stall timeout for ${data.label}, forcing queue advance`, { url: data.url }, true);
+            cleanup();
+            safeComplete();
+        }, PLAY_STALL_TIMEOUT_MS);
+    };
+    
     // Helper function to clean up audio element
     const cleanup = () => {
+        if (stallTimeoutId !== null) {
+            clearTimeout(stallTimeoutId);
+            stallTimeoutId = null;
+        }
         // Remove from pool
         const index = audioPool.indexOf(audio);
         if (index > -1) {
@@ -298,12 +330,14 @@ function playSound(data, onComplete) {
     audio.play().then(() => {
         log.info('Started playing', { label: data.label });
         logAudioEvent('success', `Successfully started: ${data.label}`, { url: data.url }, true);
+        // Start stall guard only once playback is confirmed started.
+        startStallTimeout();
     }).catch(err => {
         log.error('Playback error', { label: data.label, error: err.message });
         logAudioEvent('error', `Playback failed: ${err.message}`, { url: data.url, error: err }, true);
         cleanup();
         // Call onComplete even on error to continue queue
-        if (onComplete) onComplete();
+        safeComplete();
     });
     
     // Remove after playback
@@ -313,7 +347,7 @@ function playSound(data, onComplete) {
         cleanup();
         
         // Call completion callback if provided
-        if (onComplete) onComplete();
+        safeComplete();
     };
     
     audio.onerror = (e) => {
@@ -322,7 +356,7 @@ function playSound(data, onComplete) {
         cleanup();
         
         // Call onComplete even on error to continue queue
-        if (onComplete) onComplete();
+        safeComplete();
     };
 }
 
