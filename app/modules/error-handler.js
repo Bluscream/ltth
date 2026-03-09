@@ -1,6 +1,8 @@
 /**
  * Error Handler Module
  * Standardizes error responses and error handling across the application
+ * Provides typed operational errors and safe execution wrappers for routes,
+ * socket handlers, and plugin action handlers.
  */
 
 const { ValidationError } = require('./validators');
@@ -43,38 +45,17 @@ function formatError(error, statusCode = 500) {
  * @param {string} context - Context description for logging
  */
 function handleError(res, error, logger, context = '') {
-    // Determine status code
-    let statusCode = 500;
+    const prefix = context ? `${context}: ` : '';
 
-    if (error instanceof ValidationError) {
-        statusCode = 400;
-        if (logger) {
-            logger.warn(`${context ? context + ': ' : ''}${error.message}`);
-        }
-    } else if (error.statusCode) {
-        statusCode = error.statusCode;
-        if (logger) {
-            logger.error(`${context ? context + ': ' : ''}${error.message}`);
-        }
-    } else if (error.name === 'NotFoundError' || error.message.includes('not found')) {
-        statusCode = 404;
-        if (logger) {
-            logger.warn(`${context ? context + ': ' : ''}${error.message}`);
-        }
-    } else if (error.name === 'UnauthorizedError' || error.message.includes('unauthorized')) {
-        statusCode = 401;
-        if (logger) {
-            logger.warn(`${context ? context + ': ' : ''}${error.message}`);
-        }
-    } else if (error.name === 'ForbiddenError' || error.message.includes('forbidden')) {
-        statusCode = 403;
-        if (logger) {
-            logger.warn(`${context ? context + ': ' : ''}${error.message}`);
-        }
-    } else {
-        // Unknown error - log as error
-        if (logger) {
-            logger.error(`${context ? context + ': ' : ''}${error.message}`, error);
+    // Determine status code and log level based on error type
+    let statusCode = error.statusCode || 500;
+    const isClientError = statusCode >= 400 && statusCode < 500;
+
+    if (logger) {
+        if (isClientError) {
+            logger.warn(`${prefix}${error.message}`);
+        } else {
+            logger.error(`${prefix}${error.message}`, { stack: error.stack });
         }
     }
 
@@ -230,6 +211,112 @@ class RateLimitError extends Error {
     }
 }
 
+/**
+ * Represents a failure in an external dependency (e.g. TTS engine, TikTok API, OSC target).
+ * Maps to HTTP 503 Service Unavailable.
+ */
+class ExternalServiceError extends Error {
+    constructor(message = 'External service unavailable') {
+        super(message);
+        this.name = 'ExternalServiceError';
+        this.statusCode = 503;
+    }
+}
+
+/**
+ * Represents a transient failure that the caller may safely retry.
+ * Maps to HTTP 503 Service Unavailable with a retryable flag.
+ */
+class RetryableError extends Error {
+    constructor(message = 'Transient error, please retry') {
+        super(message);
+        this.name = 'RetryableError';
+        this.statusCode = 503;
+        this.retryable = true;
+    }
+}
+
+/**
+ * Safe Express route wrapper.
+ * Catches any synchronous or asynchronous error thrown by the handler,
+ * maps it to a structured JSON response and logs it.
+ *
+ * @param {Function} handler - async (req, res, next) route handler
+ * @param {Object} [logger] - optional Winston-compatible logger instance
+ * @returns {Function} - wrapped Express route handler
+ */
+function safeRoute(handler, logger = null) {
+    return async (req, res, next) => {
+        try {
+            await handler(req, res, next);
+        } catch (error) {
+            const ctx = `${req.method} ${req.path}`;
+            const log = logger || (req.app && req.app.locals && req.app.locals.logger) || null;
+            handleError(res, error, log, ctx);
+        }
+    };
+}
+
+/**
+ * Safe Socket.IO event handler wrapper.
+ * Catches any error thrown inside the handler and emits a structured error
+ * event back to the originating socket without crashing the server.
+ *
+ * @param {string} eventName - Socket.IO event name (used for logging and error event)
+ * @param {Function} handler - async (socket, data) handler
+ * @param {Object} [logger] - optional Winston-compatible logger instance
+ * @returns {Function} - wrapped socket event handler
+ */
+function safeSocketHandler(eventName, handler, logger = null) {
+    return async (socket, ...args) => {
+        try {
+            await handler(socket, ...args);
+        } catch (error) {
+            if (logger) {
+                const isClientError = error.statusCode >= 400 && error.statusCode < 500;
+                if (isClientError) {
+                    logger.warn(`socket:${eventName}: ${error.message}`);
+                } else {
+                    logger.error(`socket:${eventName}: ${error.message}`, { stack: error.stack });
+                }
+            }
+            socket.emit('plugin:error', {
+                event: eventName,
+                error: error.message,
+                code: error.name || 'Error',
+                statusCode: error.statusCode || 500
+            });
+        }
+    };
+}
+
+/**
+ * Safe action handler wrapper for plugin bridge actions.
+ * Executes the provided async function and maps plain Error instances to
+ * typed operational errors where possible, ensuring consistent error shapes
+ * propagate to callers.
+ *
+ * @param {string} actionId - Action identifier (used for logging)
+ * @param {Function} fn - async () => result function
+ * @param {Object} [logger] - optional Winston-compatible logger instance
+ * @returns {Promise<*>} - resolves with the action result
+ */
+async function safeActionHandler(actionId, fn, logger = null) {
+    try {
+        return await fn();
+    } catch (error) {
+        if (logger) {
+            const isClientError = error.statusCode >= 400 && error.statusCode < 500;
+            if (isClientError) {
+                logger.warn(`action:${actionId}: ${error.message}`);
+            } else {
+                logger.error(`action:${actionId}: ${error.message}`, { stack: error.stack });
+            }
+        }
+        throw error;
+    }
+}
+
 module.exports = {
     formatError,
     handleError,
@@ -238,9 +325,15 @@ module.exports = {
     safeJsonParse,
     withTimeout,
     retryWithBackoff,
+    safeRoute,
+    safeSocketHandler,
+    safeActionHandler,
+    ValidationError,
     NotFoundError,
     UnauthorizedError,
     ForbiddenError,
     ConflictError,
-    RateLimitError
+    RateLimitError,
+    ExternalServiceError,
+    RetryableError
 };
