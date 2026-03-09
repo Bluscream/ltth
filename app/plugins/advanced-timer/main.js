@@ -83,6 +83,11 @@ class AdvancedTimerPlugin extends EventEmitter {
                 // Create timer instance
                 const timer = this.engine.createTimer(timerData);
 
+                // Restore saved values first, before potentially starting the timer
+                timer.initialDuration = timerData.initial_duration;
+                timer.targetValue = timerData.target_value;
+                timer.currentValue = timerData.current_value;
+
                 // Restore state based on what it was before shutdown
                 if (timerData.state === 'running') {
                     // Resume running timer
@@ -96,11 +101,6 @@ class AdvancedTimerPlugin extends EventEmitter {
                     // Timer was stopped or completed - keep it in that state
                     this.api.log(`Restored ${timerData.state} timer: ${timerData.name}`, 'info');
                 }
-
-                // Ensure target and initial values remain intact
-                timer.initialDuration = timerData.initial_duration;
-                timer.targetValue = timerData.target_value;
-                timer.currentValue = timerData.current_value;
             }
 
             this.api.log(`Loaded ${timers.length} timers from database`, 'info');

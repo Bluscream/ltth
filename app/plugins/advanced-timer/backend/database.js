@@ -17,6 +17,8 @@ class TimerDatabase {
 
     /**
      * Initialize plugin database in user profile folder
+     * Opens the database connection and sets up WAL mode.
+     * Does NOT create tables or migrate data - call initialize() for that.
      */
     initDatabase() {
         try {
@@ -39,18 +41,14 @@ class TimerDatabase {
             const dbPath = path.join(pluginDataDir, 'timers.db');
             this.api.log(`Using database at: ${dbPath}`, 'info');
             
-            // Check if old database exists in plugin directory (migration)
-            const oldDbPath = path.join(this.api.pluginDir, 'data', 'timers.db');
-            const shouldMigrate = fs.existsSync(oldDbPath) && !fs.existsSync(dbPath);
+            // Check if old database exists in plugin directory (migration needed after tables are created)
+            // _pendingMigrationPath is read by initialize() once the schema is ready.
+            const oldDbPath = path.join(this.api.getPluginDir(), 'data', 'timers.db');
+            this._pendingMigrationPath = (fs.existsSync(oldDbPath) && !fs.existsSync(dbPath)) ? oldDbPath : null;
             
             // Open database
             this.db = new Database(dbPath);
             this.db.pragma('journal_mode = WAL');
-            
-            // Migrate old data if needed
-            if (shouldMigrate) {
-                this.migrateOldDatabase(oldDbPath);
-            }
             
         } catch (error) {
             this.api.log(`Error initializing plugin database: ${error.message}`, 'error');
@@ -128,7 +126,7 @@ class TimerDatabase {
      * Initialize database tables
      */
     initialize() {
-        // First initialize the database connection
+        // First open the database connection
         this.initDatabase();
         
         try {
@@ -218,6 +216,12 @@ class TimerDatabase {
             `).run();
 
             this.api.log('Advanced Timer database tables initialized', 'info');
+
+            // Migrate old data if needed (must happen after tables are created)
+            if (this._pendingMigrationPath) {
+                this.migrateOldDatabase(this._pendingMigrationPath);
+                this._pendingMigrationPath = null;
+            }
         } catch (error) {
             this.api.log(`Error initializing timer database: ${error.message}`, 'error');
             throw error;
