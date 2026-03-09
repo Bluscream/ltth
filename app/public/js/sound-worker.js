@@ -111,28 +111,81 @@ async function validateSound(url, id) {
   }
 }
 
+/** Per-download timeout in milliseconds. */
+const BATCH_DOWNLOAD_TIMEOUT_MS = 15000;
+
+/** Maximum retry attempts per item in a batch download. */
+const BATCH_MAX_RETRIES = 2;
+
 /**
- * Download multiple sounds in parallel
+ * Fetch a single URL with an AbortController-based timeout and bounded retries.
+ * Returns the Response on success or throws on final failure.
+ * @param {string} url
+ * @param {number} maxRetries
+ * @returns {Promise<Response>}
+ */
+async function fetchWithRetry(url, maxRetries) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), BATCH_DOWNLOAD_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      lastError = err;
+      // Only retry on network/timeout errors, not intentional aborts from outside.
+      if (attempt < maxRetries) {
+        log.warn('Batch download attempt failed, retrying', { url, attempt, error: err.message });
+      }
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Download multiple sounds sequentially with explicit failure reporting.
+ * The batch_complete message includes both successes and failures so callers
+ * can distinguish partial failures from full success.
+ * @param {Array<{id: *, url: string}>} sounds
  */
 async function batchDownload(sounds) {
   const results = [];
+  const failures = [];
 
   for (let i = 0; i < sounds.length; i++) {
     const sound = sounds[i];
+    const soundId = sound.id !== undefined ? sound.id : null;
+
+    self.postMessage({
+      type: 'batch_progress',
+      current: i + 1,
+      total: sounds.length,
+      url: sound.url
+    });
 
     try {
-      self.postMessage({
-        type: 'batch_progress',
-        current: i + 1,
-        total: sounds.length,
-        url: sound.url
-      });
+      const response = await fetchWithRetry(sound.url, BATCH_MAX_RETRIES);
 
-      const response = await fetch(sound.url);
-      if (!response.ok) continue;
+      if (!response.ok) {
+        const errMsg = `HTTP ${response.status}`;
+        log.error('Batch download HTTP error', { index: i, url: sound.url, id: soundId, status: response.status });
+        failures.push({ id: soundId, url: sound.url, error: errMsg, index: i });
+        self.postMessage({ type: 'batch_error', index: i, url: sound.url, id: soundId, error: errMsg });
+        continue;
+      }
 
       const blob = await response.blob();
-      if (!blob.type.startsWith('audio/')) continue;
+
+      if (!blob.type.startsWith('audio/')) {
+        const errMsg = `Invalid audio format: ${blob.type || 'unknown'}`;
+        log.error('Batch download invalid MIME', { index: i, url: sound.url, id: soundId, mimeType: blob.type });
+        failures.push({ id: soundId, url: sound.url, error: errMsg, index: i });
+        self.postMessage({ type: 'batch_error', index: i, url: sound.url, id: soundId, error: errMsg });
+        continue;
+      }
 
       results.push({
         id: sound.id,
@@ -141,20 +194,15 @@ async function batchDownload(sounds) {
         size: blob.size
       });
     } catch (error) {
-      // Report failed downloads as structured messages instead of swallowing them.
-      log.error('Batch download error', { index: i, url: sound.url, id: sound.id !== undefined ? sound.id : null, error: error.message });
-      self.postMessage({
-        type: 'batch_error',
-        index: i,
-        url: sound.url,
-        id: sound.id !== undefined ? sound.id : null,
-        error: error.message,
-      });
+      log.error('Batch download error', { index: i, url: sound.url, id: soundId, error: error.message });
+      failures.push({ id: soundId, url: sound.url, error: error.message, index: i });
+      self.postMessage({ type: 'batch_error', index: i, url: sound.url, id: soundId, error: error.message });
     }
   }
 
   self.postMessage({
     type: 'batch_complete',
-    results
+    results,
+    failures
   });
 }
