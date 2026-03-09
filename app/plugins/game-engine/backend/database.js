@@ -1358,14 +1358,24 @@ class GameEngineDatabase {
    */
   findPlinkoBoardByGiftTrigger(giftIdentifier) {
     const boards = this.getAllPlinkoBoards();
+    const lowerIdentifier = String(giftIdentifier || '').toLowerCase().trim();
     
     for (const board of boards) {
       if (!board.enabled) continue;
       if (!board.giftMappings) continue;
       
-      // Check both by gift ID and gift name
+      // Exact match by key (gift ID string or gift name)
       if (board.giftMappings[giftIdentifier] || board.giftMappings[String(giftIdentifier)]) {
         return board;
+      }
+      
+      // Case-insensitive fallback (for manually-entered gift names)
+      if (lowerIdentifier) {
+        for (const key of Object.keys(board.giftMappings)) {
+          if (key.toLowerCase() === lowerIdentifier) {
+            return board;
+          }
+        }
       }
     }
     
