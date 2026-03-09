@@ -648,6 +648,7 @@ class WebGPUEmojiRainPlugin {
       x: coordinates.x,
       y: coordinates.y,
       username: params.username || null,
+      profilePictureUrl: params.profilePictureUrl || null,
       reason: params.reason || 'manual',
       burst: params.burst || false,
       intensity: Math.min(params.intensity || 1.0, maxIntensity)
@@ -668,6 +669,13 @@ class WebGPUEmojiRainPlugin {
 
     // Emit spawn event
     this.api.emit('webgpu-emoji-rain:spawn', spawnData);
+    if (spawnData.emoji === '{{profilePicture}}') {
+      if (spawnData.profilePictureUrl) {
+        this.api.log(`🖼️ [WebGPU Emoji Rain] Profile picture spawn for ${spawnData.username}: ${spawnData.profilePictureUrl}`, 'debug');
+      } else {
+        this.api.log(`⚠️ [WebGPU Emoji Rain] Profile picture requested for ${spawnData.username} but no URL available - will use fallback`, 'warn');
+      }
+    }
 
     // Handle duration (spawn multiple batches)
     if (params.duration && params.duration > 0) {
