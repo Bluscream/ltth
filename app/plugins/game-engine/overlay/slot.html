@@ -203,6 +203,16 @@
       from { box-shadow: 0 0 0 3px #FFD700, 0 0 40px rgba(255,215,0,0.8); }
       to   { box-shadow: 0 0 0 6px #FFA500, 0 0 80px rgba(255,165,0,1); }
     }
+    #reels-wrapper.near-miss-shake {
+      animation: nearMissShake 0.5s ease-in-out;
+    }
+    @keyframes nearMissShake {
+      0%,100% { transform: translateX(0); }
+      20%      { transform: translateX(-6px); }
+      40%      { transform: translateX(6px); }
+      60%      { transform: translateX(-4px); }
+      80%      { transform: translateX(4px); }
+    }
 
     /* ── Winning reel highlight ────────────────────────── */
     .reel.win-flash {
@@ -276,11 +286,13 @@
     };
 
     const REEL_SYMBOL_HEIGHT = 88; // px – matches CSS (72 + 16)
-    const SPIN_DURATION_DEFAULT = 3000;   // ms total before result
-    const REEL_STOP_DELAY = 400;          // ms between reel stops
+    const REEL_STOP_DELAY    = 400; // ms between reel stops (default, overridden by settings)
+    const TRACK_SYMBOL_COUNT = 10;  // symbols to pre-fill per track (longer = smoother blur)
 
+    // ── State ─────────────────────────────────────────────
     let currentSymbols = [];
-    let hideTimer = null;
+    let lastSettings   = {};
+    let hideTimer      = null;
 
     const socket = io({ transports: ['websocket'] });
 
@@ -291,10 +303,12 @@
     const confettiEl = document.getElementById('confetti-overlay');
 
     // ── Helper: populate a reel track with random symbols ──
+    // Guard: if symbols is empty, fill with a placeholder
     function fillTrack(trackEl, symbols, count) {
       trackEl.innerHTML = '';
+      const safe = (symbols && symbols.length > 0) ? symbols : [{ emoji: '?', label: '?' }];
       for (let i = 0; i < count; i++) {
-        const sym = symbols[Math.floor(Math.random() * symbols.length)];
+        const sym = safe[Math.floor(Math.random() * safe.length)];
         const div = document.createElement('div');
         div.className = 'reel-symbol';
         div.textContent = sym.emoji || sym.label || '?';
@@ -302,38 +316,35 @@
       }
     }
 
-    // ── Helper: set the final (result) symbol in a reel ───
-    function setFinalSymbol(trackEl, symbol) {
-      // Replace last child with the winner symbol
-      const last = trackEl.lastElementChild;
-      if (last) last.textContent = symbol.emoji || symbol.label || '?';
-    }
-
     // ── Reel spin animation ────────────────────────────────
+    // Each reel uses a boolean flag to stop instead of a stale RAF ID.
     function startReel(index) {
       const track = document.getElementById(`track-${index}`);
       const reel  = document.getElementById(`reel-${index}`);
       if (!track || !reel) return;
 
+      // Cancel any previous spin for this reel
+      if (reel._stopSpin) reel._stopSpin();
+
       reel.classList.add('spinning');
 
-      // Use CSS animation for blur effect; actual scroll is JS-driven
-      let offset = 0;
-      const speed = 14 + Math.random() * 4; // px per frame
-      let rafId;
+      let spinning = true;
+      let offset   = 0;
+      const speed  = 14 + Math.random() * 4; // px per frame
 
       function step() {
+        if (!spinning) return;
         offset += speed;
         const totalH = track.children.length * REEL_SYMBOL_HEIGHT;
         if (offset >= totalH) offset -= totalH;
         track.style.transform = `translateY(-${offset}px)`;
-        rafId = requestAnimationFrame(step);
+        requestAnimationFrame(step);
       }
 
-      rafId = requestAnimationFrame(step);
-      reel._rafId = rafId;
-      reel._offset = () => offset;
-      reel._stopOffset = (v) => { offset = v; };
+      // Expose a stop function so stopReel() can halt this closure
+      reel._stopSpin = () => { spinning = false; };
+
+      requestAnimationFrame(step);
     }
 
     function stopReel(index, resultSymbol, callback) {
@@ -341,15 +352,23 @@
       const reel  = document.getElementById(`reel-${index}`);
       if (!track || !reel) { if (callback) callback(); return; }
 
-      // Cancel RAF
-      cancelAnimationFrame(reel._rafId);
+      // Stop the RAF loop
+      if (reel._stopSpin) {
+        reel._stopSpin();
+        reel._stopSpin = null;
+      }
       reel.classList.remove('spinning');
 
-      // Set winner into the middle slot (index 2 of 5 displayed)
-      setFinalSymbol(track, resultSymbol);
+      // Place the result symbol in the LAST slot of the track
+      const lastSlot = track.lastElementChild;
+      if (lastSlot) {
+        lastSlot.textContent = (resultSymbol && (resultSymbol.emoji || resultSymbol.label))
+          ? (resultSymbol.emoji || resultSymbol.label)
+          : '❓';
+      }
 
-      // Snap to show the final symbol centered
-      const snapTo = 2 * REEL_SYMBOL_HEIGHT;
+      // Snap to show the last symbol (= result) in the reel viewport
+      const snapTo = (track.children.length - 1) * REEL_SYMBOL_HEIGHT;
       track.classList.add('stopping');
       track.style.transform = `translateY(-${snapTo}px)`;
 
@@ -364,16 +383,22 @@
       machine.classList.add('visible');
     }
 
+    // ── Reset all visual state ────────────────────────────
+    function resetVisualState() {
+      reelsWrap.classList.remove('win-glow', 'jackpot-glow');
+      resultEl.className = '';
+      resultEl.classList.remove('visible');
+      resultEl.textContent = '';
+      confettiEl.innerHTML = '';
+      document.querySelectorAll('.reel').forEach(r => r.classList.remove('win-flash'));
+    }
+
     // ── Hide the machine (after delay) ────────────────────
     function scheduledHide(ms) {
       if (hideTimer) clearTimeout(hideTimer);
       hideTimer = setTimeout(() => {
         machine.classList.remove('visible');
-        reelsWrap.classList.remove('win-glow', 'jackpot-glow');
-        resultEl.className = '';
-        resultEl.classList.remove('visible');
-        resultEl.textContent = '';
-        confettiEl.innerHTML = '';
+        resetVisualState();
         hideTimer = null;
       }, ms);
     }
@@ -384,19 +409,18 @@
       for (let i = 0; i < 80; i++) {
         const piece = document.createElement('div');
         piece.className = 'confetti-piece';
-        piece.style.left        = `${Math.random() * 100}vw`;
-        piece.style.background  = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.left             = `${Math.random() * 100}vw`;
+        piece.style.background       = colors[Math.floor(Math.random() * colors.length)];
         piece.style.animationDuration = `${1.5 + Math.random() * 2}s`;
-        piece.style.animationDelay    = `${Math.random() * 0.8}s`;
-        piece.style.transform   = `rotate(${Math.random() * 360}deg)`;
+        piece.style.animationDelay   = `${Math.random() * 0.8}s`;
+        piece.style.transform        = `rotate(${Math.random() * 360}deg)`;
         confettiEl.appendChild(piece);
       }
-      // Clean up after animation
       setTimeout(() => { confettiEl.innerHTML = ''; }, 4000);
     }
 
     // ── Display result label ───────────────────────────────
-    function showResult(category, resultSymbols, isWin, settings) {
+    function showResult(category, isWin, settings) {
       const label = RESULT_LABELS[category] || category;
       resultEl.textContent = label;
       resultEl.className = category;
@@ -405,6 +429,11 @@
       if (isWin) {
         reelsWrap.classList.add('win-glow');
         document.querySelectorAll('.reel').forEach(r => r.classList.add('win-flash'));
+      }
+      if (category === 'near_miss') {
+        // Near-miss gets a subtle shake on the reels wrapper
+        reelsWrap.classList.add('near-miss-shake');
+        setTimeout(() => reelsWrap.classList.remove('near-miss-shake'), 600);
       }
       if (category === 'jackpot') {
         reelsWrap.classList.add('jackpot-glow');
@@ -419,17 +448,18 @@
     const audioCache = {};
 
     function playAudio(audioType, settings) {
-      if (!settings || settings.soundEnabled === false) return;
-      const vol = settings.soundVolume !== undefined ? settings.soundVolume : 0.7;
+      const s = settings || lastSettings;
+      if (s.soundEnabled === false) return;
+      const vol = (s.soundVolume !== undefined) ? Math.min(1, Math.max(0, s.soundVolume)) : 0.7;
 
       const paths = {
-        spin:       '/overlay/game-engine/slot/sounds/spin.mp3',
-        small_win:  '/overlay/game-engine/slot/sounds/small-win.mp3',
-        medium_win: '/overlay/game-engine/slot/sounds/medium-win.mp3',
-        big_win:    '/overlay/game-engine/slot/sounds/big-win.mp3',
-        jackpot:    '/overlay/game-engine/slot/sounds/jackpot.mp3',
-        near_miss:  '/overlay/game-engine/slot/sounds/near-miss.mp3',
-        reel_stop:  '/overlay/game-engine/slot/sounds/reel-stop.mp3'
+        spin:       '/game-engine/sounds/slot/spin.mp3',
+        small_win:  '/game-engine/sounds/slot/small-win.mp3',
+        medium_win: '/game-engine/sounds/slot/medium-win.mp3',
+        big_win:    '/game-engine/sounds/slot/big-win.mp3',
+        jackpot:    '/game-engine/sounds/slot/jackpot.mp3',
+        near_miss:  '/game-engine/sounds/slot/near-miss.mp3',
+        reel_stop:  '/game-engine/sounds/slot/reel-stop.mp3'
       };
 
       const src = paths[audioType];
@@ -437,7 +467,10 @@
 
       try {
         if (!audioCache[audioType]) {
-          audioCache[audioType] = new Audio(src);
+          const a = new Audio(src);
+          // Remove stale cache entry if the file doesn't exist (204/404)
+          a.addEventListener('error', () => { delete audioCache[audioType]; });
+          audioCache[audioType] = a;
         }
         const audio = audioCache[audioType];
         audio.volume = vol;
@@ -448,65 +481,81 @@
 
     // ── Socket event: spin started ─────────────────────────
     socket.on('slot:spin-started', (data) => {
-      currentSymbols = data.symbols || [];
-      const settings = data.settings || {};
+      currentSymbols = (data.symbols && data.symbols.length > 0) ? data.symbols : currentSymbols;
+      lastSettings   = data.settings || {};
 
-      // Cancel any pending hide
+      // Cancel any pending hide and reset visuals
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
 
-      // Reset state
-      reelsWrap.classList.remove('win-glow', 'jackpot-glow');
-      resultEl.className = '';
-      resultEl.classList.remove('visible');
-      resultEl.textContent = '';
-      confettiEl.innerHTML = '';
-      document.querySelectorAll('.reel').forEach(r => r.classList.remove('win-flash'));
-
-      // Player info
-      playerEl.textContent = data.nickname || data.username || '';
-
-      // Fill tracks with random symbols (5 visible rows per reel)
+      // Stop any currently running reels (rapid second spin)
       for (let i = 0; i < 3; i++) {
-        const track = document.getElementById(`track-${i}`);
-        if (track) fillTrack(track, currentSymbols, 8);
+        const reel = document.getElementById(`reel-${i}`);
+        if (reel && reel._stopSpin) { reel._stopSpin(); reel._stopSpin = null; }
       }
 
-      // Show the machine
+      resetVisualState();
+
+      // Player info (textContent = XSS-safe)
+      playerEl.textContent = data.nickname || data.username || '';
+
+      // Fill tracks with random symbols
+      for (let i = 0; i < 3; i++) {
+        const track = document.getElementById(`track-${i}`);
+        if (track) fillTrack(track, currentSymbols, TRACK_SYMBOL_COUNT);
+      }
+
       showMachine();
 
       // Start spinning all reels
       for (let i = 0; i < 3; i++) startReel(i);
 
-      // Play spin sound
-      playAudio('spin', settings);
+      playAudio('spin', lastSettings);
     });
 
     // ── Socket event: spin result ──────────────────────────
     socket.on('slot:spin-result', (data) => {
-      const reels    = data.reels || [];
-      const category = data.category || 'loss';
-      const isWin    = data.isWin || false;
-      const settings = data.settings || {};
+      const reels     = data.reels    || [];
+      const category  = data.category || 'loss';
+      const isWin     = data.isWin    || false;
+      const settings  = data.settings || lastSettings;
       const stopDelay = settings.reelStopDelay || REEL_STOP_DELAY;
 
-      // Stop reels staggered
+      // Update last known settings
+      lastSettings = settings;
+
+      // Track how many reels have actually stopped
+      let stoppedCount = 0;
+
       for (let i = 0; i < 3; i++) {
         setTimeout(() => {
           playAudio('reel_stop', settings);
           stopReel(i, reels[i] || { emoji: '❓' }, () => {
-            // After all reels have stopped, show result
-            if (i === 2) {
-              setTimeout(() => showResult(category, reels, isWin, settings), 200);
+            stoppedCount++;
+            if (stoppedCount === 3) {
+              setTimeout(() => showResult(category, isWin, settings), 200);
             }
           });
         }, i * stopDelay);
       }
     });
 
+    // ── Socket event: spin error – reset overlay ───────────
+    socket.on('slot:spin-error', () => {
+      // Stop any running reels and reset to idle
+      for (let i = 0; i < 3; i++) {
+        const reel = document.getElementById(`reel-${i}`);
+        if (!reel) continue;
+        if (reel._stopSpin) { reel._stopSpin(); reel._stopSpin = null; }
+        reel.classList.remove('spinning');
+      }
+      resetVisualState();
+      machine.classList.remove('visible');
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    });
+
     // ── Socket event: play-audio (from reward dispatch) ────
     socket.on('slot:play-audio', (data) => {
-      // Retrieve settings from last known config (or use defaults)
-      playAudio(data.audioType || 'win', { soundEnabled: true, soundVolume: 0.7 });
+      playAudio(data.audioType || 'win', lastSettings);
     });
 
     // ── Socket event: overlay effect (from reward dispatch) ─

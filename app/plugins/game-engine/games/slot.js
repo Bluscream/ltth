@@ -31,6 +31,9 @@ const OPENSHOCK_MIN_DURATION_MS = 300;
 const OPENSHOCK_MAX_DURATION_MS = 10_000;
 const OPENSHOCK_DISPLAY_DELAY_MS = 500;    // Fire shock after result is visible
 
+/** Default chat cooldown when none is configured in settings. */
+const DEFAULT_CHAT_COOLDOWN_MS = 30_000;
+
 /** Outcome categories ordered from worst to best. */
 const OUTCOME_CATEGORIES = ['loss', 'near_miss', 'small_win', 'medium_win', 'big_win', 'jackpot'];
 
@@ -183,8 +186,19 @@ class SlotGame {
    * @param {number|null} machineId – optional, defaults to first machine
    * @returns {Object} { success, error?, spinId?, queued? }
    */
-  async triggerSpinFromChat(username, nickname, profilePictureUrl, commandText, machineId = null) {
-    return this._triggerSpin(username, nickname, profilePictureUrl, 'chat', commandText, machineId, 'chat');
+  /**
+   * Trigger a slot spin from a chat command.
+   *
+   * @param {string} username
+   * @param {string} nickname
+   * @param {string} profilePictureUrl
+   * @param {string} commandText – the full original command (e.g. "!spin")
+   * @param {number|null} machineId – optional, defaults to first machine
+   * @param {Object} [userRoles]  – { isModerator, isSubscriber, teamMemberLevel }
+   * @returns {Object} { success, error?, spinId?, queued? }
+   */
+  async triggerSpinFromChat(username, nickname, profilePictureUrl, commandText, machineId = null, userRoles = {}) {
+    return this._triggerSpin(username, nickname, profilePictureUrl, 'chat', commandText, machineId, 'chat', userRoles);
   }
 
   /**
@@ -209,8 +223,21 @@ class SlotGame {
   /**
    * @private
    * Central spin method – validates cooldown, resolves outcome, dispatches rewards.
+   *
+   * @param {string} username
+   * @param {string} nickname
+   * @param {string} profilePictureUrl
+   * @param {string} triggerType   – 'chat' | 'gift' | 'test'
+   * @param {string} triggerValue  – raw command text or gift name
+   * @param {number|null} machineId
+   * @param {string} oddsProfileKey
+   * @param {Object} [userRoles]   – { isModerator, isSubscriber, teamMemberLevel }
    */
-  async _triggerSpin(username, nickname, profilePictureUrl, triggerType, triggerValue, machineId, oddsProfileKey) {
+  async _triggerSpin(username, nickname, profilePictureUrl, triggerType, triggerValue, machineId, oddsProfileKey, userRoles = {}) {
+    // Sanitize inputs
+    const safeUsername = String(username || 'unknown').slice(0, 100);
+    const safeNickname = String(nickname || safeUsername).slice(0, 100);
+
     const config = this.db.getSlotConfig(machineId);
     if (!config) {
       return { success: false, error: 'No slot machine configured' };
@@ -224,22 +251,22 @@ class SlotGame {
 
     // ── Cooldown check (chat triggers only) ──────────────────
     if (triggerType === 'chat') {
-      const cooldownResult = this._checkCooldown(username, resolvedMachineId, settings);
+      const cooldownResult = this._checkCooldown(safeUsername, resolvedMachineId, settings, userRoles);
       if (!cooldownResult.allowed) {
         this.io.emit('slot:cooldown', {
-          username,
-          nickname,
+          username: safeUsername,
+          nickname: safeNickname,
           remainingMs: cooldownResult.remainingMs,
           machineId: resolvedMachineId
         });
         return { success: false, error: `Cooldown: ${Math.ceil(cooldownResult.remainingMs / 1000)}s remaining` };
       }
       // Register cooldown immediately to prevent rapid fire
-      this._registerCooldown(username, resolvedMachineId, settings);
+      this._registerCooldown(safeUsername, resolvedMachineId, settings, userRoles);
     }
 
-    // ── Global cooldown check (all trigger types) ─────────────
-    if (settings.globalCooldownMs > 0) {
+    // ── Global cooldown check (all trigger types except test) ──
+    if (triggerType !== 'test' && settings.globalCooldownMs > 0) {
       const lastGlobal = this.globalCooldowns.get(resolvedMachineId) || 0;
       const elapsed = Date.now() - lastGlobal;
       if (elapsed < settings.globalCooldownMs) {
@@ -252,8 +279,8 @@ class SlotGame {
     const spinId = ++this.spinIdCounter;
     const spinData = {
       spinId,
-      username,
-      nickname,
+      username: safeUsername,
+      nickname: safeNickname,
       profilePictureUrl: profilePictureUrl || '',
       machineId: resolvedMachineId,
       triggerType,
@@ -266,8 +293,8 @@ class SlotGame {
     // ── Notify overlay: spin started ─────────────────────────
     this.io.emit('slot:spin-started', {
       spinId,
-      username,
-      nickname,
+      username: safeUsername,
+      nickname: safeNickname,
       profilePictureUrl: profilePictureUrl || '',
       machineId: resolvedMachineId,
       machineName: config.name,
@@ -283,13 +310,13 @@ class SlotGame {
       const rewardActions = this._buildRewardActions(outcome, config);
       this.db.recordSlotSpin({
         machineId: resolvedMachineId,
-        username,
-        nickname,
+        username: safeUsername,
+        nickname: safeNickname,
         triggerType,
         triggerValue,
-        reel1: outcome.reels[0].id,
-        reel2: outcome.reels[1].id,
-        reel3: outcome.reels[2].id,
+        reel1: outcome.reels[0] ? outcome.reels[0].id : 'unknown',
+        reel2: outcome.reels[1] ? outcome.reels[1].id : 'unknown',
+        reel3: outcome.reels[2] ? outcome.reels[2].id : 'unknown',
         outcomeCategory: outcome.category,
         rewardActions
       });
@@ -297,8 +324,8 @@ class SlotGame {
       // ── Emit result to overlay ────────────────────────────────
       this.io.emit('slot:spin-result', {
         spinId,
-        username,
-        nickname,
+        username: safeUsername,
+        nickname: safeNickname,
         profilePictureUrl: profilePictureUrl || '',
         machineId: resolvedMachineId,
         machineName: config.name,
@@ -317,18 +344,19 @@ class SlotGame {
       spinData.status = 'completed';
 
       this.logger.info(
-        `🎰 [SLOT] Spin #${spinId} for ${nickname} → ${outcome.reels.map(s => s.emoji).join(' ')} (${outcome.category})`
+        `🎰 [SLOT] Spin #${spinId} for ${safeNickname} → ${outcome.reels.map(s => s.emoji || s.label || '?').join(' ')} (${outcome.category})`
       );
 
       return { success: true, spinId, category: outcome.category, isWin: outcome.isWin };
 
     } catch (error) {
-      this.logger.error(`[SLOT] Error during spin #${spinId} for ${username}: ${error.message}`);
+      this.logger.error(`[SLOT] Error during spin #${spinId} for ${safeUsername}: ${error.message}`, error.stack);
       spinData.status = 'error';
+      // Emit an error event so the overlay can reset
+      this.io.emit('slot:spin-error', { spinId, machineId: resolvedMachineId });
       return { success: false, error: error.message };
     } finally {
       // Clean up the active spin tracking entry after a short delay
-      // (overlay needs time to read it via status events if required)
       setTimeout(() => this.activeSpins.delete(spinId), MAX_SPIN_AGE_MS);
     }
   }
@@ -339,18 +367,42 @@ class SlotGame {
 
   /**
    * @private
+   * Resolve the effective cooldown duration for a user based on their role.
+   * Priority: moderator/team-member > subscriber > default.
+   *
+   * @param {Object} settings   – machine settings
+   * @param {Object} userRoles  – { isModerator, isSubscriber, teamMemberLevel }
+   * @returns {number} cooldown in milliseconds
+   */
+  _effectiveCooldownMs(settings, userRoles = {}) {
+    const { isModerator = false, isSubscriber = false, teamMemberLevel = 0 } = userRoles;
+    const defaultCd = settings.chatCooldownMs || DEFAULT_CHAT_COOLDOWN_MS;
+    if (isModerator || teamMemberLevel > 0) {
+      // Moderators and team members (superfans) get the VIP cooldown
+      return settings.vipCooldownMs != null ? settings.vipCooldownMs : defaultCd;
+    }
+    if (isSubscriber) {
+      return settings.subCooldownMs != null ? settings.subCooldownMs : defaultCd;
+    }
+    return defaultCd;
+  }
+
+  /**
+   * @private
    * Check if a user is allowed to spin right now.
+   *
+   * @param {string} username
+   * @param {number} machineId
+   * @param {Object} settings
+   * @param {Object} [userRoles]
    * @returns {{ allowed: boolean, remainingMs: number }}
    */
-  _checkCooldown(username, machineId, settings) {
+  _checkCooldown(username, machineId, settings, userRoles = {}) {
     const now = Date.now();
     const key = `${machineId}:${username}`;
     const last = this.userCooldowns.get(key) || 0;
     const elapsed = now - last;
-
-    // Determine effective cooldown length
-    // (VIP/sub shortcuts can be implemented by the caller passing a role-adjusted config)
-    const cdMs = settings.chatCooldownMs || 30_000;
+    const cdMs = this._effectiveCooldownMs(settings, userRoles);
 
     if (elapsed < cdMs) {
       return { allowed: false, remainingMs: cdMs - elapsed };
@@ -358,8 +410,11 @@ class SlotGame {
     return { allowed: true, remainingMs: 0 };
   }
 
-  /** @private */
-  _registerCooldown(username, machineId, settings) {
+  /**
+   * @private
+   * Register the cooldown timestamp for a user after a successful spin.
+   */
+  _registerCooldown(username, machineId, settings, userRoles = {}) {
     const key = `${machineId}:${username}`;
     this.userCooldowns.set(key, Date.now());
   }
@@ -387,13 +442,14 @@ class SlotGame {
    * Resolve the outcome of a spin server-side.
    *
    * Flow:
-   *   1. Choose an outcome category according to the odds profile.
-   *   2. Build three reels consistent with that category.
-   *   3. Return the full outcome descriptor.
+   *   1. Build the effective odds profile (applying nearMissEnabled flag).
+   *   2. Choose an outcome category via weighted random.
+   *   3. Build three reels consistent with that category.
+   *   4. Return the full outcome descriptor.
    *
-   * @param {Object} config       – slot machine config
+   * @param {Object} config       – slot machine config (includes settings, symbols, oddsProfiles)
    * @param {string} profileKey   – key inside config.oddsProfiles (e.g. 'chat')
-   * @returns {Object} outcome
+   * @returns {{ category: string, reels: Array, isWin: boolean }}
    */
   _resolveOutcome(config, profileKey) {
     const symbols = config.symbols;
@@ -401,12 +457,32 @@ class SlotGame {
       throw new Error('No symbols configured for slot machine');
     }
 
+    const settings = config.settings || {};
+
     // Determine odds profile to use
     const profiles = config.oddsProfiles || {};
-    const profile = profiles[profileKey] || profiles['chat'] || this._defaultOddsProfiles().chat;
+    const rawProfile = profiles[profileKey] || profiles['chat'] || this._defaultOddsProfiles().chat;
+
+    // Apply nearMissEnabled: if disabled, redistribute near_miss weight into loss
+    let effectiveProfile;
+    if (settings.nearMissEnabled === false && rawProfile.near_miss > 0) {
+      effectiveProfile = Object.assign({}, rawProfile);
+      effectiveProfile.loss = (effectiveProfile.loss || 0) + effectiveProfile.near_miss;
+      delete effectiveProfile.near_miss;
+    } else {
+      effectiveProfile = rawProfile;
+    }
+
+    // Guard: if all weights are zero the choice would be undefined
+    const totalWeight = Object.values(effectiveProfile).reduce((s, w) => s + (w || 0), 0);
+    if (totalWeight === 0) {
+      this.logger.warn('[SLOT] All odds-profile weights are zero – defaulting to loss');
+      const reels = this._buildReels(symbols, 'loss', config);
+      return { category: 'loss', reels, isWin: false };
+    }
 
     // Choose outcome category via weighted random
-    const category = this._weightedChoice(profile);
+    const category = this._weightedChoice(effectiveProfile);
 
     // Build reels consistent with the chosen category
     const reels = this._buildReels(symbols, category, config);
@@ -418,16 +494,21 @@ class SlotGame {
 
   /**
    * @private
-   * Weighted random selection from an object of { key: weight }.
+   * Weighted random selection from an object of { key: positiveWeight }.
+   * Handles zero-weight entries and float imprecision gracefully.
    */
   _weightedChoice(weightMap) {
-    const entries = Object.entries(weightMap);
+    // Filter to positive weights only
+    const entries = Object.entries(weightMap).filter(([, w]) => w > 0);
+    if (entries.length === 0) return 'loss';
+
     const total = entries.reduce((sum, [, w]) => sum + w, 0);
     let rand = Math.random() * total;
     for (const [key, weight] of entries) {
       rand -= weight;
       if (rand <= 0) return key;
     }
+    // Fallback for float precision edge case
     return entries[entries.length - 1][0];
   }
 
@@ -450,7 +531,7 @@ class SlotGame {
    * Build three reel symbols that satisfy the requested outcome category.
    *
    * Category semantics:
-   *   loss       – all three reels differ and no pair
+   *   loss       – all three reels differ and no pair  (degrades gracefully when <3 symbols)
    *   near_miss  – exactly two reels match (partial win)
    *   small_win  – three-of-a-kind with a low-tier symbol
    *   medium_win – three-of-a-kind with a mid-tier symbol
@@ -463,9 +544,14 @@ class SlotGame {
   _buildReels(symbols, category, config) {
     const n = symbols.length;
 
+    // Defensive: if only one symbol exists, forced 3-of-a-kind regardless of category
+    if (n === 1) {
+      return [symbols[0], symbols[0], symbols[0]];
+    }
+
     switch (category) {
       case 'loss': {
-        // Pick three distinct symbols (no pair)
+        // Pick three symbols with no two matching (best effort – if <3 distinct symbols, allow repeats)
         let r1 = this._randomSymbol(symbols);
         let r2, r3;
         let attempts = 0;
@@ -484,7 +570,7 @@ class SlotGame {
       }
 
       case 'near_miss': {
-        // Exactly two reels match
+        // Exactly two reels match; the odd-one-out is a different symbol
         const match = this._randomSymbol(symbols);
         let other;
         let attempts = 0;
@@ -492,6 +578,11 @@ class SlotGame {
           other = this._randomSymbol(symbols);
           attempts++;
         } while (other.id === match.id && attempts < 20);
+        // If we couldn't find a different symbol in 20 tries, do a linear scan.
+        // This correctly handles 2-symbol sets where weight is heavily skewed.
+        if (other.id === match.id) {
+          other = symbols.find(s => s.id !== match.id) || match;
+        }
 
         // Randomize which reel is the odd one out
         const pos = Math.floor(Math.random() * 3);
@@ -501,25 +592,27 @@ class SlotGame {
       }
 
       case 'small_win': {
-        // 3-of-a-kind from the first third of the symbol list (common symbols)
+        // 3-of-a-kind from the lower ~45% of the symbol list (most common symbols)
         const pool = symbols.slice(0, Math.max(1, Math.ceil(n * 0.45)));
         const sym = pool[Math.floor(Math.random() * pool.length)];
         return [sym, sym, sym];
       }
 
       case 'medium_win': {
-        // 3-of-a-kind from the middle third
+        // 3-of-a-kind from the middle ~35–70% range
         const start = Math.floor(n * 0.35);
-        const end = Math.floor(n * 0.70);
-        const pool = symbols.slice(start, Math.max(start + 1, end));
+        const end = Math.max(start + 1, Math.floor(n * 0.70));
+        const pool = symbols.slice(start, end);
         const sym = pool[Math.floor(Math.random() * pool.length)];
         return [sym, sym, sym];
       }
 
       case 'big_win': {
-        // 3-of-a-kind from the upper quarter
+        // 3-of-a-kind from the upper ~35% (excluding the jackpot symbol)
         const start = Math.floor(n * 0.65);
-        const pool = symbols.slice(start, Math.max(start + 1, n - 1));
+        // Exclude the very last symbol (reserved for jackpot) unless it's the only option
+        const end = n > 1 ? n - 1 : n;
+        const pool = symbols.slice(start, Math.max(start + 1, end));
         const sym = pool[Math.floor(Math.random() * pool.length)];
         return [sym, sym, sym];
       }
@@ -531,7 +624,7 @@ class SlotGame {
       }
 
       default:
-        // Fallback: pure random
+        // Unknown category: three independent random symbols
         return [this._randomSymbol(symbols), this._randomSymbol(symbols), this._randomSymbol(symbols)];
     }
   }

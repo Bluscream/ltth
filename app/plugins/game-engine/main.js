@@ -166,6 +166,7 @@ class GameEnginePlugin {
       this.slotGame = new SlotGame(this.api, this.db, this.logger);
       this.slotGame.init();
       this.slotGame.startCleanupTimer();
+      this.slotGame.setUnifiedQueue(this.unifiedQueue);
       
       // Set game engine reference for Connect4 and Chess
       this.unifiedQueue.setGameEnginePlugin(this);
@@ -647,6 +648,23 @@ class GameEnginePlugin {
         res.sendFile(soundPath);
       } else {
         res.status(404).json({ error: 'Sound file not found' });
+      }
+    });
+
+    // Serve slot machine sound files (fallback: 204 so browser console stays clean for missing optional sounds)
+    this.api.registerRoute('GET', '/game-engine/sounds/slot/:filename', (req, res) => {
+      const { filename } = req.params;
+      // Strict allowlist: only alphanumeric, hyphens, underscores, and dots before .mp3
+      // Spaces are intentionally excluded; slot sound filenames use hyphens instead.
+      if (!/^[\w\-.]+\.mp3$/i.test(filename)) {
+        return res.status(400).json({ error: 'Invalid filename' });
+      }
+      const soundPath = path.join(__dirname, 'assets', 'sounds', 'slot', filename);
+      if (fs.existsSync(soundPath)) {
+        res.sendFile(soundPath);
+      } else {
+        // Return 204 (no content) instead of 404 for optional missing sounds
+        res.status(204).end();
       }
     });
 
@@ -1825,8 +1843,8 @@ class GameEnginePlugin {
     this.api.registerRoute('POST', '/api/game-engine/slots', (req, res) => {
       try {
         const { name } = req.body;
-        if (!name) return res.status(400).json({ error: 'name is required' });
-        const id = this.slotGame.createMachine(name);
+        if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name is required' });
+        const id = this.slotGame.createMachine(name.slice(0, 100));
         res.json({ success: true, id });
       } catch (error) {
         this.logger.error(`Error creating slot machine: ${error.message}`);
@@ -1838,6 +1856,7 @@ class GameEnginePlugin {
     this.api.registerRoute('DELETE', '/api/game-engine/slots/:machineId', (req, res) => {
       try {
         const machineId = parseInt(req.params.machineId, 10);
+        if (isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const ok = this.slotGame.deleteMachine(machineId);
         if (!ok) return res.status(404).json({ error: 'Slot machine not found' });
         res.json({ success: true });
@@ -1851,9 +1870,10 @@ class GameEnginePlugin {
     this.api.registerRoute('PUT', '/api/game-engine/slots/:machineId/name', (req, res) => {
       try {
         const machineId = parseInt(req.params.machineId, 10);
+        if (isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const { name } = req.body;
-        if (!name) return res.status(400).json({ error: 'name is required' });
-        this.slotGame.updateMachineName(machineId, name);
+        if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name is required' });
+        this.slotGame.updateMachineName(machineId, name.slice(0, 100));
         res.json({ success: true });
       } catch (error) {
         this.logger.error(`Error renaming slot machine: ${error.message}`);
@@ -1865,6 +1885,7 @@ class GameEnginePlugin {
     this.api.registerRoute('PUT', '/api/game-engine/slots/:machineId/chat-command', (req, res) => {
       try {
         const machineId = parseInt(req.params.machineId, 10);
+        if (isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const { chatCommand } = req.body;
         this.slotGame.updateMachineChatCommand(machineId, chatCommand || null);
         res.json({ success: true });
@@ -1878,6 +1899,7 @@ class GameEnginePlugin {
     this.api.registerRoute('PUT', '/api/game-engine/slots/:machineId/enabled', (req, res) => {
       try {
         const machineId = parseInt(req.params.machineId, 10);
+        if (isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const { enabled } = req.body;
         if (enabled === undefined) return res.status(400).json({ error: 'enabled is required' });
         this.slotGame.updateMachineEnabled(machineId, !!enabled);
@@ -1894,6 +1916,7 @@ class GameEnginePlugin {
         const machineId = req.params.machineId === 'default'
           ? null
           : parseInt(req.params.machineId, 10);
+        if (machineId !== null && isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const config = this.slotGame.getConfig(machineId);
         if (!config) return res.status(404).json({ error: 'Slot machine not found' });
         res.json(config);
@@ -1907,9 +1930,13 @@ class GameEnginePlugin {
     this.api.registerRoute('POST', '/api/game-engine/slots/:machineId/config', (req, res) => {
       try {
         const machineId = parseInt(req.params.machineId, 10);
+        if (isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const { symbols, settings, giftMappings, oddsProfiles, rewardRules } = req.body;
-        if (!symbols || !settings) {
-          return res.status(400).json({ error: 'symbols and settings are required' });
+        if (!Array.isArray(symbols) || symbols.length === 0) {
+          return res.status(400).json({ error: 'symbols must be a non-empty array' });
+        }
+        if (!settings || typeof settings !== 'object') {
+          return res.status(400).json({ error: 'settings must be an object' });
         }
         this.slotGame.updateConfig(machineId, symbols, settings, giftMappings || {}, oddsProfiles || {}, rewardRules || []);
         res.json({ success: true });
@@ -1923,6 +1950,7 @@ class GameEnginePlugin {
     this.api.registerRoute('GET', '/api/game-engine/slots/:machineId/stats', (req, res) => {
       try {
         const machineId = parseInt(req.params.machineId, 10);
+        if (isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const stats = this.slotGame.getStats(machineId);
         res.json(stats);
       } catch (error) {
@@ -1935,6 +1963,7 @@ class GameEnginePlugin {
     this.api.registerRoute('POST', '/api/game-engine/slots/:machineId/test-spin', async (req, res) => {
       try {
         const machineId = parseInt(req.params.machineId, 10);
+        if (isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const { username = 'TestUser', nickname = 'Test User', oddsProfile = 'chat' } = req.body || {};
         // Validate oddsProfile against the machine's configured profiles
         const config = this.slotGame.getConfig(machineId);
@@ -1961,7 +1990,9 @@ class GameEnginePlugin {
     this.api.registerRoute('GET', '/api/game-engine/slots/:machineId/cooldown/:username', (req, res) => {
       try {
         const machineId = parseInt(req.params.machineId, 10);
+        if (isNaN(machineId)) return res.status(400).json({ error: 'Invalid machine ID' });
         const { username } = req.params;
+        if (!username) return res.status(400).json({ error: 'username is required' });
         const remainingMs = this.slotGame.getUserCooldownRemaining(username, machineId);
         res.json({ remainingMs, remainingSeconds: Math.ceil(remainingMs / 1000) });
       } catch (error) {
@@ -2909,10 +2940,15 @@ class GameEnginePlugin {
    * This also catches commands that GCCE might miss
    */
   handleChatCommand(data) {
-    const { uniqueId, userId, comment, message: messageField, nickname, profilePictureUrl = '' } = data;
+    const {
+      uniqueId, userId, comment, message: messageField, nickname, profilePictureUrl = '',
+      isModerator = false, isSubscriber = false, teamMemberLevel = 0
+    } = data;
     const message = (comment || messageField || '').trim();
     const viewerId = uniqueId || userId || data.username;
     const viewerNickname = nickname || data.username || 'Anonymous';
+    // User role flags – used by slot cooldown adjuster
+    const userRoles = { isModerator, isSubscriber, teamMemberLevel };
 
     // Check for wheel chat commands (custom commands per wheel)
     // These can be with or without / prefix
@@ -2929,7 +2965,7 @@ class GameEnginePlugin {
       const matchingSlotMachine = this.slotGame.findMachineByChatCommand(cleanCommand);
       if (matchingSlotMachine) {
         this.logger.debug(`Slot chat command matched: "${cleanCommand}" -> Slot "${matchingSlotMachine.name}" (ID: ${matchingSlotMachine.id})`);
-        this.slotGame.triggerSpinFromChat(viewerId, viewerNickname, profilePictureUrl, cleanCommand, matchingSlotMachine.id)
+        this.slotGame.triggerSpinFromChat(viewerId, viewerNickname, profilePictureUrl, cleanCommand, matchingSlotMachine.id, userRoles)
           .then(result => {
             if (!result.success) {
               this.logger.debug(`[SLOT] Chat spin result for ${viewerId}: ${result.error}`);
