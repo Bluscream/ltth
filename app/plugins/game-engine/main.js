@@ -2213,7 +2213,19 @@ class GameEnginePlugin {
       // CRITICAL: Return immediately to prevent double triggers - wheel has its own queue system
       return;
     }
-    
+
+    // Check for Plinko gift triggers across ALL boards (board-specific giftMappings)
+    // Catalog-added gifts use the gift ID as the mapping key; manually-entered gifts may use the name.
+    // We try giftIdStr first, then fall back to giftName so both storage formats are found.
+    const matchingPlinkoBoard = this.plinkoGame.findBoardByGiftTrigger(giftIdStr) ||
+                                this.plinkoGame.findBoardByGiftTrigger(giftName);
+    if (matchingPlinkoBoard) {
+      this.recentGiftEvents.set(dedupKey, now);
+      this.logger.info(`[PLINKO TRIGGER] Gift ${giftName} (ID: ${giftId}) matched Plinko board "${matchingPlinkoBoard.name}" (ID: ${matchingPlinkoBoard.id}) - triggering`);
+      this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, giftIdStr);
+      return;
+    }
+
     // Check if this gift triggers a game from database triggers
     const triggers = this.db.getTriggers();
     this.logger.debug(`[GIFT TRIGGER] Checking ${triggers.length} triggers for gift "${giftName}" (ID: ${giftIdStr})...`);
@@ -2306,22 +2318,30 @@ class GameEnginePlugin {
   /**
    * Handle Plinko gift trigger
    */
-  async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName) {
+  async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName, giftId = null) {
     try {
-      // Normalize gift name for case-insensitive matching
+      // Normalize gift name and ID for consistent comparisons
       const normalizedGiftName = (giftName || '').trim();
+      // Gift IDs from the catalog are stored as string keys (e.g. "5655")
+      const normalizedGiftId = giftId ? String(giftId).trim() : null;
       let giftMapping = null;
       
       // Get primary config
       const config = this.plinkoGame.getConfig();
       
-      // Try exact match first in primary config
-      if (config.giftMappings && config.giftMappings[normalizedGiftName]) {
+      // Try by gift ID first (catalog-added mappings use the numeric ID as key)
+      if (normalizedGiftId && config.giftMappings && config.giftMappings[normalizedGiftId]) {
+        giftMapping = config.giftMappings[normalizedGiftId];
+        this.logger.debug(`[PLINKO] Found gift mapping in primary config by ID "${normalizedGiftId}"`);
+      }
+      
+      // Try exact match by gift name in primary config
+      if (!giftMapping && config.giftMappings && config.giftMappings[normalizedGiftName]) {
         giftMapping = config.giftMappings[normalizedGiftName];
         this.logger.debug(`[PLINKO] Found gift mapping in primary config for "${normalizedGiftName}"`);
       }
       
-      // Try case-insensitive match in primary config
+      // Try case-insensitive match by gift name in primary config
       if (!giftMapping && config.giftMappings) {
         const lowerGiftName = normalizedGiftName.toLowerCase();
         for (const [key, value] of Object.entries(config.giftMappings)) {
@@ -2346,14 +2366,21 @@ class GameEnginePlugin {
             // getAllBoards() returns already parsed giftMappings object
             const mappings = board.giftMappings || {};
             
-            // Try exact match
+            // Try by gift ID first (catalog-added mappings use the numeric ID as key)
+            if (normalizedGiftId && mappings[normalizedGiftId]) {
+              giftMapping = mappings[normalizedGiftId];
+              this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" by ID "${normalizedGiftId}" (board ID: ${board.id})`);
+              break;
+            }
+            
+            // Try exact match by name
             if (mappings[normalizedGiftName]) {
               giftMapping = mappings[normalizedGiftName];
               this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id})`);
               break;
             }
             
-            // Try case-insensitive match
+            // Try case-insensitive match by name
             for (const [key, value] of Object.entries(mappings)) {
               if (key.toLowerCase() === lowerGiftName) {
                 giftMapping = value;
@@ -2371,7 +2398,7 @@ class GameEnginePlugin {
         // If still no mapping found, log comprehensive error
         if (!giftMapping) {
           const boardNames = boards.filter(b => b.enabled).map(b => b.name).join(', ') || 'none';
-          this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
+          this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
           return;
         }
       }

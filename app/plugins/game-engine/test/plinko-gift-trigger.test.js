@@ -57,23 +57,31 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
       GIFT_DEDUP_WINDOW_MS: 1000,
       normalizeGiftId: (giftId) => String(giftId || '').trim(),
       
-      // Import the actual handlePlinkoGiftTrigger method we want to test
-      async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName) {
+      // Inline copy of handlePlinkoGiftTrigger kept in sync with main.js
+      async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName, giftId = null) {
         try {
-          // Normalize gift name for case-insensitive matching
+          // Normalize gift name and ID for consistent comparisons
           const normalizedGiftName = (giftName || '').trim();
+          // Gift IDs from the catalog are stored as string keys (e.g. "5655")
+          const normalizedGiftId = giftId ? String(giftId).trim() : null;
           let giftMapping = null;
           
           // Get primary config
           const config = this.plinkoGame.getConfig();
           
-          // Try exact match first in primary config
-          if (config.giftMappings && config.giftMappings[normalizedGiftName]) {
+          // Try by gift ID first (catalog-added mappings use the numeric ID as key)
+          if (normalizedGiftId && config.giftMappings && config.giftMappings[normalizedGiftId]) {
+            giftMapping = config.giftMappings[normalizedGiftId];
+            this.logger.debug(`[PLINKO] Found gift mapping in primary config by ID "${normalizedGiftId}"`);
+          }
+          
+          // Try exact match by gift name in primary config
+          if (!giftMapping && config.giftMappings && config.giftMappings[normalizedGiftName]) {
             giftMapping = config.giftMappings[normalizedGiftName];
             this.logger.debug(`[PLINKO] Found gift mapping in primary config for "${normalizedGiftName}"`);
           }
           
-          // Try case-insensitive match in primary config
+          // Try case-insensitive match by gift name in primary config
           if (!giftMapping && config.giftMappings) {
             const lowerGiftName = normalizedGiftName.toLowerCase();
             for (const [key, value] of Object.entries(config.giftMappings)) {
@@ -89,6 +97,7 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
           if (!giftMapping) {
             this.logger.debug(`[PLINKO] No mapping in primary config, checking all enabled boards...`);
             const boards = this.plinkoGame.getAllBoards();
+            const lowerGiftName = normalizedGiftName.toLowerCase();
             
             for (const board of boards) {
               if (!board.enabled) continue;
@@ -97,15 +106,21 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
                 // getAllBoards() returns already parsed giftMappings object
                 const mappings = board.giftMappings || {};
                 
-                // Try exact match
+                // Try by gift ID first (catalog-added mappings use the numeric ID as key)
+                if (normalizedGiftId && mappings[normalizedGiftId]) {
+                  giftMapping = mappings[normalizedGiftId];
+                  this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" by ID "${normalizedGiftId}" (board ID: ${board.id})`);
+                  break;
+                }
+                
+                // Try exact match by name
                 if (mappings[normalizedGiftName]) {
                   giftMapping = mappings[normalizedGiftName];
                   this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id})`);
                   break;
                 }
                 
-                // Try case-insensitive match
-                const lowerGiftName = normalizedGiftName.toLowerCase();
+                // Try case-insensitive match by name
                 for (const [key, value] of Object.entries(mappings)) {
                   if (key.toLowerCase() === lowerGiftName) {
                     giftMapping = value;
@@ -123,7 +138,7 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
             // If still no mapping found, log comprehensive error
             if (!giftMapping) {
               const boardNames = boards.filter(b => b.enabled).map(b => b.name).join(', ') || 'none';
-              this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
+              this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
               return { success: false, error: 'No gift mapping found' };
             }
           }
@@ -318,7 +333,7 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
 
       expect(result).toEqual({ success: false, error: 'No gift mapping found' });
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Gift "UnknownGift" triggered Plinko but no mapping found in any board')
+        expect.stringContaining('triggered Plinko but no mapping found in any board')
       );
     });
 
@@ -413,6 +428,231 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
       expect(mockLogger.info).toHaveBeenCalledWith(
         expect.stringContaining('Spawning ball for testuser')
       );
+    });
+  });
+
+  describe('Gift ID Lookup (Catalog-Style Mappings)', () => {
+    test('should find gift mapping by gift ID when stored with numeric ID as key', async () => {
+      // When added via gift catalog, UI stores mappings keyed by gift ID (e.g. "5655")
+      const boards = db.getAllPlinkoBoards();
+      const board = boards[0];
+      db.updatePlinkoGiftMappings(board.id, {
+        '5655': { name: 'Rose', betAmount: 150, ballType: 'golden' }
+      });
+
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', 'Rose', '5655'
+      );
+
+      expect(result).toBeDefined();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Spawning ball for testuser')
+      );
+    });
+
+    test('should find gift mapping by gift ID in fallback board', async () => {
+      const secondBoardId = plinkoGame.createBoard('Catalog Board');
+      db.updatePlinkoGiftMappings(secondBoardId, {
+        '9999': { name: 'Dragon', betAmount: 500, ballType: 'golden' }
+      });
+
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', 'Dragon', '9999'
+      );
+
+      expect(result).toBeDefined();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Found gift mapping in board "Catalog Board" by ID "9999"')
+      );
+    });
+
+    test('should fall back to gift name lookup when no ID-keyed mapping exists', async () => {
+      // Mapping stored by name (manual input), no ID key
+      const boards = db.getAllPlinkoBoards();
+      const board = boards[0];
+      db.updatePlinkoGiftMappings(board.id, {
+        'Rose': { betAmount: 100, ballType: 'standard' }
+      });
+
+      // Pass a giftId that does not exist as a key
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', 'Rose', '0000'
+      );
+
+      expect(result).toBeDefined();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Spawning ball for testuser')
+      );
+    });
+  });
+
+  describe('handleGiftTrigger full flow - Plinko board lookup', () => {
+    // Tests that handleGiftTrigger routes to plinko when gift is in board giftMappings,
+    // without requiring an entry in the general game_triggers table.
+
+    let mockWheelGame;
+
+    beforeEach(() => {
+      mockWheelGame = {
+        findWheelByGiftTrigger: jest.fn().mockReturnValue(null)
+      };
+
+      // Wire handleGiftTrigger inline to replicate the fixed flow
+      gameEnginePlugin.wheelGame = mockWheelGame;
+      gameEnginePlugin.handleWheelGiftTrigger = jest.fn();
+      gameEnginePlugin.handlePlinkoGiftTrigger = jest.fn().mockResolvedValue({ success: true });
+      gameEnginePlugin.handleGameStart = jest.fn();
+
+      // Provide the fixed handleGiftTrigger logic (mirrors main.js)
+      gameEnginePlugin.handleGiftTrigger = function(data) {
+        const {
+          uniqueId, giftName, giftId, nickname,
+          giftPictureUrl, profilePictureUrl = '', repeatEnd, repeatCount
+        } = data;
+
+        if (repeatEnd === false) return;
+
+        const dedupKey = `${uniqueId}_${giftName}_${giftId || 'noId'}`;
+        const now = Date.now();
+        const lastEventTime = this.recentGiftEvents.get(dedupKey);
+        if (lastEventTime && (now - lastEventTime) < this.GIFT_DEDUP_WINDOW_MS) return;
+
+        const giftIdStr = this.normalizeGiftId(giftId);
+
+        // 1. Wheel check
+        const matchingWheel = this.wheelGame.findWheelByGiftTrigger(giftIdStr || giftName);
+        if (matchingWheel) {
+          this.recentGiftEvents.set(dedupKey, now);
+          this.handleWheelGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, matchingWheel.id);
+          return;
+        }
+
+        // 2. Plinko board check
+        const matchingPlinkoBoard = this.plinkoGame.findBoardByGiftTrigger(giftIdStr) ||
+                                    this.plinkoGame.findBoardByGiftTrigger(giftName);
+        if (matchingPlinkoBoard) {
+          this.recentGiftEvents.set(dedupKey, now);
+          this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, giftIdStr);
+          return;
+        }
+
+        // 3. General triggers
+        const triggers = this.db.getTriggers();
+        const giftNameLower = (giftName || '').toLowerCase().trim();
+        const matchingTrigger = triggers.find(t => {
+          if (t.trigger_type !== 'gift') return false;
+          const triggerValueStr = this.normalizeGiftId(t.trigger_value);
+          const triggerValueLower = (t.trigger_value || '').toLowerCase().trim();
+          return triggerValueStr === giftIdStr || triggerValueLower === giftNameLower;
+        });
+
+        if (!matchingTrigger) return;
+
+        this.recentGiftEvents.set(dedupKey, now);
+        if (matchingTrigger.game_type === 'plinko') {
+          this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName);
+          return;
+        }
+        this.handleGameStart(
+          matchingTrigger.game_type, uniqueId, nickname, 'gift', giftName, giftPictureUrl
+        );
+      };
+    });
+
+    test('should trigger plinko for catalog-style gift (ID key) without general trigger row', () => {
+      const boards = db.getAllPlinkoBoards();
+      db.updatePlinkoGiftMappings(boards[0].id, {
+        '5655': { name: 'Rose', betAmount: 100, ballType: 'standard' }
+      });
+
+      gameEnginePlugin.handleGiftTrigger({
+        uniqueId: 'user1', giftName: 'Rose', giftId: 5655,
+        nickname: 'User1', giftPictureUrl: '', repeatEnd: true, repeatCount: 1
+      });
+
+      expect(gameEnginePlugin.handlePlinkoGiftTrigger).toHaveBeenCalledWith(
+        'user1', 'User1', '', 'Rose', '5655'
+      );
+      expect(gameEnginePlugin.handleGameStart).not.toHaveBeenCalled();
+      expect(gameEnginePlugin.handleWheelGiftTrigger).not.toHaveBeenCalled();
+    });
+
+    test('should trigger plinko for name-keyed gift without general trigger row', () => {
+      const boards = db.getAllPlinkoBoards();
+      db.updatePlinkoGiftMappings(boards[0].id, {
+        'Lion': { betAmount: 500, ballType: 'golden' }
+      });
+
+      gameEnginePlugin.handleGiftTrigger({
+        uniqueId: 'user2', giftName: 'Lion', giftId: null,
+        nickname: 'User2', giftPictureUrl: '', repeatEnd: undefined, repeatCount: 1
+      });
+
+      expect(gameEnginePlugin.handlePlinkoGiftTrigger).toHaveBeenCalled();
+      expect(gameEnginePlugin.handleGameStart).not.toHaveBeenCalled();
+    });
+
+    test('should not trigger plinko for a gift in a disabled board', () => {
+      const newBoardId = plinkoGame.createBoard('Disabled Board');
+      db.updatePlinkoGiftMappings(newBoardId, {
+        '9001': { name: 'Galaxy', betAmount: 200, ballType: 'standard' }
+      });
+      db.updatePlinkoEnabled(newBoardId, false);
+
+      gameEnginePlugin.handleGiftTrigger({
+        uniqueId: 'user3', giftName: 'Galaxy', giftId: 9001,
+        nickname: 'User3', giftPictureUrl: '', repeatEnd: true, repeatCount: 1
+      });
+
+      expect(gameEnginePlugin.handlePlinkoGiftTrigger).not.toHaveBeenCalled();
+    });
+
+    test('should deduplicate rapid plinko gift events', () => {
+      const boards = db.getAllPlinkoBoards();
+      db.updatePlinkoGiftMappings(boards[0].id, {
+        '1234': { name: 'Rose', betAmount: 100, ballType: 'standard' }
+      });
+
+      const eventData = {
+        uniqueId: 'user4', giftName: 'Rose', giftId: 1234,
+        nickname: 'User4', giftPictureUrl: '', repeatEnd: true, repeatCount: 1
+      };
+
+      gameEnginePlugin.handleGiftTrigger(eventData);
+      gameEnginePlugin.handleGiftTrigger(eventData); // duplicate within window
+
+      expect(gameEnginePlugin.handlePlinkoGiftTrigger).toHaveBeenCalledTimes(1);
+    });
+
+    test('should not trigger plinko for gifts in a streak (repeatEnd = false)', () => {
+      const boards = db.getAllPlinkoBoards();
+      db.updatePlinkoGiftMappings(boards[0].id, {
+        '5655': { name: 'Rose', betAmount: 100, ballType: 'standard' }
+      });
+
+      gameEnginePlugin.handleGiftTrigger({
+        uniqueId: 'user5', giftName: 'Rose', giftId: 5655,
+        nickname: 'User5', giftPictureUrl: '', repeatEnd: false, repeatCount: 3
+      });
+
+      expect(gameEnginePlugin.handlePlinkoGiftTrigger).not.toHaveBeenCalled();
+    });
+
+    test('wheel trigger should take priority over plinko for same gift ID', () => {
+      // Both wheel and plinko have the same gift mapped
+      mockWheelGame.findWheelByGiftTrigger.mockReturnValue({ id: 1, name: 'Test Wheel' });
+      const boards = db.getAllPlinkoBoards();
+      db.updatePlinkoGiftMappings(boards[0].id, {
+        '5655': { name: 'Rose', betAmount: 100, ballType: 'standard' }
+      });
+
+      gameEnginePlugin.handleGiftTrigger({
+        uniqueId: 'user6', giftName: 'Rose', giftId: 5655,
+        nickname: 'User6', giftPictureUrl: '', repeatEnd: true, repeatCount: 1
+      });
+
+      expect(gameEnginePlugin.handleWheelGiftTrigger).toHaveBeenCalled();
+      expect(gameEnginePlugin.handlePlinkoGiftTrigger).not.toHaveBeenCalled();
     });
   });
 });
