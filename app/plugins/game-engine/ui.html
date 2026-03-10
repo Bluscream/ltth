@@ -768,6 +768,7 @@
       <button class="tab" data-tab="plinko">🎰 Plinko</button>
       <button class="tab" data-tab="plinko-test">🧪 Plinko Test</button>
       <button class="tab" data-tab="wheel">🎡 Glücksrad</button>
+      <button class="tab" data-tab="slot">🎰 Slot Machine</button>
       <button class="tab" data-tab="overlays">OBS Overlays</button>
       <button class="tab" data-tab="overlay-settings">⚙️ Overlay Mode</button>
       <button class="tab" data-tab="triggers">Trigger</button>
@@ -1931,6 +1932,219 @@
       </div>
     </div>
 
+    <!-- Slot Machine Tab -->
+    <div class="tab-content" id="tab-slot">
+      <!-- Machine selector -->
+      <div class="card">
+        <h2>🎰 Slot Machine</h2>
+        <p style="color:#aaa;font-size:14px;margin-bottom:12px;">
+          Konfiguriere Slot-Maschinen, Symbole, Odds-Profile, Belohnungen und Gift-Mappings.
+        </p>
+        <div class="form-group">
+          <label>Slot-Maschine wählen:</label>
+          <select id="slot-machine-selector" style="width:100%;margin-bottom:10px;"></select>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="createSlotMachineBtn" class="secondary">➕ Neue Maschine</button>
+          <button id="deleteSlotMachineBtn" class="danger">🗑️ Maschine löschen</button>
+        </div>
+      </div>
+
+      <!-- Basic settings -->
+      <div class="card">
+        <h3>⚙️ Grundeinstellungen</h3>
+        <div class="form-group">
+          <label>Name:</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="slot-machine-name" placeholder="Name der Slot-Maschine..." style="flex:1;">
+            <button id="updateSlotNameBtn" class="secondary">💾 Speichern</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Chat-Befehl (z.B. <code>!spin</code>):</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="slot-chat-command" placeholder="z.B. !spin" style="flex:1;">
+            <button id="updateSlotChatCommandBtn" class="secondary">💾 Speichern</button>
+          </div>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px;">
+          <label style="margin-bottom:0;">Aktiviert:</label>
+          <input type="checkbox" id="slot-enabled" checked>
+          <button id="updateSlotEnabledBtn" class="secondary" style="margin-left:auto;">💾 Status speichern</button>
+        </div>
+      </div>
+
+      <!-- Cooldowns -->
+      <div class="card">
+        <h3>⏱️ Cooldowns</h3>
+        <div class="form-group">
+          <label>User-Cooldown (Sekunden) – Chat:</label>
+          <input type="number" id="slot-chat-cooldown" value="30" min="0" max="3600" step="1">
+        </div>
+        <div class="form-group">
+          <label>VIP-Cooldown (Sekunden):</label>
+          <input type="number" id="slot-vip-cooldown" value="15" min="0" max="3600" step="1">
+        </div>
+        <div class="form-group">
+          <label>Sub-Cooldown (Sekunden):</label>
+          <input type="number" id="slot-sub-cooldown" value="10" min="0" max="3600" step="1">
+        </div>
+        <div class="form-group">
+          <label>Globaler Cooldown (Sekunden, 0 = deaktiviert):</label>
+          <input type="number" id="slot-global-cooldown" value="0" min="0" max="3600" step="1">
+        </div>
+      </div>
+
+      <!-- Spin animation settings -->
+      <div class="card">
+        <h3>🎬 Animations-Einstellungen</h3>
+        <div class="form-group">
+          <label>Spin-Dauer (ms):</label>
+          <input type="number" id="slot-spin-duration" value="3000" min="500" max="10000" step="100">
+        </div>
+        <div class="form-group">
+          <label>Reel-Stop-Verzögerung (ms):</label>
+          <input type="number" id="slot-reel-stop-delay" value="400" min="100" max="2000" step="50">
+        </div>
+        <div class="form-group">
+          <label>Ergebnisanzeige-Dauer (ms):</label>
+          <input type="number" id="slot-result-duration" value="5000" min="1000" max="30000" step="500">
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px;">
+          <label style="margin-bottom:0;">Sound aktiviert:</label>
+          <input type="checkbox" id="slot-sound-enabled" checked>
+        </div>
+        <div class="form-group">
+          <label>Lautstärke (0–1):</label>
+          <input type="number" id="slot-sound-volume" value="0.7" min="0" max="1" step="0.05">
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px;">
+          <label style="margin-bottom:0;">Near Miss aktiviert:</label>
+          <input type="checkbox" id="slot-near-miss-enabled" checked>
+        </div>
+        <button id="saveSlotSettingsBtn">💾 Einstellungen speichern</button>
+      </div>
+
+      <!-- Symbol editor -->
+      <div class="card">
+        <h3>🎴 Symbol-Editor</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
+          Symbole werden nach Position sortiert – frühere Symbole sind häufiger, spätere seltener.
+          Die Reihenfolge definiert auch die Gewinn-Tier-Zuordnung.
+        </p>
+        <div id="slot-symbols-container"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+          <button id="addSlotSymbolBtn" class="secondary">➕ Symbol hinzufügen</button>
+          <button id="removeSlotSymbolBtn" class="danger">➖ Letztes entfernen</button>
+          <button id="saveSlotSymbolsBtn">💾 Symbole speichern</button>
+        </div>
+      </div>
+
+      <!-- Odds profiles -->
+      <div class="card">
+        <h3>📊 Odds-Profile</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
+          Jedes Profil legt die Gewichtung der Ergebnis-Kategorien fest.
+          Höhere Werte = wahrscheinlicher.
+          Standard-Profile: <code>chat</code>, <code>gift_common</code>, <code>gift_rare</code>.
+        </p>
+        <div class="form-group">
+          <label>Profil auswählen:</label>
+          <select id="slot-odds-profile-selector">
+            <option value="chat">chat (Standard)</option>
+            <option value="gift_common">gift_common</option>
+            <option value="gift_rare">gift_rare</option>
+          </select>
+        </div>
+        <div id="slot-odds-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div class="form-group"><label>loss:</label><input type="number" id="odds-loss" value="650" min="0" max="10000" step="1"></div>
+          <div class="form-group"><label>near_miss:</label><input type="number" id="odds-near-miss" value="80" min="0" max="10000" step="1"></div>
+          <div class="form-group"><label>small_win:</label><input type="number" id="odds-small-win" value="150" min="0" max="10000" step="1"></div>
+          <div class="form-group"><label>medium_win:</label><input type="number" id="odds-medium-win" value="70" min="0" max="10000" step="1"></div>
+          <div class="form-group"><label>big_win:</label><input type="number" id="odds-big-win" value="40" min="0" max="10000" step="1"></div>
+          <div class="form-group"><label>jackpot:</label><input type="number" id="odds-jackpot" value="10" min="0" max="10000" step="1"></div>
+        </div>
+        <button id="saveSlotOddsBtn" style="margin-top:10px;">💾 Odds-Profil speichern</button>
+      </div>
+
+      <!-- Gift mappings -->
+      <div class="card">
+        <h3>🎁 Gift-Mappings</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
+          Weise Geschenken ein Odds-Profil zu. Schlüssel: Gift-ID (Zahl) oder Gift-Name.
+          Verfügbare Profile: <code>chat</code>, <code>gift_common</code>, <code>gift_rare</code>.
+        </p>
+        <div id="slot-gift-mappings-container"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="slot-new-gift-name" placeholder="Gift-ID oder Name..." style="flex:1;">
+          <select id="slot-new-gift-odds-profile">
+            <option value="gift_common">gift_common</option>
+            <option value="gift_rare">gift_rare</option>
+            <option value="chat">chat</option>
+          </select>
+          <button id="addSlotGiftMappingBtn" class="secondary">➕ Hinzufügen</button>
+        </div>
+        <button id="saveSlotGiftMappingsBtn" style="margin-top:10px;">💾 Gift-Mappings speichern</button>
+      </div>
+
+      <!-- Reward rules -->
+      <div class="card">
+        <h3>🏆 Belohnungs-Regeln</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
+          Definiere, welche Aktionen bei bestimmten Ergebnis-Kategorien ausgelöst werden.
+          Unterstützte Aktionen: <code>audio</code>, <code>overlay</code>, <code>openshock</code>, <code>xp</code>, <code>chat</code>, <code>free_spin</code>.
+        </p>
+        <div id="slot-reward-rules-container"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button id="addSlotRewardRuleBtn" class="secondary">➕ Regel hinzufügen</button>
+          <button id="saveSlotRewardRulesBtn">💾 Regeln speichern</button>
+        </div>
+      </div>
+
+      <!-- Statistics -->
+      <div class="card">
+        <h3>📈 Statistiken</h3>
+        <div id="slot-stats-container">
+          <p style="color:#888;">Lade Statistiken…</p>
+        </div>
+        <button id="refreshSlotStatsBtn" class="secondary" style="margin-top:10px;">🔄 Statistiken aktualisieren</button>
+      </div>
+
+      <!-- Test spin -->
+      <div class="card">
+        <h3>🧪 Test-Spin</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
+          Löse einen Test-Spin aus, um die Overlay-Darstellung und Reward-Dispatch zu testen.
+        </p>
+        <div class="form-group">
+          <label>Odds-Profil für Test:</label>
+          <select id="slot-test-odds-profile">
+            <option value="chat">chat</option>
+            <option value="gift_common">gift_common</option>
+            <option value="gift_rare">gift_rare</option>
+          </select>
+        </div>
+        <button id="triggerSlotTestSpinBtn">🎰 Test-Spin auslösen</button>
+        <div id="slot-test-result" style="margin-top:10px;padding:10px;background:#1a1a2e;border-radius:6px;display:none;"></div>
+      </div>
+
+      <!-- Overlay URL -->
+      <div class="card">
+        <h3>📺 Overlay URL</h3>
+        <div class="form-group">
+          <label>Slot Overlay URL:</label>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <input type="text" id="slot-overlay-url" value="http://localhost:3000/overlay/game-engine/slot" readonly style="flex:1;">
+            <button class="secondary" id="btn-copy-slot-overlay">📋 Kopieren</button>
+            <button class="secondary" id="btn-preview-slot-overlay">👁️ Vorschau</button>
+          </div>
+        </div>
+        <div style="background:#3a3a4e;padding:12px;border-radius:8px;margin-top:10px;">
+          <strong>Empfohlene Größe:</strong> 1920 x 1080 (oder als Einzel-Element: 500 x 300)
+        </div>
+      </div>
+    </div>
+
     <!-- OBS Overlays Tab - ALL GAME OVERLAYS COLLECTED HERE -->
     <div class="tab-content" id="tab-overlays">
       <div class="card">
@@ -2010,6 +2224,25 @@
             <input type="text" id="overlay-url-wheel" value="http://localhost:3000/overlay/game-engine/wheel" readonly style="flex: 1;">
             <button class="secondary" id="btn-copy-wheel-overlay-main">📋 Kopieren</button>
             <button class="secondary" id="btn-preview-wheel-overlay-main">👁️ Vorschau</button>
+          </div>
+        </div>
+        <div style="background: #3a3a4e; padding: 12px; border-radius: 8px; margin-top: 10px;">
+          <strong>Empfohlene Größe:</strong> 1920 x 1080
+        </div>
+      </div>
+
+      <!-- Slot Machine Overlay -->
+      <div class="card">
+        <h3>🎰 Slot Machine Overlay</h3>
+        <p style="color: #aaa; font-size: 14px; margin-bottom: 10px;">
+          Zeigt die Slot Machine mit animierten Reels, Ergebnis und Gewinnanzeige.
+        </p>
+        <div class="form-group">
+          <label>Overlay URL:</label>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" id="overlay-url-slot" value="http://localhost:3000/overlay/game-engine/slot" readonly style="flex: 1;">
+            <button class="secondary" id="btn-copy-slot-overlay-main">📋 Kopieren</button>
+            <button class="secondary" id="btn-preview-slot-overlay-main">👁️ Vorschau</button>
           </div>
         </div>
         <div style="background: #3a3a4e; padding: 12px; border-radius: 8px; margin-top: 10px;">
@@ -3834,7 +4067,557 @@
       });
     }
 
-    // ===== MANUAL MODE =====
+    // Slot overlay copy/preview in OBS tab
+    const btnCopySlotOverlayMain = document.getElementById('btn-copy-slot-overlay-main');
+    if (btnCopySlotOverlayMain) {
+      btnCopySlotOverlayMain.addEventListener('click', () => copyOverlayURL('overlay-url-slot'));
+    }
+    const btnPreviewSlotOverlayMain = document.getElementById('btn-preview-slot-overlay-main');
+    if (btnPreviewSlotOverlayMain) {
+      btnPreviewSlotOverlayMain.addEventListener('click', () => {
+        previewOverlay(document.getElementById('overlay-url-slot').value);
+      });
+    }
+
+    // ===== SLOT MACHINE TAB =====
+
+    // State for the slot tab
+    let slotMachines = [];
+    let currentSlotMachineId = null;
+    let currentSlotConfig = null;
+
+    async function loadSlotMachines() {
+      try {
+        const resp = await fetch('/api/game-engine/slots');
+        slotMachines = await resp.json();
+        const selector = document.getElementById('slot-machine-selector');
+        if (!selector) return;
+        selector.innerHTML = '';
+        slotMachines.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.name + (m.enabled ? '' : ' (deaktiviert)');
+          selector.appendChild(opt);
+        });
+        if (slotMachines.length > 0) {
+          currentSlotMachineId = slotMachines[0].id;
+          selector.value = currentSlotMachineId;
+          await loadSlotConfig(currentSlotMachineId);
+        }
+      } catch (e) {
+        console.error('Error loading slot machines:', e);
+      }
+    }
+
+    async function loadSlotConfig(machineId) {
+      try {
+        const resp = await fetch(`/api/game-engine/slots/${machineId}/config`);
+        currentSlotConfig = await resp.json();
+        populateSlotForm(currentSlotConfig);
+        await loadSlotStats(machineId);
+      } catch (e) {
+        console.error('Error loading slot config:', e);
+      }
+    }
+
+    function populateSlotForm(cfg) {
+      if (!cfg) return;
+      const s = cfg.settings || {};
+
+      const nameEl = document.getElementById('slot-machine-name');
+      if (nameEl) nameEl.value = cfg.name || '';
+
+      const cmdEl = document.getElementById('slot-chat-command');
+      if (cmdEl) cmdEl.value = cfg.chatCommand || '';
+
+      const enabledEl = document.getElementById('slot-enabled');
+      if (enabledEl) enabledEl.checked = cfg.enabled !== false;
+
+      const chatCd = document.getElementById('slot-chat-cooldown');
+      if (chatCd) chatCd.value = Math.round((s.chatCooldownMs || 30000) / 1000);
+
+      const vipCd = document.getElementById('slot-vip-cooldown');
+      if (vipCd) vipCd.value = Math.round((s.vipCooldownMs || 15000) / 1000);
+
+      const subCd = document.getElementById('slot-sub-cooldown');
+      if (subCd) subCd.value = Math.round((s.subCooldownMs || 10000) / 1000);
+
+      const globalCd = document.getElementById('slot-global-cooldown');
+      if (globalCd) globalCd.value = Math.round((s.globalCooldownMs || 0) / 1000);
+
+      const spinDur = document.getElementById('slot-spin-duration');
+      if (spinDur) spinDur.value = s.spinDuration || 3000;
+
+      const stopDelay = document.getElementById('slot-reel-stop-delay');
+      if (stopDelay) stopDelay.value = s.reelStopDelay || 400;
+
+      const resultDur = document.getElementById('slot-result-duration');
+      if (resultDur) resultDur.value = s.showResultDuration || 5000;
+
+      const soundEl = document.getElementById('slot-sound-enabled');
+      if (soundEl) soundEl.checked = s.soundEnabled !== false;
+
+      const volEl = document.getElementById('slot-sound-volume');
+      if (volEl) volEl.value = s.soundVolume !== undefined ? s.soundVolume : 0.7;
+
+      const nearMissEl = document.getElementById('slot-near-miss-enabled');
+      if (nearMissEl) nearMissEl.checked = s.nearMissEnabled !== false;
+
+      renderSlotSymbols(cfg.symbols || []);
+      renderSlotOddsProfile(cfg.oddsProfiles || {});
+      renderSlotGiftMappings(cfg.giftMappings || {});
+      renderSlotRewardRules(cfg.rewardRules || []);
+    }
+
+    function renderSlotSymbols(symbols) {
+      const container = document.getElementById('slot-symbols-container');
+      if (!container) return;
+      container.innerHTML = '';
+      symbols.forEach((sym, idx) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;';
+        row.innerHTML = `
+          <span style="width:24px;text-align:center;color:#888;">#${idx + 1}</span>
+          <input type="text" value="${sym.emoji || ''}" placeholder="Emoji" style="width:60px;" data-field="emoji" data-idx="${idx}">
+          <input type="text" value="${sym.id || ''}" placeholder="ID" style="width:80px;" data-field="id" data-idx="${idx}">
+          <input type="text" value="${sym.label || ''}" placeholder="Label" style="flex:1;" data-field="label" data-idx="${idx}">
+          <input type="number" value="${sym.weight || 1}" min="1" max="1000" style="width:70px;" data-field="weight" data-idx="${idx}">
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function getSlotSymbolsFromForm() {
+      const container = document.getElementById('slot-symbols-container');
+      if (!container) return [];
+      const rows = container.querySelectorAll('div');
+      return Array.from(rows).map(row => ({
+        emoji: row.querySelector('[data-field="emoji"]').value.trim(),
+        id:    row.querySelector('[data-field="id"]').value.trim(),
+        label: row.querySelector('[data-field="label"]').value.trim(),
+        weight: parseInt(row.querySelector('[data-field="weight"]').value, 10) || 1
+      }));
+    }
+
+    function renderSlotOddsProfile(profiles) {
+      const profileKey = document.getElementById('slot-odds-profile-selector')?.value || 'chat';
+      const profile = (profiles || {})[profileKey] || {};
+      const fields = ['loss','near-miss','small-win','medium-win','big-win','jackpot'];
+      const keys   = ['loss','near_miss','small_win','medium_win','big_win','jackpot'];
+      fields.forEach((field, i) => {
+        const el = document.getElementById(`odds-${field}`);
+        if (el) el.value = profile[keys[i]] !== undefined ? profile[keys[i]] : 0;
+      });
+    }
+
+    function renderSlotGiftMappings(mappings) {
+      const container = document.getElementById('slot-gift-mappings-container');
+      if (!container) return;
+      container.innerHTML = '';
+      Object.entries(mappings).forEach(([key, val]) => {
+        const oddsProfile = typeof val === 'object' ? (val.oddsProfile || 'gift_common') : val;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;';
+        row.innerHTML = `
+          <span style="flex:1;font-family:monospace;">${escapeHtml(key)}</span>
+          <select data-key="${escapeHtml(key)}" class="slot-gift-odds-select">
+            <option value="chat" ${oddsProfile==='chat'?'selected':''}>chat</option>
+            <option value="gift_common" ${oddsProfile==='gift_common'?'selected':''}>gift_common</option>
+            <option value="gift_rare" ${oddsProfile==='gift_rare'?'selected':''}>gift_rare</option>
+          </select>
+          <button class="danger slot-gift-remove-btn" data-key="${escapeHtml(key)}" style="padding:4px 8px;">✕</button>
+        `;
+        container.appendChild(row);
+      });
+      container.querySelectorAll('.slot-gift-remove-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          btn.closest('div').remove();
+        });
+      });
+    }
+
+    function getSlotGiftMappingsFromForm() {
+      const container = document.getElementById('slot-gift-mappings-container');
+      if (!container) return {};
+      const result = {};
+      container.querySelectorAll('.slot-gift-odds-select').forEach(sel => {
+        result[sel.dataset.key] = { oddsProfile: sel.value };
+      });
+      return result;
+    }
+
+    function renderSlotRewardRules(rules) {
+      const container = document.getElementById('slot-reward-rules-container');
+      if (!container) return;
+      container.innerHTML = '';
+      rules.forEach((rule, idx) => {
+        const cats = (rule.outcomeCategories || []).join(',');
+        const row = document.createElement('div');
+        row.style.cssText = 'background:#1a1a2e;padding:10px;border-radius:6px;margin-bottom:8px;';
+        row.innerHTML = `
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
+            <input type="text" value="${escapeHtml(cats)}" placeholder="Kategorien (z.B. jackpot,big_win)" style="flex:1;" data-rule-idx="${idx}" data-rule-field="categories">
+            <select data-rule-idx="${idx}" data-rule-field="action" style="width:130px;">
+              <option value="audio" ${rule.action==='audio'?'selected':''}>audio</option>
+              <option value="overlay" ${rule.action==='overlay'?'selected':''}>overlay</option>
+              <option value="openshock" ${rule.action==='openshock'?'selected':''}>openshock</option>
+              <option value="xp" ${rule.action==='xp'?'selected':''}>xp</option>
+              <option value="chat" ${rule.action==='chat'?'selected':''}>chat</option>
+              <option value="free_spin" ${rule.action==='free_spin'?'selected':''}>free_spin</option>
+            </select>
+            <button class="danger slot-rule-remove-btn" data-idx="${idx}" style="padding:4px 8px;">✕</button>
+          </div>
+          <textarea rows="2" style="width:100%;font-family:monospace;font-size:12px;background:#0d0d1a;border:1px solid #333;color:#ccc;padding:6px;border-radius:4px;" data-rule-idx="${idx}" data-rule-field="params" placeholder='{"audioType":"jackpot"}'>${escapeHtml(JSON.stringify(rule.params || {}))}</textarea>
+        `;
+        container.appendChild(row);
+      });
+      container.querySelectorAll('.slot-rule-remove-btn').forEach(btn => {
+        btn.addEventListener('click', () => btn.closest('div[style]').remove());
+      });
+    }
+
+    function getSlotRewardRulesFromForm() {
+      const container = document.getElementById('slot-reward-rules-container');
+      if (!container) return [];
+      const rules = [];
+      const actionSelects = container.querySelectorAll('[data-rule-field="action"]');
+      actionSelects.forEach(sel => {
+        const idx = sel.dataset.ruleIdx;
+        const catEl = container.querySelector(`[data-rule-idx="${idx}"][data-rule-field="categories"]`);
+        const paramsEl = container.querySelector(`[data-rule-idx="${idx}"][data-rule-field="params"]`);
+        let params = {};
+        try { params = JSON.parse(paramsEl.value); } catch(e) {}
+        rules.push({
+          id: `rule_${Date.now()}_${idx}`,
+          outcomeCategories: (catEl.value || '').split(',').map(s => s.trim()).filter(Boolean),
+          action: sel.value,
+          params
+        });
+      });
+      return rules;
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function loadSlotStats(machineId) {
+      try {
+        const resp = await fetch(`/api/game-engine/slots/${machineId}/stats`);
+        const stats = await resp.json();
+        const container = document.getElementById('slot-stats-container');
+        if (!container) return;
+        container.innerHTML = `
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+            <div style="background:#1a1a2e;padding:12px;border-radius:8px;text-align:center;">
+              <div style="font-size:1.8rem;font-weight:700;color:#64B5F6;">${stats.totalSpins || 0}</div>
+              <div style="color:#888;font-size:13px;">Spins gesamt</div>
+            </div>
+            <div style="background:#1a1a2e;padding:12px;border-radius:8px;text-align:center;">
+              <div style="font-size:1.8rem;font-weight:700;color:#4CAF50;">${stats.totalWins || 0}</div>
+              <div style="color:#888;font-size:13px;">Gewinne</div>
+            </div>
+            <div style="background:#1a1a2e;padding:12px;border-radius:8px;text-align:center;">
+              <div style="font-size:1.8rem;font-weight:700;color:#FFD700;">${stats.totalJackpots || 0}</div>
+              <div style="color:#888;font-size:13px;">Jackpots</div>
+            </div>
+          </div>
+        `;
+      } catch(e) { console.error('Error loading slot stats:', e); }
+    }
+
+    // Wire up machine selector
+    const slotMachineSelector = document.getElementById('slot-machine-selector');
+    if (slotMachineSelector) {
+      slotMachineSelector.addEventListener('change', async () => {
+        currentSlotMachineId = parseInt(slotMachineSelector.value, 10);
+        await loadSlotConfig(currentSlotMachineId);
+      });
+    }
+
+    // Create machine
+    const createSlotBtn = document.getElementById('createSlotMachineBtn');
+    if (createSlotBtn) {
+      createSlotBtn.addEventListener('click', async () => {
+        const name = prompt('Name der neuen Slot-Maschine:');
+        if (!name) return;
+        await fetch('/api/game-engine/slots', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name }) });
+        await loadSlotMachines();
+      });
+    }
+
+    // Delete machine
+    const deleteSlotBtn = document.getElementById('deleteSlotMachineBtn');
+    if (deleteSlotBtn) {
+      deleteSlotBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId) return;
+        if (!confirm('Slot-Maschine wirklich löschen?')) return;
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}`, { method: 'DELETE' });
+        await loadSlotMachines();
+      });
+    }
+
+    // Update name
+    const updateSlotNameBtn = document.getElementById('updateSlotNameBtn');
+    if (updateSlotNameBtn) {
+      updateSlotNameBtn.addEventListener('click', async () => {
+        const name = document.getElementById('slot-machine-name').value.trim();
+        if (!name || !currentSlotMachineId) return;
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/name`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name }) });
+        await loadSlotMachines();
+      });
+    }
+
+    // Update chat command
+    const updateSlotCmdBtn = document.getElementById('updateSlotChatCommandBtn');
+    if (updateSlotCmdBtn) {
+      updateSlotCmdBtn.addEventListener('click', async () => {
+        const chatCommand = document.getElementById('slot-chat-command').value.trim() || null;
+        if (!currentSlotMachineId) return;
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/chat-command`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ chatCommand }) });
+      });
+    }
+
+    // Update enabled
+    const updateSlotEnabledBtn = document.getElementById('updateSlotEnabledBtn');
+    if (updateSlotEnabledBtn) {
+      updateSlotEnabledBtn.addEventListener('click', async () => {
+        const enabled = document.getElementById('slot-enabled').checked;
+        if (!currentSlotMachineId) return;
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/enabled`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled }) });
+        await loadSlotMachines();
+      });
+    }
+
+    // Save general settings
+    const saveSlotSettingsBtn = document.getElementById('saveSlotSettingsBtn');
+    if (saveSlotSettingsBtn) {
+      saveSlotSettingsBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId || !currentSlotConfig) return;
+        const settings = {
+          spinDuration:      parseInt(document.getElementById('slot-spin-duration').value, 10) || 3000,
+          reelStopDelay:     parseInt(document.getElementById('slot-reel-stop-delay').value, 10) || 400,
+          showResultDuration:parseInt(document.getElementById('slot-result-duration').value, 10) || 5000,
+          soundEnabled:      document.getElementById('slot-sound-enabled').checked,
+          soundVolume:       parseFloat(document.getElementById('slot-sound-volume').value) || 0.7,
+          nearMissEnabled:   document.getElementById('slot-near-miss-enabled').checked,
+          chatCooldownMs:    (parseInt(document.getElementById('slot-chat-cooldown').value, 10) || 30) * 1000,
+          vipCooldownMs:     (parseInt(document.getElementById('slot-vip-cooldown').value, 10) || 15) * 1000,
+          subCooldownMs:     (parseInt(document.getElementById('slot-sub-cooldown').value, 10) || 10) * 1000,
+          globalCooldownMs:  (parseInt(document.getElementById('slot-global-cooldown').value, 10) || 0) * 1000
+        };
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            symbols:      currentSlotConfig.symbols,
+            settings,
+            giftMappings: currentSlotConfig.giftMappings,
+            oddsProfiles: currentSlotConfig.oddsProfiles,
+            rewardRules:  currentSlotConfig.rewardRules
+          })
+        });
+        await loadSlotConfig(currentSlotMachineId);
+      });
+    }
+
+    // Add / remove symbols
+    const addSlotSymbolBtn = document.getElementById('addSlotSymbolBtn');
+    if (addSlotSymbolBtn) {
+      addSlotSymbolBtn.addEventListener('click', () => {
+        const symbols = getSlotSymbolsFromForm();
+        symbols.push({ emoji: '⭐', id: `sym_${symbols.length}`, label: 'New', weight: 5 });
+        renderSlotSymbols(symbols);
+      });
+    }
+    const removeSlotSymbolBtn = document.getElementById('removeSlotSymbolBtn');
+    if (removeSlotSymbolBtn) {
+      removeSlotSymbolBtn.addEventListener('click', () => {
+        const symbols = getSlotSymbolsFromForm();
+        if (symbols.length > 1) { symbols.pop(); renderSlotSymbols(symbols); }
+      });
+    }
+
+    // Save symbols
+    const saveSlotSymbolsBtn = document.getElementById('saveSlotSymbolsBtn');
+    if (saveSlotSymbolsBtn) {
+      saveSlotSymbolsBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId || !currentSlotConfig) return;
+        const symbols = getSlotSymbolsFromForm();
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            symbols,
+            settings:     currentSlotConfig.settings,
+            giftMappings: currentSlotConfig.giftMappings,
+            oddsProfiles: currentSlotConfig.oddsProfiles,
+            rewardRules:  currentSlotConfig.rewardRules
+          })
+        });
+        await loadSlotConfig(currentSlotMachineId);
+      });
+    }
+
+    // Odds profile selector change
+    const slotOddsProfileSelector = document.getElementById('slot-odds-profile-selector');
+    if (slotOddsProfileSelector) {
+      slotOddsProfileSelector.addEventListener('change', () => {
+        if (currentSlotConfig) renderSlotOddsProfile(currentSlotConfig.oddsProfiles || {});
+      });
+    }
+
+    // Save odds profile
+    const saveSlotOddsBtn = document.getElementById('saveSlotOddsBtn');
+    if (saveSlotOddsBtn) {
+      saveSlotOddsBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId || !currentSlotConfig) return;
+        const profileKey = document.getElementById('slot-odds-profile-selector').value;
+        const fields = ['loss','near-miss','small-win','medium-win','big-win','jackpot'];
+        const keys   = ['loss','near_miss','small_win','medium_win','big_win','jackpot'];
+        const profile = {};
+        fields.forEach((field, i) => {
+          const el = document.getElementById(`odds-${field}`);
+          profile[keys[i]] = parseInt(el ? el.value : '0', 10) || 0;
+        });
+        const oddsProfiles = Object.assign({}, currentSlotConfig.oddsProfiles || {}, { [profileKey]: profile });
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            symbols:      currentSlotConfig.symbols,
+            settings:     currentSlotConfig.settings,
+            giftMappings: currentSlotConfig.giftMappings,
+            oddsProfiles,
+            rewardRules:  currentSlotConfig.rewardRules
+          })
+        });
+        await loadSlotConfig(currentSlotMachineId);
+      });
+    }
+
+    // Add gift mapping
+    const addSlotGiftMappingBtn = document.getElementById('addSlotGiftMappingBtn');
+    if (addSlotGiftMappingBtn) {
+      addSlotGiftMappingBtn.addEventListener('click', () => {
+        const key = document.getElementById('slot-new-gift-name').value.trim();
+        if (!key) return;
+        const odds = document.getElementById('slot-new-gift-odds-profile').value;
+        document.getElementById('slot-new-gift-name').value = '';
+        const mappings = getSlotGiftMappingsFromForm();
+        mappings[key] = { oddsProfile: odds };
+        renderSlotGiftMappings(mappings);
+      });
+    }
+
+    // Save gift mappings
+    const saveSlotGiftMappingsBtn = document.getElementById('saveSlotGiftMappingsBtn');
+    if (saveSlotGiftMappingsBtn) {
+      saveSlotGiftMappingsBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId || !currentSlotConfig) return;
+        const giftMappings = getSlotGiftMappingsFromForm();
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            symbols:      currentSlotConfig.symbols,
+            settings:     currentSlotConfig.settings,
+            giftMappings,
+            oddsProfiles: currentSlotConfig.oddsProfiles,
+            rewardRules:  currentSlotConfig.rewardRules
+          })
+        });
+        await loadSlotConfig(currentSlotMachineId);
+      });
+    }
+
+    // Add reward rule
+    const addSlotRewardRuleBtn = document.getElementById('addSlotRewardRuleBtn');
+    if (addSlotRewardRuleBtn) {
+      addSlotRewardRuleBtn.addEventListener('click', () => {
+        const rules = getSlotRewardRulesFromForm();
+        rules.push({ id: `rule_${Date.now()}`, outcomeCategories: ['jackpot'], action: 'audio', params: { audioType: 'jackpot' } });
+        renderSlotRewardRules(rules);
+      });
+    }
+
+    // Save reward rules
+    const saveSlotRewardRulesBtn = document.getElementById('saveSlotRewardRulesBtn');
+    if (saveSlotRewardRulesBtn) {
+      saveSlotRewardRulesBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId || !currentSlotConfig) return;
+        const rewardRules = getSlotRewardRulesFromForm();
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            symbols:      currentSlotConfig.symbols,
+            settings:     currentSlotConfig.settings,
+            giftMappings: currentSlotConfig.giftMappings,
+            oddsProfiles: currentSlotConfig.oddsProfiles,
+            rewardRules
+          })
+        });
+        await loadSlotConfig(currentSlotMachineId);
+      });
+    }
+
+    // Refresh stats
+    const refreshSlotStatsBtn = document.getElementById('refreshSlotStatsBtn');
+    if (refreshSlotStatsBtn) {
+      refreshSlotStatsBtn.addEventListener('click', () => {
+        if (currentSlotMachineId) loadSlotStats(currentSlotMachineId);
+      });
+    }
+
+    // Test spin
+    const triggerSlotTestSpinBtn = document.getElementById('triggerSlotTestSpinBtn');
+    if (triggerSlotTestSpinBtn) {
+      triggerSlotTestSpinBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId) return;
+        const oddsProfile = document.getElementById('slot-test-odds-profile').value;
+        const resultEl = document.getElementById('slot-test-result');
+        try {
+          const resp = await fetch(`/api/game-engine/slots/${currentSlotMachineId}/test-spin`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ oddsProfile })
+          });
+          const result = await resp.json();
+          if (resultEl) {
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = `<strong>Ergebnis:</strong> ${result.category || 'unknown'} | Gewinn: ${result.isWin ? '✅' : '❌'} | Spin-ID: ${result.spinId || '?'}`;
+          }
+          await loadSlotStats(currentSlotMachineId);
+        } catch(e) {
+          if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = 'Fehler: ' + e.message; }
+        }
+      });
+    }
+
+    // Slot overlay copy/preview in Slot tab
+    const btnCopySlotOverlay = document.getElementById('btn-copy-slot-overlay');
+    if (btnCopySlotOverlay) {
+      btnCopySlotOverlay.addEventListener('click', () => copyOverlayURL('slot-overlay-url'));
+    }
+    const btnPreviewSlotOverlay = document.getElementById('btn-preview-slot-overlay');
+    if (btnPreviewSlotOverlay) {
+      btnPreviewSlotOverlay.addEventListener('click', () => {
+        previewOverlay(document.getElementById('slot-overlay-url').value);
+      });
+    }
+
+    // Load slots when tab becomes active
+    document.querySelectorAll('.tab[data-tab="slot"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (slotMachines.length === 0) loadSlotMachines();
+      });
+    });
+
+    // Initial load if slot tab is already active on page load
+    if (document.querySelector('.tab[data-tab="slot"]')?.classList.contains('active')) {
+      loadSlotMachines();
+    }
     
     let manualSessionId = null;
     

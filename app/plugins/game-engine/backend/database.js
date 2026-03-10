@@ -504,6 +504,9 @@ class GameEngineDatabase {
     // Initialize default overlay settings for all game types
     this.initializeOverlaySettings();
 
+    // Initialize slot machine tables
+    this.initSlotTables();
+
     this.logger.info('✅ Game Engine database tables initialized');
   }
   
@@ -2047,6 +2050,382 @@ class GameEngineDatabase {
     return {
       filename: row.filename,
       isCustom: row.is_custom === 1
+    };
+  }
+
+  // ========================================
+  // SLOT MACHINE DATABASE METHODS
+  // Supports multiple slot machines with individual triggers and odds profiles
+  // ========================================
+
+  /**
+   * Initialize all slot-machine tables.
+   * Called once from initialize() – idempotent via IF NOT EXISTS.
+   */
+  initSlotTables() {
+    // Main slot machine configuration table (multi-machine)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS game_slot_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL DEFAULT 'Standard Slot',
+        symbols TEXT NOT NULL,
+        settings TEXT NOT NULL,
+        gift_mappings TEXT DEFAULT '{}',
+        odds_profiles TEXT DEFAULT '{}',
+        reward_rules TEXT DEFAULT '[]',
+        chat_command TEXT,
+        enabled INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Per-spin session log (server-authoritative result records)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS game_slot_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        machine_id INTEGER NOT NULL DEFAULT 1,
+        username TEXT NOT NULL,
+        nickname TEXT,
+        trigger_type TEXT NOT NULL,
+        trigger_value TEXT,
+        reel1 TEXT NOT NULL,
+        reel2 TEXT NOT NULL,
+        reel3 TEXT NOT NULL,
+        outcome_category TEXT NOT NULL,
+        reward_actions TEXT DEFAULT '[]',
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Aggregate statistics per machine
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS game_slot_stats (
+        machine_id INTEGER PRIMARY KEY,
+        total_spins INTEGER DEFAULT 0,
+        total_wins INTEGER DEFAULT 0,
+        total_jackpots INTEGER DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Seed a default slot machine if none exists
+    const count = this.db.prepare('SELECT COUNT(*) as c FROM game_slot_config').get();
+    if (count.c === 0) {
+      const defaultSymbols = [
+        { id: 'cherry',  emoji: '🍒', label: 'Cherry',  weight: 18 },
+        { id: 'lemon',   emoji: '🍋', label: 'Lemon',   weight: 16 },
+        { id: 'grape',   emoji: '🍇', label: 'Grape',   weight: 14 },
+        { id: 'clover',  emoji: '🍀', label: 'Clover',  weight: 12 },
+        { id: 'star',    emoji: '⭐',  label: 'Star',    weight: 10 },
+        { id: 'bell',    emoji: '🔔', label: 'Bell',    weight:  8 },
+        { id: 'diamond', emoji: '💎', label: 'Diamond', weight:  6 },
+        { id: 'money',   emoji: '💰', label: 'Money',   weight:  5 },
+        { id: 'seven',   emoji: '7️⃣',  label: 'Seven',  weight:  4 },
+        { id: 'bolt',    emoji: '⚡',  label: 'Bolt',   weight:  4 },
+        { id: 'fire',    emoji: '🔥', label: 'Fire',   weight:  2 },
+        { id: 'joker',   emoji: '🃏', label: 'Joker',  weight:  1 }
+      ];
+
+      const defaultSettings = {
+        spinDuration: 3000,
+        reelStopDelay: 400,
+        soundEnabled: true,
+        soundVolume: 0.7,
+        chatCooldownMs: 30000,
+        globalCooldownMs: 0,
+        vipCooldownMs: 15000,
+        subCooldownMs: 10000,
+        nearMissEnabled: true,
+        showResultDuration: 5000
+      };
+
+      // Odds profiles control the probability of each outcome category.
+      // Each profile lists weights – higher weight = more likely.
+      // The engine normalises these to a sum of 1000.
+      const defaultOddsProfiles = {
+        chat: {
+          loss:       650,
+          near_miss:   80,
+          small_win:  150,
+          medium_win:  70,
+          big_win:     40,
+          jackpot:     10
+        },
+        gift_common: {
+          loss:       550,
+          near_miss:   80,
+          small_win:  200,
+          medium_win:  90,
+          big_win:     60,
+          jackpot:     20
+        },
+        gift_rare: {
+          loss:       400,
+          near_miss:   70,
+          small_win:  230,
+          medium_win: 130,
+          big_win:     110,
+          jackpot:      60
+        }
+      };
+
+      const defaultRewardRules = [
+        {
+          id: 'small_win_audio',
+          outcomeCategories: ['small_win'],
+          action: 'audio',
+          params: { audioType: 'small_win' }
+        },
+        {
+          id: 'medium_win_audio',
+          outcomeCategories: ['medium_win'],
+          action: 'audio',
+          params: { audioType: 'medium_win' }
+        },
+        {
+          id: 'big_win_audio',
+          outcomeCategories: ['big_win'],
+          action: 'audio',
+          params: { audioType: 'big_win' }
+        },
+        {
+          id: 'jackpot_audio',
+          outcomeCategories: ['jackpot'],
+          action: 'audio',
+          params: { audioType: 'jackpot' }
+        }
+      ];
+
+      this.db.prepare(`
+        INSERT INTO game_slot_config
+          (name, symbols, settings, gift_mappings, odds_profiles, reward_rules, chat_command, enabled)
+        VALUES (?, ?, ?, '{}', ?, ?, ?, 1)
+      `).run(
+        'Standard Slot',
+        JSON.stringify(defaultSymbols),
+        JSON.stringify(defaultSettings),
+        JSON.stringify(defaultOddsProfiles),
+        JSON.stringify(defaultRewardRules),
+        '!spin'
+      );
+    }
+  }
+
+  /**
+   * Get all slot machines
+   * @returns {Array}
+   */
+  getAllSlotMachines() {
+    const rows = this.db.prepare('SELECT * FROM game_slot_config ORDER BY id ASC').all();
+    return rows.map(r => this._parseSlotRow(r));
+  }
+
+  /**
+   * Get slot machine config by ID (defaults to first machine)
+   * @param {number|null} machineId
+   * @returns {Object|null}
+   */
+  getSlotConfig(machineId = null) {
+    let row;
+    if (machineId !== null) {
+      row = this.db.prepare('SELECT * FROM game_slot_config WHERE id = ?').get(machineId);
+    } else {
+      row = this.db.prepare('SELECT * FROM game_slot_config ORDER BY id ASC LIMIT 1').get();
+    }
+    return row ? this._parseSlotRow(row) : null;
+  }
+
+  /**
+   * @private
+   */
+  _parseSlotRow(row) {
+    return {
+      id: row.id,
+      name: row.name,
+      symbols: JSON.parse(row.symbols),
+      settings: JSON.parse(row.settings),
+      giftMappings: JSON.parse(row.gift_mappings || '{}'),
+      oddsProfiles: JSON.parse(row.odds_profiles || '{}'),
+      rewardRules: JSON.parse(row.reward_rules || '[]'),
+      chatCommand: row.chat_command,
+      enabled: row.enabled === 1
+    };
+  }
+
+  /**
+   * Create a new slot machine
+   * @param {string} name
+   * @param {Array}  symbols
+   * @param {Object} settings
+   * @param {Object} giftMappings
+   * @param {Object} oddsProfiles
+   * @param {Array}  rewardRules
+   * @param {string|null} chatCommand
+   * @returns {number} New machine ID
+   */
+  createSlotMachine(name, symbols, settings, giftMappings = {}, oddsProfiles = {}, rewardRules = [], chatCommand = null) {
+    const result = this.db.prepare(`
+      INSERT INTO game_slot_config (name, symbols, settings, gift_mappings, odds_profiles, reward_rules, chat_command, enabled)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    `).run(
+      name,
+      JSON.stringify(symbols),
+      JSON.stringify(settings),
+      JSON.stringify(giftMappings),
+      JSON.stringify(oddsProfiles),
+      JSON.stringify(rewardRules),
+      chatCommand
+    );
+    return result.lastInsertRowid;
+  }
+
+  /**
+   * Update slot machine config
+   */
+  updateSlotConfig(machineId, symbols, settings, giftMappings, oddsProfiles, rewardRules) {
+    this.db.prepare(`
+      UPDATE game_slot_config
+      SET symbols = ?, settings = ?, gift_mappings = ?, odds_profiles = ?, reward_rules = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      JSON.stringify(symbols),
+      JSON.stringify(settings),
+      JSON.stringify(giftMappings),
+      JSON.stringify(oddsProfiles),
+      JSON.stringify(rewardRules),
+      machineId
+    );
+  }
+
+  /**
+   * Update slot machine name
+   */
+  updateSlotName(machineId, name) {
+    this.db.prepare('UPDATE game_slot_config SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(name, machineId);
+  }
+
+  /**
+   * Update slot machine chat command
+   */
+  updateSlotChatCommand(machineId, chatCommand) {
+    this.db.prepare('UPDATE game_slot_config SET chat_command = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(chatCommand, machineId);
+  }
+
+  /**
+   * Update slot machine enabled status
+   */
+  updateSlotEnabled(machineId, enabled) {
+    this.db.prepare('UPDATE game_slot_config SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(enabled ? 1 : 0, machineId);
+  }
+
+  /**
+   * Delete a slot machine
+   * @returns {boolean}
+   */
+  deleteSlotMachine(machineId) {
+    const info = this.db.prepare('DELETE FROM game_slot_config WHERE id = ?').run(machineId);
+    return info.changes > 0;
+  }
+
+  /**
+   * Find slot machine by gift trigger (gift ID string or gift name)
+   * @param {string} giftIdentifier
+   * @returns {Object|null}
+   */
+  findSlotMachineByGiftTrigger(giftIdentifier) {
+    const machines = this.getAllSlotMachines();
+    const lowerIdent = (giftIdentifier || '').toLowerCase().trim();
+
+    for (const machine of machines) {
+      if (!machine.enabled) continue;
+      const mappings = machine.giftMappings || {};
+
+      // Exact match by key (numeric ID stored as string, or exact name)
+      if (mappings[giftIdentifier] !== undefined) return machine;
+
+      // Case-insensitive name fallback
+      for (const key of Object.keys(mappings)) {
+        if (key.toLowerCase() === lowerIdent) return machine;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find slot machine by chat command
+   * @param {string} command  (without leading !/  already stripped)
+   * @returns {Object|null}
+   */
+  findSlotMachineByChatCommand(command) {
+    const lowerCmd = (command || '').toLowerCase().replace(/^[!/]+/, '');
+    const machines = this.getAllSlotMachines();
+    for (const machine of machines) {
+      if (!machine.enabled) continue;
+      const mc = (machine.chatCommand || '').toLowerCase().replace(/^[!/]+/, '');
+      if (mc === lowerCmd) return machine;
+    }
+    return null;
+  }
+
+  /**
+   * Record a completed spin
+   * @param {Object} spinRecord
+   * @returns {number} new session ID
+   */
+  recordSlotSpin(spinRecord) {
+    const result = this.db.prepare(`
+      INSERT INTO game_slot_sessions
+        (machine_id, username, nickname, trigger_type, trigger_value,
+         reel1, reel2, reel3, outcome_category, reward_actions)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      spinRecord.machineId,
+      spinRecord.username,
+      spinRecord.nickname || spinRecord.username,
+      spinRecord.triggerType,
+      spinRecord.triggerValue || null,
+      spinRecord.reel1,
+      spinRecord.reel2,
+      spinRecord.reel3,
+      spinRecord.outcomeCategory,
+      JSON.stringify(spinRecord.rewardActions || [])
+    );
+
+    // Update aggregate stats
+    const isWin = spinRecord.outcomeCategory !== 'loss' && spinRecord.outcomeCategory !== 'near_miss';
+    const isJackpot = spinRecord.outcomeCategory === 'jackpot';
+
+    this.db.prepare(`
+      INSERT INTO game_slot_stats (machine_id, total_spins, total_wins, total_jackpots)
+      VALUES (?, 1, ?, ?)
+      ON CONFLICT(machine_id) DO UPDATE SET
+        total_spins    = total_spins + 1,
+        total_wins     = total_wins + excluded.total_wins,
+        total_jackpots = total_jackpots + excluded.total_jackpots,
+        updated_at     = CURRENT_TIMESTAMP
+    `).run(spinRecord.machineId, isWin ? 1 : 0, isJackpot ? 1 : 0);
+
+    return result.lastInsertRowid;
+  }
+
+  /**
+   * Get slot statistics for a machine
+   * @param {number} machineId
+   * @returns {Object}
+   */
+  getSlotStats(machineId) {
+    const row = this.db.prepare('SELECT * FROM game_slot_stats WHERE machine_id = ?').get(machineId);
+    if (!row) return { machineId, totalSpins: 0, totalWins: 0, totalJackpots: 0 };
+    return {
+      machineId: row.machine_id,
+      totalSpins: row.total_spins,
+      totalWins: row.total_wins,
+      totalJackpots: row.total_jackpots
     };
   }
 }

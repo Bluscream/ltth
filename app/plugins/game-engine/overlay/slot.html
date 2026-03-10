@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Slot Machine – LTTH Game Engine</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      --slot-bg:        #1a0a2e;
+      --slot-border:    #FFD700;
+      --reel-bg:        #0d0620;
+      --reel-border:    #5a3a8a;
+      --win-glow:       rgba(255,215,0,0.7);
+      --jackpot-color:  #FFD700;
+      --near-miss:      #FF6B6B;
+      --symbol-size:    72px;
+      --font-main:      'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: transparent;
+      overflow: hidden;
+      font-family: var(--font-main);
+    }
+
+    /* ── Container ─────────────────────────────────────── */
+    #slot-container {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+    }
+
+    /* ── Main machine panel ─────────────────────────────── */
+    #slot-machine {
+      background: linear-gradient(160deg, #2a0a4e 0%, #1a0a2e 100%);
+      border: 4px solid var(--slot-border);
+      border-radius: 24px;
+      padding: 24px 28px 20px;
+      box-shadow:
+        0 0 40px rgba(255,215,0,0.25),
+        0 0 80px rgba(100,50,200,0.2),
+        inset 0 0 40px rgba(0,0,0,0.4);
+      opacity: 0;
+      transform: scale(0.6) translateY(40px);
+      transition: opacity 0.45s cubic-bezier(0.34,1.56,0.64,1),
+                  transform 0.45s cubic-bezier(0.34,1.56,0.64,1);
+      min-width: 420px;
+    }
+
+    #slot-machine.visible {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+
+    /* ── Title bar ─────────────────────────────────────── */
+    #slot-title {
+      text-align: center;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--slot-border);
+      margin-bottom: 6px;
+      text-shadow: 0 0 12px rgba(255,215,0,0.6);
+    }
+
+    #slot-player {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #ccc;
+      margin-bottom: 16px;
+      min-height: 1.2em;
+    }
+
+    /* ── Reel area ─────────────────────────────────────── */
+    #reels-wrapper {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      align-items: center;
+      background: var(--reel-bg);
+      border: 3px solid var(--reel-border);
+      border-radius: 14px;
+      padding: 14px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Win-line indicator */
+    #win-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 3px;
+      background: rgba(255,215,0,0.3);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* ── Individual reel ─────────────────────────────── */
+    .reel {
+      width: calc(var(--symbol-size) + 16px);
+      height: calc(var(--symbol-size) + 16px);
+      overflow: hidden;
+      border-radius: 10px;
+      background: #140830;
+      border: 2px solid var(--reel-border);
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .reel-track {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      /* Vertical scroll driven by JS animation */
+      will-change: transform;
+    }
+
+    .reel-symbol {
+      width: 100%;
+      height: calc(var(--symbol-size) + 16px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: var(--symbol-size);
+      line-height: 1;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    /* Reel shimmer while spinning */
+    .reel.spinning .reel-track {
+      animation: spinBlur 0.12s linear infinite;
+    }
+
+    .reel.stopping .reel-track {
+      transition: transform 0.55s cubic-bezier(0.22,1,0.36,1);
+    }
+
+    @keyframes spinBlur {
+      0%   { filter: blur(0px); }
+      50%  { filter: blur(3px); }
+      100% { filter: blur(0px); }
+    }
+
+    /* ── Result area ──────────────────────────────────── */
+    #result-area {
+      margin-top: 16px;
+      text-align: center;
+      min-height: 2.4rem;
+    }
+
+    #result-text {
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: #fff;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.35s, transform 0.35s;
+    }
+
+    #result-text.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Category-specific colours */
+    #result-text.small_win  { color: #90EE90; }
+    #result-text.medium_win { color: #FFD700; text-shadow: 0 0 20px rgba(255,215,0,0.6); }
+    #result-text.big_win    { color: #FF9500; text-shadow: 0 0 30px rgba(255,149,0,0.7); }
+    #result-text.jackpot    { color: var(--jackpot-color); text-shadow: 0 0 40px rgba(255,215,0,0.9); animation: jackpotPulse 0.6s ease-in-out infinite; }
+    #result-text.near_miss  { color: var(--near-miss); }
+
+    @keyframes jackpotPulse {
+      0%,100% { transform: scale(1) translateY(0); }
+      50%      { transform: scale(1.08) translateY(0); }
+    }
+
+    /* ── Win glow overlay on reels ─────────────────────── */
+    #reels-wrapper.win-glow {
+      box-shadow: 0 0 0 3px var(--slot-border), 0 0 30px var(--win-glow);
+      transition: box-shadow 0.3s;
+    }
+    #reels-wrapper.jackpot-glow {
+      animation: jackpotBorder 0.5s ease-in-out infinite alternate;
+    }
+    @keyframes jackpotBorder {
+      from { box-shadow: 0 0 0 3px #FFD700, 0 0 40px rgba(255,215,0,0.8); }
+      to   { box-shadow: 0 0 0 6px #FFA500, 0 0 80px rgba(255,165,0,1); }
+    }
+    #reels-wrapper.near-miss-shake {
+      animation: nearMissShake 0.5s ease-in-out;
+    }
+    @keyframes nearMissShake {
+      0%,100% { transform: translateX(0); }
+      20%      { transform: translateX(-6px); }
+      40%      { transform: translateX(6px); }
+      60%      { transform: translateX(-4px); }
+      80%      { transform: translateX(4px); }
+    }
+
+    /* ── Winning reel highlight ────────────────────────── */
+    .reel.win-flash {
+      animation: reelFlash 0.5s ease-in-out 3;
+    }
+    @keyframes reelFlash {
+      0%,100% { background: #140830; }
+      50%      { background: #3a2040; border-color: var(--slot-border); }
+    }
+
+    /* ── Jackpot confetti overlay ─────────────────────── */
+    #confetti-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 200;
+    }
+
+    .confetti-piece {
+      position: absolute;
+      top: -20px;
+      width: 10px;
+      height: 14px;
+      opacity: 0.9;
+      animation: confettiFall linear forwards;
+      border-radius: 2px;
+    }
+
+    @keyframes confettiFall {
+      0%   { transform: translateY(0) rotate(0deg); opacity: 0.9; }
+      100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="slot-container">
+    <!-- Jackpot confetti (shown on jackpot) -->
+    <div id="confetti-overlay"></div>
+
+    <div id="slot-machine">
+      <div id="slot-title">🎰 Slot Machine</div>
+      <div id="slot-player"></div>
+
+      <div id="reels-wrapper">
+        <div id="win-line"></div>
+        <div class="reel" id="reel-0"><div class="reel-track" id="track-0"></div></div>
+        <div class="reel" id="reel-1"><div class="reel-track" id="track-1"></div></div>
+        <div class="reel" id="reel-2"><div class="reel-track" id="track-2"></div></div>
+      </div>
+
+      <div id="result-area">
+        <div id="result-text"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ─────────────────────────────────────────────────────
+    // Slot Overlay – socket event handler
+    // RNG is server-authoritative. The overlay only animates.
+    // ─────────────────────────────────────────────────────
+
+    const RESULT_LABELS = {
+      loss:       '😔 Kein Gewinn',
+      near_miss:  '😬 Fast!',
+      small_win:  '🎉 Kleiner Gewinn!',
+      medium_win: '🎊 Gewinn!',
+      big_win:    '🔥 Großer Gewinn!',
+      jackpot:    '🏆 JACKPOT!'
+    };
+
+    const REEL_SYMBOL_HEIGHT = 88; // px – matches CSS (72 + 16)
+    const REEL_STOP_DELAY    = 400; // ms between reel stops (default, overridden by settings)
+    const TRACK_SYMBOL_COUNT = 10;  // symbols to pre-fill per track (longer = smoother blur)
+
+    // ── State ─────────────────────────────────────────────
+    let currentSymbols = [];
+    let lastSettings   = {};
+    let hideTimer      = null;
+
+    const socket = io({ transports: ['websocket'] });
+
+    const machine    = document.getElementById('slot-machine');
+    const playerEl   = document.getElementById('slot-player');
+    const reelsWrap  = document.getElementById('reels-wrapper');
+    const resultEl   = document.getElementById('result-text');
+    const confettiEl = document.getElementById('confetti-overlay');
+
+    // ── Helper: populate a reel track with random symbols ──
+    // Guard: if symbols is empty, fill with a placeholder
+    function fillTrack(trackEl, symbols, count) {
+      trackEl.innerHTML = '';
+      const safe = (symbols && symbols.length > 0) ? symbols : [{ emoji: '?', label: '?' }];
+      for (let i = 0; i < count; i++) {
+        const sym = safe[Math.floor(Math.random() * safe.length)];
+        const div = document.createElement('div');
+        div.className = 'reel-symbol';
+        div.textContent = sym.emoji || sym.label || '?';
+        trackEl.appendChild(div);
+      }
+    }
+
+    // ── Reel spin animation ────────────────────────────────
+    // Each reel uses a boolean flag to stop instead of a stale RAF ID.
+    function startReel(index) {
+      const track = document.getElementById(`track-${index}`);
+      const reel  = document.getElementById(`reel-${index}`);
+      if (!track || !reel) return;
+
+      // Cancel any previous spin for this reel
+      if (reel._stopSpin) reel._stopSpin();
+
+      reel.classList.add('spinning');
+
+      let spinning = true;
+      let offset   = 0;
+      const speed  = 14 + Math.random() * 4; // px per frame
+
+      function step() {
+        if (!spinning) return;
+        offset += speed;
+        const totalH = track.children.length * REEL_SYMBOL_HEIGHT;
+        if (offset >= totalH) offset -= totalH;
+        track.style.transform = `translateY(-${offset}px)`;
+        requestAnimationFrame(step);
+      }
+
+      // Expose a stop function so stopReel() can halt this closure
+      reel._stopSpin = () => { spinning = false; };
+
+      requestAnimationFrame(step);
+    }
+
+    function stopReel(index, resultSymbol, callback) {
+      const track = document.getElementById(`track-${index}`);
+      const reel  = document.getElementById(`reel-${index}`);
+      if (!track || !reel) { if (callback) callback(); return; }
+
+      // Stop the RAF loop
+      if (reel._stopSpin) {
+        reel._stopSpin();
+        reel._stopSpin = null;
+      }
+      reel.classList.remove('spinning');
+
+      // Place the result symbol in the LAST slot of the track
+      const lastSlot = track.lastElementChild;
+      if (lastSlot) {
+        lastSlot.textContent = (resultSymbol && (resultSymbol.emoji || resultSymbol.label))
+          ? (resultSymbol.emoji || resultSymbol.label)
+          : '❓';
+      }
+
+      // Snap to show the last symbol (= result) in the reel viewport
+      const snapTo = (track.children.length - 1) * REEL_SYMBOL_HEIGHT;
+      track.classList.add('stopping');
+      track.style.transform = `translateY(-${snapTo}px)`;
+
+      setTimeout(() => {
+        track.classList.remove('stopping');
+        if (callback) callback();
+      }, 600);
+    }
+
+    // ── Show the machine ───────────────────────────────────
+    function showMachine() {
+      machine.classList.add('visible');
+    }
+
+    // ── Reset all visual state ────────────────────────────
+    function resetVisualState() {
+      reelsWrap.classList.remove('win-glow', 'jackpot-glow');
+      resultEl.className = '';
+      resultEl.classList.remove('visible');
+      resultEl.textContent = '';
+      confettiEl.innerHTML = '';
+      document.querySelectorAll('.reel').forEach(r => r.classList.remove('win-flash'));
+    }
+
+    // ── Hide the machine (after delay) ────────────────────
+    function scheduledHide(ms) {
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        machine.classList.remove('visible');
+        resetVisualState();
+        hideTimer = null;
+      }, ms);
+    }
+
+    // ── Confetti ───────────────────────────────────────────
+    function launchConfetti() {
+      const colors = ['#FFD700','#FF6B6B','#4ECDC4','#A8E6CF','#FF8C94','#FFD3B6'];
+      for (let i = 0; i < 80; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        piece.style.left             = `${Math.random() * 100}vw`;
+        piece.style.background       = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.animationDuration = `${1.5 + Math.random() * 2}s`;
+        piece.style.animationDelay   = `${Math.random() * 0.8}s`;
+        piece.style.transform        = `rotate(${Math.random() * 360}deg)`;
+        confettiEl.appendChild(piece);
+      }
+      setTimeout(() => { confettiEl.innerHTML = ''; }, 4000);
+    }
+
+    // ── Display result label ───────────────────────────────
+    function showResult(category, isWin, settings) {
+      const label = RESULT_LABELS[category] || category;
+      resultEl.textContent = label;
+      resultEl.className = category;
+      resultEl.classList.add('visible');
+
+      if (isWin) {
+        reelsWrap.classList.add('win-glow');
+        document.querySelectorAll('.reel').forEach(r => r.classList.add('win-flash'));
+      }
+      if (category === 'near_miss') {
+        // Near-miss gets a subtle shake on the reels wrapper
+        reelsWrap.classList.add('near-miss-shake');
+        setTimeout(() => reelsWrap.classList.remove('near-miss-shake'), 600);
+      }
+      if (category === 'jackpot') {
+        reelsWrap.classList.add('jackpot-glow');
+        launchConfetti();
+      }
+
+      const showMs = (settings && settings.showResultDuration) ? settings.showResultDuration : 5000;
+      scheduledHide(showMs + 1200);
+    }
+
+    // ── Audio playback ─────────────────────────────────────
+    const audioCache = {};
+
+    function playAudio(audioType, settings) {
+      const s = settings || lastSettings;
+      if (s.soundEnabled === false) return;
+      const vol = (s.soundVolume !== undefined) ? Math.min(1, Math.max(0, s.soundVolume)) : 0.7;
+
+      const paths = {
+        spin:       '/game-engine/sounds/slot/spin.mp3',
+        small_win:  '/game-engine/sounds/slot/small-win.mp3',
+        medium_win: '/game-engine/sounds/slot/medium-win.mp3',
+        big_win:    '/game-engine/sounds/slot/big-win.mp3',
+        jackpot:    '/game-engine/sounds/slot/jackpot.mp3',
+        near_miss:  '/game-engine/sounds/slot/near-miss.mp3',
+        reel_stop:  '/game-engine/sounds/slot/reel-stop.mp3'
+      };
+
+      const src = paths[audioType];
+      if (!src) return;
+
+      try {
+        if (!audioCache[audioType]) {
+          const a = new Audio(src);
+          // Remove stale cache entry if the file doesn't exist (204/404)
+          a.addEventListener('error', () => { delete audioCache[audioType]; });
+          audioCache[audioType] = a;
+        }
+        const audio = audioCache[audioType];
+        audio.volume = vol;
+        audio.currentTime = 0;
+        audio.play().catch(() => {/* autoplay policy – silently ignore */});
+      } catch (e) { /* ignore */ }
+    }
+
+    // ── Socket event: spin started ─────────────────────────
+    socket.on('slot:spin-started', (data) => {
+      currentSymbols = (data.symbols && data.symbols.length > 0) ? data.symbols : currentSymbols;
+      lastSettings   = data.settings || {};
+
+      // Cancel any pending hide and reset visuals
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+
+      // Stop any currently running reels (rapid second spin)
+      for (let i = 0; i < 3; i++) {
+        const reel = document.getElementById(`reel-${i}`);
+        if (reel && reel._stopSpin) { reel._stopSpin(); reel._stopSpin = null; }
+      }
+
+      resetVisualState();
+
+      // Player info (textContent = XSS-safe)
+      playerEl.textContent = data.nickname || data.username || '';
+
+      // Fill tracks with random symbols
+      for (let i = 0; i < 3; i++) {
+        const track = document.getElementById(`track-${i}`);
+        if (track) fillTrack(track, currentSymbols, TRACK_SYMBOL_COUNT);
+      }
+
+      showMachine();
+
+      // Start spinning all reels
+      for (let i = 0; i < 3; i++) startReel(i);
+
+      playAudio('spin', lastSettings);
+    });
+
+    // ── Socket event: spin result ──────────────────────────
+    socket.on('slot:spin-result', (data) => {
+      const reels     = data.reels    || [];
+      const category  = data.category || 'loss';
+      const isWin     = data.isWin    || false;
+      const settings  = data.settings || lastSettings;
+      const stopDelay = settings.reelStopDelay || REEL_STOP_DELAY;
+
+      // Update last known settings
+      lastSettings = settings;
+
+      // Track how many reels have actually stopped
+      let stoppedCount = 0;
+
+      for (let i = 0; i < 3; i++) {
+        setTimeout(() => {
+          playAudio('reel_stop', settings);
+          stopReel(i, reels[i] || { emoji: '❓' }, () => {
+            stoppedCount++;
+            if (stoppedCount === 3) {
+              setTimeout(() => showResult(category, isWin, settings), 200);
+            }
+          });
+        }, i * stopDelay);
+      }
+    });
+
+    // ── Socket event: spin error – reset overlay ───────────
+    socket.on('slot:spin-error', () => {
+      // Stop any running reels and reset to idle
+      for (let i = 0; i < 3; i++) {
+        const reel = document.getElementById(`reel-${i}`);
+        if (!reel) continue;
+        if (reel._stopSpin) { reel._stopSpin(); reel._stopSpin = null; }
+        reel.classList.remove('spinning');
+      }
+      resetVisualState();
+      machine.classList.remove('visible');
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    });
+
+    // ── Socket event: play-audio (from reward dispatch) ────
+    socket.on('slot:play-audio', (data) => {
+      playAudio(data.audioType || 'win', lastSettings);
+    });
+
+    // ── Socket event: overlay effect (from reward dispatch) ─
+    socket.on('slot:overlay-effect', (data) => {
+      if (data.effect === 'win') {
+        reelsWrap.classList.add('win-glow');
+        document.querySelectorAll('.reel').forEach(r => r.classList.add('win-flash'));
+      }
+    });
+  </script>
+</body>
+</html>
