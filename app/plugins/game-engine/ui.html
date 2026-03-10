@@ -1977,22 +1977,27 @@
       <!-- Cooldowns -->
       <div class="card">
         <h3>⏱️ Cooldowns</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:12px;">
+          Legt fest, wie lange ein Nutzer nach einem Spin warten muss, bevor er erneut spielen kann.
+          Abonnenten und Moderatoren/Superfans erhalten kürzere Wartezeiten.
+        </p>
         <div class="form-group">
-          <label>User-Cooldown (Sekunden) – Chat:</label>
+          <label>Standard-Cooldown (Sek.) – alle regulären Nutzer:</label>
           <input type="number" id="slot-chat-cooldown" value="30" min="0" max="3600" step="1">
         </div>
         <div class="form-group">
-          <label>VIP-Cooldown (Sekunden):</label>
-          <input type="number" id="slot-vip-cooldown" value="15" min="0" max="3600" step="1">
-        </div>
-        <div class="form-group">
-          <label>Sub-Cooldown (Sekunden):</label>
+          <label>Abonnenten-Cooldown (Sek.) – Subscriber:</label>
           <input type="number" id="slot-sub-cooldown" value="10" min="0" max="3600" step="1">
         </div>
         <div class="form-group">
-          <label>Globaler Cooldown (Sekunden, 0 = deaktiviert):</label>
+          <label>Moderator/Superfan-Cooldown (Sek.) – Mods &amp; Superfans (Teamlevel &gt; 0):</label>
+          <input type="number" id="slot-vip-cooldown" value="15" min="0" max="3600" step="1">
+        </div>
+        <div class="form-group">
+          <label>Globaler Cooldown (Sek., 0 = deaktiviert) – gilt für alle Trigger:</label>
           <input type="number" id="slot-global-cooldown" value="0" min="0" max="3600" step="1">
         </div>
+        <button id="saveSlotCooldownsBtn">💾 Cooldowns speichern</button>
       </div>
 
       <!-- Spin animation settings -->
@@ -4456,6 +4461,33 @@
         if (!currentSlotMachineId) return;
         await fetch(`/api/game-engine/slots/${currentSlotMachineId}/enabled`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled }) });
         await loadSlotMachines();
+      });
+    }
+
+    // Save cooldowns (dedicated button on the cooldowns card)
+    const saveSlotCooldownsBtn = document.getElementById('saveSlotCooldownsBtn');
+    if (saveSlotCooldownsBtn) {
+      saveSlotCooldownsBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId || !currentSlotConfig) return;
+        const settings = Object.assign({}, currentSlotConfig.settings || {}, {
+          chatCooldownMs:   (parseInt(document.getElementById('slot-chat-cooldown').value, 10) || 30) * 1000,
+          subCooldownMs:    (parseInt(document.getElementById('slot-sub-cooldown').value, 10)  || 10) * 1000,
+          vipCooldownMs:    (parseInt(document.getElementById('slot-vip-cooldown').value, 10)  || 15) * 1000,
+          globalCooldownMs: (parseInt(document.getElementById('slot-global-cooldown').value, 10) || 0) * 1000
+        });
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            symbols:      currentSlotConfig.symbols,
+            settings,
+            giftMappings: currentSlotConfig.giftMappings,
+            oddsProfiles: currentSlotConfig.oddsProfiles,
+            rewardRules:  currentSlotConfig.rewardRules
+          })
+        });
+        await loadSlotConfig(currentSlotMachineId);
+        showMessage('Cooldowns gespeichert!');
       });
     }
 

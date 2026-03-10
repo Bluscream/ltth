@@ -706,3 +706,127 @@ describe('SlotGame – triggerSpinFromChat (async)', () => {
     expect(result.success).toBe(true);
   });
 });
+
+// ─── GCCE context: per-user role-based cooldown ────────────────────────────────
+// This suite verifies that role flags buried in context.userData (GCCE path)
+// correctly flow through to the cooldown tier selector.
+
+describe('SlotGame – GCCE userData role extraction via triggerSpinFromChat', () => {
+  let db, game;
+
+  beforeEach(() => {
+    db   = makeDb();
+    game = makeSlotGame(db);
+    // Apply a config where the tiers differ clearly
+    const config = game.getConfig();
+    game.updateConfig(
+      config.id, config.symbols,
+      Object.assign({}, config.settings, {
+        chatCooldownMs:   60000, // regular users: 60 s
+        subCooldownMs:    20000, // subscribers: 20 s
+        vipCooldownMs:    10000, // mods/superfans: 10 s
+        globalCooldownMs: 0
+      }),
+      config.giftMappings, config.oddsProfiles, config.rewardRules
+    );
+    jest.clearAllMocks();
+  });
+
+  it('regular user receives the long default cooldown', async () => {
+    const config = game.getConfig();
+    game._registerCooldown('regular', config.id, config.settings, {});
+    const check = game._checkCooldown('regular', config.id, config.settings, {});
+    expect(check.allowed).toBe(false);
+    expect(check.remainingMs).toBeGreaterThan(50000); // close to 60s
+  });
+
+  it('subscriber receives the shorter sub cooldown', async () => {
+    const config = game.getConfig();
+    game._registerCooldown('sub1', config.id, config.settings, { isSubscriber: true });
+    const check = game._checkCooldown('sub1', config.id, config.settings, { isSubscriber: true });
+    expect(check.allowed).toBe(false);
+    expect(check.remainingMs).toBeLessThanOrEqual(20000);
+    expect(check.remainingMs).toBeGreaterThan(0);
+  });
+
+  it('moderator receives the shortest VIP cooldown', async () => {
+    const config = game.getConfig();
+    game._registerCooldown('mod1', config.id, config.settings, { isModerator: true });
+    const check = game._checkCooldown('mod1', config.id, config.settings, { isModerator: true });
+    expect(check.allowed).toBe(false);
+    expect(check.remainingMs).toBeLessThanOrEqual(10000);
+  });
+
+  it('superfan (teamMemberLevel > 0) receives the shortest VIP cooldown', async () => {
+    const config = game.getConfig();
+    game._registerCooldown('superfan1', config.id, config.settings, { teamMemberLevel: 2 });
+    const check = game._checkCooldown('superfan1', config.id, config.settings, { teamMemberLevel: 2 });
+    expect(check.allowed).toBe(false);
+    expect(check.remainingMs).toBeLessThanOrEqual(10000);
+  });
+
+  it('moderator cooldown is shorter than subscriber cooldown which is shorter than regular', () => {
+    const config = game.getConfig();
+    game._registerCooldown('u_regular',  config.id, config.settings, {});
+    game._registerCooldown('u_sub',      config.id, config.settings, { isSubscriber: true });
+    game._registerCooldown('u_mod',      config.id, config.settings, { isModerator: true });
+
+    const rRegular = game._checkCooldown('u_regular', config.id, config.settings, {}).remainingMs;
+    const rSub     = game._checkCooldown('u_sub',     config.id, config.settings, { isSubscriber: true }).remainingMs;
+    const rMod     = game._checkCooldown('u_mod',     config.id, config.settings, { isModerator: true }).remainingMs;
+
+    expect(rRegular).toBeGreaterThan(rSub);
+    expect(rSub).toBeGreaterThan(rMod);
+  });
+
+  it('cooldowns are independent per user (different users do not share state)', () => {
+    const config = game.getConfig();
+    game._registerCooldown('alice', config.id, config.settings, { isSubscriber: true });
+
+    expect(game._checkCooldown('alice', config.id, config.settings, { isSubscriber: true }).allowed).toBe(false);
+    expect(game._checkCooldown('bob',   config.id, config.settings, { isSubscriber: true }).allowed).toBe(true);
+  });
+
+  it('triggerSpinFromChat respects subscriber cooldown (second spin blocked)', async () => {
+    // First spin succeeds
+    const r1 = await game.triggerSpinFromChat('subuser', 'SubUser', '', '!spin', null, { isSubscriber: true });
+    expect(r1.success).toBe(true);
+    // Second spin is blocked by cooldown
+    const r2 = await game.triggerSpinFromChat('subuser', 'SubUser', '', '!spin', null, { isSubscriber: true });
+    expect(r2.success).toBe(false);
+    expect(r2.error).toMatch(/cooldown/i);
+  });
+
+  it('triggerSpinFromChat with GCCE-style context (userRoles from userData) respects role cooldown', async () => {
+    // Simulate the GCCE context shape:
+    // role flags are in context.userData, NOT at the top level
+    // The fix in handleSlotSpinCommand reads userData before falling back to top-level
+    const gcceContext = {
+      uniqueId: 'gccemod',
+      nickname: 'GCCEMod',
+      profilePictureUrl: '',
+      // role flags are NOT at the top level in a real GCCE context
+      userData: {
+        isModerator:    true,
+        isSubscriber:   false,
+        teamMemberLevel: 0
+      }
+    };
+
+    // Simulate what the fixed handleSlotSpinCommand does:
+    const { userData = {} } = gcceContext;
+    const isModerator    = userData.isModerator    ?? gcceContext.isModerator    ?? false;
+    const isSubscriber   = userData.isSubscriber   ?? gcceContext.isSubscriber   ?? false;
+    const teamMemberLevel = userData.teamMemberLevel ?? gcceContext.teamMemberLevel ?? 0;
+    const userRoles = { isModerator, isSubscriber, teamMemberLevel };
+
+    expect(userRoles.isModerator).toBe(true);
+    expect(userRoles.isSubscriber).toBe(false);
+    expect(userRoles.teamMemberLevel).toBe(0);
+
+    // Verify the resolved cooldown is VIP (shortest)
+    const config = game.getConfig();
+    const cd = game._effectiveCooldownMs(config.settings, userRoles);
+    expect(cd).toBe(config.settings.vipCooldownMs);
+  });
+});

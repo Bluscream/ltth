@@ -2404,8 +2404,14 @@ class GameEnginePlugin {
 
     const {
       uniqueId, userId, nickname, profilePictureUrl = '',
-      isModerator = false, isSubscriber = false, teamMemberLevel = 0
+      userData = {}  // GCCE places role flags inside context.userData, not at the top level
     } = context;
+
+    // Role flags: prefer context.userData (GCCE-enriched); fall back to top-level
+    // for any edge-case where the context is constructed differently.
+    const isModerator    = userData.isModerator    ?? context.isModerator    ?? false;
+    const isSubscriber   = userData.isSubscriber   ?? context.isSubscriber   ?? false;
+    const teamMemberLevel = userData.teamMemberLevel ?? context.teamMemberLevel ?? 0;
 
     const username = uniqueId || userId || nickname || 'Unknown';
     const userRoles = { isModerator, isSubscriber, teamMemberLevel };
