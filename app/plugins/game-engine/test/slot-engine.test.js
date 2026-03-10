@@ -491,6 +491,73 @@ describe('SlotGame – _buildRewardActions', () => {
     const cfg = minimalConfig({ rewardRules: undefined });
     expect(game._buildRewardActions({ category: 'jackpot' }, cfg)).toHaveLength(0);
   });
+
+  // ── Per-symbol shock dispatch ──────────────────────────────────────────────
+
+  it('adds openshock action when winning symbol has isShock=true', () => {
+    const shockSym = { id: 'bolt', emoji: '⚡', label: 'Bolt', weight: 4,
+      isShock: true, shockIntensity: 75, shockDuration: 1500, shockType: 'shock', shockDevices: ['dev1'] };
+    const cfg = minimalConfig({ rewardRules: [] });
+    const outcome = { category: 'big_win', isWin: true, reels: [shockSym, shockSym, shockSym] };
+
+    const actions = game._buildRewardActions(outcome, cfg);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].action).toBe('openshock');
+    expect(actions[0].params.intensity).toBe(75);
+    expect(actions[0].params.duration).toBe(1500);
+    expect(actions[0].params.shockType).toBe('shock');
+    expect(actions[0].params.shockDevices).toEqual(['dev1']);
+  });
+
+  it('does NOT add openshock action when winning symbol has isShock=false', () => {
+    const safeSym = { id: 'cherry', emoji: '🍒', label: 'Cherry', weight: 18,
+      isShock: false, shockIntensity: 50, shockDuration: 1000, shockType: 'shock', shockDevices: [] };
+    const cfg = minimalConfig({ rewardRules: [] });
+    const outcome = { category: 'small_win', isWin: true, reels: [safeSym, safeSym, safeSym] };
+
+    expect(game._buildRewardActions(outcome, cfg)).toHaveLength(0);
+  });
+
+  it('does NOT add openshock action for loss even if symbol has isShock=true', () => {
+    const shockSym = { id: 'bolt', emoji: '⚡', label: 'Bolt', weight: 4,
+      isShock: true, shockIntensity: 60, shockDuration: 1000, shockType: 'shock', shockDevices: [] };
+    const cfg = minimalConfig({ rewardRules: [] });
+    // loss → isWin is false
+    const outcome = { category: 'loss', isWin: false, reels: [shockSym, shockSym, shockSym] };
+
+    expect(game._buildRewardActions(outcome, cfg)).toHaveLength(0);
+  });
+
+  it('combines category rule and per-symbol shock when both apply', () => {
+    const shockSym = { id: 'bolt', emoji: '⚡', label: 'Bolt', weight: 4,
+      isShock: true, shockIntensity: 50, shockDuration: 1000, shockType: 'vibrate', shockDevices: [] };
+    const cfg = minimalConfig({
+      rewardRules: [
+        { id: 'jackpot_audio', outcomeCategories: ['jackpot'], action: 'audio', params: { audioType: 'jackpot' } }
+      ]
+    });
+    const outcome = { category: 'jackpot', isWin: true, reels: [shockSym, shockSym, shockSym] };
+
+    const actions = game._buildRewardActions(outcome, cfg);
+    expect(actions).toHaveLength(2);
+    expect(actions.some(a => a.action === 'audio')).toBe(true);
+    expect(actions.some(a => a.action === 'openshock')).toBe(true);
+    const shockAction = actions.find(a => a.action === 'openshock');
+    expect(shockAction.params.shockType).toBe('vibrate');
+  });
+
+  it('uses default shock params when optional fields are missing', () => {
+    const shockSym = { id: 'bolt', emoji: '⚡', label: 'Bolt', weight: 4, isShock: true };
+    const cfg = minimalConfig({ rewardRules: [] });
+    const outcome = { category: 'small_win', isWin: true, reels: [shockSym, shockSym, shockSym] };
+
+    const actions = game._buildRewardActions(outcome, cfg);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].params.intensity).toBe(50);
+    expect(actions[0].params.duration).toBe(1000);
+    expect(actions[0].params.shockType).toBe('shock');
+    expect(actions[0].params.shockDevices).toEqual([]);
+  });
 });
 
 describe('SlotGame – database integration', () => {

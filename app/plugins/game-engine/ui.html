@@ -2030,12 +2030,15 @@
         <h3>🎴 Symbol-Editor</h3>
         <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
           Symbole werden nach Position sortiert – frühere Symbole sind häufiger, spätere seltener.
-          Die Reihenfolge definiert auch die Gewinn-Tier-Zuordnung.
+          Die Reihenfolge definiert auch die Gewinn-Tier-Zuordnung.<br>
+          <strong style="color:#00ffff;">⚡ Zap bei 3x:</strong> Aktiviere „Zap" direkt am Symbol –
+          erscheinen 3 gleiche Symbole, wird der zugehörige OpenShock-Befehl ausgelöst (wie beim Glücksrad).
         </p>
         <div id="slot-symbols-container"></div>
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
           <button id="addSlotSymbolBtn" class="secondary">➕ Symbol hinzufügen</button>
           <button id="removeSlotSymbolBtn" class="danger">➖ Letztes entfernen</button>
+          <button id="reloadSlotDevicesBtn" class="secondary" title="OpenShock Geräteliste aktualisieren">🔄 Geräte neu laden</button>
           <button id="saveSlotSymbolsBtn">💾 Symbole speichern</button>
         </div>
       </div>
@@ -2092,8 +2095,13 @@
         <h3>🏆 Belohnungs-Regeln</h3>
         <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
           Definiere, welche Aktionen bei bestimmten Ergebnis-Kategorien ausgelöst werden.
-          Unterstützte Aktionen: <code>audio</code>, <code>overlay</code>, <code>openshock</code>, <code>xp</code>, <code>chat</code>, <code>free_spin</code>.
+          Unterstützte Aktionen: <code>audio</code>, <code>overlay</code>, <code>xp</code>, <code>chat</code>, <code>free_spin</code>.
         </p>
+        <div style="background:#1a3a1a;padding:10px;border-radius:6px;margin-bottom:10px;border-left:4px solid #00ffff;">
+          <strong style="color:#00ffff;">⚡ OpenShock für 3x-Match:</strong>
+          OpenShock-Zaps werden direkt am Symbol konfiguriert (Symbol-Editor → ⚡ Zap aktivieren).
+          Für kategorie-übergreifende Schocks kann hier trotzdem eine Regel mit Aktion <code>openshock</code> angelegt werden.
+        </div>
         <div id="slot-reward-rules-container"></div>
         <div style="display:flex;gap:8px;margin-top:10px;">
           <button id="addSlotRewardRuleBtn" class="secondary">➕ Regel hinzufügen</button>
@@ -4088,6 +4096,8 @@
 
     async function loadSlotMachines() {
       try {
+        // Pre-load OpenShock devices so the symbol editor can show device selectors
+        await loadOpenShockDevices();
         const resp = await fetch('/api/game-engine/slots');
         slotMachines = await resp.json();
         const selector = document.getElementById('slot-machine-selector');
@@ -4174,15 +4184,65 @@
       if (!container) return;
       container.innerHTML = '';
       symbols.forEach((sym, idx) => {
+        const shockActive = !!sym.isShock;
         const row = document.createElement('div');
-        row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;';
+        row.className = 'slot-symbol-entry';
+        row.style.cssText = `background:#1a1a2e;padding:10px;border-radius:6px;margin-bottom:8px;border-left:4px solid ${shockActive ? '#00ffff' : '#333'};`;
+
+        const deviceOptionsHtml = openshockDevices.map(device => {
+          const ids = Array.isArray(sym.shockDevices) ? sym.shockDevices : [];
+          const sel = ids.includes(device.id) ? 'selected' : '';
+          return `<option value="${escapeHtml(device.id)}" ${sel}>${escapeHtml(device.name)} (${escapeHtml(device.model || 'Unknown')})</option>`;
+        }).join('');
+
         row.innerHTML = `
-          <span style="width:24px;text-align:center;color:#888;">#${idx + 1}</span>
-          <input type="text" value="${sym.emoji || ''}" placeholder="Emoji" style="width:60px;" data-field="emoji" data-idx="${idx}">
-          <input type="text" value="${sym.id || ''}" placeholder="ID" style="width:80px;" data-field="id" data-idx="${idx}">
-          <input type="text" value="${sym.label || ''}" placeholder="Label" style="flex:1;" data-field="label" data-idx="${idx}">
-          <input type="number" value="${sym.weight || 1}" min="1" max="1000" style="width:70px;" data-field="weight" data-idx="${idx}">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span style="width:28px;text-align:center;font-size:18px;">${escapeHtml(sym.emoji || '❓')}</span>
+            <input type="text" value="${escapeHtml(sym.emoji || '')}" placeholder="Emoji" style="width:60px;" data-field="emoji">
+            <input type="text" value="${escapeHtml(sym.id || '')}" placeholder="ID" style="width:80px;" data-field="id">
+            <input type="text" value="${escapeHtml(sym.label || '')}" placeholder="Label" style="flex:1;" data-field="label">
+            <div style="width:70px;">
+              <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;">Gewicht:</label>
+              <input type="number" value="${sym.weight || 1}" min="1" max="1000" style="width:100%;" data-field="weight">
+            </div>
+            <div style="width:60px;text-align:center;">
+              <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;" title="OpenShock bei 3x diesem Symbol">⚡ Zap:</label>
+              <input type="checkbox" ${shockActive ? 'checked' : ''} data-field="isShock" style="width:20px;height:20px;cursor:pointer;" title="OpenShock auslösen wenn 3x dieses Symbol erscheint">
+            </div>
+          </div>
+          <div class="slot-sym-shock-cfg" style="display:${shockActive ? 'grid' : 'none'};grid-template-columns:1fr 1fr 1fr 2fr;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #333;">
+            <div>
+              <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;">Intensität (1–100):</label>
+              <input type="number" value="${sym.shockIntensity || 50}" min="1" max="100" style="width:100%;" data-field="shockIntensity">
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;">Dauer (ms):</label>
+              <input type="number" value="${sym.shockDuration || 1000}" min="300" max="30000" step="100" style="width:100%;" data-field="shockDuration">
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;">Typ:</label>
+              <select data-field="shockType" style="width:100%;padding:4px;background:#0d0d1a;border:1px solid #444;color:#eee;border-radius:4px;">
+                <option value="shock" ${(sym.shockType || 'shock') === 'shock' ? 'selected' : ''}>Shock</option>
+                <option value="vibrate" ${sym.shockType === 'vibrate' ? 'selected' : ''}>Vibration</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;">Geräte (Strg+Klick für mehrere):</label>
+              <select multiple data-field="shockDevices" style="width:100%;min-height:56px;padding:3px;background:#0d0d1a;border:1px solid #444;color:#eee;border-radius:4px;">
+                ${deviceOptionsHtml || '<option disabled>Keine Geräte verfügbar</option>'}
+              </select>
+            </div>
+          </div>
         `;
+
+        // Toggle shock config section visibility
+        const checkbox = row.querySelector('[data-field="isShock"]');
+        const shockCfg = row.querySelector('.slot-sym-shock-cfg');
+        checkbox.addEventListener('change', (e) => {
+          shockCfg.style.display = e.target.checked ? 'grid' : 'none';
+          row.style.borderLeftColor = e.target.checked ? '#00ffff' : '#333';
+        });
+
         container.appendChild(row);
       });
     }
@@ -4190,13 +4250,23 @@
     function getSlotSymbolsFromForm() {
       const container = document.getElementById('slot-symbols-container');
       if (!container) return [];
-      const rows = container.querySelectorAll('div');
-      return Array.from(rows).map(row => ({
-        emoji: row.querySelector('[data-field="emoji"]').value.trim(),
-        id:    row.querySelector('[data-field="id"]').value.trim(),
-        label: row.querySelector('[data-field="label"]').value.trim(),
-        weight: parseInt(row.querySelector('[data-field="weight"]').value, 10) || 1
-      }));
+      const rows = container.querySelectorAll('.slot-symbol-entry');
+      return Array.from(rows).map((row, idx) => {
+        const g = (field) => row.querySelector(`[data-field="${field}"]`);
+        const devicesEl = g('shockDevices');
+        const shockDevices = devicesEl ? Array.from(devicesEl.selectedOptions).map(o => o.value) : [];
+        return {
+          emoji:          g('emoji')?.value.trim()                             || '',
+          id:             g('id')?.value.trim()                                || `sym_${idx}`,
+          label:          g('label')?.value.trim()                             || '',
+          weight:         parseInt(g('weight')?.value, 10)                    || 1,
+          isShock:        g('isShock')?.checked                               || false,
+          shockIntensity: parseInt(g('shockIntensity')?.value, 10)            || 50,
+          shockDuration:  parseInt(g('shockDuration')?.value, 10)             || 1000,
+          shockType:      g('shockType')?.value                               || 'shock',
+          shockDevices
+        };
+      });
     }
 
     function renderSlotOddsProfile(profiles) {
@@ -4426,7 +4496,8 @@
     if (addSlotSymbolBtn) {
       addSlotSymbolBtn.addEventListener('click', () => {
         const symbols = getSlotSymbolsFromForm();
-        symbols.push({ emoji: '⭐', id: `sym_${symbols.length}`, label: 'New', weight: 5 });
+        symbols.push({ emoji: '⭐', id: `sym_${symbols.length}`, label: 'New', weight: 5,
+          isShock: false, shockIntensity: 50, shockDuration: 1000, shockType: 'shock', shockDevices: [] });
         renderSlotSymbols(symbols);
       });
     }
@@ -4435,6 +4506,16 @@
       removeSlotSymbolBtn.addEventListener('click', () => {
         const symbols = getSlotSymbolsFromForm();
         if (symbols.length > 1) { symbols.pop(); renderSlotSymbols(symbols); }
+      });
+    }
+
+    // Reload OpenShock devices for symbol editor
+    const reloadSlotDevicesBtn = document.getElementById('reloadSlotDevicesBtn');
+    if (reloadSlotDevicesBtn) {
+      reloadSlotDevicesBtn.addEventListener('click', async () => {
+        await loadOpenShockDevices();
+        if (currentSlotConfig) renderSlotSymbols(getSlotSymbolsFromForm());
+        showMessage('OpenShock-Geräte neu geladen');
       });
     }
 
