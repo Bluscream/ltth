@@ -2033,17 +2033,19 @@ class GameEnginePlugin {
       fs.mkdirSync(slotAudioDir, { recursive: true });
     }
 
+    const VALID_SLOT_AUDIO_TYPES = new Set(['spin', 'small_win', 'medium_win', 'big_win', 'jackpot', 'near_miss', 'reel_stop']);
+
     const slotAudioStorage = multer.diskStorage({
       destination: (req, file, cb) => {
-        const machineId = req.body.machineId || '1';
-        const machineDir = path.join(slotAudioDir, String(machineId));
+        const safeId = String(parseInt(req.body.machineId, 10) || 1);
+        const machineDir = path.join(slotAudioDir, safeId);
         if (!fs.existsSync(machineDir)) {
           fs.mkdirSync(machineDir, { recursive: true });
         }
         cb(null, machineDir);
       },
       filename: (req, file, cb) => {
-        const audioType = req.body.audioType || 'unknown';
+        const audioType = VALID_SLOT_AUDIO_TYPES.has(req.body.audioType) ? req.body.audioType : 'unknown';
         cb(null, `${audioType}.mp3`);
       }
     });
@@ -2066,16 +2068,19 @@ class GameEnginePlugin {
         if (!req.file) {
           return res.status(400).json({ success: false, error: 'No audio file uploaded' });
         }
-        const machineId = req.body.machineId || '1';
+        const safeId = String(parseInt(req.body.machineId, 10) || 1);
         const audioType = req.body.audioType;
-        const durationMs = req.body.durationMs ? parseInt(req.body.durationMs, 10) : null;
+        if (!VALID_SLOT_AUDIO_TYPES.has(audioType)) {
+          return res.status(400).json({ success: false, error: 'Invalid audio type' });
+        }
+        const durationMs = req.body.durationMs ? Math.max(0, Math.min(parseInt(req.body.durationMs, 10), 60000)) : null;
 
-        this.db.saveSlotAudioSetting(machineId, audioType, req.file.originalname, durationMs, true);
-        this.logger.info(`Slot audio uploaded: ${audioType} for machine ${machineId}`);
+        this.db.saveSlotAudioSetting(safeId, audioType, req.file.originalname, durationMs, true);
+        this.logger.info(`Slot audio uploaded: ${audioType} for machine ${safeId}`);
 
         // If this is the spin sound and syncSpinToSound is requested, update the machine's spinDuration
         if (audioType === 'spin' && durationMs && durationMs > 0) {
-          const machineIdInt = parseInt(machineId, 10);
+          const machineIdInt = parseInt(safeId, 10);
           if (!isNaN(machineIdInt)) {
             const config = this.slotGame.getConfig(machineIdInt);
             if (config && config.settings && config.settings.syncSpinToSound) {
@@ -2086,7 +2091,7 @@ class GameEnginePlugin {
           }
         }
 
-        this.io.emit('slot:audio-updated', { machineId, audioType, isCustom: true });
+        this.io.emit('slot:audio-updated', { machineId: safeId, audioType, isCustom: true });
         res.json({ success: true, filename: req.file.originalname });
       } catch (error) {
         this.logger.error(`Error uploading slot audio: ${error.message}`);
@@ -2098,13 +2103,17 @@ class GameEnginePlugin {
     this.api.registerRoute('POST', '/api/game-engine/slot/audio/reset', (req, res) => {
       try {
         const { machineId, audioType } = req.body;
-        const audioPath = path.join(slotAudioDir, String(machineId || '1'), `${audioType}.mp3`);
+        const safeId = String(parseInt(machineId, 10) || 1);
+        if (!VALID_SLOT_AUDIO_TYPES.has(audioType)) {
+          return res.status(400).json({ success: false, error: 'Invalid audio type' });
+        }
+        const audioPath = path.join(slotAudioDir, safeId, `${audioType}.mp3`);
         if (fs.existsSync(audioPath)) {
           fs.unlinkSync(audioPath);
         }
-        this.db.saveSlotAudioSetting(machineId || '1', audioType, null, null, false);
-        this.logger.info(`Slot audio reset to default: ${audioType} for machine ${machineId}`);
-        this.io.emit('slot:audio-updated', { machineId, audioType, isCustom: false });
+        this.db.saveSlotAudioSetting(safeId, audioType, null, null, false);
+        this.logger.info(`Slot audio reset to default: ${audioType} for machine ${safeId}`);
+        this.io.emit('slot:audio-updated', { machineId: safeId, audioType, isCustom: false });
         res.json({ success: true });
       } catch (error) {
         this.logger.error(`Error resetting slot audio: ${error.message}`);
@@ -2131,6 +2140,10 @@ class GameEnginePlugin {
         return res.status(400).json({ error: 'Invalid path' });
       }
       const audioPath = path.join(slotAudioDir, machineId, filename);
+      // Guard against path traversal (path.join normalizes, but verify result stays in slotAudioDir)
+      if (!audioPath.startsWith(slotAudioDir + path.sep)) {
+        return res.status(400).json({ error: 'Invalid path' });
+      }
       if (fs.existsSync(audioPath)) {
         res.sendFile(audioPath);
       } else {
