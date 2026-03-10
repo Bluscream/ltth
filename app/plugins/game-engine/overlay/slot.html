@@ -246,6 +246,109 @@
       0%   { transform: translateY(0) rotate(0deg); opacity: 0.9; }
       100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
     }
+
+    /* ── Overlay modes ─────────────────────────────────────
+     * Applied as a class on #slot-container.
+     * The engine selects the mode; the overlay only renders.
+     * ─────────────────────────────────────────────────────── */
+
+    /* Mode: large (default) – centred, full-size feature */
+    #slot-container.mode-large #slot-machine {
+      min-width: 420px;
+    }
+
+    /* Mode: horizontal – wide, compact height */
+    #slot-container.mode-horizontal {
+      align-items: flex-end;
+      padding-bottom: 20px;
+    }
+    #slot-container.mode-horizontal #slot-machine {
+      min-width: 560px;
+      padding: 14px 24px 12px;
+      border-radius: 16px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 20px;
+    }
+    #slot-container.mode-horizontal #slot-title,
+    #slot-container.mode-horizontal #slot-player {
+      min-width: 120px;
+      text-align: left;
+      margin-bottom: 0;
+    }
+    #slot-container.mode-horizontal #result-area {
+      margin-top: 0;
+      margin-left: 12px;
+      min-width: 130px;
+    }
+
+    /* Mode: vertical – tall, narrow */
+    #slot-container.mode-vertical {
+      align-items: flex-start;
+      padding-left: 20px;
+    }
+    #slot-container.mode-vertical #slot-machine {
+      min-width: 200px;
+      max-width: 260px;
+    }
+    #slot-container.mode-vertical .reel {
+      width: calc(var(--symbol-size) * 0.8 + 12px);
+      height: calc(var(--symbol-size) * 0.8 + 12px);
+    }
+    #slot-container.mode-vertical .reel-symbol {
+      font-size: calc(var(--symbol-size) * 0.8);
+      height: calc(var(--symbol-size) * 0.8 + 12px);
+    }
+
+    /* Mode: compact-hud – small icons, corner HUD */
+    #slot-container.mode-compact-hud {
+      align-items: flex-start;
+      justify-content: flex-start;
+      padding: 12px;
+    }
+    #slot-container.mode-compact-hud #slot-machine {
+      min-width: 0;
+      padding: 8px 12px;
+      border-radius: 12px;
+      border-width: 2px;
+    }
+    #slot-container.mode-compact-hud #slot-title { font-size: 0.7rem; margin-bottom: 2px; }
+    #slot-container.mode-compact-hud #slot-player { font-size: 0.65rem; margin-bottom: 8px; }
+    #slot-container.mode-compact-hud .reel {
+      width: calc(var(--symbol-size) * 0.55 + 8px);
+      height: calc(var(--symbol-size) * 0.55 + 8px);
+    }
+    #slot-container.mode-compact-hud .reel-symbol {
+      font-size: calc(var(--symbol-size) * 0.55);
+      height: calc(var(--symbol-size) * 0.55 + 8px);
+    }
+    #slot-container.mode-compact-hud #reels-wrapper { gap: 6px; padding: 8px 10px; }
+    #slot-container.mode-compact-hud #result-text { font-size: 0.85rem; margin-top: 6px; }
+
+    /* Mode: compact-featured – medium icons, eye-catching but smaller */
+    #slot-container.mode-compact-featured {
+      align-items: flex-end;
+      justify-content: flex-start;
+      padding: 16px;
+    }
+    #slot-container.mode-compact-featured #slot-machine {
+      min-width: 300px;
+      max-width: 380px;
+    }
+    #slot-container.mode-compact-featured .reel {
+      width: calc(var(--symbol-size) * 0.75 + 12px);
+      height: calc(var(--symbol-size) * 0.75 + 12px);
+    }
+    #slot-container.mode-compact-featured .reel-symbol {
+      font-size: calc(var(--symbol-size) * 0.75);
+      height: calc(var(--symbol-size) * 0.75 + 12px);
+    }
+
+    /* Icon preset: large – bigger symbols */
+    #slot-container.icon-large { --symbol-size: 96px; }
+    /* Icon preset: small */
+    #slot-container.icon-small { --symbol-size: 52px; }
   </style>
 </head>
 <body>
@@ -289,18 +392,50 @@
     const REEL_STOP_DELAY    = 400; // ms between reel stops (default, overridden by settings)
     const TRACK_SYMBOL_COUNT = 10;  // symbols to pre-fill per track (longer = smoother blur)
 
+    // Valid overlay mode names (maps to CSS class)
+    const OVERLAY_MODES = {
+      'large':            'mode-large',
+      'horizontal':       'mode-horizontal',
+      'vertical':         'mode-vertical',
+      'compact-hud':      'mode-compact-hud',
+      'compact_hud':      'mode-compact-hud',
+      'compact-featured': 'mode-compact-featured',
+      'compact_featured': 'mode-compact-featured'
+    };
+
+    const ICON_PRESETS = {
+      'large':  'icon-large',
+      'small':  'icon-small',
+      'normal': ''
+    };
+
     // ── State ─────────────────────────────────────────────
-    let currentSymbols = [];
-    let lastSettings   = {};
-    let hideTimer      = null;
+    let currentSymbols  = [];
+    let lastSettings    = {};
+    let hideTimer       = null;
+    let currentSpinId   = null; // track active spin for spin-completed reporting
 
     const socket = io({ transports: ['websocket'] });
 
+    const container  = document.getElementById('slot-container');
     const machine    = document.getElementById('slot-machine');
     const playerEl   = document.getElementById('slot-player');
     const reelsWrap  = document.getElementById('reels-wrapper');
     const resultEl   = document.getElementById('result-text');
     const confettiEl = document.getElementById('confetti-overlay');
+
+    // ── Apply overlay mode ────────────────────────────────
+    function applyOverlayMode(mode, iconPreset) {
+      // Remove any previous mode classes
+      Object.values(OVERLAY_MODES).forEach(c => container.classList.remove(c));
+      Object.values(ICON_PRESETS).forEach(c => c && container.classList.remove(c));
+
+      const modeClass = OVERLAY_MODES[mode] || 'mode-large';
+      container.classList.add(modeClass);
+
+      const iconClass = ICON_PRESETS[iconPreset || 'normal'] || '';
+      if (iconClass) container.classList.add(iconClass);
+    }
 
     // ── Helper: populate a reel track with random symbols ──
     // Guard: if symbols is empty, fill with a placeholder
@@ -420,7 +555,7 @@
     }
 
     // ── Display result label ───────────────────────────────
-    function showResult(category, isWin, settings) {
+    function showResult(category, isWin, settings, spinId) {
       const label = RESULT_LABELS[category] || category;
       resultEl.textContent = label;
       resultEl.className = category;
@@ -431,7 +566,6 @@
         document.querySelectorAll('.reel').forEach(r => r.classList.add('win-flash'));
       }
       if (category === 'near_miss') {
-        // Near-miss gets a subtle shake on the reels wrapper
         reelsWrap.classList.add('near-miss-shake');
         setTimeout(() => reelsWrap.classList.remove('near-miss-shake'), 600);
       }
@@ -441,6 +575,13 @@
       }
 
       const showMs = (settings && settings.showResultDuration) ? settings.showResultDuration : 5000;
+
+      // ── Notify server: animation complete, dispatch rewards ──
+      // Fire as soon as the result is visible (reels have stopped).
+      if (spinId) {
+        socket.emit('slot:spin-completed', { spinId, category, isWin });
+      }
+
       scheduledHide(showMs + 1200);
     }
 
@@ -483,6 +624,11 @@
     socket.on('slot:spin-started', (data) => {
       currentSymbols = (data.symbols && data.symbols.length > 0) ? data.symbols : currentSymbols;
       lastSettings   = data.settings || {};
+      currentSpinId  = data.spinId || null;
+
+      // Apply overlay mode from server
+      const overlayConfig = lastSettings.overlayMode || {};
+      applyOverlayMode(data.overlayMode || overlayConfig.defaultMode || 'large', overlayConfig.iconPreset);
 
       // Cancel any pending hide and reset visuals
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
@@ -519,6 +665,7 @@
       const isWin     = data.isWin    || false;
       const settings  = data.settings || lastSettings;
       const stopDelay = settings.reelStopDelay || REEL_STOP_DELAY;
+      const spinId    = data.spinId   || currentSpinId;
 
       // Update last known settings
       lastSettings = settings;
@@ -532,7 +679,8 @@
           stopReel(i, reels[i] || { emoji: '❓' }, () => {
             stoppedCount++;
             if (stoppedCount === 3) {
-              setTimeout(() => showResult(category, isWin, settings), 200);
+              // All reels stopped – show result and notify server
+              setTimeout(() => showResult(category, isWin, settings, spinId), 200);
             }
           });
         }, i * stopDelay);
@@ -551,6 +699,22 @@
       resetVisualState();
       machine.classList.remove('visible');
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      currentSpinId = null;
+    });
+
+    // ── Socket event: spin timeout (queue safety) ──────────
+    socket.on('slot:spin-timeout', () => {
+      // Force reset if overlay is stuck
+      for (let i = 0; i < 3; i++) {
+        const reel = document.getElementById(`reel-${i}`);
+        if (!reel) continue;
+        if (reel._stopSpin) { reel._stopSpin(); reel._stopSpin = null; }
+        reel.classList.remove('spinning');
+      }
+      resetVisualState();
+      machine.classList.remove('visible');
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      currentSpinId = null;
     });
 
     // ── Socket event: play-audio (from reward dispatch) ────

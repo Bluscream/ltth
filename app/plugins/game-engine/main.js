@@ -167,6 +167,7 @@ class GameEnginePlugin {
       this.slotGame.init();
       this.slotGame.startCleanupTimer();
       this.slotGame.setUnifiedQueue(this.unifiedQueue);
+      this.unifiedQueue.setSlotGame(this.slotGame);
       
       // Set game engine reference for Connect4 and Chess
       this.unifiedQueue.setGameEnginePlugin(this);
@@ -1938,6 +1939,15 @@ class GameEnginePlugin {
         if (!settings || typeof settings !== 'object') {
           return res.status(400).json({ error: 'settings must be an object' });
         }
+        // Ensure overlayMode defaults are present (backward-compatible migration)
+        if (!settings.overlayMode || typeof settings.overlayMode !== 'object') {
+          settings.overlayMode = { defaultMode: 'large', chatMode: '', giftMode: '', jackpotMode: 'large', iconPreset: 'normal' };
+        } else {
+          settings.overlayMode = Object.assign(
+            { defaultMode: 'large', chatMode: '', giftMode: '', jackpotMode: 'large', iconPreset: 'normal' },
+            settings.overlayMode
+          );
+        }
         this.slotGame.updateConfig(machineId, symbols, settings, giftMappings || {}, oddsProfiles || {}, rewardRules || []);
         res.json({ success: true });
       } catch (error) {
@@ -2131,6 +2141,18 @@ class GameEnginePlugin {
         const machineId = data && data.machineId ? data.machineId : null;
         const config = this.slotGame.getConfig(machineId);
         socket.emit('slot:config', config);
+      });
+
+      // Overlay confirms that the spin animation has fully completed.
+      // Rewards (OpenShock, XP, audio) are dispatched only now so they fire
+      // AFTER the reels have visually stopped and the result is displayed.
+      socket.on('slot:spin-completed', (data) => {
+        if (!this.slotGame) return;
+        const spinId = data && data.spinId;
+        if (!spinId) return;
+        this.slotGame.handleSpinCompleted(spinId).catch(err => {
+          this.logger.error(`[SLOT] handleSpinCompleted error for spinId ${spinId}: ${err.message}`);
+        });
       });
 
       // Listen for config updates to re-register GCCE commands

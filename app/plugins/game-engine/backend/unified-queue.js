@@ -23,6 +23,7 @@ class UnifiedQueueManager {
     // Game references (set by games themselves)
     this.plinkoGame = null;
     this.wheelGame = null;
+    this.slotGame = null;
     this.gameEnginePlugin = null; // Reference to main plugin for Connect4/Chess
     
     // Processing timeout (for safety)
@@ -34,6 +35,7 @@ class UnifiedQueueManager {
     this.GAME_TIMEOUTS = {
       wheel: 45000,      // 45 seconds (spin + winner display + info screen + buffer)
       plinko: 60000,     // 60 seconds (ball drop + result display)
+      slot: 25000,       // 25 seconds (spin animation + result display + buffer)
       connect4: 300000,  // 5 minutes (interactive gameplay)
       chess: 600000      // 10 minutes (turn-based gameplay)
     };
@@ -55,6 +57,10 @@ class UnifiedQueueManager {
 
   setWheelGame(wheelGame) {
     this.wheelGame = wheelGame;
+  }
+
+  setSlotGame(slotGame) {
+    this.slotGame = slotGame;
   }
 
   setGameEnginePlugin(gameEnginePlugin) {
@@ -308,6 +314,56 @@ class UnifiedQueueManager {
   }
 
   /**
+   * Add Slot spin to queue
+   * @param {Object} spinData - Slot spin data
+   * @returns {Object} { queued: boolean, position: number, error?: string }
+   */
+  queueSlot(spinData) {
+    // Check queue size limit
+    if (this.queue.length >= this.MAX_QUEUE_SIZE) {
+      this.logger.warn(`⚠️ [UNIFIED QUEUE] Slot queue full (${this.queue.length}/${this.MAX_QUEUE_SIZE}), rejecting ${spinData.username}`);
+      this.io.emit('unified-queue:queue-full', {
+        type: 'slot',
+        username: spinData.username,
+        nickname: this.getDisplayName(spinData),
+        spinId: spinData.spinId,
+        queueLength: this.queue.length,
+        maxSize: this.MAX_QUEUE_SIZE
+      });
+      return { queued: false, position: 0, error: 'Queue is full' };
+    }
+
+    const item = {
+      type: 'slot',
+      data: spinData,
+      timestamp: Date.now()
+    };
+
+    this.queue.push(item);
+    const position = this.queue.length;
+
+    if (this.queue.length >= this.QUEUE_WARNING_SIZE) {
+      this.logger.warn(`⚠️ [UNIFIED QUEUE] Queue size warning: ${this.queue.length}/${this.MAX_QUEUE_SIZE}`);
+    }
+
+    this.logger.info(`🎰 [UNIFIED QUEUE] Slot enqueued for ${spinData.username} (position: ${position}, spinId: ${spinData.spinId})`);
+
+    this.io.emit('unified-queue:slot-queued', {
+      position,
+      type: 'slot',
+      username: spinData.username,
+      nickname: this.getDisplayName(spinData),
+      spinId: spinData.spinId,
+      queueLength: this.queue.length
+    });
+
+    // Try to process if not already processing
+    this.processNext();
+
+    return { queued: true, position };
+  }
+
+  /**
    * Check if queue should accept new items (i.e., is something currently active?)
    * @returns {boolean} True if items should be queued
    */
@@ -350,6 +406,18 @@ class UnifiedQueueManager {
       
       const calculatedTimeout = spinDuration + winnerDisplayDuration + infoScreenDuration + buffer;
       this.logger.debug(`[UNIFIED QUEUE] Calculated wheel timeout: ${calculatedTimeout}ms (spin: ${spinDuration}ms, winner: ${winnerDisplayDuration}ms, info: ${infoScreenDuration}ms, buffer: ${buffer}ms)`);
+      return calculatedTimeout;
+    }
+
+    // For slot, calculate based on actual spin configuration
+    if (item.type === 'slot' && item.data) {
+      const settings = item.data.settings || {};
+      const spinDuration = settings.spinDuration || 3000;
+      const reelStopDelay = settings.reelStopDelay || 400;
+      const showResultDuration = settings.showResultDuration || 5000;
+      const buffer = 8000; // 8 second safety buffer
+      const calculatedTimeout = spinDuration + (reelStopDelay * 2) + 600 + showResultDuration + buffer;
+      this.logger.debug(`[UNIFIED QUEUE] Calculated slot timeout: ${calculatedTimeout}ms`);
       return calculatedTimeout;
     }
     
@@ -419,6 +487,8 @@ class UnifiedQueueManager {
         await this.processPlinkoItem(item.data);
       } else if (item.type === 'wheel') {
         await this.processWheelItem(item.data);
+      } else if (item.type === 'slot') {
+        await this.processSlotItem(item.data);
       } else if (item.type === 'connect4') {
         await this.processConnect4Item(item.data);
       } else if (item.type === 'chess') {
@@ -568,6 +638,39 @@ class UnifiedQueueManager {
   }
 
   /**
+   * Process Slot spin item
+   * Called by processNext when a slot item reaches the front of the queue.
+   * completeProcessing() is called by SlotGame.handleSpinCompleted() after the
+   * overlay confirms the animation has finished (slot:spin-completed event).
+   */
+  async processSlotItem(spinData) {
+    if (!this.slotGame) {
+      this.logger.error('❌ [UNIFIED QUEUE] Slot game not set');
+      this.completeProcessing();
+      return;
+    }
+
+    this.logger.info(`🎰 [UNIFIED QUEUE] Dequeued slot spin for ${spinData.username} (spinId: ${spinData.spinId})`);
+
+    try {
+      const result = await this.slotGame.startSpinFromQueue(spinData);
+
+      if (!result || !result.success) {
+        this.logger.warn(`⚠️ [UNIFIED QUEUE] Slot startSpinFromQueue returned failure: ${result?.error || 'unknown'}`);
+        this.completeProcessing();
+        return;
+      }
+
+      // Note: completeProcessing() is called by slotGame.handleSpinCompleted()
+      // after the overlay confirms the animation is done (slot:spin-completed).
+      // The safety timeout above handles the case where the overlay never responds.
+    } catch (error) {
+      this.logger.error(`❌ [UNIFIED QUEUE] Error starting Slot spin: ${error.message}`);
+      this.completeProcessing();
+    }
+  }
+
+  /**
    * Force complete processing when timeout occurs
    * Performs game-specific cleanup before completing
    * @param {Object} item - Queue item that timed out
@@ -604,6 +707,20 @@ class UnifiedQueueManager {
     } else if (item?.type === 'plinko' && this.plinkoGame) {
       // Plinko cleanup if needed
       this.logger.debug(`[UNIFIED QUEUE] Plinko timeout cleanup (batchId: ${item.data?.batchId})`);
+    } else if (item?.type === 'slot' && this.slotGame) {
+      // Force-complete the pending slot spin so rewards still fire
+      if (item.data?.spinId) {
+        this.logger.warn(`⚠️ [UNIFIED QUEUE] Forcing slot spin completion (spinId: ${item.data.spinId})`);
+        this.slotGame.forceCompleteSpin(item.data.spinId);
+      }
+      this.io.emit('slot:spin-timeout', {
+        spinId: item.data?.spinId,
+        username: item.data?.username,
+        nickname: item.data?.nickname,
+        machineId: item.data?.machineId,
+        reason: 'overlay_no_response',
+        timestamp: Date.now()
+      });
     }
     
     // Complete processing and move to next item
@@ -666,6 +783,7 @@ class UnifiedQueueManager {
     this.currentItem = null;
     this.plinkoGame = null;
     this.wheelGame = null;
+    this.slotGame = null;
   }
 }
 

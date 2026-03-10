@@ -1940,6 +1940,14 @@
         <p style="color:#aaa;font-size:14px;margin-bottom:12px;">
           Konfiguriere Slot-Maschinen, Symbole, Odds-Profile, Belohnungen und Gift-Mappings.
         </p>
+        <!-- Queue info -->
+        <div style="background:#1a1a3a;border:1px solid #4a4aff;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.2em;">🔗</span>
+          <span style="color:#aac4ff;font-size:13px;">
+            <strong style="color:#7aadff;">Shared Spin Queue:</strong>
+            Slots nutzen dieselbe globale Queue wie das Glücksrad. Wheel-Spins und Slot-Spins laufen FIFO – keine parallelen Animationen.
+          </span>
+        </div>
         <div class="form-group">
           <label>Slot-Maschine wählen:</label>
           <select id="slot-machine-selector" style="width:100%;margin-bottom:10px;"></select>
@@ -2030,7 +2038,68 @@
         <button id="saveSlotSettingsBtn">💾 Einstellungen speichern</button>
       </div>
 
-      <!-- Symbol editor -->
+      <!-- Overlay settings -->
+      <div class="card">
+        <h3>🖥️ Overlay-Einstellungen</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:12px;">
+          Wähle das Overlay-Layout je nach Trigger-Typ. Das Layout beeinflusst nur die Darstellung,
+          nicht den RNG oder das Ergebnis.
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label>Standard-Modus:</label>
+            <select id="slot-overlay-default-mode">
+              <option value="large">large – Groß, zentriert (Standard)</option>
+              <option value="horizontal">horizontal – Breitbild</option>
+              <option value="vertical">vertical – Hochformat / schmal</option>
+              <option value="compact-hud">compact-hud – Kleines HUD</option>
+              <option value="compact-featured">compact-featured – Mittelgroß</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Chat-Modus <span style="color:#777;">(leer = Standard)</span>:</label>
+            <select id="slot-overlay-chat-mode">
+              <option value="">– Standard verwenden –</option>
+              <option value="large">large</option>
+              <option value="horizontal">horizontal</option>
+              <option value="vertical">vertical</option>
+              <option value="compact-hud">compact-hud</option>
+              <option value="compact-featured">compact-featured</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Gift-Modus <span style="color:#777;">(leer = Standard)</span>:</label>
+            <select id="slot-overlay-gift-mode">
+              <option value="">– Standard verwenden –</option>
+              <option value="large">large</option>
+              <option value="horizontal">horizontal</option>
+              <option value="vertical">vertical</option>
+              <option value="compact-hud">compact-hud</option>
+              <option value="compact-featured">compact-featured</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Jackpot-Override <span style="color:#777;">(leer = Standard)</span>:</label>
+            <select id="slot-overlay-jackpot-mode">
+              <option value="">– Standard verwenden –</option>
+              <option value="large">large</option>
+              <option value="horizontal">horizontal</option>
+              <option value="vertical">vertical</option>
+              <option value="compact-hud">compact-hud</option>
+              <option value="compact-featured">compact-featured</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:8px;">
+          <label>Symbol-Größe:</label>
+          <select id="slot-overlay-icon-preset">
+            <option value="normal">normal (Standard)</option>
+            <option value="large">large (größer)</option>
+            <option value="small">small (kleiner)</option>
+          </select>
+        </div>
+        <button id="saveSlotOverlayBtn" style="margin-top:4px;">💾 Overlay-Einstellungen speichern</button>
+      </div>
       <div class="card">
         <h3>🎴 Symbol-Editor</h3>
         <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
@@ -4178,6 +4247,19 @@
       const nearMissEl = document.getElementById('slot-near-miss-enabled');
       if (nearMissEl) nearMissEl.checked = s.nearMissEnabled !== false;
 
+      // Overlay mode settings (with fallback defaults for old configs)
+      const om = (s.overlayMode && typeof s.overlayMode === 'object') ? s.overlayMode : {};
+      const defModeEl = document.getElementById('slot-overlay-default-mode');
+      if (defModeEl) defModeEl.value = om.defaultMode || 'large';
+      const chatModeEl = document.getElementById('slot-overlay-chat-mode');
+      if (chatModeEl) chatModeEl.value = om.chatMode || '';
+      const giftModeEl = document.getElementById('slot-overlay-gift-mode');
+      if (giftModeEl) giftModeEl.value = om.giftMode || '';
+      const jackpotModeEl = document.getElementById('slot-overlay-jackpot-mode');
+      if (jackpotModeEl) jackpotModeEl.value = om.jackpotMode || '';
+      const iconPresetEl = document.getElementById('slot-overlay-icon-preset');
+      if (iconPresetEl) iconPresetEl.value = om.iconPreset || 'normal';
+
       renderSlotSymbols(cfg.symbols || []);
       renderSlotOddsProfile(cfg.oddsProfiles || {});
       renderSlotGiftMappings(cfg.giftMappings || {});
@@ -4496,6 +4578,7 @@
     if (saveSlotSettingsBtn) {
       saveSlotSettingsBtn.addEventListener('click', async () => {
         if (!currentSlotMachineId || !currentSlotConfig) return;
+        const existingOverlayMode = (currentSlotConfig.settings && currentSlotConfig.settings.overlayMode) || {};
         const settings = {
           spinDuration:      parseInt(document.getElementById('slot-spin-duration').value, 10) || 3000,
           reelStopDelay:     parseInt(document.getElementById('slot-reel-stop-delay').value, 10) || 400,
@@ -4506,7 +4589,8 @@
           chatCooldownMs:    (parseInt(document.getElementById('slot-chat-cooldown').value, 10) || 30) * 1000,
           vipCooldownMs:     (parseInt(document.getElementById('slot-vip-cooldown').value, 10) || 15) * 1000,
           subCooldownMs:     (parseInt(document.getElementById('slot-sub-cooldown').value, 10) || 10) * 1000,
-          globalCooldownMs:  (parseInt(document.getElementById('slot-global-cooldown').value, 10) || 0) * 1000
+          globalCooldownMs:  (parseInt(document.getElementById('slot-global-cooldown').value, 10) || 0) * 1000,
+          overlayMode:       Object.assign({ defaultMode: 'large', chatMode: '', giftMode: '', jackpotMode: 'large', iconPreset: 'normal' }, existingOverlayMode)
         };
         await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
           method: 'POST',
@@ -4520,6 +4604,35 @@
           })
         });
         await loadSlotConfig(currentSlotMachineId);
+      });
+    }
+
+    // Save overlay mode settings
+    const saveSlotOverlayBtn = document.getElementById('saveSlotOverlayBtn');
+    if (saveSlotOverlayBtn) {
+      saveSlotOverlayBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId || !currentSlotConfig) return;
+        const overlayMode = {
+          defaultMode: document.getElementById('slot-overlay-default-mode').value || 'large',
+          chatMode:    document.getElementById('slot-overlay-chat-mode').value || '',
+          giftMode:    document.getElementById('slot-overlay-gift-mode').value || '',
+          jackpotMode: document.getElementById('slot-overlay-jackpot-mode').value || '',
+          iconPreset:  document.getElementById('slot-overlay-icon-preset').value || 'normal'
+        };
+        const settings = Object.assign({}, currentSlotConfig.settings || {}, { overlayMode });
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            symbols:      currentSlotConfig.symbols,
+            settings,
+            giftMappings: currentSlotConfig.giftMappings,
+            oddsProfiles: currentSlotConfig.oddsProfiles,
+            rewardRules:  currentSlotConfig.rewardRules
+          })
+        });
+        await loadSlotConfig(currentSlotMachineId);
+        showMessage('Overlay-Einstellungen gespeichert!');
       });
     }
 
