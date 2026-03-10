@@ -2265,6 +2265,39 @@ class GameEnginePlugin {
         },
       ];
 
+      // Register slot machine chat commands (stored in game_slot_config, not game_triggers)
+      // Each enabled slot machine can have its own command (e.g. "!spin")
+      if (this.slotGame) {
+        try {
+          const slotMachines = this.slotGame.getAllMachines();
+          slotMachines.forEach(machine => {
+            if (!machine.enabled || !machine.chatCommand) return;
+            const slotCommandName = machine.chatCommand.replace(/^[!/]/, '').toLowerCase();
+            if (!slotCommandName) return;
+            // Avoid duplicate registration in case a machine command matches a hardcoded one
+            if (commands.some(cmd => cmd.name === slotCommandName)) {
+              this.logger.debug(`💬 [GAME ENGINE] Slot command "${slotCommandName}" already registered – skipping`);
+              return;
+            }
+            const capturedMachineId = machine.id;
+            commands.push({
+              name: slotCommandName,
+              description: `Spin the "${machine.name}" slot machine`,
+              syntax: `/${slotCommandName}`,
+              permission: 'all',
+              enabled: true,
+              minArgs: 0,
+              maxArgs: 0,
+              category: 'Games',
+              handler: async (args, context) => await this.handleSlotSpinCommand(args, context, capturedMachineId)
+            });
+            this.logger.debug(`💬 [GAME ENGINE] Registered slot command: ${slotCommandName} -> machine ID ${capturedMachineId}`);
+          });
+        } catch (slotErr) {
+          this.logger.warn(`💬 [GAME ENGINE] Could not load slot machine commands for GCCE: ${slotErr.message}`);
+        }
+      }
+
       // Register custom triggers from database
       // These are commands added via Admin UI that should trigger games
       chatCommandTriggers.forEach(trigger => {
@@ -2291,6 +2324,16 @@ class GameEnginePlugin {
         } else if (trigger.game_type === 'plinko') {
           handler = async (args, context) => await this.handlePlinkoCommand(args, context);
           description = `Play Plinko (custom trigger: ${trigger.trigger_value})`;
+        } else if (trigger.game_type === 'slot') {
+          // Slot machine commands from the game_triggers table – delegate to the first machine
+          // (per-machine assignment is handled via game_slot_config.chat_command).
+          if (this.slotGame) {
+            handler = async (args, context) => await this.handleSlotSpinCommand(args, context, null);
+            description = `Spin a slot machine (trigger: ${trigger.trigger_value})`;
+          } else {
+            this.logger.debug(`💬 [GAME ENGINE] Skipping slot trigger: slotGame not available`);
+            return;
+          }
         } else if (trigger.game_type === 'wheel') {
           // Wheel is triggered exclusively via gifts, not chat commands - skip
           this.logger.debug(`💬 [GAME ENGINE] Skipping wheel chat command trigger: ${trigger.trigger_value} (wheel uses gift triggers only)`);
@@ -2339,6 +2382,49 @@ class GameEnginePlugin {
     } catch (error) {
       this.logger.error(`❌ [GAME ENGINE] Error registering GCCE commands: ${error.message}`);
       this.gcceCommandsRegistered = false;
+    }
+  }
+
+  /**
+   * Handle Slot Machine spin command (GCCE context adapter).
+   *
+   * Called from GCCE-registered handlers when a viewer types the machine's
+   * chat command (e.g. !spin).  Adapts the GCCE context object to the
+   * format expected by SlotGame.triggerSpinFromChat().
+   *
+   * @param {Array}  _args       – command arguments (not used for slot spins)
+   * @param {Object} context     – GCCE command context
+   * @param {number|null} machineId – target slot machine ID (null → first machine)
+   */
+  async handleSlotSpinCommand(_args, context, machineId = null) {
+    if (!this.slotGame) {
+      this.logger.warn('[SLOT] handleSlotSpinCommand called but slotGame is not initialised');
+      return;
+    }
+
+    const {
+      uniqueId, userId, nickname, profilePictureUrl = '',
+      isModerator = false, isSubscriber = false, teamMemberLevel = 0
+    } = context;
+
+    const username = uniqueId || userId || nickname || 'Unknown';
+    const userRoles = { isModerator, isSubscriber, teamMemberLevel };
+
+    try {
+      const result = await this.slotGame.triggerSpinFromChat(
+        username,
+        nickname || username,
+        profilePictureUrl,
+        context.command || '!spin',
+        machineId,
+        userRoles
+      );
+
+      if (!result.success) {
+        this.logger.debug(`[SLOT] GCCE spin declined for ${username}: ${result.error}`);
+      }
+    } catch (err) {
+      this.logger.error(`[SLOT] Error in handleSlotSpinCommand for ${username}: ${err.message}`);
     }
   }
 
