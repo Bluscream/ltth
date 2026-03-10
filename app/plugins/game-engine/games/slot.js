@@ -52,6 +52,10 @@ class SlotGame {
     // In-flight spins: spinId -> { username, nickname, machineId, timestamp, status }
     this.activeSpins = new Map();
 
+    // Pending rewards awaiting overlay spin-completed confirmation:
+    // spinId -> { rewardActions, spinData, outcome }
+    this.pendingRewards = new Map();
+
     // Cooldown tracking: username -> lastSpinTimestamp (ms)
     this.userCooldowns = new Map();
 
@@ -92,6 +96,7 @@ class SlotGame {
       this.cleanupTimer = null;
     }
     this.activeSpins.clear();
+    this.pendingRewards.clear();
     this.userCooldowns.clear();
     this.globalCooldowns.clear();
     this.openshockBatches.clear();
@@ -178,16 +183,8 @@ class SlotGame {
 
   /**
    * Trigger a slot spin from a chat command.
-   *
-   * @param {string} username
-   * @param {string} nickname
-   * @param {string} profilePictureUrl
-   * @param {string} commandText – the full original command (e.g. "!spin")
-   * @param {number|null} machineId – optional, defaults to first machine
-   * @returns {Object} { success, error?, spinId?, queued? }
-   */
-  /**
-   * Trigger a slot spin from a chat command.
+   * Validates cooldown, then enqueues via the shared unified queue (or starts
+   * immediately if the queue is unavailable).
    *
    * @param {string} username
    * @param {string} nickname
@@ -195,10 +192,10 @@ class SlotGame {
    * @param {string} commandText – the full original command (e.g. "!spin")
    * @param {number|null} machineId – optional, defaults to first machine
    * @param {Object} [userRoles]  – { isModerator, isSubscriber, teamMemberLevel }
-   * @returns {Object} { success, error?, spinId?, queued? }
+   * @returns {Object} { success, error?, spinId?, queued?, position? }
    */
   async triggerSpinFromChat(username, nickname, profilePictureUrl, commandText, machineId = null, userRoles = {}) {
-    return this._triggerSpin(username, nickname, profilePictureUrl, 'chat', commandText, machineId, 'chat', userRoles);
+    return this._enqueueOrStart(username, nickname, profilePictureUrl, 'chat', commandText, machineId, 'chat', userRoles);
   }
 
   /**
@@ -210,31 +207,18 @@ class SlotGame {
    * @param {string} giftName
    * @param {string|null} oddsProfileOverride – optional profile name from gift mapping
    * @param {number|null} machineId
-   * @returns {Object} { success, error?, spinId?, queued? }
+   * @returns {Object} { success, error?, spinId?, queued?, position? }
    */
   async triggerSpinFromGift(username, nickname, profilePictureUrl, giftName, oddsProfileOverride = null, machineId = null) {
-    return this._triggerSpin(username, nickname, profilePictureUrl, 'gift', giftName, machineId, oddsProfileOverride || 'gift_common');
+    return this._enqueueOrStart(username, nickname, profilePictureUrl, 'gift', giftName, machineId, oddsProfileOverride || 'gift_common');
   }
-
-  // ────────────────────────────────────────────────────────
-  // Core spin logic
-  // ────────────────────────────────────────────────────────
 
   /**
    * @private
-   * Central spin method – validates cooldown, resolves outcome, dispatches rewards.
-   *
-   * @param {string} username
-   * @param {string} nickname
-   * @param {string} profilePictureUrl
-   * @param {string} triggerType   – 'chat' | 'gift' | 'test'
-   * @param {string} triggerValue  – raw command text or gift name
-   * @param {number|null} machineId
-   * @param {string} oddsProfileKey
-   * @param {Object} [userRoles]   – { isModerator, isSubscriber, teamMemberLevel }
+   * Validate cooldowns, build spinData, then route through the unified queue
+   * (or start immediately as fallback when no queue is set).
    */
-  async _triggerSpin(username, nickname, profilePictureUrl, triggerType, triggerValue, machineId, oddsProfileKey, userRoles = {}) {
-    // Sanitize inputs
+  async _enqueueOrStart(username, nickname, profilePictureUrl, triggerType, triggerValue, machineId, oddsProfileKey, userRoles = {}) {
     const safeUsername = String(username || 'unknown').slice(0, 100);
     const safeNickname = String(nickname || safeUsername).slice(0, 100);
 
@@ -275,6 +259,98 @@ class SlotGame {
       this.globalCooldowns.set(resolvedMachineId, Date.now());
     }
 
+    // ── Build spin data ───────────────────────────────────────
+    const spinId = ++this.spinIdCounter;
+    const spinData = {
+      spinId,
+      username: safeUsername,
+      nickname: safeNickname,
+      profilePictureUrl: profilePictureUrl || '',
+      machineId: resolvedMachineId,
+      triggerType,
+      triggerValue,
+      oddsProfileKey,
+      settings,   // pass settings so queue can compute timeout
+      timestamp: Date.now()
+    };
+
+    this.logger.info(`🎰 [SLOT] Spin #${spinId} enqueuing for ${safeNickname} (trigger: ${triggerType}, machine: ${resolvedMachineId})`);
+
+    // ── Route through unified queue ───────────────────────────
+    if (this.unifiedQueue) {
+      const queueResult = this.unifiedQueue.queueSlot(spinData);
+      if (!queueResult.queued) {
+        return { success: false, error: queueResult.error || 'Queue full' };
+      }
+      return { success: true, spinId, queued: true, position: queueResult.position };
+    }
+
+    // ── Fallback: start directly if no queue ──────────────────
+    const result = await this.startSpinFromQueue(spinData);
+    return result;
+  }
+
+  // ────────────────────────────────────────────────────────
+  // Core spin logic
+  // ────────────────────────────────────────────────────────
+
+  /**
+   * @private
+   * Direct spin execution for test/admin triggers.
+   * Bypasses the unified queue and resolves immediately with outcome + rewards.
+   * Rewards are dispatched after a delay matching the animation duration so
+   * that OpenShock/XP fire only once the overlay animation is visually complete.
+   *
+   * @param {string} username
+   * @param {string} nickname
+   * @param {string} profilePictureUrl
+   * @param {string} triggerType   – 'chat' | 'gift' | 'test'
+   * @param {string} triggerValue  – raw command text or gift name
+   * @param {number|null} machineId
+   * @param {string} oddsProfileKey
+   * @param {Object} [userRoles]   – { isModerator, isSubscriber, teamMemberLevel }
+   */
+  async _triggerSpin(username, nickname, profilePictureUrl, triggerType, triggerValue, machineId, oddsProfileKey, userRoles = {}) {
+    // Sanitize inputs
+    const safeUsername = String(username || 'unknown').slice(0, 100);
+    const safeNickname = String(nickname || safeUsername).slice(0, 100);
+
+    const config = this.db.getSlotConfig(machineId);
+    if (!config) {
+      return { success: false, error: 'No slot machine configured' };
+    }
+    if (!config.enabled) {
+      return { success: false, error: 'Slot machine is disabled' };
+    }
+
+    const resolvedMachineId = config.id;
+    const settings = config.settings || {};
+
+    // ── Cooldown check (chat triggers only) ──────────────────
+    if (triggerType === 'chat') {
+      const cooldownResult = this._checkCooldown(safeUsername, resolvedMachineId, settings, userRoles);
+      if (!cooldownResult.allowed) {
+        this.io.emit('slot:cooldown', {
+          username: safeUsername,
+          nickname: safeNickname,
+          remainingMs: cooldownResult.remainingMs,
+          machineId: resolvedMachineId
+        });
+        return { success: false, error: `Cooldown: ${Math.ceil(cooldownResult.remainingMs / 1000)}s remaining` };
+      }
+      this._registerCooldown(safeUsername, resolvedMachineId, settings, userRoles);
+    }
+
+    // ── Global cooldown check (all trigger types except test) ──
+    if (triggerType !== 'test' && settings.globalCooldownMs > 0) {
+      const lastGlobal = this.globalCooldowns.get(resolvedMachineId) || 0;
+      const elapsed = Date.now() - lastGlobal;
+      if (elapsed < settings.globalCooldownMs) {
+        return { success: false, error: `Global cooldown active (${Math.ceil((settings.globalCooldownMs - elapsed) / 1000)}s)` };
+      }
+      this.globalCooldowns.set(resolvedMachineId, Date.now());
+    }
+
     // ── Assign spin ID and track ─────────────────────────────
     const spinId = ++this.spinIdCounter;
     const spinData = {
@@ -290,24 +366,12 @@ class SlotGame {
     };
     this.activeSpins.set(spinId, spinData);
 
-    // ── Notify overlay: spin started ─────────────────────────
-    this.io.emit('slot:spin-started', {
-      spinId,
-      username: safeUsername,
-      nickname: safeNickname,
-      profilePictureUrl: profilePictureUrl || '',
-      machineId: resolvedMachineId,
-      machineName: config.name,
-      symbols: config.symbols,
-      settings
-    });
-
+    // ── Resolve outcome (server-authoritative) ────────────────
+    let outcome;
+    let rewardActions;
     try {
-      // ── Resolve outcome (server-authoritative) ────────────────
-      const outcome = this._resolveOutcome(config, oddsProfileKey);
-
-      // ── Persist spin record ───────────────────────────────────
-      const rewardActions = this._buildRewardActions(outcome, config);
+      outcome = this._resolveOutcome(config, oddsProfileKey);
+      rewardActions = this._buildRewardActions(outcome, config);
       this.db.recordSlotSpin({
         machineId: resolvedMachineId,
         username: safeUsername,
@@ -320,45 +384,255 @@ class SlotGame {
         outcomeCategory: outcome.category,
         rewardActions
       });
-
-      // ── Emit result to overlay ────────────────────────────────
-      this.io.emit('slot:spin-result', {
-        spinId,
-        username: safeUsername,
-        nickname: safeNickname,
-        profilePictureUrl: profilePictureUrl || '',
-        machineId: resolvedMachineId,
-        machineName: config.name,
-        reels: outcome.reels,
-        category: outcome.category,
-        isWin: outcome.isWin,
-        isJackpot: outcome.category === 'jackpot',
-        isNearMiss: outcome.category === 'near_miss',
-        rewardActions,
-        settings
-      });
-
-      // ── Dispatch rewards ──────────────────────────────────────
-      await this._dispatchRewards(rewardActions, spinData, outcome, config);
-
-      spinData.status = 'completed';
-
-      this.logger.info(
-        `🎰 [SLOT] Spin #${spinId} for ${safeNickname} → ${outcome.reels.map(s => s.emoji || s.label || '?').join(' ')} (${outcome.category})`
-      );
-
-      return { success: true, spinId, category: outcome.category, isWin: outcome.isWin };
-
     } catch (error) {
-      this.logger.error(`[SLOT] Error during spin #${spinId} for ${safeUsername}: ${error.message}`, error.stack);
-      spinData.status = 'error';
-      // Emit an error event so the overlay can reset
+      this.logger.error(`[SLOT] Error resolving outcome for spin #${spinId}: ${error.message}`);
+      this.activeSpins.delete(spinId);
       this.io.emit('slot:spin-error', { spinId, machineId: resolvedMachineId });
       return { success: false, error: error.message };
+    }
+
+    // ── Determine overlay mode ────────────────────────────────
+    const overlayConfig = settings.overlayMode || {};
+    const overlayMode = overlayConfig.defaultMode || 'large';
+
+    // ── Notify overlay: spin started ─────────────────────────
+    this.io.emit('slot:spin-started', {
+      spinId,
+      username: safeUsername,
+      nickname: safeNickname,
+      profilePictureUrl: profilePictureUrl || '',
+      machineId: resolvedMachineId,
+      machineName: config.name,
+      symbols: config.symbols,
+      settings,
+      overlayMode
+    });
+
+    // ── Emit result to overlay ────────────────────────────────
+    this.io.emit('slot:spin-result', {
+      spinId,
+      username: safeUsername,
+      nickname: safeNickname,
+      profilePictureUrl: profilePictureUrl || '',
+      machineId: resolvedMachineId,
+      machineName: config.name,
+      reels: outcome.reels,
+      category: outcome.category,
+      isWin: outcome.isWin,
+      isJackpot: outcome.category === 'jackpot',
+      isNearMiss: outcome.category === 'near_miss',
+      rewardActions,
+      settings
+    });
+
+    // ── Dispatch rewards after animation completes ─────────────
+    // Calculate total animation duration so rewards fire only after overlay is done.
+    const spinDuration = settings.spinDuration || 3000;
+    const reelStopDelay = settings.reelStopDelay || 400;
+    const rewardDelay = spinDuration + (reelStopDelay * 2) + 800; // 800ms covers stop animation
+
+    spinData.status = 'animating';
+    setTimeout(async () => {
+      try {
+        await this._dispatchRewards(rewardActions, spinData, outcome, config);
+        spinData.status = 'completed';
+        this.logger.info(
+          `🎰 [SLOT] Spin #${spinId} (direct) for ${safeNickname} → ${outcome.reels.map(s => s.emoji || s.label || '?').join(' ')} (${outcome.category})`
+        );
+      } catch (err) {
+        this.logger.error(`[SLOT] Reward dispatch error for spin #${spinId}: ${err.message}`);
+      } finally {
+        setTimeout(() => this.activeSpins.delete(spinId), MAX_SPIN_AGE_MS);
+      }
+    }, rewardDelay);
+
+    return { success: true, spinId, category: outcome.category, isWin: outcome.isWin };
+  }
+
+  /**
+   * Start a queued slot spin.
+   * Called by UnifiedQueueManager.processSlotItem() when this spin reaches
+   * the front of the shared queue.
+   *
+   * Spin lifecycle:
+   *   startSpinFromQueue()   → emits slot:spin-started + slot:spin-result
+   *   overlay animates       → emits slot:spin-completed back to server
+   *   handleSpinCompleted()  → dispatches rewards → calls unifiedQueue.completeProcessing()
+   *
+   * @param {Object} spinData – from queueSlot()
+   * @returns {{ success: boolean, spinId?: number, error?: string }}
+   */
+  async startSpinFromQueue(spinData) {
+    const { spinId, username, nickname, profilePictureUrl, machineId, triggerType, triggerValue, oddsProfileKey } = spinData;
+
+    this.logger.info(`🎰 [SLOT] Spin start #${spinId} for ${nickname} (trigger: ${triggerType})`);
+
+    // ── Load fresh config ─────────────────────────────────────
+    const config = this.db.getSlotConfig(machineId);
+    if (!config) {
+      this.logger.error(`[SLOT] No config for machine ${machineId} (spin #${spinId})`);
+      return { success: false, error: 'No slot machine configured' };
+    }
+    if (!config.enabled) {
+      this.logger.warn(`[SLOT] Machine ${machineId} is disabled (spin #${spinId})`);
+      return { success: false, error: 'Slot machine is disabled' };
+    }
+
+    const settings = config.settings || {};
+
+    // ── Track spin ────────────────────────────────────────────
+    const trackData = {
+      spinId,
+      username,
+      nickname,
+      profilePictureUrl: profilePictureUrl || '',
+      machineId,
+      triggerType,
+      triggerValue,
+      timestamp: Date.now(),
+      status: 'spinning'
+    };
+    this.activeSpins.set(spinId, trackData);
+
+    // ── Resolve outcome (server-authoritative) ────────────────
+    let outcome;
+    let rewardActions;
+    try {
+      outcome = this._resolveOutcome(config, oddsProfileKey || 'chat');
+      rewardActions = this._buildRewardActions(outcome, config);
+      this.db.recordSlotSpin({
+        machineId,
+        username,
+        nickname,
+        triggerType,
+        triggerValue,
+        reel1: outcome.reels[0] ? outcome.reels[0].id : 'unknown',
+        reel2: outcome.reels[1] ? outcome.reels[1].id : 'unknown',
+        reel3: outcome.reels[2] ? outcome.reels[2].id : 'unknown',
+        outcomeCategory: outcome.category,
+        rewardActions
+      });
+    } catch (error) {
+      this.logger.error(`[SLOT] Outcome resolution error for spin #${spinId}: ${error.message}`);
+      this.activeSpins.delete(spinId);
+      this.io.emit('slot:spin-error', { spinId, machineId });
+      return { success: false, error: error.message };
+    }
+
+    // ── Store pending rewards (await overlay confirmation) ─────
+    this.pendingRewards.set(spinId, { rewardActions, spinData: trackData, outcome, config });
+
+    // ── Determine overlay mode based on trigger type ──────────
+    const overlayConfig = settings.overlayMode || {};
+    let overlayMode = overlayConfig.defaultMode || 'large';
+    if (triggerType === 'chat' && overlayConfig.chatMode) overlayMode = overlayConfig.chatMode;
+    if (triggerType === 'gift' && overlayConfig.giftMode) overlayMode = overlayConfig.giftMode;
+    if (outcome.category === 'jackpot' && overlayConfig.jackpotMode) overlayMode = overlayConfig.jackpotMode;
+
+    // ── Emit spin-started (overlay begins animation) ──────────
+    this.io.emit('slot:spin-started', {
+      spinId,
+      username,
+      nickname,
+      profilePictureUrl: profilePictureUrl || '',
+      machineId,
+      machineName: config.name,
+      symbols: config.symbols,
+      settings,
+      overlayMode
+    });
+
+    this.logger.debug(`🎰 [SLOT] spin-started emitted (spinId: ${spinId}, overlayMode: ${overlayMode})`);
+
+    // ── Emit spin-result (overlay stops reels + shows outcome) ─
+    this.io.emit('slot:spin-result', {
+      spinId,
+      username,
+      nickname,
+      profilePictureUrl: profilePictureUrl || '',
+      machineId,
+      machineName: config.name,
+      reels: outcome.reels,
+      category: outcome.category,
+      isWin: outcome.isWin,
+      isJackpot: outcome.category === 'jackpot',
+      isNearMiss: outcome.category === 'near_miss',
+      rewardActions,
+      settings
+    });
+
+    this.logger.debug(`🎰 [SLOT] spin-result emitted (spinId: ${spinId}, category: ${outcome.category})`);
+
+    // Rewards are dispatched only in handleSpinCompleted() after the overlay
+    // emits slot:spin-completed, or in forceCompleteSpin() on timeout.
+    return { success: true, spinId, category: outcome.category, isWin: outcome.isWin };
+  }
+
+  /**
+   * Handle overlay confirmation that the spin animation has finished.
+   * Dispatches rewards and releases the unified queue.
+   *
+   * @param {number} spinId
+   */
+  async handleSpinCompleted(spinId) {
+    const pending = this.pendingRewards.get(spinId);
+    if (!pending) {
+      // Already handled (e.g. by forceCompleteSpin) or unknown spinId
+      this.logger.debug(`[SLOT] handleSpinCompleted called for unknown/already-completed spinId ${spinId}`);
+      return;
+    }
+
+    this.pendingRewards.delete(spinId);
+    const { rewardActions, spinData, outcome, config } = pending;
+
+    this.logger.info(
+      `🎰 [SLOT] Spin #${spinId} completed for ${spinData.nickname} → ${outcome.reels.map(s => s.emoji || s.label || '?').join(' ')} (${outcome.category})`
+    );
+
+    spinData.status = 'completed';
+
+    try {
+      await this._dispatchRewards(rewardActions, spinData, outcome, config);
+    } catch (err) {
+      this.logger.error(`[SLOT] Reward dispatch error for spin #${spinId}: ${err.message}`);
     } finally {
-      // Clean up the active spin tracking entry after a short delay
       setTimeout(() => this.activeSpins.delete(spinId), MAX_SPIN_AGE_MS);
     }
+
+    // Release the unified queue so the next item can be processed
+    if (this.unifiedQueue) {
+      this.logger.debug(`🎰 [SLOT] Releasing unified queue after spin #${spinId}`);
+      this.unifiedQueue.completeProcessing();
+    }
+  }
+
+  /**
+   * Force-complete a pending spin (called on queue timeout).
+   * Dispatches rewards anyway so nothing is silently lost.
+   *
+   * @param {number} spinId
+   */
+  async forceCompleteSpin(spinId) {
+    const pending = this.pendingRewards.get(spinId);
+    if (!pending) {
+      return; // Already completed
+    }
+
+    this.pendingRewards.delete(spinId);
+    const { rewardActions, spinData, outcome, config } = pending;
+
+    this.logger.warn(`⚠️ [SLOT] Force-completing spin #${spinId} for ${spinData.username} (overlay timeout)`);
+    spinData.status = 'force-completed';
+
+    try {
+      await this._dispatchRewards(rewardActions, spinData, outcome, config);
+    } catch (err) {
+      this.logger.error(`[SLOT] Reward dispatch error (force) for spin #${spinId}: ${err.message}`);
+    } finally {
+      this.activeSpins.delete(spinId);
+    }
+    // Note: unifiedQueue.completeProcessing() is called by forceCompleteProcessing
+    // in the queue manager, so we do NOT call it again here.
   }
 
   // ────────────────────────────────────────────────────────
@@ -947,7 +1221,14 @@ class SlotGame {
       vipCooldownMs: 15000,
       subCooldownMs: 10000,
       nearMissEnabled: true,
-      showResultDuration: 5000
+      showResultDuration: 5000,
+      overlayMode: {
+        defaultMode: 'large',
+        chatMode: '',
+        giftMode: '',
+        jackpotMode: 'large',
+        iconPreset: 'normal'
+      }
     };
   }
 
