@@ -1984,11 +1984,16 @@
 
       <!-- Cooldowns -->
       <div class="card">
-        <h3>⏱️ Cooldowns</h3>
+        <h3>⏱️ Cooldowns &amp; Zugriff</h3>
         <p style="color:#aaa;font-size:13px;margin-bottom:12px;">
           Legt fest, wie lange ein Nutzer nach einem Spin warten muss, bevor er erneut spielen kann.
           Abonnenten und Moderatoren/Superfans erhalten kürzere Wartezeiten.
         </p>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px;">
+          <label style="margin-bottom:0;">Nur Superfans (Chat-Befehl):</label>
+          <input type="checkbox" id="slot-require-superfan">
+          <span style="color:#aaa;font-size:12px;">Nur TikTok-Superfans dürfen den Chat-Befehl nutzen</span>
+        </div>
         <div class="form-group">
           <label>Standard-Cooldown (Sek.) – alle regulären Nutzer:</label>
           <input type="number" id="slot-chat-cooldown" value="30" min="0" max="3600" step="1">
@@ -2012,8 +2017,13 @@
       <div class="card">
         <h3>🎬 Animations-Einstellungen</h3>
         <div class="form-group">
-          <label>Spin-Dauer (ms):</label>
+          <label>Spin-Dauer (ms) <span id="slot-spin-dur-sync-note" style="color:#4CAF50;font-size:12px;display:none;">– wird automatisch mit Spin-Sound synchronisiert</span>:</label>
           <input type="number" id="slot-spin-duration" value="3000" min="500" max="10000" step="100">
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px;">
+          <label style="margin-bottom:0;">Spin-Dauer mit Sound synchronisieren:</label>
+          <input type="checkbox" id="slot-sync-spin-to-sound">
+          <span style="color:#aaa;font-size:12px;">Spin-Dauer wird automatisch an hochgeladenen Spin-Sound angepasst</span>
         </div>
         <div class="form-group">
           <label>Reel-Stop-Verzögerung (ms):</label>
@@ -2036,6 +2046,68 @@
           <input type="checkbox" id="slot-near-miss-enabled" checked>
         </div>
         <button id="saveSlotSettingsBtn">💾 Einstellungen speichern</button>
+      </div>
+
+      <!-- Slot Sound Management -->
+      <div class="card">
+        <h3>🔊 Sound-Einstellungen (Slot Machine)</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:12px;">
+          Lade eigene Sounds für die Slot Machine hoch. Die Standard-Sounds aus <code>/game-engine/sounds/slot/</code> werden verwendet, wenn keine eigenen Sounds konfiguriert sind.
+          Bei aktivierter Sound-Synchronisierung wird die Spin-Dauer automatisch an den hochgeladenen Spin-Sound angepasst.
+        </p>
+        <div id="slot-sound-management-container">
+          <p style="color:#888;">Lade Slot-Maschine um Sounds zu konfigurieren...</p>
+        </div>
+      </div>
+
+      <!-- Design settings -->
+      <div class="card">
+        <h3>🎨 Design-Einstellungen</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:12px;">
+          Passe das Aussehen der Slot-Machine im Overlay an.
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label>Hintergrundfarbe:</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="slot-design-bg-color" value="#1a0a2e" style="width:48px;height:36px;padding:2px;cursor:pointer;">
+              <input type="text" id="slot-design-bg-color-text" value="#1a0a2e" style="flex:1;font-size:13px;" placeholder="#1a0a2e">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Rahmenfarbe:</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="slot-design-border-color" value="#FFD700" style="width:48px;height:36px;padding:2px;cursor:pointer;">
+              <input type="text" id="slot-design-border-color-text" value="#FFD700" style="flex:1;font-size:13px;" placeholder="#FFD700">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Reel-Hintergrundfarbe:</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="slot-design-reel-bg-color" value="#0d0620" style="width:48px;height:36px;padding:2px;cursor:pointer;">
+              <input type="text" id="slot-design-reel-bg-color-text" value="#0d0620" style="flex:1;font-size:13px;" placeholder="#0d0620">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Textfarbe:</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="slot-design-text-color" value="#ffffff" style="width:48px;height:36px;padding:2px;cursor:pointer;">
+              <input type="text" id="slot-design-text-color-text" value="#ffffff" style="flex:1;font-size:13px;" placeholder="#ffffff">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Gewinn-/Jackpot-Farbe:</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="slot-design-win-color" value="#FFD700" style="width:48px;height:36px;padding:2px;cursor:pointer;">
+              <input type="text" id="slot-design-win-color-text" value="#FFD700" style="flex:1;font-size:13px;" placeholder="#FFD700">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Titel-Text:</label>
+            <input type="text" id="slot-design-title-text" value="🎰 SLOT MACHINE" placeholder="🎰 SLOT MACHINE" style="width:100%;">
+          </div>
+        </div>
+        <button id="saveSlotDesignBtn" style="margin-top:8px;">💾 Design speichern</button>
       </div>
 
       <!-- Overlay settings -->
@@ -2627,6 +2699,7 @@
             <option value="connect4">🔴🟡 Connect4 / Vier Gewinnt</option>
             <option value="chess">♟️ Schach / Chess</option>
             <option value="wheel">🎡 Glücksrad / Wheel of Fortune</option>
+            <option value="slot">🎰 Slot Machine</option>
           </select>
         </div>
 
@@ -2806,6 +2879,26 @@
               Wenn du individuelle Audios pro Wheel konfigurieren möchtest, nutze die Audio-Einstellungen im Tab "🎡 Glücksrad" für das jeweilige Wheel.
               Die hier konfigurierten Audios sind die globalen Defaults für alle Wheels.
             </p>
+          </div>
+        </div>
+
+        <!-- Slot Machine Media Section -->
+        <div id="media-section-slot" style="display: none;">
+          <h3>🎰 Slot Machine Sounds</h3>
+          <p style="color: #888; font-size: 14px; margin-bottom: 15px;">
+            Lade eigene Sounds für die Slot Machine hoch. Die Standard-Sounds aus <code>/game-engine/sounds/slot/</code> werden verwendet, wenn keine eigenen konfiguriert sind.
+            Bei aktivierter Sound-Synchronisierung im Slot-Tab wird die Spin-Dauer automatisch an den Spin-Sound angepasst.
+          </p>
+
+          <div style="background: #2a4a3e; padding: 12px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4CAF50;">
+            <strong style="color: #4CAF50;">💡 Slot-Maschine auswählen:</strong>
+            <select id="media-slot-machine-selector" style="margin-left:8px;padding:4px 8px;background:#1a2a2e;color:#fff;border:1px solid #4CAF50;border-radius:4px;">
+              <option value="">-- Keine Maschinen geladen --</option>
+            </select>
+          </div>
+
+          <div id="media-slot-sounds-container">
+            <p style="color:#888;">Wähle eine Slot-Maschine aus.</p>
           </div>
         </div>
 
@@ -3804,11 +3897,15 @@
         // Hide all media sections
         document.getElementById('media-section-connect4').style.display = 'none';
         document.getElementById('media-section-wheel').style.display = 'none';
+        document.getElementById('media-section-slot').style.display = 'none';
         
         // Show selected section
         if (selectedGame === 'wheel') {
           document.getElementById('media-section-wheel').style.display = 'block';
           loadWheelMediaSettings();
+        } else if (selectedGame === 'slot') {
+          document.getElementById('media-section-slot').style.display = 'block';
+          loadSlotMediaSection();
         } else {
           // Connect4 and Chess share the same audio section
           document.getElementById('media-section-connect4').style.display = 'block';
@@ -3966,8 +4063,164 @@
     handleMediaGameSelectorChange();
 
     // ===========================================
-    // Overlay Functions
+    // Slot Media Section Functions
     // ===========================================
+
+    const SLOT_AUDIO_TYPES = [
+      { type: 'spin',       label: '🎰 Spin Sound (spielt während die Reels drehen)',       sync: true },
+      { type: 'small_win',  label: '🎉 Kleiner Gewinn',                                       sync: false },
+      { type: 'medium_win', label: '🎊 Mittlerer Gewinn',                                     sync: false },
+      { type: 'big_win',    label: '🔥 Großer Gewinn',                                        sync: false },
+      { type: 'jackpot',    label: '🏆 Jackpot',                                               sync: false },
+      { type: 'near_miss',  label: '😬 Near Miss (Fast!)',                                     sync: false },
+      { type: 'reel_stop',  label: '🔔 Reel-Stop (spielt wenn eine Rolle stoppt)',             sync: false }
+    ];
+
+    let slotMediaMachineId = null;
+
+    async function loadSlotMediaSection() {
+      try {
+        const resp = await fetch('/api/game-engine/slots');
+        const machines = await resp.json();
+        const sel = document.getElementById('media-slot-machine-selector');
+        if (!sel) return;
+        sel.innerHTML = '';
+        machines.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.name + (m.enabled ? '' : ' (deaktiviert)');
+          sel.appendChild(opt);
+        });
+        if (machines.length > 0) {
+          slotMediaMachineId = String(machines[0].id);
+          sel.value = slotMediaMachineId;
+          await renderSlotMediaSounds(slotMediaMachineId);
+        }
+        sel.addEventListener('change', async () => {
+          slotMediaMachineId = sel.value;
+          await renderSlotMediaSounds(slotMediaMachineId);
+        });
+      } catch (e) {
+        console.error('Error loading slot machines for media:', e);
+      }
+    }
+
+    async function renderSlotMediaSounds(machineId) {
+      const container = document.getElementById('media-slot-sounds-container');
+      if (!container) return;
+      let audioSettings = {};
+      try {
+        const resp = await fetch(`/api/game-engine/slot/audio/settings?machineId=${machineId}`);
+        audioSettings = await resp.json();
+      } catch (e) { /* use defaults */ }
+
+      container.innerHTML = '';
+      for (const { type, label, sync } of SLOT_AUDIO_TYPES) {
+        const setting = audioSettings[type] || {};
+        const isCustom = setting.isCustom && setting.filename;
+        const durationInfo = isCustom && setting.durationMs ? ` (${(setting.durationMs / 1000).toFixed(1)}s)` : '';
+
+        const div = document.createElement('div');
+        div.className = 'form-group';
+        div.style.cssText = 'margin-bottom:14px;padding:10px;background:#1a1a2e;border-radius:6px;border-left:4px solid ' + (isCustom ? '#2196F3' : '#444') + ';';
+        div.innerHTML = `
+          <label style="display:block;margin-bottom:6px;">${label}${sync ? ' <span style="color:#4CAF50;font-size:11px;">(sync-fähig)</span>' : ''}:</label>
+          <div style="color:#888;font-size:12px;margin-bottom:5px;">
+            ${isCustom ? `<span style="color:#2196F3;">Custom: ${escapeHtml(setting.filename)}${durationInfo}</span>` : '<span style="color:#4CAF50;">Standard (kein Upload)</span>'}
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="file" id="slotAudio_${type}" accept="audio/*" style="flex:1;min-width:160px;">
+            <button type="button" class="secondary slot-audio-preview-btn" data-machine="${escapeHtml(machineId)}" data-type="${type}" style="padding:6px 12px;" title="Vorschau">▶️</button>
+            <button type="button" class="secondary slot-audio-upload-btn" data-machine="${escapeHtml(machineId)}" data-type="${type}" data-sync="${sync}" style="padding:6px 12px;">⬆️ Upload</button>
+            ${isCustom ? `<button type="button" class="danger slot-audio-reset-btn" data-machine="${escapeHtml(machineId)}" data-type="${type}" style="padding:6px 12px;">↩ Standard</button>` : ''}
+          </div>
+        `;
+        container.appendChild(div);
+      }
+    }
+
+    // Slot audio upload handler
+    document.addEventListener('click', async (e) => {
+      if (e.target.classList.contains('slot-audio-upload-btn')) {
+        const machineId = e.target.dataset.machine;
+        const audioType = e.target.dataset.type;
+        const isSync    = e.target.dataset.sync === 'true';
+        const fileInput = document.getElementById(`slotAudio_${audioType}`);
+        if (!fileInput || !fileInput.files[0]) {
+          showMessage('Bitte wähle zuerst eine Datei aus', 'error');
+          return;
+        }
+        const file = fileInput.files[0];
+
+        // Read audio duration if sync flag is set (browser-side)
+        let durationMs = null;
+        if (isSync) {
+          try {
+            durationMs = await new Promise((resolve) => {
+              const url = URL.createObjectURL(file);
+              const audio = new Audio(url);
+              audio.addEventListener('loadedmetadata', () => {
+                URL.revokeObjectURL(url);
+                resolve(Math.round(audio.duration * 1000));
+              });
+              audio.addEventListener('error', () => { URL.revokeObjectURL(url); resolve(null); });
+            });
+          } catch (err) { /* ignore */ }
+        }
+
+        const formData = new FormData();
+        formData.append('audio', file);
+        formData.append('audioType', audioType);
+        formData.append('machineId', machineId);
+        if (durationMs) formData.append('durationMs', durationMs);
+
+        try {
+          const resp = await fetch('/api/game-engine/slot/audio/upload', { method: 'POST', body: formData });
+          const data = await resp.json();
+          if (data.success) {
+            showMessage(`Sound "${audioType}" erfolgreich hochgeladen!${durationMs ? ` (${(durationMs/1000).toFixed(1)}s)` : ''}`);
+            await renderSlotMediaSounds(machineId);
+            // Reload slot config so spinDuration shows updated value if synced
+            if (isSync && currentSlotMachineId) await loadSlotConfig(currentSlotMachineId);
+          } else {
+            showMessage(`Fehler: ${data.error}`, 'error');
+          }
+        } catch (err) {
+          showMessage(`Upload-Fehler: ${err.message}`, 'error');
+        }
+      }
+
+      if (e.target.classList.contains('slot-audio-reset-btn')) {
+        const machineId = e.target.dataset.machine;
+        const audioType = e.target.dataset.type;
+        if (!confirm(`Sound "${audioType}" wirklich auf Standard zurücksetzen?`)) return;
+        try {
+          const resp = await fetch('/api/game-engine/slot/audio/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ machineId, audioType })
+          });
+          const data = await resp.json();
+          if (data.success) {
+            showMessage(`Sound "${audioType}" auf Standard zurückgesetzt`);
+            await renderSlotMediaSounds(machineId);
+          } else {
+            showMessage(`Fehler: ${data.error}`, 'error');
+          }
+        } catch (err) {
+          showMessage(`Fehler: ${err.message}`, 'error');
+        }
+      }
+
+      if (e.target.classList.contains('slot-audio-preview-btn')) {
+        const machineId = e.target.dataset.machine;
+        const audioType = e.target.dataset.type;
+        const path = `/game-engine/sounds/slot/custom/${machineId}/${audioType}.mp3`;
+        previewMediaAudio(path);
+      }
+    });
+
+
     
     function copyOverlayURL(elementId) {
       const urlInput = document.getElementById(elementId);
@@ -4247,6 +4500,16 @@
       const nearMissEl = document.getElementById('slot-near-miss-enabled');
       if (nearMissEl) nearMissEl.checked = s.nearMissEnabled !== false;
 
+      // Superfan & access control
+      const requireSuperfanEl = document.getElementById('slot-require-superfan');
+      if (requireSuperfanEl) requireSuperfanEl.checked = s.requireSuperfan === true;
+
+      // Sync spin to sound
+      const syncSpinEl = document.getElementById('slot-sync-spin-to-sound');
+      if (syncSpinEl) syncSpinEl.checked = s.syncSpinToSound === true;
+      const syncNote = document.getElementById('slot-spin-dur-sync-note');
+      if (syncNote) syncNote.style.display = s.syncSpinToSound ? 'inline' : 'none';
+
       // Overlay mode settings (with fallback defaults for old configs)
       const om = (s.overlayMode && typeof s.overlayMode === 'object') ? s.overlayMode : {};
       const defModeEl = document.getElementById('slot-overlay-default-mode');
@@ -4260,10 +4523,76 @@
       const iconPresetEl = document.getElementById('slot-overlay-icon-preset');
       if (iconPresetEl) iconPresetEl.value = om.iconPreset || 'normal';
 
+      // Design settings
+      const ds = (s.designSettings && typeof s.designSettings === 'object') ? s.designSettings : {};
+      const setBoth = (id, val) => {
+        const inp = document.getElementById(id);
+        const txt = document.getElementById(id + '-text');
+        if (inp) inp.value = val || inp.value;
+        if (txt) txt.value = val || txt.value;
+      };
+      setBoth('slot-design-bg-color', ds.bgColor || '#1a0a2e');
+      setBoth('slot-design-border-color', ds.borderColor || '#FFD700');
+      setBoth('slot-design-reel-bg-color', ds.reelBgColor || '#0d0620');
+      setBoth('slot-design-text-color', ds.textColor || '#ffffff');
+      setBoth('slot-design-win-color', ds.winColor || '#FFD700');
+      const titleEl = document.getElementById('slot-design-title-text');
+      if (titleEl) titleEl.value = ds.titleText !== undefined ? ds.titleText : '🎰 SLOT MACHINE';
+
+      // Also load sound management section for this machine
+      if (cfg.id) {
+        renderSlotSoundManagement(cfg.id);
+      }
+
       renderSlotSymbols(cfg.symbols || []);
       renderSlotOddsProfile(cfg.oddsProfiles || {});
       renderSlotGiftMappings(cfg.giftMappings || {});
       renderSlotRewardRules(cfg.rewardRules || []);
+    }
+
+    // Render compact sound management in the Slot tab
+    async function renderSlotSoundManagement(machineId) {
+      const container = document.getElementById('slot-sound-management-container');
+      if (!container) return;
+      let audioSettings = {};
+      try {
+        const resp = await fetch(`/api/game-engine/slot/audio/settings?machineId=${machineId}`);
+        audioSettings = await resp.json();
+      } catch (e) { /* use defaults */ }
+
+      container.innerHTML = '';
+      for (const { type, label, sync } of SLOT_AUDIO_TYPES) {
+        const setting = audioSettings[type] || {};
+        const isCustom = setting.isCustom && setting.filename;
+        const durationInfo = isCustom && setting.durationMs ? ` (${(setting.durationMs / 1000).toFixed(1)}s)` : '';
+
+        const div = document.createElement('div');
+        div.style.cssText = 'margin-bottom:10px;padding:8px;background:#1a1a2e;border-radius:6px;border-left:3px solid ' + (isCustom ? '#2196F3' : '#444') + ';';
+        div.innerHTML = `
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span style="flex:1;font-size:13px;">${label}${sync ? ' <span style="color:#4CAF50;font-size:11px;">(sync)</span>' : ''}</span>
+            <span style="font-size:12px;color:${isCustom ? '#2196F3' : '#666'};">${isCustom ? '📁 ' + escapeHtml(setting.filename) + durationInfo : '– Standard –'}</span>
+            <input type="file" id="slotTabAudio_${type}" accept="audio/*" style="width:160px;font-size:12px;">
+            <button type="button" class="secondary" style="padding:4px 10px;font-size:12px;"
+              onclick="(async()=>{
+                const f=document.getElementById('slotTabAudio_${type}').files[0];
+                if(!f){showMessage('Datei auswählen','error');return;}
+                ${sync ? `
+                let dms=null;
+                try{dms=await new Promise((res)=>{const u=URL.createObjectURL(f);const a=new Audio(u);a.onloadedmetadata=()=>{URL.revokeObjectURL(u);res(Math.round(a.duration*1000))};a.onerror=()=>{URL.revokeObjectURL(u);res(null)}});}catch(e){}
+                ` : 'let dms=null;'}
+                const fd=new FormData();fd.append('audio',f);fd.append('audioType','${type}');fd.append('machineId','${machineId}');if(dms)fd.append('durationMs',dms);
+                const r=await fetch('/api/game-engine/slot/audio/upload',{method:'POST',body:fd});
+                const d=await r.json();
+                if(d.success){showMessage('Sound hochgeladen!');renderSlotSoundManagement(${machineId});if(${sync}&&currentSlotMachineId)await loadSlotConfig(currentSlotMachineId);}
+                else showMessage('Fehler: '+d.error,'error');
+              })()">⬆️</button>
+            ${isCustom ? `<button type="button" class="danger" style="padding:4px 10px;font-size:12px;"
+              onclick="(async()=>{if(!confirm('Sound zurücksetzen?'))return;const r=await fetch('/api/game-engine/slot/audio/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machineId:'${machineId}',audioType:'${type}'})});const d=await r.json();if(d.success){showMessage('Zurückgesetzt');renderSlotSoundManagement(${machineId});}else showMessage('Fehler: '+d.error,'error');})()">↩</button>` : ''}
+          </div>
+        `;
+        container.appendChild(div);
+      }
     }
 
     function renderSlotSymbols(symbols) {
@@ -4555,7 +4884,8 @@
           chatCooldownMs:   (parseInt(document.getElementById('slot-chat-cooldown').value, 10) || 30) * 1000,
           subCooldownMs:    (parseInt(document.getElementById('slot-sub-cooldown').value, 10)  || 10) * 1000,
           vipCooldownMs:    (parseInt(document.getElementById('slot-vip-cooldown').value, 10)  || 15) * 1000,
-          globalCooldownMs: (parseInt(document.getElementById('slot-global-cooldown').value, 10) || 0) * 1000
+          globalCooldownMs: (parseInt(document.getElementById('slot-global-cooldown').value, 10) || 0) * 1000,
+          requireSuperfan:  document.getElementById('slot-require-superfan')?.checked || false
         });
         await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
           method: 'POST',
@@ -4579,19 +4909,27 @@
       saveSlotSettingsBtn.addEventListener('click', async () => {
         if (!currentSlotMachineId || !currentSlotConfig) return;
         const existingOverlayMode = (currentSlotConfig.settings && currentSlotConfig.settings.overlayMode) || {};
+        const existingDesignSettings = (currentSlotConfig.settings && currentSlotConfig.settings.designSettings) || {};
         const settings = {
           spinDuration:      parseInt(document.getElementById('slot-spin-duration').value, 10) || 3000,
           reelStopDelay:     parseInt(document.getElementById('slot-reel-stop-delay').value, 10) || 400,
           showResultDuration:parseInt(document.getElementById('slot-result-duration').value, 10) || 5000,
           soundEnabled:      document.getElementById('slot-sound-enabled').checked,
           soundVolume:       parseFloat(document.getElementById('slot-sound-volume').value) || 0.7,
+          syncSpinToSound:   document.getElementById('slot-sync-spin-to-sound')?.checked || false,
           nearMissEnabled:   document.getElementById('slot-near-miss-enabled').checked,
+          requireSuperfan:   document.getElementById('slot-require-superfan')?.checked || false,
           chatCooldownMs:    (parseInt(document.getElementById('slot-chat-cooldown').value, 10) || 30) * 1000,
           vipCooldownMs:     (parseInt(document.getElementById('slot-vip-cooldown').value, 10) || 15) * 1000,
           subCooldownMs:     (parseInt(document.getElementById('slot-sub-cooldown').value, 10) || 10) * 1000,
           globalCooldownMs:  (parseInt(document.getElementById('slot-global-cooldown').value, 10) || 0) * 1000,
-          overlayMode:       Object.assign({ defaultMode: 'large', chatMode: '', giftMode: '', jackpotMode: 'large', iconPreset: 'normal' }, existingOverlayMode)
+          overlayMode:       Object.assign({ defaultMode: 'large', chatMode: '', giftMode: '', jackpotMode: 'large', iconPreset: 'normal' }, existingOverlayMode),
+          designSettings:    existingDesignSettings
         };
+        // Toggle sync note
+        const syncNote = document.getElementById('slot-spin-dur-sync-note');
+        if (syncNote) syncNote.style.display = settings.syncSpinToSound ? 'inline' : 'none';
+
         await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
@@ -4604,6 +4942,7 @@
           })
         });
         await loadSlotConfig(currentSlotMachineId);
+        showMessage('Einstellungen gespeichert!');
       });
     }
 
@@ -4635,6 +4974,53 @@
         showMessage('Overlay-Einstellungen gespeichert!');
       });
     }
+
+    // Save design settings
+    const saveSlotDesignBtn = document.getElementById('saveSlotDesignBtn');
+    if (saveSlotDesignBtn) {
+      saveSlotDesignBtn.addEventListener('click', async () => {
+        if (!currentSlotMachineId || !currentSlotConfig) return;
+        const getVal = (id) => {
+          const txt = document.getElementById(id + '-text');
+          const col = document.getElementById(id);
+          return (txt && txt.value) || (col && col.value) || '';
+        };
+        const designSettings = {
+          bgColor:     getVal('slot-design-bg-color')     || '#1a0a2e',
+          borderColor: getVal('slot-design-border-color') || '#FFD700',
+          reelBgColor: getVal('slot-design-reel-bg-color')|| '#0d0620',
+          textColor:   getVal('slot-design-text-color')   || '#ffffff',
+          winColor:    getVal('slot-design-win-color')    || '#FFD700',
+          titleText:   (document.getElementById('slot-design-title-text')?.value || '🎰 SLOT MACHINE')
+        };
+        const settings = Object.assign({}, currentSlotConfig.settings || {}, { designSettings });
+        await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            symbols:      currentSlotConfig.symbols,
+            settings,
+            giftMappings: currentSlotConfig.giftMappings,
+            oddsProfiles: currentSlotConfig.oddsProfiles,
+            rewardRules:  currentSlotConfig.rewardRules
+          })
+        });
+        await loadSlotConfig(currentSlotMachineId);
+        showMessage('Design gespeichert!');
+      });
+    }
+
+    // Sync color picker ↔ text input for design settings
+    ['slot-design-bg-color','slot-design-border-color','slot-design-reel-bg-color','slot-design-text-color','slot-design-win-color'].forEach(id => {
+      const picker = document.getElementById(id);
+      const text   = document.getElementById(id + '-text');
+      if (picker && text) {
+        picker.addEventListener('input', () => { text.value = picker.value; });
+        text.addEventListener('input', () => {
+          if (/^#[0-9a-fA-F]{6}$/.test(text.value)) picker.value = text.value;
+        });
+      }
+    });
 
     // Add / remove symbols
     const addSlotSymbolBtn = document.getElementById('addSlotSymbolBtn');

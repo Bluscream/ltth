@@ -437,6 +437,22 @@
       if (iconClass) container.classList.add(iconClass);
     }
 
+    // ── Apply design settings (colors, title) ────────────
+    function applyDesignSettings(ds) {
+      if (!ds) return;
+      const root = document.documentElement;
+      if (ds.bgColor)     root.style.setProperty('--slot-bg',       ds.bgColor);
+      if (ds.borderColor) root.style.setProperty('--slot-border',   ds.borderColor);
+      if (ds.reelBgColor) root.style.setProperty('--reel-bg',       ds.reelBgColor);
+      if (ds.winColor)    root.style.setProperty('--jackpot-color',  ds.winColor);
+      if (ds.textColor) {
+        root.style.setProperty('--slot-text', ds.textColor);
+        machine.style.color = ds.textColor;
+      }
+      const titleEl = document.getElementById('slot-title');
+      if (titleEl && ds.titleText) titleEl.textContent = ds.titleText;
+    }
+
     // ── Helper: populate a reel track with random symbols ──
     // Guard: if symbols is empty, fill with a placeholder
     function fillTrack(trackEl, symbols, count) {
@@ -587,13 +603,12 @@
 
     // ── Audio playback ─────────────────────────────────────
     const audioCache = {};
+    let currentMachineId = null;
 
-    function playAudio(audioType, settings) {
-      const s = settings || lastSettings;
-      if (s.soundEnabled === false) return;
-      const vol = (s.soundVolume !== undefined) ? Math.min(1, Math.max(0, s.soundVolume)) : 0.7;
-
-      const paths = {
+    function getAudioPath(audioType, machineId) {
+      // Custom sounds are served from /game-engine/sounds/slot/custom/:machineId/:type.mp3
+      // Default sounds are served from /game-engine/sounds/slot/:type.mp3
+      const defaultPaths = {
         spin:       '/game-engine/sounds/slot/spin.mp3',
         small_win:  '/game-engine/sounds/slot/small-win.mp3',
         medium_win: '/game-engine/sounds/slot/medium-win.mp3',
@@ -602,22 +617,55 @@
         near_miss:  '/game-engine/sounds/slot/near-miss.mp3',
         reel_stop:  '/game-engine/sounds/slot/reel-stop.mp3'
       };
+      if (machineId) {
+        return `/game-engine/sounds/slot/custom/${machineId}/${audioType}.mp3`;
+      }
+      return defaultPaths[audioType] || null;
+    }
 
-      const src = paths[audioType];
-      if (!src) return;
+    function playAudio(audioType, settings, machineId) {
+      const s = settings || lastSettings;
+      if (s.soundEnabled === false) return;
+      const vol = (s.soundVolume !== undefined) ? Math.min(1, Math.max(0, s.soundVolume)) : 0.7;
+      const mid = machineId || currentMachineId;
 
-      try {
-        if (!audioCache[audioType]) {
-          const a = new Audio(src);
-          // Remove stale cache entry if the file doesn't exist (204/404)
-          a.addEventListener('error', () => { delete audioCache[audioType]; });
-          audioCache[audioType] = a;
-        }
-        const audio = audioCache[audioType];
-        audio.volume = vol;
-        audio.currentTime = 0;
-        audio.play().catch(() => {/* autoplay policy – silently ignore */});
-      } catch (e) { /* ignore */ }
+      // Try custom path first, fall back to default
+      const customSrc = mid ? `/game-engine/sounds/slot/custom/${mid}/${audioType}.mp3` : null;
+      const defaultPaths = {
+        spin:       '/game-engine/sounds/slot/spin.mp3',
+        small_win:  '/game-engine/sounds/slot/small-win.mp3',
+        medium_win: '/game-engine/sounds/slot/medium-win.mp3',
+        big_win:    '/game-engine/sounds/slot/big-win.mp3',
+        jackpot:    '/game-engine/sounds/slot/jackpot.mp3',
+        near_miss:  '/game-engine/sounds/slot/near-miss.mp3',
+        reel_stop:  '/game-engine/sounds/slot/reel-stop.mp3'
+      };
+      const defaultSrc = defaultPaths[audioType];
+      if (!defaultSrc && !customSrc) return;
+
+      const cacheKey = `${mid || 'default'}:${audioType}`;
+
+      function tryPlay(src) {
+        if (!src) return;
+        try {
+          if (!audioCache[cacheKey] || audioCache[cacheKey]._src !== src) {
+            const a = new Audio(src);
+            a._src = src;
+            // On error (e.g. 204/404 for custom), fall back to default
+            a.addEventListener('error', () => {
+              delete audioCache[cacheKey];
+              if (src !== defaultSrc && defaultSrc) tryPlay(defaultSrc);
+            });
+            audioCache[cacheKey] = a;
+          }
+          const audio = audioCache[cacheKey];
+          audio.volume = vol;
+          audio.currentTime = 0;
+          audio.play().catch(() => {});
+        } catch (e) { /* ignore */ }
+      }
+
+      tryPlay(customSrc || defaultSrc);
     }
 
     // ── Socket event: spin started ─────────────────────────
@@ -626,9 +674,19 @@
       lastSettings   = data.settings || {};
       currentSpinId  = data.spinId || null;
 
+      // Track current machine for custom sound routing
+      if (data.machineId && data.machineId !== currentMachineId) {
+        // Machine changed – clear audio cache so new machine's sounds load fresh
+        Object.keys(audioCache).forEach(k => delete audioCache[k]);
+        currentMachineId = data.machineId;
+      }
+
       // Apply overlay mode from server
       const overlayConfig = lastSettings.overlayMode || {};
       applyOverlayMode(data.overlayMode || overlayConfig.defaultMode || 'large', overlayConfig.iconPreset);
+
+      // Apply design settings (colors, title text)
+      applyDesignSettings(data.designSettings || lastSettings.designSettings);
 
       // Cancel any pending hide and reset visuals
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
@@ -655,7 +713,18 @@
       // Start spinning all reels
       for (let i = 0; i < 3; i++) startReel(i);
 
-      playAudio('spin', lastSettings);
+      playAudio('spin', lastSettings, currentMachineId);
+    });
+
+    // ── Socket event: audio updated – flush cache for this machine ─
+    socket.on('slot:audio-updated', (data) => {
+      const mid = data.machineId ? String(data.machineId) : null;
+      if (!mid) return;
+      // Remove stale cache entries for this machine so next play re-fetches
+      const prefix = `${mid}:`;
+      Object.keys(audioCache).forEach(k => {
+        if (k.startsWith(prefix)) delete audioCache[k];
+      });
     });
 
     // ── Socket event: spin result ──────────────────────────
@@ -675,7 +744,7 @@
 
       for (let i = 0; i < 3; i++) {
         setTimeout(() => {
-          playAudio('reel_stop', settings);
+          playAudio('reel_stop', settings, currentMachineId);
           stopReel(i, reels[i] || { emoji: '❓' }, () => {
             stoppedCount++;
             if (stoppedCount === 3) {
@@ -719,7 +788,7 @@
 
     // ── Socket event: play-audio (from reward dispatch) ────
     socket.on('slot:play-audio', (data) => {
-      playAudio(data.audioType || 'win', lastSettings);
+      playAudio(data.audioType || 'win', lastSettings, currentMachineId);
     });
 
     // ── Socket event: overlay effect (from reward dispatch) ─

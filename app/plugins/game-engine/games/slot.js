@@ -233,6 +233,14 @@ class SlotGame {
     const resolvedMachineId = config.id;
     const settings = config.settings || {};
 
+    // ── Superfan access check (chat triggers only) ────────────
+    if (triggerType === 'chat' && settings.requireSuperfan) {
+      const { isSuperfan = false, isModerator = false, teamMemberLevel = 0 } = userRoles;
+      if (!isSuperfan && !isModerator && teamMemberLevel === 0) {
+        return { success: false, error: 'Superfan status required' };
+      }
+    }
+
     // ── Cooldown check (chat triggers only) ──────────────────
     if (triggerType === 'chat') {
       const cooldownResult = this._checkCooldown(safeUsername, resolvedMachineId, settings, userRoles);
@@ -405,7 +413,8 @@ class SlotGame {
       machineName: config.name,
       symbols: config.symbols,
       settings,
-      overlayMode
+      overlayMode,
+      designSettings: settings.designSettings || {}
     });
 
     // ── Emit result to overlay ────────────────────────────────
@@ -539,7 +548,8 @@ class SlotGame {
       machineName: config.name,
       symbols: config.symbols,
       settings,
-      overlayMode
+      overlayMode,
+      designSettings: settings.designSettings || {}
     });
 
     this.logger.debug(`🎰 [SLOT] spin-started emitted (spinId: ${spinId}, overlayMode: ${overlayMode})`);
@@ -642,17 +652,17 @@ class SlotGame {
   /**
    * @private
    * Resolve the effective cooldown duration for a user based on their role.
-   * Priority: moderator/team-member > subscriber > default.
+   * Priority: moderator/team-member/superfan > subscriber > default.
    *
    * @param {Object} settings   – machine settings
-   * @param {Object} userRoles  – { isModerator, isSubscriber, teamMemberLevel }
+   * @param {Object} userRoles  – { isModerator, isSubscriber, teamMemberLevel, isSuperfan }
    * @returns {number} cooldown in milliseconds
    */
   _effectiveCooldownMs(settings, userRoles = {}) {
-    const { isModerator = false, isSubscriber = false, teamMemberLevel = 0 } = userRoles;
+    const { isModerator = false, isSubscriber = false, teamMemberLevel = 0, isSuperfan = false } = userRoles;
     const defaultCd = settings.chatCooldownMs || DEFAULT_CHAT_COOLDOWN_MS;
-    if (isModerator || teamMemberLevel > 0) {
-      // Moderators and team members (superfans) get the VIP cooldown
+    if (isModerator || teamMemberLevel > 0 || isSuperfan) {
+      // Moderators, team members, and superfans get the VIP cooldown
       return settings.vipCooldownMs != null ? settings.vipCooldownMs : defaultCd;
     }
     if (isSubscriber) {
@@ -1216,10 +1226,12 @@ class SlotGame {
       reelStopDelay: 400,
       soundEnabled: true,
       soundVolume: 0.7,
+      syncSpinToSound: false,
       chatCooldownMs: 30000,
       globalCooldownMs: 0,
       vipCooldownMs: 15000,
       subCooldownMs: 10000,
+      requireSuperfan: false,
       nearMissEnabled: true,
       showResultDuration: 5000,
       overlayMode: {
@@ -1228,6 +1240,14 @@ class SlotGame {
         giftMode: '',
         jackpotMode: 'large',
         iconPreset: 'normal'
+      },
+      designSettings: {
+        bgColor: '#1a0a2e',
+        borderColor: '#FFD700',
+        reelBgColor: '#0d0620',
+        textColor: '#ffffff',
+        winColor: '#FFD700',
+        titleText: '🎰 SLOT MACHINE'
       }
     };
   }

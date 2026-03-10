@@ -8,8 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Game Engine – Slot Machine** – New server-authoritative slot machine game module
-  (`SlotGame`) within the existing game-engine plugin.
+- **Game Engine – Slot Machine: Superfan recognition** – TikTok superfan status
+  (`isSuperFan` / `isSuperfan` / `topGifter`) is now extracted from GCCE context and
+  passed as `isSuperfan` in `userRoles`.  Superfans receive the VIP cooldown
+  (same as moderators/team-members).  New `requireSuperfan` setting restricts
+  chat-command access to superfans/mods only.  GUI option added to the
+  "Cooldowns & Zugriff" card.
+- **Game Engine – Slot Machine: Sound management** – New per-machine custom sound
+  upload API (`POST /api/game-engine/slot/audio/upload`, `POST reset`, `GET settings`).
+  Custom sounds are served from `/game-engine/sounds/slot/custom/:machineId/:type.mp3`
+  with automatic fallback to built-in defaults.  Seven configurable sounds:
+  `spin`, `small_win`, `medium_win`, `big_win`, `jackpot`, `near_miss`, `reel_stop`.
+  Sound management UI added both in the Slot Machine tab and in the Media/Sounds tab
+  (new "🎰 Slot Machine" option in the game selector).
+  Database table `game_slot_audio` stores per-machine custom audio settings.
+- **Game Engine – Slot Machine: Spin-to-sound synchronisation** – New `syncSpinToSound`
+  setting.  When enabled, uploading a custom `spin` sound automatically updates the
+  machine's `spinDuration` to match the audio file's duration (measured client-side via
+  `HTMLAudioElement.duration`).  UI checkbox and sync indicator added to the
+  Animations-Einstellungen card.
+- **Game Engine – Slot Machine: Design settings** – New `designSettings` object in
+  machine config (`bgColor`, `borderColor`, `reelBgColor`, `textColor`, `winColor`,
+  `titleText`).  Settings are sent with every `slot:spin-started` event and applied as
+  CSS custom properties in the overlay.  "Design-Einstellungen" card added to the UI
+  with color pickers (color + hex text inputs) and a title text field.
+- **Game Engine – Slot Machine: Media tab integration** – Slot Machine added to the
+  media-game selector in the Media/Sounds tab for centralized sound management.
+
+### Changed
+- **Game Engine – Slot Machine: Cooldowns card** renamed to "Cooldowns & Zugriff" to
+  reflect the new superfan access-control option.
+- **Game Engine – Slot Machine: Animations card** – Sound settings remain in this card
+  alongside the new `syncSpinToSound` checkbox; a dedicated "Sound-Einstellungen" card
+  now provides per-sound upload controls directly in the Slot tab.
+
+
   - 3-reel slot engine with configurable symbol sets (12 default emoji symbols) and
     per-symbol weights.
   - Six outcome categories: `loss`, `near_miss`, `small_win`, `medium_win`, `big_win`,
