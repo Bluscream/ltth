@@ -1948,6 +1948,15 @@ class GameEnginePlugin {
             settings.overlayMode
           );
         }
+        // Ensure designSettings defaults are present (backward-compatible migration)
+        if (!settings.designSettings || typeof settings.designSettings !== 'object') {
+          settings.designSettings = { bgColor: '#1a0a2e', borderColor: '#FFD700', reelBgColor: '#0d0620', textColor: '#ffffff', winColor: '#FFD700', titleText: '🎰 SLOT MACHINE' };
+        } else {
+          settings.designSettings = Object.assign(
+            { bgColor: '#1a0a2e', borderColor: '#FFD700', reelBgColor: '#0d0620', textColor: '#ffffff', winColor: '#FFD700', titleText: '🎰 SLOT MACHINE' },
+            settings.designSettings
+          );
+        }
         this.slotGame.updateConfig(machineId, symbols, settings, giftMappings || {}, oddsProfiles || {}, rewardRules || []);
         res.json({ success: true });
       } catch (error) {
@@ -2017,7 +2026,119 @@ class GameEnginePlugin {
       res.sendFile(overlayPath);
     });
 
-    // === OVERLAY SETTINGS API ===
+    // === SLOT CUSTOM AUDIO ROUTES ===
+
+    const slotAudioDir = path.join(pluginDataDir, 'slot-audio');
+    if (!fs.existsSync(slotAudioDir)) {
+      fs.mkdirSync(slotAudioDir, { recursive: true });
+    }
+
+    const slotAudioStorage = multer.diskStorage({
+      destination: (req, file, cb) => {
+        const machineId = req.body.machineId || '1';
+        const machineDir = path.join(slotAudioDir, String(machineId));
+        if (!fs.existsSync(machineDir)) {
+          fs.mkdirSync(machineDir, { recursive: true });
+        }
+        cb(null, machineDir);
+      },
+      filename: (req, file, cb) => {
+        const audioType = req.body.audioType || 'unknown';
+        cb(null, `${audioType}.mp3`);
+      }
+    });
+
+    const slotAudioUpload = multer({
+      storage: slotAudioStorage,
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('audio/')) {
+          cb(null, true);
+        } else {
+          cb(new Error('Only audio files are allowed'));
+        }
+      }
+    });
+
+    // API: Upload custom slot audio
+    this.api.registerRoute('POST', '/api/game-engine/slot/audio/upload', slotAudioUpload.single('audio'), (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ success: false, error: 'No audio file uploaded' });
+        }
+        const machineId = req.body.machineId || '1';
+        const audioType = req.body.audioType;
+        const durationMs = req.body.durationMs ? parseInt(req.body.durationMs, 10) : null;
+
+        this.db.saveSlotAudioSetting(machineId, audioType, req.file.originalname, durationMs, true);
+        this.logger.info(`Slot audio uploaded: ${audioType} for machine ${machineId}`);
+
+        // If this is the spin sound and syncSpinToSound is requested, update the machine's spinDuration
+        if (audioType === 'spin' && durationMs && durationMs > 0) {
+          const machineIdInt = parseInt(machineId, 10);
+          if (!isNaN(machineIdInt)) {
+            const config = this.slotGame.getConfig(machineIdInt);
+            if (config && config.settings && config.settings.syncSpinToSound) {
+              const newSettings = Object.assign({}, config.settings, { spinDuration: durationMs });
+              this.slotGame.updateConfig(machineIdInt, config.symbols, newSettings, config.giftMappings, config.oddsProfiles, config.rewardRules);
+              this.logger.info(`Slot spinDuration auto-synced to ${durationMs}ms for machine ${machineIdInt}`);
+            }
+          }
+        }
+
+        this.io.emit('slot:audio-updated', { machineId, audioType, isCustom: true });
+        res.json({ success: true, filename: req.file.originalname });
+      } catch (error) {
+        this.logger.error(`Error uploading slot audio: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // API: Reset slot audio to default
+    this.api.registerRoute('POST', '/api/game-engine/slot/audio/reset', (req, res) => {
+      try {
+        const { machineId, audioType } = req.body;
+        const audioPath = path.join(slotAudioDir, String(machineId || '1'), `${audioType}.mp3`);
+        if (fs.existsSync(audioPath)) {
+          fs.unlinkSync(audioPath);
+        }
+        this.db.saveSlotAudioSetting(machineId || '1', audioType, null, null, false);
+        this.logger.info(`Slot audio reset to default: ${audioType} for machine ${machineId}`);
+        this.io.emit('slot:audio-updated', { machineId, audioType, isCustom: false });
+        res.json({ success: true });
+      } catch (error) {
+        this.logger.error(`Error resetting slot audio: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // API: Get slot audio settings
+    this.api.registerRoute('GET', '/api/game-engine/slot/audio/settings', (req, res) => {
+      try {
+        const machineId = req.query.machineId || '1';
+        const settings = this.db.getSlotAudioSettings(machineId);
+        res.json(settings);
+      } catch (error) {
+        this.logger.error(`Error getting slot audio settings: ${error.message}`);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Serve custom slot audio files
+    this.api.registerRoute('GET', '/game-engine/sounds/slot/custom/:machineId/:filename', (req, res) => {
+      const { machineId, filename } = req.params;
+      if (!/^\d+$/.test(machineId) || !/^[\w\-.]+\.mp3$/i.test(filename)) {
+        return res.status(400).json({ error: 'Invalid path' });
+      }
+      const audioPath = path.join(slotAudioDir, machineId, filename);
+      if (fs.existsSync(audioPath)) {
+        res.sendFile(audioPath);
+      } else {
+        res.status(204).end();
+      }
+    });
+
+
     
     // API: Get overlay settings for all games
     this.api.registerRoute('GET', '/api/game-engine/overlay-settings', (req, res) => {
@@ -2434,9 +2555,12 @@ class GameEnginePlugin {
     const isModerator    = userData.isModerator    ?? context.isModerator    ?? false;
     const isSubscriber   = userData.isSubscriber   ?? context.isSubscriber   ?? false;
     const teamMemberLevel = userData.teamMemberLevel ?? context.teamMemberLevel ?? 0;
+    // Superfan detection: TikTok provides this via isSuperFan, isSuperfan, or topGifter flags
+    const isSuperfan     = !!(userData.isSuperFan || userData.isSuperfan || userData.topGifter
+                            || context.isSuperFan || context.isSuperfan);
 
     const username = uniqueId || userId || nickname || 'Unknown';
-    const userRoles = { isModerator, isSubscriber, teamMemberLevel };
+    const userRoles = { isModerator, isSubscriber, teamMemberLevel, isSuperfan };
 
     try {
       const result = await this.slotGame.triggerSpinFromChat(

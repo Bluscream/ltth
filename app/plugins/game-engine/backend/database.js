@@ -2054,6 +2054,89 @@ class GameEngineDatabase {
   }
 
   // ========================================
+  // SLOT AUDIO DATABASE METHODS
+  // ========================================
+
+  /**
+   * Initialize the slot audio settings table.
+   */
+  initSlotAudioTable() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS game_slot_audio (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        machine_id TEXT NOT NULL,
+        audio_type TEXT NOT NULL,
+        filename TEXT,
+        duration_ms INTEGER,
+        is_custom INTEGER DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(machine_id, audio_type)
+      )
+    `);
+  }
+
+  /**
+   * Save slot audio setting
+   * @param {string} machineId - Slot machine ID
+   * @param {string} audioType - Audio type (spin, small_win, medium_win, big_win, jackpot, near_miss, reel_stop)
+   * @param {string} filename - Original filename (or null for default)
+   * @param {number|null} durationMs - Audio duration in ms (or null)
+   * @param {boolean} isCustom - Whether this is a custom audio
+   */
+  saveSlotAudioSetting(machineId, audioType, filename, durationMs, isCustom) {
+    this.initSlotAudioTable();
+    this.db.prepare(`
+      INSERT OR REPLACE INTO game_slot_audio (machine_id, audio_type, filename, duration_ms, is_custom, updated_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(String(machineId), audioType, filename, durationMs || null, isCustom ? 1 : 0);
+  }
+
+  /**
+   * Get all slot audio settings for a machine
+   * @param {string} machineId - Slot machine ID
+   * @returns {Object} Audio settings keyed by type
+   */
+  getSlotAudioSettings(machineId) {
+    this.initSlotAudioTable();
+    const rows = this.db.prepare(`
+      SELECT audio_type, filename, duration_ms, is_custom
+      FROM game_slot_audio
+      WHERE machine_id = ?
+    `).all(String(machineId));
+
+    const settings = {};
+    for (const row of rows) {
+      settings[row.audio_type] = {
+        filename: row.filename,
+        durationMs: row.duration_ms,
+        isCustom: row.is_custom === 1
+      };
+    }
+    return settings;
+  }
+
+  /**
+   * Get single slot audio setting
+   * @param {string} machineId - Slot machine ID
+   * @param {string} audioType - Audio type
+   * @returns {Object|null}
+   */
+  getSlotAudioSetting(machineId, audioType) {
+    this.initSlotAudioTable();
+    const row = this.db.prepare(`
+      SELECT filename, duration_ms, is_custom
+      FROM game_slot_audio
+      WHERE machine_id = ? AND audio_type = ?
+    `).get(String(machineId), audioType);
+    if (!row) return null;
+    return {
+      filename: row.filename,
+      durationMs: row.duration_ms,
+      isCustom: row.is_custom === 1
+    };
+  }
+
+  // ========================================
   // SLOT MACHINE DATABASE METHODS
   // Supports multiple slot machines with individual triggers and odds profiles
   // ========================================
