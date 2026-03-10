@@ -62,6 +62,7 @@
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0",
     "ws": "^8.18.3",
+    "yaml": "^2.8.2",
     "zip-lib": "^1.1.2"
   },
   "optionalDependencies": {
