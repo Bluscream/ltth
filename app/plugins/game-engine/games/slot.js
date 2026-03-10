@@ -636,14 +636,37 @@ class SlotGame {
   /**
    * @private
    * Build the list of reward actions to execute for this outcome.
+   *
+   * Two sources of actions:
+   *   1. Category-based reward rules (audio, overlay, xp, chat, free_spin, openshock).
+   *   2. Per-symbol OpenShock config: when 3x identical symbols appear (any win category),
+   *      the winning symbol's isShock/shockIntensity/shockDuration/shockType/shockDevices
+   *      fields are used – matching the wheel segment pattern.
    */
   _buildRewardActions(outcome, config) {
     const rules = config.rewardRules || [];
     const actions = [];
 
+    // 1. Category-based rules
     for (const rule of rules) {
       if (!rule.outcomeCategories || !rule.outcomeCategories.includes(outcome.category)) continue;
       actions.push({ action: rule.action, params: rule.params || {} });
+    }
+
+    // 2. Per-symbol OpenShock: triggered when 3x identical symbols appear (isWin)
+    if (outcome.isWin && Array.isArray(outcome.reels) && outcome.reels.length === 3) {
+      const winSym = outcome.reels[0]; // All 3 match on a win
+      if (winSym && winSym.isShock) {
+        actions.push({
+          action: 'openshock',
+          params: {
+            intensity:    winSym.shockIntensity    || 50,
+            duration:     winSym.shockDuration     || 1000,
+            shockType:    winSym.shockType         || 'shock',
+            shockDevices: Array.isArray(winSym.shockDevices) ? winSym.shockDevices : []
+          }
+        });
+      }
     }
 
     return actions;
@@ -897,18 +920,18 @@ class SlotGame {
   /** @private */
   _defaultSymbols() {
     return [
-      { id: 'cherry',  emoji: '🍒', label: 'Cherry',  weight: 18 },
-      { id: 'lemon',   emoji: '🍋', label: 'Lemon',   weight: 16 },
-      { id: 'grape',   emoji: '🍇', label: 'Grape',   weight: 14 },
-      { id: 'clover',  emoji: '🍀', label: 'Clover',  weight: 12 },
-      { id: 'star',    emoji: '⭐',  label: 'Star',    weight: 10 },
-      { id: 'bell',    emoji: '🔔', label: 'Bell',    weight:  8 },
-      { id: 'diamond', emoji: '💎', label: 'Diamond', weight:  6 },
-      { id: 'money',   emoji: '💰', label: 'Money',   weight:  5 },
-      { id: 'seven',   emoji: '7️⃣',  label: 'Seven',  weight:  4 },
-      { id: 'bolt',    emoji: '⚡',  label: 'Bolt',   weight:  4 },
-      { id: 'fire',    emoji: '🔥', label: 'Fire',   weight:  2 },
-      { id: 'joker',   emoji: '🃏', label: 'Joker',  weight:  1 }
+      { id: 'cherry',  emoji: '🍒', label: 'Cherry',  weight: 18, isShock: false, shockIntensity: 20, shockDuration: 500,  shockType: 'vibrate', shockDevices: [] },
+      { id: 'lemon',   emoji: '🍋', label: 'Lemon',   weight: 16, isShock: false, shockIntensity: 20, shockDuration: 500,  shockType: 'vibrate', shockDevices: [] },
+      { id: 'grape',   emoji: '🍇', label: 'Grape',   weight: 14, isShock: false, shockIntensity: 25, shockDuration: 750,  shockType: 'vibrate', shockDevices: [] },
+      { id: 'clover',  emoji: '🍀', label: 'Clover',  weight: 12, isShock: false, shockIntensity: 25, shockDuration: 750,  shockType: 'vibrate', shockDevices: [] },
+      { id: 'star',    emoji: '⭐',  label: 'Star',    weight: 10, isShock: false, shockIntensity: 30, shockDuration: 1000, shockType: 'vibrate', shockDevices: [] },
+      { id: 'bell',    emoji: '🔔', label: 'Bell',    weight:  8, isShock: false, shockIntensity: 30, shockDuration: 1000, shockType: 'vibrate', shockDevices: [] },
+      { id: 'diamond', emoji: '💎', label: 'Diamond', weight:  6, isShock: false, shockIntensity: 40, shockDuration: 1500, shockType: 'shock',   shockDevices: [] },
+      { id: 'money',   emoji: '💰', label: 'Money',   weight:  5, isShock: false, shockIntensity: 40, shockDuration: 1500, shockType: 'shock',   shockDevices: [] },
+      { id: 'seven',   emoji: '7️⃣',  label: 'Seven',  weight:  4, isShock: false, shockIntensity: 50, shockDuration: 2000, shockType: 'shock',   shockDevices: [] },
+      { id: 'bolt',    emoji: '⚡',  label: 'Bolt',   weight:  4, isShock: false, shockIntensity: 60, shockDuration: 2000, shockType: 'shock',   shockDevices: [] },
+      { id: 'fire',    emoji: '🔥', label: 'Fire',   weight:  2, isShock: false, shockIntensity: 70, shockDuration: 2500, shockType: 'shock',   shockDevices: [] },
+      { id: 'joker',   emoji: '🃏', label: 'Joker',  weight:  1, isShock: false, shockIntensity: 80, shockDuration: 3000, shockType: 'shock',   shockDevices: [] }
     ];
   }
 

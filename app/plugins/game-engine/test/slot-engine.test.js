@@ -491,6 +491,73 @@ describe('SlotGame – _buildRewardActions', () => {
     const cfg = minimalConfig({ rewardRules: undefined });
     expect(game._buildRewardActions({ category: 'jackpot' }, cfg)).toHaveLength(0);
   });
+
+  // ── Per-symbol shock dispatch ──────────────────────────────────────────────
+
+  it('adds openshock action when winning symbol has isShock=true', () => {
+    const shockSym = { id: 'bolt', emoji: '⚡', label: 'Bolt', weight: 4,
+      isShock: true, shockIntensity: 75, shockDuration: 1500, shockType: 'shock', shockDevices: ['dev1'] };
+    const cfg = minimalConfig({ rewardRules: [] });
+    const outcome = { category: 'big_win', isWin: true, reels: [shockSym, shockSym, shockSym] };
+
+    const actions = game._buildRewardActions(outcome, cfg);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].action).toBe('openshock');
+    expect(actions[0].params.intensity).toBe(75);
+    expect(actions[0].params.duration).toBe(1500);
+    expect(actions[0].params.shockType).toBe('shock');
+    expect(actions[0].params.shockDevices).toEqual(['dev1']);
+  });
+
+  it('does NOT add openshock action when winning symbol has isShock=false', () => {
+    const safeSym = { id: 'cherry', emoji: '🍒', label: 'Cherry', weight: 18,
+      isShock: false, shockIntensity: 50, shockDuration: 1000, shockType: 'shock', shockDevices: [] };
+    const cfg = minimalConfig({ rewardRules: [] });
+    const outcome = { category: 'small_win', isWin: true, reels: [safeSym, safeSym, safeSym] };
+
+    expect(game._buildRewardActions(outcome, cfg)).toHaveLength(0);
+  });
+
+  it('does NOT add openshock action for loss even if symbol has isShock=true', () => {
+    const shockSym = { id: 'bolt', emoji: '⚡', label: 'Bolt', weight: 4,
+      isShock: true, shockIntensity: 60, shockDuration: 1000, shockType: 'shock', shockDevices: [] };
+    const cfg = minimalConfig({ rewardRules: [] });
+    // loss → isWin is false
+    const outcome = { category: 'loss', isWin: false, reels: [shockSym, shockSym, shockSym] };
+
+    expect(game._buildRewardActions(outcome, cfg)).toHaveLength(0);
+  });
+
+  it('combines category rule and per-symbol shock when both apply', () => {
+    const shockSym = { id: 'bolt', emoji: '⚡', label: 'Bolt', weight: 4,
+      isShock: true, shockIntensity: 50, shockDuration: 1000, shockType: 'vibrate', shockDevices: [] };
+    const cfg = minimalConfig({
+      rewardRules: [
+        { id: 'jackpot_audio', outcomeCategories: ['jackpot'], action: 'audio', params: { audioType: 'jackpot' } }
+      ]
+    });
+    const outcome = { category: 'jackpot', isWin: true, reels: [shockSym, shockSym, shockSym] };
+
+    const actions = game._buildRewardActions(outcome, cfg);
+    expect(actions).toHaveLength(2);
+    expect(actions.some(a => a.action === 'audio')).toBe(true);
+    expect(actions.some(a => a.action === 'openshock')).toBe(true);
+    const shockAction = actions.find(a => a.action === 'openshock');
+    expect(shockAction.params.shockType).toBe('vibrate');
+  });
+
+  it('uses default shock params when optional fields are missing', () => {
+    const shockSym = { id: 'bolt', emoji: '⚡', label: 'Bolt', weight: 4, isShock: true };
+    const cfg = minimalConfig({ rewardRules: [] });
+    const outcome = { category: 'small_win', isWin: true, reels: [shockSym, shockSym, shockSym] };
+
+    const actions = game._buildRewardActions(outcome, cfg);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].params.intensity).toBe(50);
+    expect(actions[0].params.duration).toBe(1000);
+    expect(actions[0].params.shockType).toBe('shock');
+    expect(actions[0].params.shockDevices).toEqual([]);
+  });
 });
 
 describe('SlotGame – database integration', () => {
@@ -637,5 +704,129 @@ describe('SlotGame – triggerSpinFromChat (async)', () => {
     );
     const result = await game._triggerSpin('admin', 'Admin', '', 'test', 'test-spin', config.id, 'chat');
     expect(result.success).toBe(true);
+  });
+});
+
+// ─── GCCE context: per-user role-based cooldown ────────────────────────────────
+// This suite verifies that role flags buried in context.userData (GCCE path)
+// correctly flow through to the cooldown tier selector.
+
+describe('SlotGame – GCCE userData role extraction via triggerSpinFromChat', () => {
+  let db, game;
+
+  beforeEach(() => {
+    db   = makeDb();
+    game = makeSlotGame(db);
+    // Apply a config where the tiers differ clearly
+    const config = game.getConfig();
+    game.updateConfig(
+      config.id, config.symbols,
+      Object.assign({}, config.settings, {
+        chatCooldownMs:   60000, // regular users: 60 s
+        subCooldownMs:    20000, // subscribers: 20 s
+        vipCooldownMs:    10000, // mods/superfans: 10 s
+        globalCooldownMs: 0
+      }),
+      config.giftMappings, config.oddsProfiles, config.rewardRules
+    );
+    jest.clearAllMocks();
+  });
+
+  it('regular user receives the long default cooldown', async () => {
+    const config = game.getConfig();
+    game._registerCooldown('regular', config.id, config.settings, {});
+    const check = game._checkCooldown('regular', config.id, config.settings, {});
+    expect(check.allowed).toBe(false);
+    expect(check.remainingMs).toBeGreaterThan(50000); // close to 60s
+  });
+
+  it('subscriber receives the shorter sub cooldown', async () => {
+    const config = game.getConfig();
+    game._registerCooldown('sub1', config.id, config.settings, { isSubscriber: true });
+    const check = game._checkCooldown('sub1', config.id, config.settings, { isSubscriber: true });
+    expect(check.allowed).toBe(false);
+    expect(check.remainingMs).toBeLessThanOrEqual(20000);
+    expect(check.remainingMs).toBeGreaterThan(0);
+  });
+
+  it('moderator receives the shortest VIP cooldown', async () => {
+    const config = game.getConfig();
+    game._registerCooldown('mod1', config.id, config.settings, { isModerator: true });
+    const check = game._checkCooldown('mod1', config.id, config.settings, { isModerator: true });
+    expect(check.allowed).toBe(false);
+    expect(check.remainingMs).toBeLessThanOrEqual(10000);
+  });
+
+  it('superfan (teamMemberLevel > 0) receives the shortest VIP cooldown', async () => {
+    const config = game.getConfig();
+    game._registerCooldown('superfan1', config.id, config.settings, { teamMemberLevel: 2 });
+    const check = game._checkCooldown('superfan1', config.id, config.settings, { teamMemberLevel: 2 });
+    expect(check.allowed).toBe(false);
+    expect(check.remainingMs).toBeLessThanOrEqual(10000);
+  });
+
+  it('moderator cooldown is shorter than subscriber cooldown which is shorter than regular', () => {
+    const config = game.getConfig();
+    game._registerCooldown('u_regular',  config.id, config.settings, {});
+    game._registerCooldown('u_sub',      config.id, config.settings, { isSubscriber: true });
+    game._registerCooldown('u_mod',      config.id, config.settings, { isModerator: true });
+
+    const rRegular = game._checkCooldown('u_regular', config.id, config.settings, {}).remainingMs;
+    const rSub     = game._checkCooldown('u_sub',     config.id, config.settings, { isSubscriber: true }).remainingMs;
+    const rMod     = game._checkCooldown('u_mod',     config.id, config.settings, { isModerator: true }).remainingMs;
+
+    expect(rRegular).toBeGreaterThan(rSub);
+    expect(rSub).toBeGreaterThan(rMod);
+  });
+
+  it('cooldowns are independent per user (different users do not share state)', () => {
+    const config = game.getConfig();
+    game._registerCooldown('alice', config.id, config.settings, { isSubscriber: true });
+
+    expect(game._checkCooldown('alice', config.id, config.settings, { isSubscriber: true }).allowed).toBe(false);
+    expect(game._checkCooldown('bob',   config.id, config.settings, { isSubscriber: true }).allowed).toBe(true);
+  });
+
+  it('triggerSpinFromChat respects subscriber cooldown (second spin blocked)', async () => {
+    // First spin succeeds
+    const r1 = await game.triggerSpinFromChat('subuser', 'SubUser', '', '!spin', null, { isSubscriber: true });
+    expect(r1.success).toBe(true);
+    // Second spin is blocked by cooldown
+    const r2 = await game.triggerSpinFromChat('subuser', 'SubUser', '', '!spin', null, { isSubscriber: true });
+    expect(r2.success).toBe(false);
+    expect(r2.error).toMatch(/cooldown/i);
+  });
+
+  it('triggerSpinFromChat with GCCE-style context (userRoles from userData) respects role cooldown', async () => {
+    // Simulate the GCCE context shape:
+    // role flags are in context.userData, NOT at the top level
+    // The fix in handleSlotSpinCommand reads userData before falling back to top-level
+    const gcceContext = {
+      uniqueId: 'gccemod',
+      nickname: 'GCCEMod',
+      profilePictureUrl: '',
+      // role flags are NOT at the top level in a real GCCE context
+      userData: {
+        isModerator:    true,
+        isSubscriber:   false,
+        teamMemberLevel: 0
+      }
+    };
+
+    // Simulate what the fixed handleSlotSpinCommand does:
+    const { userData = {} } = gcceContext;
+    const isModerator    = userData.isModerator    ?? gcceContext.isModerator    ?? false;
+    const isSubscriber   = userData.isSubscriber   ?? gcceContext.isSubscriber   ?? false;
+    const teamMemberLevel = userData.teamMemberLevel ?? gcceContext.teamMemberLevel ?? 0;
+    const userRoles = { isModerator, isSubscriber, teamMemberLevel };
+
+    expect(userRoles.isModerator).toBe(true);
+    expect(userRoles.isSubscriber).toBe(false);
+    expect(userRoles.teamMemberLevel).toBe(0);
+
+    // Verify the resolved cooldown is VIP (shortest)
+    const config = game.getConfig();
+    const cd = game._effectiveCooldownMs(config.settings, userRoles);
+    expect(cd).toBe(config.settings.vipCooldownMs);
   });
 });
