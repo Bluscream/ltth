@@ -30,7 +30,7 @@ Before making any changes, read these files in order:
 | **Name** | PupCid's Little TikTool Helper (LTTH) |
 | **Type** | Electron Desktop App + Node.js Backend |
 | **License** | CC-BY-NC-4.0 (Non-Commercial) |
-| **Version** | 1.3.2 |
+| **Version** | 1.3.3 |
 | **Developer** | Solo developer + Claude AI |
 | **Stack** | Node.js 18-23, Express, Socket.IO, SQLite, Electron 33+ |
 | **Architecture** | Plugin-based modular system |
@@ -79,7 +79,7 @@ ltth_desktop2/
 │
 ├── build-src/                    # Electron build configuration
 ├── docs/                         # Additional documentation
-├── docs_archive/                 # Archived implementation summaries
+├── docs_archive/                 # Archived historical Fix-Summaries and PR-Summaries
 ├── migration-guides/             # Framework migration guides
 ├── screenshots/                  # Visual documentation
 │
@@ -88,7 +88,7 @@ ltth_desktop2/
 ├── README.md                     # User-facing README (German)
 ├── CHANGELOG.md                  # Version history
 ├── LICENSE                       # CC-BY-NC-4.0 license
-└── *.md                          # Implementation summaries (to be archived)
+└── DOCUMENTATION_INDEX.md        # Documentation navigation index
 ```
 
 ---
@@ -700,7 +700,7 @@ npm test            # Run tests
 ### Technical Documentation
 
 - `app/docs/` - Technical documentation
-- `docs_archive/` - Archived implementation summaries
+- `docs_archive/` - Archived historical Fix-Summaries, PR-Summaries, and implementation notes
 - `migration-guides/` - Framework migration guides
 
 ---

@@ -78,11 +78,12 @@ Welcome to the documentation index for PupCid's Little TikTool Helper (LTTH). Th
 ### `docs_archive/` - Historical Documentation
 
 **Contains 140+ archived implementation summaries and fix documentation:**
-- Bug fix summaries
+- Bug fix summaries (e.g. `FIX_SUMMARY.md`, `PLUGIN_FIX_SUMMARY.md`, `LAUNCHER_FIX_SUMMARY.md`)
 - Feature implementation reports
 - Performance optimization analyses
 - Migration guides
 - Testing reports
+- PR summaries and release notes (e.g. `PULL_REQUEST_SUMMARY.md`, `FINAL_SUMMARY.md`)
 
 These files are kept for historical reference but are not actively maintained.
 
