@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-03-11
+
+### Changed
+- **Repository Cleanup** - Maintenance release: documentation organization
+  - Moved all temporary `*_SUMMARY.md` and `*_FIX_SUMMARY.md` files from root to `docs_archive/`
+  - Removed outdated `-Old.md` duplicate files from `app/wiki/`
+  - Moved `infos/FINAL_SUMMARY.md` to `docs_archive/`
+  - Root directory now contains only: `README.md`, `CHANGELOG.md`, `LICENSE`, `DOCUMENTATION_INDEX.md`
+  - Synchronized version numbers to 1.3.3 across all package files
+
 ## [1.3.2] - 2026-02-07
 
 ### Changed
