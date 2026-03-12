@@ -2066,6 +2066,22 @@
         <p style="color:#aaa;font-size:13px;margin-bottom:12px;">
           Passe das Aussehen der Slot-Machine im Overlay an.
         </p>
+        <!-- Theme presets -->
+        <div class="form-group" style="margin-bottom:12px;">
+          <label>🎨 Design-Preset schnell anwenden:</label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="slot-design-preset" style="flex:1;">
+              <option value="">– Preset auswählen –</option>
+              <option value="classic">Classic (Lila/Gold)</option>
+              <option value="ocean">Ocean (Blau/Cyan)</option>
+              <option value="fire">Fire (Schwarz/Rot-Orange)</option>
+              <option value="neon">Neon (Dunkel/Grün)</option>
+              <option value="mono">Monochrome (Schwarz/Weiß)</option>
+              <option value="retro">Retro (Dunkelgrün/Gelb)</option>
+            </select>
+            <button id="applySlotPresetBtn" class="secondary" style="white-space:nowrap;">✅ Anwenden</button>
+          </div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="form-group">
             <label>Hintergrundfarbe:</label>
@@ -2105,6 +2121,36 @@
           <div class="form-group">
             <label>Titel-Text:</label>
             <input type="text" id="slot-design-title-text" value="🎰 SLOT MACHINE" placeholder="🎰 SLOT MACHINE" style="width:100%;">
+          </div>
+        </div>
+        <!-- Win result labels -->
+        <div style="margin-top:14px;">
+          <p style="color:#aaa;font-size:13px;margin-bottom:8px;"><strong>Ergebnis-Texte</strong> – Diese Texte werden im Overlay bei jedem Ergebnis angezeigt:</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="form-group">
+              <label style="color:#aaa;">😔 Kein Gewinn (loss):</label>
+              <input type="text" id="slot-label-loss" placeholder="😔 Kein Gewinn" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label style="color:#FF6B6B;">😬 Fast! (near_miss):</label>
+              <input type="text" id="slot-label-near-miss" placeholder="😬 Fast!" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label style="color:#90EE90;">🎉 Kleiner Gewinn (small_win):</label>
+              <input type="text" id="slot-label-small-win" placeholder="🎉 Kleiner Gewinn!" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label style="color:#FFD700;">🎊 Gewinn (medium_win):</label>
+              <input type="text" id="slot-label-medium-win" placeholder="🎊 Gewinn!" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label style="color:#FF9500;">🔥 Großer Gewinn (big_win):</label>
+              <input type="text" id="slot-label-big-win" placeholder="🔥 Großer Gewinn!" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label style="color:#FFD700;">🏆 Jackpot (jackpot):</label>
+              <input type="text" id="slot-label-jackpot" placeholder="🏆 JACKPOT!" style="width:100%;">
+            </div>
           </div>
         </div>
         <button id="saveSlotDesignBtn" style="margin-top:8px;">💾 Design speichern</button>
@@ -4539,6 +4585,18 @@
       const titleEl = document.getElementById('slot-design-title-text');
       if (titleEl) titleEl.value = ds.titleText !== undefined ? ds.titleText : '🎰 SLOT MACHINE';
 
+      // Win result labels
+      const setLabel = (id, val, fallback) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val !== undefined ? val : fallback;
+      };
+      setLabel('slot-label-loss',       ds.labelLoss,      '😔 Kein Gewinn');
+      setLabel('slot-label-near-miss',  ds.labelNearMiss,  '😬 Fast!');
+      setLabel('slot-label-small-win',  ds.labelSmallWin,  '🎉 Kleiner Gewinn!');
+      setLabel('slot-label-medium-win', ds.labelMediumWin, '🎊 Gewinn!');
+      setLabel('slot-label-big-win',    ds.labelBigWin,    '🔥 Großer Gewinn!');
+      setLabel('slot-label-jackpot',    ds.labelJackpot,   '🏆 JACKPOT!');
+
       // Also load sound management section for this machine
       if (cfg.id) {
         renderSlotSoundManagement(cfg.id);
@@ -4601,6 +4659,7 @@
       container.innerHTML = '';
       symbols.forEach((sym, idx) => {
         const shockActive = !!sym.isShock;
+        const hasImage = !!(sym.imageUrl);
         const row = document.createElement('div');
         row.className = 'slot-symbol-entry';
         row.style.cssText = `background:#1a1a2e;padding:10px;border-radius:6px;margin-bottom:8px;border-left:4px solid ${shockActive ? '#00ffff' : '#333'};`;
@@ -4613,7 +4672,9 @@
 
         row.innerHTML = `
           <div style="display:flex;gap:6px;align-items:center;">
-            <span style="width:28px;text-align:center;font-size:18px;">${escapeHtml(sym.emoji || '❓')}</span>
+            <span class="sym-preview" style="width:36px;height:36px;text-align:center;font-size:24px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;border-radius:4px;background:#0d0d1a;">
+              ${hasImage ? `<img src="${escapeHtml(sym.imageUrl)}" style="width:32px;height:32px;object-fit:contain;" alt="">` : escapeHtml(sym.emoji || '❓')}
+            </span>
             <input type="text" value="${escapeHtml(sym.emoji || '')}" placeholder="Emoji" style="width:60px;" data-field="emoji">
             <input type="text" value="${escapeHtml(sym.id || '')}" placeholder="ID" style="width:80px;" data-field="id">
             <input type="text" value="${escapeHtml(sym.label || '')}" placeholder="Label" style="flex:1;" data-field="label">
@@ -4625,6 +4686,15 @@
               <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;" title="OpenShock bei 3x diesem Symbol">⚡ Zap:</label>
               <input type="checkbox" ${shockActive ? 'checked' : ''} data-field="isShock" style="width:20px;height:20px;cursor:pointer;" title="OpenShock auslösen wenn 3x dieses Symbol erscheint">
             </div>
+          </div>
+          <!-- Image upload section -->
+          <div class="slot-sym-image-cfg" style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #222;flex-wrap:wrap;">
+            <span style="font-size:12px;color:#aaa;flex-shrink:0;">🖼️ Bild-Symbol:</span>
+            <input type="hidden" data-field="imageUrl" value="${escapeHtml(sym.imageUrl || '')}">
+            <input type="file" class="slot-sym-image-input" accept="image/*" style="font-size:12px;flex:1;min-width:0;">
+            <button type="button" class="secondary slot-sym-image-upload-btn" style="padding:4px 10px;font-size:12px;white-space:nowrap;">⬆️ Upload</button>
+            ${hasImage ? `<button type="button" class="danger slot-sym-image-clear-btn" style="padding:4px 8px;font-size:12px;" title="Bild entfernen">✕</button>` : ''}
+            ${hasImage ? `<span style="font-size:11px;color:#4CAF50;">✓ Bild aktiv</span>` : `<span style="font-size:11px;color:#666;">Kein Bild – Emoji wird verwendet</span>`}
           </div>
           <div class="slot-sym-shock-cfg" style="display:${shockActive ? 'grid' : 'none'};grid-template-columns:1fr 1fr 1fr 2fr;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #333;">
             <div>
@@ -4659,6 +4729,51 @@
           row.style.borderLeftColor = e.target.checked ? '#00ffff' : '#333';
         });
 
+        // Image upload button
+        const uploadBtn = row.querySelector('.slot-sym-image-upload-btn');
+        if (uploadBtn) {
+          uploadBtn.addEventListener('click', async () => {
+            if (!currentSlotMachineId) { showMessage('Zuerst Slot-Maschine laden', 'error'); return; }
+            const fileInput = row.querySelector('.slot-sym-image-input');
+            const file = fileInput && fileInput.files[0];
+            if (!file) { showMessage('Bilddatei auswählen', 'error'); return; }
+            const symId = row.querySelector('[data-field="id"]')?.value.trim() || `sym_${idx}`;
+            const fd = new FormData();
+            fd.append('image', file);
+            fd.append('machineId', currentSlotMachineId);
+            fd.append('symbolId', symId);
+            try {
+              const resp = await fetch('/api/game-engine/slot/symbol-image/upload', { method: 'POST', body: fd });
+              const data = await resp.json();
+              if (data.success && data.imageUrl) {
+                row.querySelector('[data-field="imageUrl"]').value = data.imageUrl;
+                // Update preview
+                const preview = row.querySelector('.sym-preview');
+                if (preview) preview.innerHTML = `<img src="${escapeHtml(data.imageUrl)}" style="width:32px;height:32px;object-fit:contain;" alt="">`;
+                showMessage('Bild hochgeladen!');
+              } else {
+                showMessage('Fehler: ' + (data.error || 'Unbekannter Fehler'), 'error');
+              }
+            } catch (e) {
+              showMessage('Upload fehlgeschlagen', 'error');
+            }
+          });
+        }
+
+        // Image clear button
+        const clearBtn = row.querySelector('.slot-sym-image-clear-btn');
+        if (clearBtn) {
+          clearBtn.addEventListener('click', () => {
+            row.querySelector('[data-field="imageUrl"]').value = '';
+            // Restore emoji preview
+            const emojiVal = row.querySelector('[data-field="emoji"]')?.value || '❓';
+            const preview = row.querySelector('.sym-preview');
+            if (preview) preview.innerHTML = escapeHtml(emojiVal);
+            clearBtn.remove();
+            showMessage('Bild entfernt');
+          });
+        }
+
         container.appendChild(row);
       });
     }
@@ -4676,6 +4791,7 @@
           id:             g('id')?.value.trim()                                || `sym_${idx}`,
           label:          g('label')?.value.trim()                             || '',
           weight:         parseInt(g('weight')?.value, 10)                    || 1,
+          imageUrl:       g('imageUrl')?.value.trim()                         || '',
           isShock:        g('isShock')?.checked                               || false,
           shockIntensity: parseInt(g('shockIntensity')?.value, 10)            || 50,
           shockDuration:  parseInt(g('shockDuration')?.value, 10)             || 1000,
@@ -4985,13 +5101,20 @@
           const col = document.getElementById(id);
           return (txt && txt.value) || (col && col.value) || '';
         };
+        const getLabel = (id) => document.getElementById(id)?.value ?? '';
         const designSettings = {
-          bgColor:     getVal('slot-design-bg-color')     || '#1a0a2e',
-          borderColor: getVal('slot-design-border-color') || '#FFD700',
-          reelBgColor: getVal('slot-design-reel-bg-color')|| '#0d0620',
-          textColor:   getVal('slot-design-text-color')   || '#ffffff',
-          winColor:    getVal('slot-design-win-color')    || '#FFD700',
-          titleText:   (document.getElementById('slot-design-title-text')?.value || '🎰 SLOT MACHINE')
+          bgColor:        getVal('slot-design-bg-color')     || '#1a0a2e',
+          borderColor:    getVal('slot-design-border-color') || '#FFD700',
+          reelBgColor:    getVal('slot-design-reel-bg-color')|| '#0d0620',
+          textColor:      getVal('slot-design-text-color')   || '#ffffff',
+          winColor:       getVal('slot-design-win-color')    || '#FFD700',
+          titleText:      (document.getElementById('slot-design-title-text')?.value || '🎰 SLOT MACHINE'),
+          labelLoss:      getLabel('slot-label-loss')      || '😔 Kein Gewinn',
+          labelNearMiss:  getLabel('slot-label-near-miss') || '😬 Fast!',
+          labelSmallWin:  getLabel('slot-label-small-win') || '🎉 Kleiner Gewinn!',
+          labelMediumWin: getLabel('slot-label-medium-win')|| '🎊 Gewinn!',
+          labelBigWin:    getLabel('slot-label-big-win')   || '🔥 Großer Gewinn!',
+          labelJackpot:   getLabel('slot-label-jackpot')   || '🏆 JACKPOT!'
         };
         const settings = Object.assign({}, currentSlotConfig.settings || {}, { designSettings });
         await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
@@ -5007,6 +5130,36 @@
         });
         await loadSlotConfig(currentSlotMachineId);
         showMessage('Design gespeichert!');
+      });
+    }
+
+    // Design theme presets
+    const applySlotPresetBtn = document.getElementById('applySlotPresetBtn');
+    if (applySlotPresetBtn) {
+      const SLOT_PRESETS = {
+        classic: { bgColor: '#1a0a2e', borderColor: '#FFD700', reelBgColor: '#0d0620', textColor: '#ffffff', winColor: '#FFD700' },
+        ocean:   { bgColor: '#001a33', borderColor: '#00e5ff', reelBgColor: '#002244', textColor: '#e0f7ff', winColor: '#00bcd4' },
+        fire:    { bgColor: '#1a0000', borderColor: '#ff4500', reelBgColor: '#0d0000', textColor: '#ffffff', winColor: '#ff6b00' },
+        neon:    { bgColor: '#0a0a0a', borderColor: '#39ff14', reelBgColor: '#050505', textColor: '#ccffcc', winColor: '#39ff14' },
+        mono:    { bgColor: '#111111', borderColor: '#ffffff', reelBgColor: '#000000', textColor: '#ffffff', winColor: '#dddddd' },
+        retro:   { bgColor: '#003300', borderColor: '#ffff00', reelBgColor: '#001100', textColor: '#00ff00', winColor: '#ffff00' }
+      };
+      const setBothColor = (id, val) => {
+        const picker = document.getElementById(id);
+        const text   = document.getElementById(id + '-text');
+        if (picker) picker.value = val;
+        if (text)   text.value  = val;
+      };
+      applySlotPresetBtn.addEventListener('click', () => {
+        const presetKey = document.getElementById('slot-design-preset')?.value;
+        if (!presetKey || !SLOT_PRESETS[presetKey]) { showMessage('Kein Preset ausgewählt', 'error'); return; }
+        const p = SLOT_PRESETS[presetKey];
+        setBothColor('slot-design-bg-color',      p.bgColor);
+        setBothColor('slot-design-border-color',  p.borderColor);
+        setBothColor('slot-design-reel-bg-color', p.reelBgColor);
+        setBothColor('slot-design-text-color',    p.textColor);
+        setBothColor('slot-design-win-color',     p.winColor);
+        showMessage(`Preset "${presetKey}" angewendet – vergiss nicht zu speichern!`);
       });
     }
 
@@ -5028,7 +5181,7 @@
       addSlotSymbolBtn.addEventListener('click', () => {
         const symbols = getSlotSymbolsFromForm();
         symbols.push({ emoji: '⭐', id: `sym_${symbols.length}`, label: 'New', weight: 5,
-          isShock: false, shockIntensity: 50, shockDuration: 1000, shockType: 'shock', shockDevices: [] });
+          imageUrl: '', isShock: false, shockIntensity: 50, shockDuration: 1000, shockType: 'shock', shockDevices: [] });
         renderSlotSymbols(symbols);
       });
     }
