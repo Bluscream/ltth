@@ -349,6 +349,16 @@
     #slot-container.icon-large { --symbol-size: 96px; }
     /* Icon preset: small */
     #slot-container.icon-small { --symbol-size: 52px; }
+
+    /* Image symbols */
+    .reel-symbol img.sym-image {
+      width: calc(var(--symbol-size) * 0.85);
+      height: calc(var(--symbol-size) * 0.85);
+      object-fit: contain;
+      display: block;
+      pointer-events: none;
+      user-select: none;
+    }
   </style>
 </head>
 <body>
@@ -379,7 +389,7 @@
     // RNG is server-authoritative. The overlay only animates.
     // ─────────────────────────────────────────────────────
 
-    const RESULT_LABELS = {
+    let RESULT_LABELS = {
       loss:       '😔 Kein Gewinn',
       near_miss:  '😬 Fast!',
       small_win:  '🎉 Kleiner Gewinn!',
@@ -437,7 +447,7 @@
       if (iconClass) container.classList.add(iconClass);
     }
 
-    // ── Apply design settings (colors, title) ────────────
+    // ── Apply design settings (colors, title, win labels) ────────────
     function applyDesignSettings(ds) {
       if (!ds) return;
       const root = document.documentElement;
@@ -451,6 +461,27 @@
       }
       const titleEl = document.getElementById('slot-title');
       if (titleEl && ds.titleText) titleEl.textContent = ds.titleText;
+
+      // Update result labels from design settings (fall back to defaults if not set)
+      if (ds.labelLoss      !== undefined) RESULT_LABELS.loss       = ds.labelLoss;
+      if (ds.labelNearMiss  !== undefined) RESULT_LABELS.near_miss  = ds.labelNearMiss;
+      if (ds.labelSmallWin  !== undefined) RESULT_LABELS.small_win  = ds.labelSmallWin;
+      if (ds.labelMediumWin !== undefined) RESULT_LABELS.medium_win = ds.labelMediumWin;
+      if (ds.labelBigWin    !== undefined) RESULT_LABELS.big_win    = ds.labelBigWin;
+      if (ds.labelJackpot   !== undefined) RESULT_LABELS.jackpot    = ds.labelJackpot;
+    }
+
+    // ── Helper: create a symbol element (emoji text or image) ─
+    function makeSymbolNode(sym) {
+      if (sym && sym.imageUrl) {
+        const img = document.createElement('img');
+        img.className = 'sym-image';
+        img.src = sym.imageUrl;
+        img.alt = sym.label || sym.emoji || '';
+        img.draggable = false;
+        return img;
+      }
+      return document.createTextNode(sym ? (sym.emoji || sym.label || '?') : '?');
     }
 
     // ── Helper: populate a reel track with random symbols ──
@@ -462,7 +493,7 @@
         const sym = safe[Math.floor(Math.random() * safe.length)];
         const div = document.createElement('div');
         div.className = 'reel-symbol';
-        div.textContent = sym.emoji || sym.label || '?';
+        div.appendChild(makeSymbolNode(sym));
         trackEl.appendChild(div);
       }
     }
@@ -513,9 +544,9 @@
       // Place the result symbol in the LAST slot of the track
       const lastSlot = track.lastElementChild;
       if (lastSlot) {
-        lastSlot.textContent = (resultSymbol && (resultSymbol.emoji || resultSymbol.label))
-          ? (resultSymbol.emoji || resultSymbol.label)
-          : '❓';
+        lastSlot.innerHTML = '';
+        const fallback = { emoji: '❓' };
+        lastSlot.appendChild(makeSymbolNode(resultSymbol || fallback));
       }
 
       // Snap to show the last symbol (= result) in the reel viewport

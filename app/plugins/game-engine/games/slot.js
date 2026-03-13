@@ -1247,7 +1247,13 @@ class SlotGame {
         reelBgColor: '#0d0620',
         textColor: '#ffffff',
         winColor: '#FFD700',
-        titleText: '🎰 SLOT MACHINE'
+        titleText: '🎰 SLOT MACHINE',
+        labelLoss: '😔 Kein Gewinn',
+        labelNearMiss: '😬 Fast!',
+        labelSmallWin: '🎉 Kleiner Gewinn!',
+        labelMediumWin: '🎊 Gewinn!',
+        labelBigWin: '🔥 Großer Gewinn!',
+        labelJackpot: '🏆 JACKPOT!'
       }
     };
   }

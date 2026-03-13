@@ -2151,6 +2151,78 @@ class GameEnginePlugin {
       }
     });
 
+    // === SLOT SYMBOL IMAGE ROUTES ===
+
+    const slotImagesDir = path.join(pluginDataDir, 'slot-images');
+    if (!fs.existsSync(slotImagesDir)) {
+      fs.mkdirSync(slotImagesDir, { recursive: true });
+    }
+
+    const ALLOWED_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']);
+
+    const slotImageStorage = multer.diskStorage({
+      destination: (req, file, cb) => {
+        const safeId = String(parseInt(req.body.machineId, 10) || 1);
+        const machineDir = path.join(slotImagesDir, safeId);
+        if (!fs.existsSync(machineDir)) {
+          fs.mkdirSync(machineDir, { recursive: true });
+        }
+        cb(null, machineDir);
+      },
+      filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '') || '.png';
+        const symId = (req.body.symbolId || 'sym').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+        cb(null, `${symId}${ext}`);
+      }
+    });
+
+    const slotImageUpload = multer({
+      storage: slotImageStorage,
+      limits: { fileSize: 2 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (ALLOWED_IMAGE_MIME.has(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new Error('Only image files are allowed (PNG, JPEG, GIF, WebP, SVG)'));
+        }
+      }
+    });
+
+    // API: Upload symbol image
+    this.api.registerRoute('POST', '/api/game-engine/slot/symbol-image/upload', (req, res) => {
+      slotImageUpload.single('image')(req, res, (err) => {
+        if (err) {
+          return res.status(400).json({ success: false, error: err.message });
+        }
+        if (!req.file) {
+          return res.status(400).json({ success: false, error: 'No image file uploaded' });
+        }
+        const safeId = String(parseInt(req.body.machineId, 10) || 1);
+        const symId  = (req.body.symbolId || 'sym').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+        const ext    = path.extname(req.file.filename);
+        const imageUrl = `/game-engine/slot-images/${safeId}/${symId}${ext}`;
+        this.logger.info(`Slot symbol image uploaded: ${symId} for machine ${safeId}`);
+        res.json({ success: true, imageUrl });
+      });
+    });
+
+    // Serve slot symbol images
+    this.api.registerRoute('GET', '/game-engine/slot-images/:machineId/:filename', (req, res) => {
+      const { machineId, filename } = req.params;
+      if (!/^\d+$/.test(machineId) || !/^[\w\-]+\.(png|jpe?g|gif|webp|svg)$/i.test(filename)) {
+        return res.status(400).json({ error: 'Invalid path' });
+      }
+      const imgPath = path.join(slotImagesDir, machineId, filename);
+      if (!imgPath.startsWith(slotImagesDir + path.sep)) {
+        return res.status(400).json({ error: 'Invalid path' });
+      }
+      if (fs.existsSync(imgPath)) {
+        res.sendFile(imgPath);
+      } else {
+        res.status(404).json({ error: 'Image not found' });
+      }
+    });
+
 
     
     // API: Get overlay settings for all games

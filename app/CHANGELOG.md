@@ -32,6 +32,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `titleText`).  Settings are sent with every `slot:spin-started` event and applied as
   CSS custom properties in the overlay.  "Design-Einstellungen" card added to the UI
   with color pickers (color + hex text inputs) and a title text field.
+- **Game Engine – Slot Machine: Customisable result labels** – All six result-category
+  texts (`labelLoss`, `labelNearMiss`, `labelSmallWin`, `labelMediumWin`, `labelBigWin`,
+  `labelJackpot`) are now stored in `designSettings` and editable in the UI.  Defaults
+  use the previous hard-coded German strings.  The overlay reads these labels on every
+  `slot:spin-started` event.
+- **Game Engine – Slot Machine: Design theme presets** – Six colour presets (Classic,
+  Ocean, Fire, Neon, Monochrome, Retro) selectable via a dropdown in the Design card.
+  Clicking "Anwenden" fills all colour pickers; saving persists the preset.
+- **Game Engine – Slot Machine: Symbol image upload** – Each symbol can now have a
+  user-uploaded image instead of (or in addition to) an emoji.  Images are uploaded via
+  `POST /api/game-engine/slot/symbol-image/upload` (PNG/JPEG/GIF/WebP/SVG, max 2 MB)
+  and served from `/game-engine/slot-images/:machineId/:filename`.  The overlay renders
+  `<img>` elements when `imageUrl` is set on a symbol, falling back to the emoji otherwise.
+  The symbol editor shows a preview thumbnail and upload/clear controls per symbol.
 - **Game Engine – Slot Machine: Media tab integration** – Slot Machine added to the
   media-game selector in the Media/Sounds tab for centralized sound management.
 
