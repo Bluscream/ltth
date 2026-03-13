@@ -813,6 +813,8 @@ class ViewerXPDatabase {
       this.batchTimer = null;
     }
 
+    const coinRatio = parseFloat(this.getSetting('coin_xp_ratio', '1.0'));
+
     const transaction = this.db.transaction((items) => {
       const updateStmt = this.db.prepare(`
         UPDATE viewer_profiles
@@ -824,10 +826,13 @@ class ViewerXPDatabase {
         WHERE username = ?
       `);
 
+      const coinBalStmt = this.db.prepare(
+        'SELECT coins FROM viewer_profiles WHERE username = ?'
+      );
+
       const coinLogStmt = this.db.prepare(`
         INSERT INTO coin_transactions (username, amount, balance_after, source, meta, created_at)
-        SELECT ?, ?, coins, ?, ?, ?
-        FROM viewer_profiles WHERE username = ?
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       const logStmt = this.db.prepare(`
@@ -840,7 +845,6 @@ class ViewerXPDatabase {
         this.getOrCreateViewer(item.username);
 
         // Coins only on positive XP (spending XP via Spin/Plinko does NOT deduct coins)
-        const coinRatio = parseFloat(this.getSetting('coin_xp_ratio', '1.0'));
         const coinsToAward = item.amount > 0 ? Math.floor(item.amount * coinRatio) : 0;
 
         // Add XP (and coins)
@@ -853,13 +857,15 @@ class ViewerXPDatabase {
         );
 
         if (coinsToAward > 0) {
+          const coinRow = coinBalStmt.get(item.username);
+          const balanceAfter = coinRow?.coins || 0;
           coinLogStmt.run(
             item.username,
             coinsToAward,
+            balanceAfter,
             'xp_gain',
             JSON.stringify({ actionType: item.actionType, xp: item.amount }),
-            Date.now(),
-            item.username
+            Date.now()
           );
         }
 

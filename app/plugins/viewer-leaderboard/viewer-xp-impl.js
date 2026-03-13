@@ -1499,7 +1499,20 @@ class ViewerXPPlugin extends EventEmitter {
         icon: '💰',
         valueType: 'number',
         operators: ['gte', 'gt', 'equals', 'lt', 'lte'],
-        evaluator: (value, compareValue) => Number(value) >= Number(compareValue),
+        evaluator: (condition, context) => {
+          const username = context?.data?.username || context?.username;
+          if (!username) return false;
+          const { coins } = this.db.getCoinBalance(username);
+          const compare = Number(condition.compareValue || condition.value || 0);
+          switch (condition.operator) {
+            case 'gt':     return coins > compare;
+            case 'equals': return coins === compare;
+            case 'lt':     return coins < compare;
+            case 'lte':    return coins <= compare;
+            case 'gte':
+            default:       return coins >= compare;
+          }
+        },
         metadata: {
           label: 'Coin Balance',
           description: 'Current spendable coin balance of the viewer'
@@ -1637,7 +1650,7 @@ class ViewerXPPlugin extends EventEmitter {
       let coins = 0;
       try {
         const coinBalance = this.db.getCoinBalance(targetUsername);
-        coins = coinBalance.coins || 0;
+        coins = coinBalance.coins;
       } catch (error) {
         this.api.log(`Error fetching coin balance for ${targetUsername}: ${error.message}`, 'debug');
       }
