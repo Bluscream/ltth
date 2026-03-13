@@ -324,7 +324,228 @@ class ViewerXPDatabase {
     // Initialize default level rewards
     this.initializeDefaultLevelRewards();
 
+    this.migrateCoinColumns();
+
     this.api.log('Viewer XP database initialized', 'info');
+  }
+
+  /**
+   * Migrate viewer_profiles to include coin columns and create coin_transactions table.
+   * Idempotent — safe to call on every startup.
+   */
+  migrateCoinColumns() {
+    // Add coins column if missing
+    try {
+      const info = this.db.prepare('PRAGMA table_info(viewer_profiles)').all() || [];
+      const hasCoins = info.some(c => c.name === 'coins');
+      const hasTotalCoins = info.some(c => c.name === 'total_coins_earned');
+
+      if (!hasCoins) {
+        this.db.exec('ALTER TABLE viewer_profiles ADD COLUMN coins INTEGER DEFAULT 0');
+        this.api.log('Migration: Added coins column to viewer_profiles', 'info');
+      }
+      if (!hasTotalCoins) {
+        this.db.exec('ALTER TABLE viewer_profiles ADD COLUMN total_coins_earned INTEGER DEFAULT 0');
+        this.api.log('Migration: Added total_coins_earned column to viewer_profiles', 'info');
+      }
+    } catch (error) {
+      if (!error.message.includes('duplicate column name')) {
+        this.api.log(`Coin column migration error: ${error.message}`, 'error');
+        throw error;
+      }
+    }
+
+    // Create coin_transactions table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS coin_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        balance_after INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        reference_id TEXT,
+        meta TEXT,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (username) REFERENCES viewer_profiles(username)
+      )
+    `);
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_coin_tx_username
+        ON coin_transactions(username, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_coin_tx_source
+        ON coin_transactions(source, created_at DESC);
+    `);
+
+    // One-time data migration: seed coins from total_xp_earned for existing users.
+    // Only runs for users where coins = 0 AND total_xp_earned > 0 (never seeded yet).
+    try {
+      const coinRatio = parseFloat(this.getSetting('coin_xp_ratio', '1.0'));
+      const affected = this.db.prepare(`
+        UPDATE viewer_profiles
+        SET coins = CAST(total_xp_earned * ? AS INTEGER),
+            total_coins_earned = CAST(total_xp_earned * ? AS INTEGER)
+        WHERE coins = 0 AND total_xp_earned > 0
+      `).run(coinRatio, coinRatio);
+
+      if (affected.changes > 0) {
+        this.api.log(`Coin migration: Seeded coins for ${affected.changes} existing viewers`, 'info');
+      }
+    } catch (error) {
+      this.api.log(`Coin seed migration error: ${error.message}`, 'warn');
+    }
+
+    this.api.log('Coin system initialized', 'info');
+  }
+
+  /**
+   * Get coin balance for a viewer
+   * @param {string} username
+   * @returns {{ coins: number, total_coins_earned: number }}
+   */
+  getCoinBalance(username) {
+    const row = this.db.prepare(
+      'SELECT coins, total_coins_earned FROM viewer_profiles WHERE username = ?'
+    ).get(username);
+    return row
+      ? { coins: row.coins || 0, total_coins_earned: row.total_coins_earned || 0 }
+      : { coins: 0, total_coins_earned: 0 };
+  }
+
+  /**
+   * Add coins to viewer (earn). Synchronous atomic transaction.
+   * @param {string} username
+   * @param {number} amount - Must be positive
+   * @param {string} source - e.g. 'gcce_manual', 'admin', 'event'
+   * @param {Object|null} meta
+   * @returns {{ success: boolean, balance_after: number }}
+   */
+  addCoins(username, amount, source = 'manual', meta = null) {
+    if (amount <= 0) {
+      this.api.log(`addCoins: amount must be positive (got ${amount})`, 'warn');
+      return { success: false, balance_after: this.getCoinBalance(username).coins };
+    }
+
+    try {
+      this.getOrCreateViewer(username);
+
+      const balance_after = this.db.transaction(() => {
+        this.db.prepare(`
+          UPDATE viewer_profiles
+          SET coins = coins + ?,
+              total_coins_earned = total_coins_earned + ?
+          WHERE username = ?
+        `).run(amount, amount, username);
+
+        const row = this.db.prepare(
+          'SELECT coins FROM viewer_profiles WHERE username = ?'
+        ).get(username);
+        const bal = row?.coins || 0;
+
+        this.db.prepare(`
+          INSERT INTO coin_transactions (username, amount, balance_after, source, meta, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(username, amount, bal, source, meta ? JSON.stringify(meta) : null, Date.now());
+
+        return bal;
+      })();
+
+      return { success: true, balance_after };
+    } catch (error) {
+      this.api.log(`addCoins error for ${username}: ${error.message}`, 'error');
+      return { success: false, balance_after: this.getCoinBalance(username).coins };
+    }
+  }
+
+  /**
+   * Spend coins from viewer. Atomically checks balance before deducting.
+   * @param {string} username
+   * @param {number} amount - Must be positive
+   * @param {string} source - e.g. 'gcce_action', 'openshock', 'game'
+   * @param {Object|null} meta
+   * @returns {{ success: boolean, balance_after: number, error?: string }}
+   */
+  spendCoins(username, amount, source = 'spend', meta = null) {
+    if (amount <= 0) {
+      return {
+        success: false,
+        balance_after: this.getCoinBalance(username).coins,
+        error: 'Amount must be positive'
+      };
+    }
+
+    try {
+      const balance_after = this.db.transaction(() => {
+        const viewer = this.db.prepare(
+          'SELECT coins FROM viewer_profiles WHERE username = ?'
+        ).get(username);
+
+        if (!viewer) throw new Error('VIEWER_NOT_FOUND');
+        if (viewer.coins < amount) throw new Error(`INSUFFICIENT_COINS:${viewer.coins}`);
+
+        this.db.prepare(`
+          UPDATE viewer_profiles
+          SET coins = coins - ?
+          WHERE username = ?
+        `).run(amount, username);
+
+        const row = this.db.prepare(
+          'SELECT coins FROM viewer_profiles WHERE username = ?'
+        ).get(username);
+        const bal = row?.coins || 0;
+
+        this.db.prepare(`
+          INSERT INTO coin_transactions (username, amount, balance_after, source, meta, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(username, -amount, bal, source, meta ? JSON.stringify(meta) : null, Date.now());
+
+        return bal;
+      })();
+
+      return { success: true, balance_after };
+    } catch (error) {
+      if (error.message.startsWith('INSUFFICIENT_COINS:')) {
+        const current = parseInt(error.message.split(':')[1], 10);
+        return { success: false, balance_after: current, error: 'Insufficient coins' };
+      }
+      if (error.message === 'VIEWER_NOT_FOUND') {
+        return { success: false, balance_after: 0, error: 'Viewer not found' };
+      }
+      this.api.log(`spendCoins error for ${username}: ${error.message}`, 'error');
+      return { success: false, balance_after: this.getCoinBalance(username).coins, error: error.message };
+    }
+  }
+
+  /**
+   * Get coin transaction history for a viewer
+   * @param {string} username
+   * @param {number} limit
+   * @returns {Array}
+   */
+  getCoinTransactionHistory(username, limit = 50) {
+    return this.db.prepare(`
+      SELECT * FROM coin_transactions
+      WHERE username = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(username, limit).map(tx => ({
+      ...tx,
+      meta: tx.meta ? JSON.parse(tx.meta) : null
+    }));
+  }
+
+  /**
+   * Get coin leaderboard (top coin holders by current spendable balance)
+   * @param {number} limit
+   * @returns {Array}
+   */
+  getCoinLeaderboard(limit = 10) {
+    return this.db.prepare(`
+      SELECT username, coins, total_coins_earned, level, title, name_color
+      FROM viewer_profiles
+      ORDER BY coins DESC
+      LIMIT ?
+    `).all(limit).map((v, i) => ({ ...v, rank: i + 1 }));
   }
 
   /**
@@ -594,11 +815,19 @@ class ViewerXPDatabase {
 
     const transaction = this.db.transaction((items) => {
       const updateStmt = this.db.prepare(`
-        UPDATE viewer_profiles 
-        SET xp = xp + ?, 
+        UPDATE viewer_profiles
+        SET xp = xp + ?,
             total_xp_earned = total_xp_earned + ?,
+            coins = coins + ?,
+            total_coins_earned = total_coins_earned + ?,
             last_seen = CURRENT_TIMESTAMP
         WHERE username = ?
+      `);
+
+      const coinLogStmt = this.db.prepare(`
+        INSERT INTO coin_transactions (username, amount, balance_after, source, meta, created_at)
+        SELECT ?, ?, coins, ?, ?, ?
+        FROM viewer_profiles WHERE username = ?
       `);
 
       const logStmt = this.db.prepare(`
@@ -609,10 +838,31 @@ class ViewerXPDatabase {
       for (const item of items) {
         // Ensure viewer exists
         this.getOrCreateViewer(item.username);
-        
-        // Add XP
-        updateStmt.run(item.amount, item.amount, item.username);
-        
+
+        // Coins only on positive XP (spending XP via Spin/Plinko does NOT deduct coins)
+        const coinRatio = parseFloat(this.getSetting('coin_xp_ratio', '1.0'));
+        const coinsToAward = item.amount > 0 ? Math.floor(item.amount * coinRatio) : 0;
+
+        // Add XP (and coins)
+        updateStmt.run(
+          item.amount,                   // xp delta (can be negative)
+          Math.max(0, item.amount),      // total_xp_earned (never negative)
+          coinsToAward,                  // coins delta (only positive awards)
+          coinsToAward,                  // total_coins_earned delta
+          item.username
+        );
+
+        if (coinsToAward > 0) {
+          coinLogStmt.run(
+            item.username,
+            coinsToAward,
+            'xp_gain',
+            JSON.stringify({ actionType: item.actionType, xp: item.amount }),
+            Date.now(),
+            item.username
+          );
+        }
+
         // Log transaction (legacy)
         logStmt.run(
           item.username, 

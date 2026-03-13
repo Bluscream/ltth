@@ -952,6 +952,68 @@ class ViewerXPPlugin extends EventEmitter {
       }
     });
 
+    // ── COIN SYSTEM API ROUTES ─────────────────────────────────────
+
+    // GET /api/viewer-xp/:username/coins  →  { coins, total_coins_earned }
+    this.api.registerRoute('GET', '/api/viewer-xp/:username/coins', (req, res) => {
+      try {
+        const balance = this.db.getCoinBalance(req.params.username);
+        res.json({ success: true, username: req.params.username, ...balance });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // GET /api/viewer-xp/:username/coin-history?limit=50
+    this.api.registerRoute('GET', '/api/viewer-xp/:username/coin-history', (req, res) => {
+      try {
+        const limit = Math.min(parseInt(req.query.limit || 50, 10), 200);
+        const history = this.db.getCoinTransactionHistory(req.params.username, limit);
+        res.json({ success: true, data: history });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // GET /api/viewer-xp/coins/leaderboard?limit=10
+    this.api.registerRoute('GET', '/api/viewer-xp/coins/leaderboard', (req, res) => {
+      try {
+        const limit = Math.min(parseInt(req.query.limit || 10, 10), 100);
+        const leaderboard = this.db.getCoinLeaderboard(limit);
+        res.json({ success: true, data: leaderboard });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // POST /api/viewer-xp/:username/coins/spend  body: { amount, source?, meta? }
+    this.api.registerRoute('POST', '/api/viewer-xp/:username/coins/spend', (req, res) => {
+      try {
+        const { amount, source, meta } = req.body || {};
+        if (!amount || amount <= 0) {
+          return res.status(400).json({ success: false, error: 'Invalid amount' });
+        }
+        const result = this.db.spendCoins(req.params.username, parseInt(amount, 10), source || 'api', meta || null);
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // POST /api/viewer-xp/:username/coins/award  body: { amount, source?, meta? }
+    this.api.registerRoute('POST', '/api/viewer-xp/:username/coins/award', (req, res) => {
+      try {
+        const { amount, source, meta } = req.body || {};
+        if (!amount || amount <= 0) {
+          return res.status(400).json({ success: false, error: 'Invalid amount' });
+        }
+        const result = this.db.addCoins(req.params.username, parseInt(amount, 10), source || 'api', meta || null);
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
     this.api.log('Viewer XP routes registered', 'debug');
   }
 
@@ -1427,6 +1489,111 @@ class ViewerXPPlugin extends EventEmitter {
         }
       });
 
+      // ── COIN SYSTEM IFTTT INTEGRATION ─────────────────────────────────────
+
+      // Condition: Viewer has enough coins
+      this.api.registerIFTTTCondition('viewer-xp:has-coins', {
+        name: 'Viewer has enough Coins',
+        description: 'Check if viewer has at least the specified number of spendable coins',
+        category: 'viewer-xp',
+        icon: '💰',
+        valueType: 'number',
+        operators: ['gte', 'gt', 'equals', 'lt', 'lte'],
+        evaluator: (value, compareValue) => Number(value) >= Number(compareValue),
+        metadata: {
+          label: 'Coin Balance',
+          description: 'Current spendable coin balance of the viewer'
+        }
+      });
+
+      // Action: Spend coins (deduct from viewer)
+      this.api.registerIFTTTAction('viewer-xp:spend-coins', {
+        name: 'Spend Viewer Coins',
+        description: 'Deduct coins from viewer. Returns success/fail + balance_after.',
+        category: 'viewer-xp',
+        icon: '💸',
+        fields: [
+          { name: 'username', label: 'Username', type: 'string', required: true, description: 'Viewer username' },
+          { name: 'amount', label: 'Coins to spend', type: 'number', required: true, min: 1, description: 'Amount of coins to deduct' },
+          { name: 'reason', label: 'Reason/label', type: 'string', description: 'Reason for spending coins' }
+        ],
+        executor: async (action, context, services) => {
+          try {
+            let username = services.templateEngine.processTemplate(action.username, context.data);
+            const amount = parseInt(action.amount);
+            let reason = action.reason ? services.templateEngine.processTemplate(action.reason, context.data) : 'ifttt_action';
+
+            username = String(username).trim().replace(/[^\w\s\-._@]/g, '');
+            reason = String(reason).trim().substring(0, 500);
+
+            if (!username || username.length === 0 || isNaN(amount) || amount <= 0) {
+              return { success: false, error: 'Invalid username or amount' };
+            }
+
+            const result = this.db.spendCoins(username, amount, 'ifttt_action', { reason });
+            if (result.success) {
+              const io = this.api.getSocketIO();
+              io.emit('viewer-xp:coins-spent', {
+                username,
+                amount,
+                balance_after: result.balance_after,
+                source: 'ifttt_action',
+                reason,
+                timestamp: Date.now()
+              });
+            }
+            return result;
+          } catch (error) {
+            this.api.log(`Error in viewer-xp:spend-coins action: ${error.message}`, 'error');
+            return { success: false, error: error.message };
+          }
+        }
+      });
+
+      // Action: Award coins directly (without XP)
+      this.api.registerIFTTTAction('viewer-xp:award-coins', {
+        name: 'Award Viewer Coins',
+        description: 'Give coins to viewer directly (no XP involved).',
+        category: 'viewer-xp',
+        icon: '💰',
+        fields: [
+          { name: 'username', label: 'Username', type: 'string', required: true, description: 'Viewer username' },
+          { name: 'amount', label: 'Coins to award', type: 'number', required: true, min: 1, description: 'Amount of coins to award' },
+          { name: 'reason', label: 'Reason/label', type: 'string', description: 'Reason for awarding coins' }
+        ],
+        executor: async (action, context, services) => {
+          try {
+            let username = services.templateEngine.processTemplate(action.username, context.data);
+            const amount = parseInt(action.amount);
+            let reason = action.reason ? services.templateEngine.processTemplate(action.reason, context.data) : 'ifttt_award';
+
+            username = String(username).trim().replace(/[^\w\s\-._@]/g, '');
+            reason = String(reason).trim().substring(0, 500);
+
+            if (!username || username.length === 0 || isNaN(amount) || amount <= 0) {
+              return { success: false, error: 'Invalid username or amount' };
+            }
+
+            const result = this.db.addCoins(username, amount, 'ifttt_award', { reason });
+            if (result.success) {
+              const io = this.api.getSocketIO();
+              io.emit('viewer-xp:coins-awarded', {
+                username,
+                amount,
+                balance_after: result.balance_after,
+                source: 'ifttt_award',
+                reason,
+                timestamp: Date.now()
+              });
+            }
+            return result;
+          } catch (error) {
+            this.api.log(`Error in viewer-xp:award-coins action: ${error.message}`, 'error');
+            return { success: false, error: error.message };
+          }
+        }
+      });
+
       this.api.log('✅ [viewer-xp] IFTTT triggers and actions registered', 'info');
       this.api.log('   - viewer-xp:xp-gained (trigger)', 'debug');
       this.api.log('   - viewer-xp:level-up (trigger)', 'debug');
@@ -1435,6 +1602,9 @@ class ViewerXPPlugin extends EventEmitter {
       this.api.log('   - viewer-xp:currency-milestone (trigger)', 'debug');
       this.api.log('   - viewer-xp:top-spender (trigger)', 'debug');
       this.api.log('   - viewer-xp:award-xp (action)', 'debug');
+      this.api.log('   - viewer-xp:has-coins (condition)', 'debug');
+      this.api.log('   - viewer-xp:spend-coins (action)', 'debug');
+      this.api.log('   - viewer-xp:award-coins (action)', 'debug');
 
     } catch (error) {
       this.api.log(`❌ [viewer-xp] Error registering IFTTT integration: ${error.message}`, 'error');
@@ -1463,8 +1633,17 @@ class ViewerXPPlugin extends EventEmitter {
       const needed = nextLevelXP - xpForCurrentLevel;
       const percentage = ((progress / needed) * 100).toFixed(1);
 
-      // Get currency (coins) from shared user statistics
+      // Get spendable coins from coin system
       let coins = 0;
+      try {
+        const coinBalance = this.db.getCoinBalance(targetUsername);
+        coins = coinBalance.coins || 0;
+      } catch (error) {
+        this.api.log(`Error fetching coin balance for ${targetUsername}: ${error.message}`, 'debug');
+      }
+
+      // Legacy: TikTok gifted coins (separate from spendable coins) — kept for reference
+      let giftedCoins = 0;
       try {
         const mainDb = this.api.getDatabase();
         // Try to find user by username in user_statistics
@@ -1474,10 +1653,10 @@ class ViewerXPPlugin extends EventEmitter {
         `).get(targetUsername, mainDb.streamerId || 'default');
         
         if (userStats) {
-          coins = userStats.total_coins_sent || 0;
+          giftedCoins = userStats.total_coins_sent || 0;
         }
       } catch (error) {
-        this.api.log(`Error fetching coins for ${targetUsername}: ${error.message}`, 'debug');
+        this.api.log(`Error fetching gifted coins for ${targetUsername}: ${error.message}`, 'debug');
       }
 
       // Send to GCCE-HUD for display with both XP and currency
@@ -2360,6 +2539,7 @@ class ViewerXPPlugin extends EventEmitter {
     try {
       const io = this.api.getSocketIO();
       const profile = this.db.getViewerProfile(username);
+      const coinBalance = this.db.getCoinBalance(username);
       
       // NEW: Emit detailed event log event
       const eventData = {
@@ -2367,6 +2547,8 @@ class ViewerXPPlugin extends EventEmitter {
         amount,
         actionType,
         profile,
+        coin_balance: coinBalance.coins,
+        total_coins_earned: coinBalance.total_coins_earned,
         timestamp: Date.now(),
         meta: details
       };
