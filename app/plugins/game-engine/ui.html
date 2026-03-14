@@ -2196,6 +2196,16 @@
         </p>
         <!-- Theme presets -->
         <div class="form-group" style="margin-bottom:12px;">
+          <label>🖌️ Design-Theme:</label>
+          <select id="slot-design-theme" style="width:100%;">
+            <option value="default">default – Lila/Gold Casino (Standard)</option>
+            <option value="neon">neon – Schwarz/Neon-Grün, CRT-Glow</option>
+            <option value="retro">retro – Braun/Beige, Pixel-Look</option>
+            <option value="minimal">minimal – Weiß/Transparent, clean</option>
+            <option value="dark-pro">dark-pro – Anthrazit/Blau, Broadcast-Look</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
           <label>🎨 Design-Preset schnell anwenden:</label>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <select id="slot-design-preset" style="flex:1;">
@@ -2300,6 +2310,7 @@
               <option value="vertical">vertical – Hochformat / schmal</option>
               <option value="compact-hud">compact-hud – Kleines HUD</option>
               <option value="compact-featured">compact-featured – Mittelgroß</option>
+              <option value="icons-only">icons-only – Nur Reel-Icons</option>
             </select>
           </div>
           <div class="form-group">
@@ -2311,6 +2322,7 @@
               <option value="vertical">vertical</option>
               <option value="compact-hud">compact-hud</option>
               <option value="compact-featured">compact-featured</option>
+              <option value="icons-only">icons-only</option>
             </select>
           </div>
           <div class="form-group">
@@ -2322,6 +2334,7 @@
               <option value="vertical">vertical</option>
               <option value="compact-hud">compact-hud</option>
               <option value="compact-featured">compact-featured</option>
+              <option value="icons-only">icons-only</option>
             </select>
           </div>
           <div class="form-group">
@@ -2333,6 +2346,7 @@
               <option value="vertical">vertical</option>
               <option value="compact-hud">compact-hud</option>
               <option value="compact-featured">compact-featured</option>
+              <option value="icons-only">icons-only</option>
             </select>
           </div>
         </div>
@@ -2361,6 +2375,17 @@
           <button id="reloadSlotDevicesBtn" class="secondary" title="OpenShock Geräteliste aktualisieren">🔄 Geräte neu laden</button>
           <button id="saveSlotSymbolsBtn">💾 Symbole speichern</button>
         </div>
+      </div>
+
+      <!-- Gift catalog symbol source -->
+      <div class="card">
+        <h3>🎁 Geschenkekatalog als Symbole</h3>
+        <p style="color:#aaa;font-size:13px;margin-bottom:10px;">
+          Lade TikTok-Geschenk-Icons aus dem Katalog und füge sie direkt als Slot-Symbole hinzu.
+        </p>
+        <button id="loadGiftCatalogSymbolsBtn" class="secondary">🔄 Katalog laden</button>
+        <div id="slot-gift-catalog-status" style="margin-top:8px;font-size:13px;color:#aaa;"></div>
+        <div id="slot-gift-catalog-grid" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;"></div>
       </div>
 
       <!-- Odds profiles -->
@@ -4749,6 +4774,8 @@
         if (inp) inp.value = val || inp.value;
         if (txt) txt.value = val || txt.value;
       };
+      const themeEl = document.getElementById('slot-design-theme');
+      if (themeEl) themeEl.value = ds.theme || 'default';
       setBoth('slot-design-bg-color', ds.bgColor || '#1a0a2e');
       setBoth('slot-design-border-color', ds.borderColor || '#FFD700');
       setBoth('slot-design-reel-bg-color', ds.reelBgColor || '#0d0620');
@@ -5275,6 +5302,7 @@
         };
         const getLabel = (id) => document.getElementById(id)?.value ?? '';
         const designSettings = {
+          theme:          document.getElementById('slot-design-theme')?.value || 'default',
           bgColor:        getVal('slot-design-bg-color')     || '#1a0a2e',
           borderColor:    getVal('slot-design-border-color') || '#FFD700',
           reelBgColor:    getVal('slot-design-reel-bg-color')|| '#0d0620',
@@ -5365,7 +5393,78 @@
       });
     }
 
-    // Reload OpenShock devices for symbol editor
+    // Gift catalog symbol loader
+    const loadGiftCatalogSymbolsBtn = document.getElementById('loadGiftCatalogSymbolsBtn');
+    if (loadGiftCatalogSymbolsBtn) {
+      loadGiftCatalogSymbolsBtn.addEventListener('click', async () => {
+        const statusEl = document.getElementById('slot-gift-catalog-status');
+        const gridEl   = document.getElementById('slot-gift-catalog-grid');
+        if (statusEl) statusEl.textContent = '⏳ Lade Katalog…';
+        if (gridEl) gridEl.innerHTML = '';
+        try {
+          const resp = await fetch('/api/game-engine/slot/gift-catalog');
+          const data = await resp.json();
+          if (!data.success) throw new Error(data.error || 'Unbekannter Fehler');
+          const gifts = data.gifts || [];
+          if (gifts.length === 0) {
+            if (statusEl) statusEl.textContent = '⚠️ Keine Geschenke im Katalog. Verbinde mit einem TikTok-Stream, um den Katalog zu füllen.';
+            return;
+          }
+          if (statusEl) statusEl.textContent = `${gifts.length} Geschenke gefunden – klicke auf ein Geschenk um es als Symbol hinzuzufügen:`;
+          gifts.forEach(gift => {
+            const tile = document.createElement('div');
+            tile.style.cssText = 'display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:6px 8px;border-radius:8px;border:1px solid #333;background:#1a1a2e;width:72px;text-align:center;transition:background 0.15s;';
+            tile.title = `${gift.label} hinzufügen`;
+            tile.onmouseover = () => { tile.style.background = '#2a2a4e'; };
+            tile.onmouseout  = () => { tile.style.background = '#1a1a2e'; };
+
+            if (gift.imageUrl) {
+              const img = document.createElement('img');
+              img.crossOrigin = 'anonymous';
+              img.src = gift.imageUrl;
+              img.alt = gift.label;
+              img.style.cssText = 'width:40px;height:40px;object-fit:contain;margin-bottom:4px;';
+              img.onerror = () => { img.replaceWith(document.createTextNode('🎁')); };
+              tile.appendChild(img);
+            } else {
+              const icon = document.createElement('span');
+              icon.textContent = '🎁';
+              icon.style.cssText = 'font-size:32px;margin-bottom:4px;display:block;';
+              tile.appendChild(icon);
+            }
+            const name = document.createElement('span');
+            name.textContent = gift.label;
+            name.style.cssText = 'font-size:10px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%;';
+            tile.appendChild(name);
+
+            tile.addEventListener('click', () => {
+              const symbols = getSlotSymbolsFromForm();
+              const symId = gift.id || `gift_${gift.label.replace(/[^a-zA-Z0-9_]/g,'_')}`;
+              symbols.push({
+                emoji: '🎁',
+                id: symId,
+                label: gift.label,
+                weight: 5,
+                imageUrl: gift.imageUrl || '',
+                isShock: false,
+                shockIntensity: 50,
+                shockDuration: 1000,
+                shockType: 'shock',
+                shockDevices: []
+              });
+              renderSlotSymbols(symbols);
+              tile.style.border = '1px solid #00ff88';
+              showMessage(`"${gift.label}" als Symbol hinzugefügt`);
+            });
+            if (gridEl) gridEl.appendChild(tile);
+          });
+        } catch (err) {
+          if (statusEl) statusEl.innerHTML = `<span style="color:#f44336;">❌ Fehler: ${escapeHtml(err.message)}</span>`;
+        }
+      });
+    }
+
+
     const reloadSlotDevicesBtn = document.getElementById('reloadSlotDevicesBtn');
     if (reloadSlotDevicesBtn) {
       reloadSlotDevicesBtn.addEventListener('click', async () => {

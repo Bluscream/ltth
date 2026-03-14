@@ -2284,6 +2284,17 @@ class GameEnginePlugin {
     });
 
 
+    // API: Get gift catalog symbols for use as slot symbols
+    this.api.registerRoute('GET', '/api/game-engine/slot/gift-catalog', (req, res) => {
+      try {
+        const gifts = this.slotGame.getGiftCatalogSymbols();
+        res.json({ success: true, gifts });
+      } catch (error) {
+        this.logger.error(`Error fetching slot gift catalog: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
     
     // API: Get overlay settings for all games
     this.api.registerRoute('GET', '/api/game-engine/overlay-settings', (req, res) => {
