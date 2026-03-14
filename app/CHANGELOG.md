@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Game Engine – Token System für alle Spiele** – Alle fest codierten Overlay-Texte für
+  Wheel (Glücksrad), Plinko, Connect4 und Schach sind jetzt als konfigurierbare Tokens
+  über die Admin-GUI anpassbar. Neuer Abschnitt „📝 Anzeigetexte" in jedem Spiel-Tab.
+  Tokens werden backward-compatible mit Defaults gespeichert.
+  - Wheel: `titleText`, `labelSpin`, `labelResult`, `labelNiete`, `labelWin`, `labelQueued`
+  - Plinko: `titleText`, `labelDrop`, `labelWin`, `labelMultiplierPrefix`, `labelQueued`
+  - Connect4: `titleText`, `labelPlayer1`, `labelPlayer2`, `labelYourTurn`, `labelWaiting`, `labelWin`, `labelDraw`
+  - Chess: `titleText`, `labelWhite`, `labelBlack`, `labelYourTurn`, `labelCheck`, `labelCheckmate`, `labelDraw`, `labelWin`
+  Overlays lesen die Tokens via `applyDisplayTexts()` aus dem Config-Socket-Event.
+  Lokalisierungs-JSONs (`locales/de.json`, `locales/en.json`) um `display_texts`-Sektion erweitert.
 - **Game Engine – Slot Machine: Superfan recognition** – TikTok superfan status
   (`isSuperFan` / `isSuperfan` / `topGifter`) is now extracted from GCCE context and
   passed as `isSuperfan` in `userRoles`.  Superfans receive the VIP cooldown

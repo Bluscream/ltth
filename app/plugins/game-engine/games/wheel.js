@@ -117,7 +117,15 @@ class WheelGame {
       nieteText: 'Leider kein Gewinn!',
       infoScreenEnabled: false,
       infoScreenText: 'Um deinen Gewinn abzuholen, besuche discord.gg/deinserver',
-      infoScreenDuration: 5
+      infoScreenDuration: 5,
+      displayTexts: {
+        titleText:   '🎡 GLÜCKSRAD',
+        labelSpin:   '🔄 Dreht sich...',
+        labelResult: '🎉 Ergebnis:',
+        labelNiete:  '💔 Niete!',
+        labelWin:    '🎊 Gewonnen!',
+        labelQueued: '⏳ In der Warteschlange...',
+      }
     };
     
     const wheelId = this.db.createWheel(name, defaultSegments, defaultSettings);

@@ -117,11 +117,22 @@ class PlinkoGame {
         maxSimultaneousBalls: 5,
         rateLimitMs: 800
       },
-      giftMappings: {}
+      giftMappings: {},
+      displayTexts: {
+        titleText:             '🎰 PLINKO',
+        labelDrop:             '⬇️ Ball wird gedropt!',
+        labelWin:              '🎉 Gewonnen!',
+        labelMultiplierPrefix: '×',
+        labelQueued:           '⏳ Warteschlange...',
+      }
     };
 
     const cfg = this.db.getPlinkoConfig(boardId) || defaults;
-    const physicsSettings = { ...defaults.physicsSettings, ...(cfg.physicsSettings || {}) };
+    const rawPhysics = cfg.physicsSettings || {};
+    // Extract displayTexts stored inside physicsSettings (backward-compat storage)
+    const { displayTexts: storedDisplayTexts, ...cleanPhysics } = rawPhysics;
+    const physicsSettings = { ...defaults.physicsSettings, ...cleanPhysics };
+    const displayTexts = Object.assign({ ...defaults.displayTexts }, storedDisplayTexts || {});
     const config = {
       id: cfg.id,
       name: cfg.name || 'Unnamed Plinko',
@@ -129,7 +140,8 @@ class PlinkoGame {
       physicsSettings,
       giftMappings: cfg.giftMappings || {},
       chatCommand: cfg.chatCommand || null,
-      enabled: cfg.enabled !== undefined ? cfg.enabled : true
+      enabled: cfg.enabled !== undefined ? cfg.enabled : true,
+      displayTexts
     };
 
     // Cache first board config for backward compatibility
@@ -193,22 +205,29 @@ class PlinkoGame {
     
     // Clear cached config if updating the first/default board
     if (this.cachedConfig && this.cachedConfig.id === boardId) {
+      // Re-read displayTexts from physicsSettings (stored there for backward compat)
+      const { displayTexts: storedDt, ...cleanPhysics } = physicsSettings || {};
       this.cachedConfig = {
         id: boardId,
         slots,
-        physicsSettings,
-        giftMappings: giftMappings || {}
+        physicsSettings: cleanPhysics,
+        giftMappings: giftMappings || {},
+        displayTexts: storedDt || {}
       };
     }
     
     this.slotHitCounts = new Array(slots.length || 0).fill(0);
     
+    // Extract displayTexts from physicsSettings for the socket event
+    const { displayTexts, ...cleanPhysicsForEmit } = physicsSettings || {};
+    
     // Emit config update to overlays
     this.io.emit('plinko:config-updated', {
       boardId,
       slots,
-      physicsSettings,
-      giftMappings
+      physicsSettings: cleanPhysicsForEmit,
+      giftMappings,
+      displayTexts: displayTexts || {}
     });
     
     this.logger.info(`✅ Plinko configuration updated (Board ID: ${boardId})`);

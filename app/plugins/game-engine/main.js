@@ -100,7 +100,16 @@ class GameEnginePlugin {
         roundTimerEnabled: false,
         roundTimeLimit: 30, // seconds per move
         roundWarningTime: 10, // warning at X seconds
-        chatCommand: 'c4start' // customizable chat command to start Connect4
+        chatCommand: 'c4start', // customizable chat command to start Connect4
+        displayTexts: {
+          titleText:     '🔵 CONNECT 4',
+          labelPlayer1:  'Spieler 1',
+          labelPlayer2:  'Spieler 2',
+          labelYourTurn: 'Du bist dran! Tippe A-G',
+          labelWaiting:  'Warte auf Gegner...',
+          labelWin:      '🏆 {player} gewinnt!',
+          labelDraw:     '🤝 Unentschieden!',
+        }
       },
       chess: {
         boardTheme: 'dark', // dark, light, wood
@@ -131,7 +140,17 @@ class GameEnginePlugin {
         eloKFactor: 32,
         defaultTimeControl: '5+0', // Format: "minutes+increment" (e.g., "3+0", "3+2", "5+0", "10+5")
         timeControls: ['3+0', '3+2', '5+0', '5+3', '10+0', '10+5'], // Available time controls
-        timerWarningTime: 30 // Warning when timer below X seconds
+        timerWarningTime: 30, // Warning when timer below X seconds
+        displayTexts: {
+          titleText:      '♟️ SCHACH',
+          labelWhite:     'Weiß',
+          labelBlack:     'Schwarz',
+          labelYourTurn:  'Dein Zug',
+          labelCheck:     '⚠️ Schach!',
+          labelCheckmate: '♚ Schachmatt!',
+          labelDraw:      '🤝 Remis!',
+          labelWin:       '🏆 {player} gewinnt!',
+        }
       }
     };
   }
@@ -678,6 +697,14 @@ class GameEnginePlugin {
         if (!config && this.defaultConfigs[gameType]) {
           config = this.defaultConfigs[gameType];
         }
+
+        // Ensure displayTexts defaults are present (backward compat for stored configs)
+        if (config && this.defaultConfigs[gameType] && this.defaultConfigs[gameType].displayTexts) {
+          config.displayTexts = Object.assign(
+            { ...this.defaultConfigs[gameType].displayTexts },
+            config.displayTexts || {}
+          );
+        }
         
         res.json(config || {});
       } catch (error) {
@@ -691,6 +718,18 @@ class GameEnginePlugin {
       try {
         const { gameType } = req.params;
         const config = req.body;
+
+        // Ensure displayTexts defaults are present (backward compat)
+        if (this.defaultConfigs[gameType] && this.defaultConfigs[gameType].displayTexts) {
+          if (!config.displayTexts || typeof config.displayTexts !== 'object') {
+            config.displayTexts = { ...this.defaultConfigs[gameType].displayTexts };
+          } else {
+            config.displayTexts = Object.assign(
+              { ...this.defaultConfigs[gameType].displayTexts },
+              config.displayTexts
+            );
+          }
+        }
         
         this.db.saveGameConfig(gameType, config);
         
@@ -1216,7 +1255,7 @@ class GameEnginePlugin {
     // API: Update Plinko configuration (supports boardId in body)
     this.api.registerRoute('POST', '/api/game-engine/plinko/config', (req, res) => {
       try {
-        const { boardId, slots, physicsSettings, giftMappings } = req.body;
+        const { boardId, slots, physicsSettings, giftMappings, displayTexts } = req.body;
         // Use boardId if provided, otherwise get first board's ID
         let actualBoardId = boardId;
         if (!actualBoardId) {
@@ -1227,7 +1266,16 @@ class GameEnginePlugin {
             return res.status(400).json({ success: false, error: 'No plinko boards found' });
           }
         }
-        this.plinkoGame.updateConfig(actualBoardId, slots, physicsSettings, giftMappings);
+
+        // Merge displayTexts into physicsSettings for storage (backward-compat approach)
+        const plinkoDisplayDefaults = {
+          titleText: '🎰 PLINKO', labelDrop: '⬇️ Ball wird gedropt!', labelWin: '🎉 Gewonnen!',
+          labelMultiplierPrefix: '×', labelQueued: '⏳ Warteschlange...'
+        };
+        const mergedDisplayTexts = Object.assign({ ...plinkoDisplayDefaults }, displayTexts || {});
+        const mergedPhysicsSettings = { ...physicsSettings, displayTexts: mergedDisplayTexts };
+
+        this.plinkoGame.updateConfig(actualBoardId, slots, mergedPhysicsSettings, giftMappings);
         res.json({ success: true });
       } catch (error) {
         this.logger.error(`Error updating Plinko config: ${error.message}`);
@@ -1534,6 +1582,18 @@ class GameEnginePlugin {
           const config = this.wheelGame.getConfig();
           actualWheelId = config?.id || 1;
         }
+
+        // Ensure displayTexts defaults are present (backward compat)
+        const wheelDisplayDefaults = {
+          titleText: '🎡 GLÜCKSRAD', labelSpin: '🔄 Dreht sich...', labelResult: '🎉 Ergebnis:',
+          labelNiete: '💔 Niete!', labelWin: '🎊 Gewonnen!', labelQueued: '⏳ In der Warteschlange...'
+        };
+        if (!settings.displayTexts || typeof settings.displayTexts !== 'object') {
+          settings.displayTexts = { ...wheelDisplayDefaults };
+        } else {
+          settings.displayTexts = Object.assign({ ...wheelDisplayDefaults }, settings.displayTexts);
+        }
+
         this.wheelGame.updateConfig(actualWheelId, segments, settings);
         res.json({ success: true });
       } catch (error) {
