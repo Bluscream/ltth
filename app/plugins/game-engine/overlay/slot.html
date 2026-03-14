@@ -359,6 +359,183 @@
       pointer-events: none;
       user-select: none;
     }
+
+    /* ── Mode: icons-only – bare reels, no title/player/result ──── */
+    #slot-container.mode-icons-only #slot-title  { display: none; }
+    #slot-container.mode-icons-only #slot-player { display: none; }
+    #slot-container.mode-icons-only #result-area { display: none; }
+    #slot-container.mode-icons-only #slot-machine {
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      padding: 8px;
+      min-width: 0;
+    }
+    #slot-container.mode-icons-only #reels-wrapper {
+      background: transparent;
+      border: none;
+      padding: 6px;
+      gap: 8px;
+    }
+    #slot-container.mode-icons-only .reel {
+      background: transparent;
+      border: none;
+    }
+
+    /* ── Design theme: neon ──────────────────────────────────────── */
+    #slot-container.theme-neon {
+      --slot-bg:       #000000;
+      --slot-border:   #00ff88;
+      --reel-bg:       #0a0a0a;
+      --reel-border:   #ff00cc;
+      --jackpot-color: #00ff88;
+      --near-miss:     #ff00cc;
+      --font-main:     'Courier New', monospace;
+    }
+    #slot-container.theme-neon #slot-machine {
+      background: linear-gradient(160deg, #001a0d 0%, #000000 100%);
+      border-color: #00ff88;
+      box-shadow:
+        0 0 20px rgba(0,255,136,0.4),
+        0 0 60px rgba(255,0,204,0.2),
+        inset 0 0 30px rgba(0,0,0,0.6);
+    }
+    /* Scanlines overlay */
+    #slot-container.theme-neon #slot-machine::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,255,136,0.03) 2px,
+        rgba(0,255,136,0.03) 4px
+      );
+      pointer-events: none;
+      border-radius: inherit;
+      z-index: 5;
+    }
+    #slot-container.theme-neon #slot-title {
+      color: #00ff88;
+      text-shadow: 0 0 16px rgba(0,255,136,0.9), 0 0 30px rgba(0,255,136,0.5);
+    }
+    #slot-container.theme-neon #reels-wrapper {
+      border-color: #ff00cc;
+      box-shadow: 0 0 12px rgba(255,0,204,0.4);
+    }
+    #slot-container.theme-neon .reel {
+      border-color: #ff00cc;
+      box-shadow: inset 0 0 10px rgba(255,0,204,0.2), 0 0 8px rgba(0,255,136,0.3);
+    }
+
+    /* ── Design theme: retro ─────────────────────────────────────── */
+    #slot-container.theme-retro {
+      --slot-bg:       #c8a96e;
+      --slot-border:   #6b4c11;
+      --reel-bg:       #f5e6c8;
+      --reel-border:   #8b6914;
+      --jackpot-color: #8b1a1a;
+      --near-miss:     #c05000;
+      --font-main:     'Courier New', 'Lucida Console', monospace;
+    }
+    #slot-container.theme-retro #slot-machine {
+      background: linear-gradient(160deg, #d4b07a 0%, #c8a96e 100%);
+      border: 4px solid #6b4c11;
+      border-radius: 8px;
+      box-shadow:
+        4px 4px 0px #6b4c11,
+        0 0 0 2px #f5e6c8;
+      image-rendering: pixelated;
+    }
+    #slot-container.theme-retro #slot-title {
+      color: #6b4c11;
+      text-shadow: 2px 2px 0px rgba(107,76,17,0.4);
+      letter-spacing: 0.2em;
+    }
+    #slot-container.theme-retro #slot-player { color: #5a3a00; }
+    #slot-container.theme-retro #reels-wrapper {
+      background: #f5e6c8;
+      border: 3px solid #8b6914;
+      border-radius: 4px;
+      box-shadow: inset 2px 2px 0px rgba(107,76,17,0.3);
+    }
+    #slot-container.theme-retro .reel {
+      border: 2px solid #8b6914;
+      border-radius: 4px;
+      background: #fff8e8;
+    }
+
+    /* ── Design theme: minimal ───────────────────────────────────── */
+    #slot-container.theme-minimal {
+      --slot-bg:       transparent;
+      --slot-border:   #e0e0e0;
+      --reel-bg:       #f8f8f8;
+      --reel-border:   #cccccc;
+      --jackpot-color: #2196F3;
+      --near-miss:     #ff7043;
+      --font-main:     'Helvetica Neue', Arial, sans-serif;
+    }
+    #slot-container.theme-minimal #slot-machine {
+      background: rgba(255,255,255,0.92);
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    }
+    #slot-container.theme-minimal #slot-title {
+      color: #333333;
+      text-shadow: none;
+    }
+    #slot-container.theme-minimal #slot-player { color: #666666; }
+    #slot-container.theme-minimal #reels-wrapper {
+      background: #f8f8f8;
+      border: 1px solid #e0e0e0;
+      box-shadow: none;
+    }
+    #slot-container.theme-minimal .reel {
+      border: 1px solid #cccccc;
+      background: #ffffff;
+      box-shadow: none;
+    }
+    #slot-container.theme-minimal #result-text { color: #333333; text-shadow: none; }
+    #slot-container.theme-minimal #result-text.jackpot { color: #2196F3; }
+
+    /* ── Design theme: dark-pro ──────────────────────────────────── */
+    #slot-container.theme-dark-pro {
+      --slot-bg:       #1a1e2e;
+      --slot-border:   #3d6cb5;
+      --reel-bg:       #12151f;
+      --reel-border:   #2a3a5a;
+      --jackpot-color: #5b9cf6;
+      --near-miss:     #e57373;
+      --font-main:     'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    }
+    #slot-container.theme-dark-pro #slot-machine {
+      background: linear-gradient(160deg, #1e2438 0%, #141820 100%);
+      border: 2px solid #3d6cb5;
+      border-radius: 16px;
+      box-shadow:
+        0 0 24px rgba(61,108,181,0.2),
+        0 4px 24px rgba(0,0,0,0.5);
+    }
+    #slot-container.theme-dark-pro #slot-title {
+      color: #7ab3f5;
+      text-shadow: 0 0 10px rgba(91,156,246,0.4);
+    }
+    #slot-container.theme-dark-pro #slot-player { color: #8898aa; }
+    #slot-container.theme-dark-pro #reels-wrapper {
+      background: #12151f;
+      border-color: #2a3a5a;
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.4);
+    }
+    #slot-container.theme-dark-pro .reel {
+      border-color: #2a3a5a;
+      background: #0e1118;
+    }
+    #slot-container.theme-dark-pro #result-text.jackpot {
+      color: #5b9cf6;
+      text-shadow: 0 0 20px rgba(91,156,246,0.6);
+    }
   </style>
 </head>
 <body>
@@ -410,7 +587,9 @@
       'compact-hud':      'mode-compact-hud',
       'compact_hud':      'mode-compact-hud',
       'compact-featured': 'mode-compact-featured',
-      'compact_featured': 'mode-compact-featured'
+      'compact_featured': 'mode-compact-featured',
+      'icons-only':       'mode-icons-only',
+      'icons_only':       'mode-icons-only'
     };
 
     const ICON_PRESETS = {
@@ -447,7 +626,9 @@
       if (iconClass) container.classList.add(iconClass);
     }
 
-    // ── Apply design settings (colors, title, win labels) ────────────
+    // ── Apply design settings (colors, title, win labels, theme) ──
+    const THEME_CLASSES = ['theme-neon', 'theme-retro', 'theme-minimal', 'theme-dark-pro'];
+
     function applyDesignSettings(ds) {
       if (!ds) return;
       const root = document.documentElement;
@@ -469,6 +650,15 @@
       if (ds.labelMediumWin !== undefined) RESULT_LABELS.medium_win = ds.labelMediumWin;
       if (ds.labelBigWin    !== undefined) RESULT_LABELS.big_win    = ds.labelBigWin;
       if (ds.labelJackpot   !== undefined) RESULT_LABELS.jackpot    = ds.labelJackpot;
+
+      // Apply design theme (orthogonal to overlay mode)
+      THEME_CLASSES.forEach(c => container.classList.remove(c));
+      if (ds.theme && ds.theme !== 'default') {
+        const themeClass = 'theme-' + ds.theme;
+        if (THEME_CLASSES.includes(themeClass)) {
+          container.classList.add(themeClass);
+        }
+      }
     }
 
     // ── Helper: create a symbol element (emoji text or image) ─
@@ -476,6 +666,7 @@
       if (sym && sym.imageUrl) {
         const img = document.createElement('img');
         img.className = 'sym-image';
+        img.crossOrigin = 'anonymous';
         img.src = sym.imageUrl;
         img.alt = sym.label || sym.emoji || '';
         img.draggable = false;

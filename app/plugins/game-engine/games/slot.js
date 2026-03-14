@@ -1219,6 +1219,54 @@ class SlotGame {
     ];
   }
 
+  /**
+   * Get available gift icons from the TikTok gift catalog for use as slot symbols.
+   * Queries the gift_catalog table (populated by the TikTok connector) or falls back
+   * to the game-engine's own gift_mappings for known gift names.
+   *
+   * @returns {Array<{ id: string, label: string, imageUrl: string, giftId?: number }>}
+   */
+  getGiftCatalogSymbols() {
+    try {
+      const mainDb = this.api.getDatabase();
+      // Try the main gift_catalog table first (populated by TikTok connector)
+      try {
+        const rows = mainDb.db.prepare(
+          'SELECT id, name, image_url FROM gift_catalog ORDER BY name'
+        ).all();
+        if (rows && rows.length > 0) {
+          return rows.map(r => ({
+            id: `gift_${r.id}`,
+            label: r.name,
+            imageUrl: r.image_url || '',
+            giftId: r.id
+          }));
+        }
+      } catch (innerErr) {
+        this.logger.debug(`gift_catalog table not available: ${innerErr.message}`);
+      }
+
+      // Fall back to distinct gift names from slot gift mappings
+      try {
+        const rows = this.db.db.prepare(
+          'SELECT DISTINCT gift_name FROM game_slot_gift_mappings WHERE gift_name IS NOT NULL ORDER BY gift_name'
+        ).all();
+        if (rows && rows.length > 0) {
+          return rows.map(r => ({
+            id: `gift_name_${r.gift_name.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+            label: r.gift_name,
+            imageUrl: ''
+          }));
+        }
+      } catch (innerErr) {
+        this.logger.debug(`game_slot_gift_mappings fallback failed: ${innerErr.message}`);
+      }
+    } catch (err) {
+      this.logger.warn(`getGiftCatalogSymbols error: ${err.message}`);
+    }
+    return [];
+  }
+
   /** @private */
   _defaultSettings() {
     return {
@@ -1235,6 +1283,8 @@ class SlotGame {
       nearMissEnabled: true,
       showResultDuration: 5000,
       overlayMode: {
+        // Valid modes: 'large', 'horizontal', 'vertical', 'compact-hud',
+        // 'compact-featured', 'icons-only' (bare reels, no title/player/result)
         defaultMode: 'large',
         chatMode: '',
         giftMode: '',
@@ -1242,6 +1292,8 @@ class SlotGame {
         iconPreset: 'normal'
       },
       designSettings: {
+        // theme: 'default' | 'neon' | 'retro' | 'minimal' | 'dark-pro'
+        theme: 'default',
         bgColor: '#1a0a2e',
         borderColor: '#FFD700',
         reelBgColor: '#0d0620',
