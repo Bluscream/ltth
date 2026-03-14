@@ -503,6 +503,9 @@ class WheelGame {
     spinData.totalRotation = totalRotation;
     spinData.segmentAngle = segmentAngle;
     spinData.spinDuration = spinDuration;
+    // Deep-copy segments at spin time – this snapshot is the authoritative source for
+    // handleSpinComplete, so config edits between startSpin and completion cannot affect results.
+    spinData.segments = config.segments.map(s => ({ ...s }));
     this.activeSpins.set(spinId, spinData);
 
     // Debug logging for rotation calculation
@@ -671,6 +674,13 @@ class WheelGame {
       return { success: false, error: 'Invalid segment' };
     }
 
+    // Use the segment snapshot captured at spin-start time as the authoritative source.
+    // This prevents config edits between startSpin and handleSpinComplete from altering results.
+    // Fall back to current config.segments only when no snapshot exists (legacy spins).
+    const spinSegments = (spinData.segments && Array.isArray(spinData.segments) && spinData.segments.length > 0)
+      ? spinData.segments
+      : config.segments;
+
     const expectedSegmentIndex = Number.isInteger(spinData.winningSegmentIndex)
       ? spinData.winningSegmentIndex
       : null;
@@ -683,13 +693,13 @@ class WheelGame {
     let finalSegmentIndex = expectedSegmentIndex;
     let resolvedSource = 'expected';
     
-    if (!Number.isInteger(finalSegmentIndex) || finalSegmentIndex < 0 || finalSegmentIndex >= config.segments.length) {
-      if (Number.isInteger(reportedIndex) && reportedIndex >= 0 && reportedIndex < config.segments.length) {
+    if (!Number.isInteger(finalSegmentIndex) || finalSegmentIndex < 0 || finalSegmentIndex >= spinSegments.length) {
+      if (Number.isInteger(reportedIndex) && reportedIndex >= 0 && reportedIndex < spinSegments.length) {
         finalSegmentIndex = reportedIndex;
         resolvedSource = 'reported';
         this.logger.warn(`⚠️ Wheel spin fallback to reported segment index ${reportedIndex} (spinId: ${spinId}, wheelId: ${wheelId})`);
       } else {
-        this.logger.error(`Invalid segment index for spin completion (expected: ${expectedSegmentIndex}, reported: ${reportedIndex}, segments: ${config.segments.length})`);
+        this.logger.error(`Invalid segment index for spin completion (expected: ${expectedSegmentIndex}, reported: ${reportedIndex}, spinSegments: ${spinSegments.length}, configSegments: ${config.segments.length})`);
         this._cleanupSpinState(spinId, 'invalid_segment_index_on_complete');
         if (this.unifiedQueue) {
           this.unifiedQueue.completeProcessing();
@@ -697,10 +707,11 @@ class WheelGame {
         return { success: false, error: 'Invalid segment' };
       }
     } else if (syncMismatch) {
-      this.logger.warn(`⚠️ Wheel spin desync detected: expected ${expectedSegmentIndex} but overlay reported ${reportedIndex} (spinId: ${spinId}, wheelId: ${wheelId}, landingAngle: ${spinData.landingAngle?.toFixed(2)}°, totalRotation: ${spinData.totalRotation?.toFixed(2)}°)`);
+      this.logger.warn(`⚠️ Wheel spin desync detected: expected ${expectedSegmentIndex} but overlay reported ${reportedIndex} (spinId: ${spinId}, wheelId: ${wheelId}, spinSegments: ${spinSegments.length}, landingAngle: ${spinData.landingAngle?.toFixed(2)}°, totalRotation: ${spinData.totalRotation?.toFixed(2)}°)`);
     }
 
-    const segment = config.segments[finalSegmentIndex];
+    // Use snapshot segments so the resolved segment matches the spin that was actually played.
+    const segment = spinSegments[finalSegmentIndex];
 
     // Record win in database (with wheelId)
     this.db.recordWheelWin(

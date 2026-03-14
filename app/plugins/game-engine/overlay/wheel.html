@@ -844,42 +844,40 @@
     // - segmentIndex = floor(180° / 72°) = floor(2.5) = 2 ✓
     // ============================================================================
     function calculateLandingSegment(rotation) {
-      // Validate config
-      if (!config.segments || !Array.isArray(config.segments)) {
-        console.error('calculateLandingSegment: config.segments is not an array');
-        return 0;
-      }
-      
-      if (config.segments.length === 0) {
-        console.error('calculateLandingSegment: config.segments is empty');
+      if (!config.segments || !Array.isArray(config.segments) || config.segments.length === 0) {
+        console.error('calculateLandingSegment: config.segments is invalid or empty');
         return 0;
       }
 
       const numSegments = config.segments.length;
       const segmentAngle = 360 / numSegments;
-      
-      // Normalize rotation to 0-360 range
-      // Handle both positive and negative rotations (though wheel typically spins clockwise)
-      const finalAngle = ((rotation % 360) + 360) % 360;
-      
-      // Server calculation: totalRotation = (fullRotations * 360) + (360 - landingAngle)
-      // So: finalAngle = (360 - landingAngle) % 360
-      // Therefore: landingAngle = (360 - finalAngle) % 360
-      const landingAngle = (360 - finalAngle) % 360;
-      
-      // landingAngle = winningSegmentIndex * segmentAngle + offset
-      // So: winningSegmentIndex = floor(landingAngle / segmentAngle)
-      let segmentIndex = Math.floor(landingAngle / segmentAngle);
-      
-      // Ensure segment index is within valid range
+
+      // Floating-point-safe normalization:
+      // A plain % can drift numerically at large rotation values with certain segment counts
+      // (e.g. 6, 8, 10, 12 segments) and land exactly on a boundary from the wrong side.
+      const rawMod = rotation % 360;
+      const finalAngle = rawMod < 0 ? rawMod + 360 : rawMod;
+
+      // Inverse of the server formula: totalRotation = (fullRotations * 360) + (360 - landingAngle)
+      // => finalAngle = (360 - landingAngle) % 360
+      // => landingAngle = (360 - finalAngle) % 360
+      const landingAngle = finalAngle === 0 ? 0 : (360 - finalAngle);
+
+      // Epsilon guard at segment boundaries: a 1e-9° buffer prevents floating-point drift
+      // from flipping a landing point onto the wrong segment. The buffer is orders of magnitude
+      // smaller than LANDING_ZONE_START (10% of segmentAngle), so it never affects real results.
+      const EPSILON = 1e-9;
+      let segmentIndex = Math.floor((landingAngle + EPSILON) / segmentAngle);
+
+      // Clamp to valid range
       if (segmentIndex < 0) {
-        console.warn(`calculateLandingSegment: negative index ${segmentIndex}, setting to 0`);
+        console.warn(`calculateLandingSegment: negative index ${segmentIndex}, clamping to 0`);
         segmentIndex = 0;
       } else if (segmentIndex >= numSegments) {
-        console.warn(`calculateLandingSegment: index ${segmentIndex} >= ${numSegments}, wrapping to valid range`);
-        segmentIndex = segmentIndex % numSegments;
+        console.warn(`calculateLandingSegment: index ${segmentIndex} >= ${numSegments}, clamping`);
+        segmentIndex = numSegments - 1;
       }
-      
+
       return segmentIndex;
     }
 
@@ -1056,7 +1054,7 @@
         } else if (isNiete) {
           // Play lost sound for Niete
           soundToPlay = lostSound;
-        } else if (prizeAudio) {
+        } else if (prizeAudio !== null && prizeAudio !== undefined && Number(prizeAudio) > 0) {
           // Play configured prize audio (1, 2, or 3)
           const audioNumber = Number(prizeAudio);
           switch(audioNumber) {
@@ -1073,7 +1071,9 @@
               soundToPlay = prize1Sound; // Default to prize 1
           }
         } else {
-          // Default to prize 1 audio if no prizeAudio configured
+          // Default prize audio for real wins without an explicit prizeAudio value.
+          // isNiete and isShock are already handled above, so this branch is only
+          // reached for genuine wins missing an explicit prizeAudio configuration.
           soundToPlay = prize1Sound;
         }
         
@@ -1561,7 +1561,8 @@
         data.prize,
         data.prizeColor,
         data.isNiete || false,
-        data.prizeAudio || null,
+        // Use explicit null-check: prizeAudio=0 means "no audio", undefined/null → default 1
+        (data.prizeAudio !== undefined && data.prizeAudio !== null) ? data.prizeAudio : 1,
         data.isShock || false,
         data.shockIntensity || 0
       );
