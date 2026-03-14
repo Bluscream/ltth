@@ -3230,7 +3230,7 @@
       if (document.getElementById('leaderboardLifetime').checked) leaderboardTypes.push('lifetime');
       if (document.getElementById('leaderboardELORotation').checked) leaderboardTypes.push('elo');
 
-      const getC4Dt = (id) => document.getElementById(id)?.value ?? '';
+      const getConnect4DisplayText = (id) => document.getElementById(id)?.value ?? '';
       const config = {
         boardColor: document.getElementById('boardColor').value,
         player1Color: document.getElementById('player1Color').value,
@@ -3258,13 +3258,13 @@
         roundTimeLimit: parseInt(document.getElementById('roundTimeLimit').value),
         roundWarningTime: parseInt(document.getElementById('roundWarningTime').value),
         displayTexts: {
-          titleText:     getC4Dt('connect4-display-title')     || '🔵 CONNECT 4',
-          labelPlayer1:  getC4Dt('connect4-display-player1')   || 'Spieler 1',
-          labelPlayer2:  getC4Dt('connect4-display-player2')   || 'Spieler 2',
-          labelYourTurn: getC4Dt('connect4-display-your-turn') || 'Du bist dran! Tippe A-G',
-          labelWaiting:  getC4Dt('connect4-display-waiting')   || 'Warte auf Gegner...',
-          labelWin:      getC4Dt('connect4-display-win')       || '🏆 {player} gewinnt!',
-          labelDraw:     getC4Dt('connect4-display-draw')      || '🤝 Unentschieden!',
+          titleText:     getConnect4DisplayText('connect4-display-title')     || '🔵 CONNECT 4',
+          labelPlayer1:  getConnect4DisplayText('connect4-display-player1')   || 'Spieler 1',
+          labelPlayer2:  getConnect4DisplayText('connect4-display-player2')   || 'Spieler 2',
+          labelYourTurn: getConnect4DisplayText('connect4-display-your-turn') || 'Du bist dran! Tippe A-G',
+          labelWaiting:  getConnect4DisplayText('connect4-display-waiting')   || 'Warte auf Gegner...',
+          labelWin:      getConnect4DisplayText('connect4-display-win')       || '🏆 {player} gewinnt!',
+          labelDraw:     getConnect4DisplayText('connect4-display-draw')      || '🤝 Unentschieden!',
         }
       };
 
@@ -3351,14 +3351,14 @@
 
         // Display texts
         const c4dt = (config.displayTexts && typeof config.displayTexts === 'object') ? config.displayTexts : {};
-        const setC4Dt = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
-        setC4Dt('connect4-display-title',     c4dt.titleText,     '🔵 CONNECT 4');
-        setC4Dt('connect4-display-player1',   c4dt.labelPlayer1,  'Spieler 1');
-        setC4Dt('connect4-display-player2',   c4dt.labelPlayer2,  'Spieler 2');
-        setC4Dt('connect4-display-your-turn', c4dt.labelYourTurn, 'Du bist dran! Tippe A-G');
-        setC4Dt('connect4-display-waiting',   c4dt.labelWaiting,  'Warte auf Gegner...');
-        setC4Dt('connect4-display-win',       c4dt.labelWin,      '🏆 {player} gewinnt!');
-        setC4Dt('connect4-display-draw',      c4dt.labelDraw,     '🤝 Unentschieden!');
+        const setConnect4DisplayText = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
+        setConnect4DisplayText('connect4-display-title',     c4dt.titleText,     '🔵 CONNECT 4');
+        setConnect4DisplayText('connect4-display-player1',   c4dt.labelPlayer1,  'Spieler 1');
+        setConnect4DisplayText('connect4-display-player2',   c4dt.labelPlayer2,  'Spieler 2');
+        setConnect4DisplayText('connect4-display-your-turn', c4dt.labelYourTurn, 'Du bist dran! Tippe A-G');
+        setConnect4DisplayText('connect4-display-waiting',   c4dt.labelWaiting,  'Warte auf Gegner...');
+        setConnect4DisplayText('connect4-display-win',       c4dt.labelWin,      '🏆 {player} gewinnt!');
+        setConnect4DisplayText('connect4-display-draw',      c4dt.labelDraw,     '🤝 Unentschieden!');
 
         // Update color previews
         ['board', 'player1', 'player2', 'text'].forEach(prefix => {
@@ -3375,7 +3375,7 @@
 
     // Chess settings functions
     async function saveChessSettings() {
-      const getChDt = (id) => document.getElementById(id)?.value ?? '';
+      const getChessDisplayText = (id) => document.getElementById(id)?.value ?? '';
       const config = {
         defaultTimeControl: document.getElementById('chess-time-control').value,
         streamerRole: document.getElementById('chess-streamer-role').value,
@@ -3400,14 +3400,14 @@
         eloStartRating: parseInt(document.getElementById('chess-elo-start').value),
         eloKFactor: parseInt(document.getElementById('chess-elo-k-factor').value),
         displayTexts: {
-          titleText:      getChDt('chess-display-title')     || '♟️ SCHACH',
-          labelWhite:     getChDt('chess-display-white')     || 'Weiß',
-          labelBlack:     getChDt('chess-display-black')     || 'Schwarz',
-          labelYourTurn:  getChDt('chess-display-your-turn') || 'Dein Zug',
-          labelCheck:     getChDt('chess-display-check')     || '⚠️ Schach!',
-          labelCheckmate: getChDt('chess-display-checkmate') || '♚ Schachmatt!',
-          labelDraw:      getChDt('chess-display-draw')      || '🤝 Remis!',
-          labelWin:       getChDt('chess-display-win')       || '🏆 {player} gewinnt!',
+          titleText:      getChessDisplayText('chess-display-title')     || '♟️ SCHACH',
+          labelWhite:     getChessDisplayText('chess-display-white')     || 'Weiß',
+          labelBlack:     getChessDisplayText('chess-display-black')     || 'Schwarz',
+          labelYourTurn:  getChessDisplayText('chess-display-your-turn') || 'Dein Zug',
+          labelCheck:     getChessDisplayText('chess-display-check')     || '⚠️ Schach!',
+          labelCheckmate: getChessDisplayText('chess-display-checkmate') || '♚ Schachmatt!',
+          labelDraw:      getChessDisplayText('chess-display-draw')      || '🤝 Remis!',
+          labelWin:       getChessDisplayText('chess-display-win')       || '🏆 {player} gewinnt!',
         }
       };
 
@@ -3461,15 +3461,15 @@
 
         // Display texts
         const chdt = (config.displayTexts && typeof config.displayTexts === 'object') ? config.displayTexts : {};
-        const setChDt = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
-        setChDt('chess-display-title',     chdt.titleText,      '♟️ SCHACH');
-        setChDt('chess-display-white',     chdt.labelWhite,     'Weiß');
-        setChDt('chess-display-black',     chdt.labelBlack,     'Schwarz');
-        setChDt('chess-display-your-turn', chdt.labelYourTurn,  'Dein Zug');
-        setChDt('chess-display-check',     chdt.labelCheck,     '⚠️ Schach!');
-        setChDt('chess-display-checkmate', chdt.labelCheckmate, '♚ Schachmatt!');
-        setChDt('chess-display-draw',      chdt.labelDraw,      '🤝 Remis!');
-        setChDt('chess-display-win',       chdt.labelWin,       '🏆 {player} gewinnt!');
+        const setChessDisplayText = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
+        setChessDisplayText('chess-display-title',     chdt.titleText,      '♟️ SCHACH');
+        setChessDisplayText('chess-display-white',     chdt.labelWhite,     'Weiß');
+        setChessDisplayText('chess-display-black',     chdt.labelBlack,     'Schwarz');
+        setChessDisplayText('chess-display-your-turn', chdt.labelYourTurn,  'Dein Zug');
+        setChessDisplayText('chess-display-check',     chdt.labelCheck,     '⚠️ Schach!');
+        setChessDisplayText('chess-display-checkmate', chdt.labelCheckmate, '♚ Schachmatt!');
+        setChessDisplayText('chess-display-draw',      chdt.labelDraw,      '🤝 Remis!');
+        setChessDisplayText('chess-display-win',       chdt.labelWin,       '🏆 {player} gewinnt!');
       } catch (error) {
         console.error('Failed to load chess settings:', error);
       }
@@ -5815,12 +5815,12 @@
         
         // Load display texts
         const pdt = (plinkoConfig.displayTexts && typeof plinkoConfig.displayTexts === 'object') ? plinkoConfig.displayTexts : {};
-        const setPdt = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
-        setPdt('plinko-display-title',             pdt.titleText,             '🎰 PLINKO');
-        setPdt('plinko-display-drop',              pdt.labelDrop,             '⬇️ Ball wird gedropt!');
-        setPdt('plinko-display-win',               pdt.labelWin,              '🎉 Gewonnen!');
-        setPdt('plinko-display-multiplier-prefix', pdt.labelMultiplierPrefix, '×');
-        setPdt('plinko-display-queued',            pdt.labelQueued,           '⏳ Warteschlange...');
+        const setPlinkoDisplayText = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
+        setPlinkoDisplayText('plinko-display-title',             pdt.titleText,             '🎰 PLINKO');
+        setPlinkoDisplayText('plinko-display-drop',              pdt.labelDrop,             '⬇️ Ball wird gedropt!');
+        setPlinkoDisplayText('plinko-display-win',               pdt.labelWin,              '🎉 Gewonnen!');
+        setPlinkoDisplayText('plinko-display-multiplier-prefix', pdt.labelMultiplierPrefix, '×');
+        setPlinkoDisplayText('plinko-display-queued',            pdt.labelQueued,           '⏳ Warteschlange...');
         
         // Load gift mappings
         renderPlinkoGiftMappings();
@@ -6019,13 +6019,13 @@
         };
         
         // Collect display texts
-        const getPdt = (id) => document.getElementById(id)?.value ?? '';
+        const getPlinkoDisplayText = (id) => document.getElementById(id)?.value ?? '';
         const displayTexts = {
-          titleText:             getPdt('plinko-display-title')             || '🎰 PLINKO',
-          labelDrop:             getPdt('plinko-display-drop')              || '⬇️ Ball wird gedropt!',
-          labelWin:              getPdt('plinko-display-win')               || '🎉 Gewonnen!',
-          labelMultiplierPrefix: getPdt('plinko-display-multiplier-prefix') || '×',
-          labelQueued:           getPdt('plinko-display-queued')            || '⏳ Warteschlange...',
+          titleText:             getPlinkoDisplayText('plinko-display-title')             || '🎰 PLINKO',
+          labelDrop:             getPlinkoDisplayText('plinko-display-drop')              || '⬇️ Ball wird gedropt!',
+          labelWin:              getPlinkoDisplayText('plinko-display-win')               || '🎉 Gewonnen!',
+          labelMultiplierPrefix: getPlinkoDisplayText('plinko-display-multiplier-prefix') || '×',
+          labelQueued:           getPlinkoDisplayText('plinko-display-queued')            || '⏳ Warteschlange...',
         };
         
         // Collect gift mappings
@@ -6678,13 +6678,13 @@
         
         // Load display texts
         const dt = (settings.displayTexts && typeof settings.displayTexts === 'object') ? settings.displayTexts : {};
-        const setDt = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
-        setDt('wheel-display-title',  dt.titleText,   '🎡 GLÜCKSRAD');
-        setDt('wheel-display-spin',   dt.labelSpin,   '🔄 Dreht sich...');
-        setDt('wheel-display-result', dt.labelResult, '🎉 Ergebnis:');
-        setDt('wheel-display-niete',  dt.labelNiete,  '💔 Niete!');
-        setDt('wheel-display-win',    dt.labelWin,    '🎊 Gewonnen!');
-        setDt('wheel-display-queued', dt.labelQueued, '⏳ In der Warteschlange...');
+        const setWheelDisplayText = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
+        setWheelDisplayText('wheel-display-title',  dt.titleText,   '🎡 GLÜCKSRAD');
+        setWheelDisplayText('wheel-display-spin',   dt.labelSpin,   '🔄 Dreht sich...');
+        setWheelDisplayText('wheel-display-result', dt.labelResult, '🎉 Ergebnis:');
+        setWheelDisplayText('wheel-display-niete',  dt.labelNiete,  '💔 Niete!');
+        setWheelDisplayText('wheel-display-win',    dt.labelWin,    '🎊 Gewonnen!');
+        setWheelDisplayText('wheel-display-queued', dt.labelQueued, '⏳ In der Warteschlange...');
         
         // Load gift triggers
         renderWheelGiftTriggers();
@@ -7080,7 +7080,7 @@
         });
         
         // Collect settings
-        const getWheelDt = (id) => document.getElementById(id)?.value ?? '';
+        const getWheelDisplayText = (id) => document.getElementById(id)?.value ?? '';
         const settings = {
           spinDuration: parseInt(document.getElementById('wheel-spin-duration').value) || 5000,
           winnerDisplayDuration: parseInt(document.getElementById('wheel-winner-display-duration').value) || 5,
@@ -7099,12 +7099,12 @@
           infoScreenDuration: parseInt(document.getElementById('wheel-info-screen-duration').value) || 5,
           // Display texts
           displayTexts: {
-            titleText:   getWheelDt('wheel-display-title')  || '🎡 GLÜCKSRAD',
-            labelSpin:   getWheelDt('wheel-display-spin')   || '🔄 Dreht sich...',
-            labelResult: getWheelDt('wheel-display-result') || '🎉 Ergebnis:',
-            labelNiete:  getWheelDt('wheel-display-niete')  || '💔 Niete!',
-            labelWin:    getWheelDt('wheel-display-win')    || '🎊 Gewonnen!',
-            labelQueued: getWheelDt('wheel-display-queued') || '⏳ In der Warteschlange...',
+            titleText:   getWheelDisplayText('wheel-display-title')  || '🎡 GLÜCKSRAD',
+            labelSpin:   getWheelDisplayText('wheel-display-spin')   || '🔄 Dreht sich...',
+            labelResult: getWheelDisplayText('wheel-display-result') || '🎉 Ergebnis:',
+            labelNiete:  getWheelDisplayText('wheel-display-niete')  || '💔 Niete!',
+            labelWin:    getWheelDisplayText('wheel-display-win')    || '🎊 Gewonnen!',
+            labelQueued: getWheelDisplayText('wheel-display-queued') || '⏳ In der Warteschlange...',
           }
         };
         

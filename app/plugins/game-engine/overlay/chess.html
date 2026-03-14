@@ -732,9 +732,9 @@
           const winnerInfo = data.winner === 'white' ? gameState.whitePlayer : gameState.blackPlayer;
           const dt = config._displayTexts || {};
           const winLabel = dt.labelWin || '🏆 {player} gewinnt!';
-          title.textContent = dt.titleText || '🏆 Victory!';
+          title.textContent = winLabel.replace('{player}', winnerInfo.nickname);
           title.style.color = data.winner === 'white' ? '#4CAF50' : '#2196F3';
-          winnerName.textContent = winLabel.replace('{player}', winnerInfo.nickname);
+          winnerName.textContent = winnerInfo.nickname;
           winnerName.style.color = data.winner === 'white' ? '#4CAF50' : '#2196F3';
           
           if (config.celebrationEnabled) {

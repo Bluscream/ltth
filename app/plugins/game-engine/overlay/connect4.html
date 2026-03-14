@@ -1080,7 +1080,7 @@
         }
       } else {
         const currentPlayerInfo = state.currentPlayer === 1 ? state.player1 : state.player2;
-        const columnText = currentPlayerInfo.role === 'viewer' ? ` ${dt.labelYourTurn || 'Tippe A-G im Chat!'}` : '';
+        const columnText = currentPlayerInfo.role === 'viewer' ? ` ${dt.labelYourTurn || 'Du bist dran! Tippe A-G'}` : '';
         statusDiv.textContent = `Am Zug: ${currentPlayerInfo.nickname || currentPlayerInfo.username}${columnText}`;
       }
     }
