@@ -124,20 +124,14 @@ class PluginAPI {
                 }
             };
 
+            // Only push into the internal array.
+            // Actual registration on the TikTok EventEmitter happens EXCLUSIVELY
+            // via registerPluginTikTokEvents(), which performs an atomic
+            // removeListener + on() to prevent duplicate handlers.
+            // An inline tiktok.on() here would collide with the subsequent
+            // registerPluginTikTokEvents() call and cause double-fired events.
             this.registeredTikTokEvents.push({ event, callback: wrappedCallback });
-
-            // Immediately register on the TikTok EventEmitter if already available.
-            // This prevents double-registration when registerPluginTikTokEvents() is
-            // also called later (e.g. on first connect), because that method removes
-            // existing listeners before re-adding them.
-            // Without this, a plugin reload via reloadPlugin() would leave the freshly
-            // registered handlers un-attached to the EventEmitter.
-            if (this.tiktok) {
-                this.tiktok.on(event, wrappedCallback);
-                this.log(`Registered TikTok event (live): ${event}`);
-            } else {
-                this.log(`Registered TikTok event (queued, will attach on connect): ${event}`);
-            }
+            this.log(`Registered TikTok event (queued): ${event}`);
 
             return true;
         } catch (error) {
