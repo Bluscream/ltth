@@ -4852,6 +4852,199 @@
       }
     }
 
+    // ─── EMOJI PICKER MODAL ───
+    function ensureEmojiPickerModal() {
+      if (document.getElementById('slot-emoji-picker-modal')) return;
+      const EMOJI_CATEGORIES = {
+        'Früchte & Essen':   ['🍒','🍋','🍇','🍀','🍓','🍑','🍊','🍎','🍍','🥝','🫐','🍌','🥭','🍉','🍈','🍏'],
+        'Symbole & Glück':   ['⭐','🌟','💫','✨','🎰','🃏','🎲','🎯','🏆','💎','💍','🔔','🪄','🎪','🎡','🎢'],
+        'Wetter & Natur':    ['⚡','🔥','❄️','🌈','☀️','🌙','⭐','🌊','🍄','🌺','🌸','🦋','🐉','🦄','🌴','🏔️'],
+        'Tiere':             ['🐱','🐶','🦊','🐺','🐻','🐼','🐨','🦁','🐯','🐸','🐧','🦜','🦅','🐬','🦈','🐙'],
+        'Objekte':           ['💰','💸','🪙','💣','💥','🎁','🎀','🎊','🎉','🚀','⚓','🗝️','🔮','🧲','🧨','🎆'],
+        'Herzen & Emotes':   ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💖','💗','💘','😀','😎','🤩','🥳','😈'],
+      };
+      const modal = document.createElement('div');
+      modal.id = 'slot-emoji-picker-modal';
+      modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;';
+      modal.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:20px;width:520px;max-width:95vw;max-height:80vh;overflow-y:auto;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <span style="font-size:16px;font-weight:700;color:#eee;">🎰 Emoji für Symbol wählen</span>
+            <button type="button" id="slot-emoji-picker-close" style="background:none;border:none;color:#aaa;font-size:20px;cursor:pointer;">✕</button>
+          </div>
+          <input type="text" id="slot-emoji-search" placeholder="Suchen… (z.B. Herz, Stern)" style="width:100%;padding:8px;margin-bottom:12px;box-sizing:border-box;background:#0d0d1a;border:1px solid #444;color:#eee;border-radius:6px;">
+          <div id="slot-emoji-picker-body"></div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      modal.querySelector('#slot-emoji-picker-close').addEventListener('click', () => {
+        modal.style.display = 'none';
+        if (modal._resolveCallback) { modal._resolveCallback(null); modal._resolveCallback = null; }
+      });
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.style.display = 'none';
+          if (modal._resolveCallback) { modal._resolveCallback(null); modal._resolveCallback = null; }
+        }
+      });
+
+      function renderEmojiGrid(filter) {
+        const body = modal.querySelector('#slot-emoji-picker-body');
+        body.innerHTML = '';
+        const f = (filter || '').toLowerCase();
+        for (const [cat, emojis] of Object.entries(EMOJI_CATEGORIES)) {
+          const show = !f || cat.toLowerCase().includes(f);
+          const list = show ? emojis : emojis.filter(em => em.includes(f));
+          if (!list.length) continue;
+          const header = document.createElement('div');
+          header.style.cssText = 'font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin:10px 0 6px;';
+          header.textContent = cat;
+          body.appendChild(header);
+          const grid = document.createElement('div');
+          grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:4px;';
+          list.forEach(emoji => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = emoji;
+            btn.title = emoji;
+            btn.style.cssText = 'font-size:22px;padding:4px;background:#0d0d1a;border:1px solid #222;border-radius:6px;cursor:pointer;transition:background 0.15s;';
+            btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a4e'; });
+            btn.addEventListener('mouseleave', () => { btn.style.background = '#0d0d1a'; });
+            btn.addEventListener('click', () => {
+              if (modal._resolveCallback) modal._resolveCallback(emoji);
+              modal.style.display = 'none';
+              modal._resolveCallback = null;
+            });
+            grid.appendChild(btn);
+          });
+          body.appendChild(grid);
+        }
+      }
+
+      renderEmojiGrid('');
+      modal.querySelector('#slot-emoji-search').addEventListener('input', (e) => renderEmojiGrid(e.target.value));
+    }
+
+    function pickEmoji() {
+      ensureEmojiPickerModal();
+      const modal = document.getElementById('slot-emoji-picker-modal');
+      modal.style.display = 'flex';
+      return new Promise(resolve => { modal._resolveCallback = resolve; });
+    }
+
+    // ─── GIFT-CATALOG PICKER FÜR SLOT-SYMBOLE ───
+    let _slotSymbolGiftPickerCallback = null;
+
+    function ensureSlotGiftPickerModal() {
+      if (document.getElementById('slot-gift-symbol-picker-modal')) return;
+      const modal = document.createElement('div');
+      modal.id = 'slot-gift-symbol-picker-modal';
+      modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;';
+      modal.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:20px;width:660px;max-width:96vw;max-height:85vh;display:flex;flex-direction:column;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0;">
+            <span style="font-size:16px;font-weight:700;color:#eee;">🎁 Geschenk als Symbol wählen</span>
+            <button type="button" id="slot-gift-picker-close" style="background:none;border:none;color:#aaa;font-size:20px;cursor:pointer;">✕</button>
+          </div>
+          <div id="slot-gift-picker-info" style="font-size:12px;color:#aaa;margin-bottom:10px;flex-shrink:0;"></div>
+          <input type="text" id="slot-gift-picker-search" placeholder="Geschenk suchen…" style="width:100%;padding:8px;margin-bottom:12px;box-sizing:border-box;background:#0d0d1a;border:1px solid #444;color:#eee;border-radius:6px;flex-shrink:0;">
+          <div id="slot-gift-picker-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:10px;overflow-y:auto;padding-right:4px;"></div>
+          <div style="margin-top:12px;flex-shrink:0;">
+            <button type="button" id="slot-gift-picker-refresh" class="secondary" style="font-size:12px;padding:6px 14px;">🔄 Katalog aktualisieren</button>
+            <span style="font-size:11px;color:#666;margin-left:10px;">Nur verfügbar wenn mit TikTok-Stream verbunden</span>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      modal.querySelector('#slot-gift-picker-close').addEventListener('click', () => {
+        modal.style.display = 'none';
+        _slotSymbolGiftPickerCallback = null;
+      });
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) { modal.style.display = 'none'; _slotSymbolGiftPickerCallback = null; }
+      });
+      modal.querySelector('#slot-gift-picker-refresh').addEventListener('click', async () => {
+        const infoEl = document.getElementById('slot-gift-picker-info');
+        if (infoEl) infoEl.innerHTML = '<span style="color:#FFC107;">🔄 Aktualisiere…</span>';
+        try {
+          const r = await fetch('/api/gift-catalog/refresh', { method: 'POST' });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        } catch(err) {
+          if (infoEl) infoEl.innerHTML = `<span style="color:#f44336;">❌ Aktualisierung fehlgeschlagen: ${escapeHtml(err.message)}</span>`;
+          return;
+        }
+        await loadSlotGiftPickerData();
+      });
+    }
+
+    async function loadSlotGiftPickerData(filter) {
+      const infoEl   = document.getElementById('slot-gift-picker-info');
+      const gridEl   = document.getElementById('slot-gift-picker-grid');
+      const searchEl = document.getElementById('slot-gift-picker-search');
+      if (!infoEl || !gridEl) return;
+      infoEl.innerHTML = '<span style="color:#aaa;">⏳ Lade Katalog…</span>';
+      gridEl.innerHTML = '';
+      try {
+        const res  = await fetch('/api/gift-catalog');
+        const data = await res.json();
+        if (!data.success || !data.catalog?.length) {
+          infoEl.innerHTML = '<span style="color:#FFC107;">⚠️ Keine Geschenke im Katalog. Verbinde mit einem Stream und klicke „Katalog aktualisieren".</span>';
+          return;
+        }
+        const catalog    = data.catalog;
+        const lastUpdate = data.lastUpdate ? new Date(data.lastUpdate).toLocaleString('de-DE') : '—';
+        infoEl.innerHTML = `<span style="color:#4CAF50;">✅ ${catalog.length} Geschenke</span> <span style="color:#666;margin-left:8px;">Stand: ${lastUpdate}</span>`;
+        if (searchEl) searchEl.oninput = () => renderGiftGrid(catalog, searchEl.value.toLowerCase());
+        renderGiftGrid(catalog, filter || '');
+      } catch (err) {
+        infoEl.innerHTML = `<span style="color:#f44336;">❌ Fehler: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    function renderGiftGrid(catalog, filter) {
+      const gridEl = document.getElementById('slot-gift-picker-grid');
+      if (!gridEl) return;
+      gridEl.innerHTML = '';
+      const filtered = filter ? catalog.filter(g => g.name?.toLowerCase().includes(filter)) : catalog;
+      if (!filtered.length) {
+        gridEl.innerHTML = '<div style="color:#888;grid-column:1/-1;text-align:center;padding:20px;">Keine Treffer</div>';
+        return;
+      }
+      filtered.forEach(gift => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:#0d0d1a;border:1px solid #222;border-radius:8px;padding:8px;cursor:pointer;text-align:center;transition:border-color 0.15s;';
+        card.innerHTML = gift.image_url
+          ? `<img src="${escapeHtml(gift.image_url)}" style="width:52px;height:52px;object-fit:contain;display:block;margin:0 auto 6px;" alt="">`
+          : `<div style="font-size:36px;margin-bottom:6px;">🎁</div>`;
+        card.innerHTML += `
+          <div style="font-size:11px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(gift.name)}">${escapeHtml(gift.name)}</div>
+          <div style="font-size:10px;color:#555;">ID: ${escapeHtml(String(gift.id))}</div>
+        `;
+        card.addEventListener('mouseenter', () => { card.style.borderColor = '#4CAF50'; });
+        card.addEventListener('mouseleave', () => { card.style.borderColor = '#222'; });
+        card.addEventListener('click', () => {
+          if (_slotSymbolGiftPickerCallback) {
+            _slotSymbolGiftPickerCallback({ id: gift.id, name: gift.name, imageUrl: gift.image_url || null });
+          }
+          document.getElementById('slot-gift-symbol-picker-modal').style.display = 'none';
+          _slotSymbolGiftPickerCallback = null;
+        });
+        gridEl.appendChild(card);
+      });
+    }
+
+    function openGiftPickerForSlotSymbol(callback) {
+      ensureSlotGiftPickerModal();
+      _slotSymbolGiftPickerCallback = callback;
+      const modal = document.getElementById('slot-gift-symbol-picker-modal');
+      modal.style.display = 'flex';
+      const searchEl = document.getElementById('slot-gift-picker-search');
+      if (searchEl) searchEl.value = '';
+      loadSlotGiftPickerData();
+    }
+
     function renderSlotSymbols(symbols) {
       const container = document.getElementById('slot-symbols-container');
       if (!container) return;
@@ -4874,7 +5067,11 @@
             <span class="sym-preview" style="width:36px;height:36px;text-align:center;font-size:24px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;border-radius:4px;background:#0d0d1a;">
               ${hasImage ? `<img src="${escapeHtml(sym.imageUrl)}" style="width:32px;height:32px;object-fit:contain;" alt="">` : escapeHtml(sym.emoji || '❓')}
             </span>
-            <input type="text" value="${escapeHtml(sym.emoji || '')}" placeholder="Emoji" style="width:60px;" data-field="emoji">
+            <div style="display:flex;gap:4px;align-items:center;width:auto;">
+              <input type="text" value="${escapeHtml(sym.emoji || '')}" placeholder="Emoji" style="width:52px;" data-field="emoji">
+              <button type="button" class="slot-sym-emoji-pick-btn secondary" style="padding:3px 7px;font-size:14px;" title="Emoji aus Picker wählen" aria-label="Emoji aus Picker wählen">😀</button>
+              <button type="button" class="slot-sym-gift-pick-btn secondary" style="padding:3px 7px;font-size:12px;white-space:nowrap;" title="Geschenk-Grafik als Symbol verwenden" aria-label="Geschenk-Grafik als Symbol verwenden">🎁</button>
+            </div>
             <input type="text" value="${escapeHtml(sym.id || '')}" placeholder="ID" style="width:80px;" data-field="id">
             <input type="text" value="${escapeHtml(sym.label || '')}" placeholder="Label" style="flex:1;" data-field="label">
             <div style="width:70px;">
@@ -4936,7 +5133,13 @@
             const fileInput = row.querySelector('.slot-sym-image-input');
             const file = fileInput && fileInput.files[0];
             if (!file) { showMessage('Bilddatei auswählen', 'error'); return; }
-            const symId = row.querySelector('[data-field="id"]')?.value.trim() || `sym_${idx}`;
+            // Bug 3b: ensure symId is never empty to prevent overwrites
+            const idField = row.querySelector('[data-field="id"]');
+            let symId = idField?.value.trim();
+            if (!symId) {
+              symId = `sym_${Date.now()}_${Math.floor(Math.random() * 999999)}`;
+              if (idField) idField.value = symId;
+            }
             const fd = new FormData();
             fd.append('image', file);
             fd.append('machineId', currentSlotMachineId);
@@ -4949,7 +5152,34 @@
                 // Update preview
                 const preview = row.querySelector('.sym-preview');
                 if (preview) preview.innerHTML = `<img src="${escapeHtml(data.imageUrl)}" style="width:32px;height:32px;object-fit:contain;" alt="">`;
-                showMessage('Bild hochgeladen!');
+                // Bug 3a: auto-save config after upload so imageUrl is persisted
+                if (currentSlotMachineId && currentSlotConfig) {
+                  const updatedSymbols = getSlotSymbolsFromForm();
+                  try {
+                    const saveResp = await fetch(`/api/game-engine/slots/${currentSlotMachineId}/config`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        symbols:      updatedSymbols,
+                        settings:     currentSlotConfig.settings,
+                        giftMappings: currentSlotConfig.giftMappings,
+                        oddsProfiles: currentSlotConfig.oddsProfiles,
+                        rewardRules:  currentSlotConfig.rewardRules
+                      })
+                    });
+                    const saveData = await saveResp.json();
+                    if (saveData.success !== false) {
+                      showMessage('✅ Bild hochgeladen & gespeichert!');
+                      currentSlotConfig = { ...currentSlotConfig, symbols: updatedSymbols };
+                    } else {
+                      showMessage('⚠️ Bild hochgeladen, aber Speichern fehlgeschlagen: ' + (saveData.error || ''), 'error');
+                    }
+                  } catch (saveErr) {
+                    showMessage('⚠️ Bild hochgeladen, aber Speichern fehlgeschlagen', 'error');
+                  }
+                } else {
+                  showMessage('⚠️ Bild hochgeladen – Slot-Maschine neu laden und manuell speichern', 'error');
+                }
               } else {
                 showMessage('Fehler: ' + (data.error || 'Unbekannter Fehler'), 'error');
               }
@@ -4970,6 +5200,46 @@
             if (preview) preview.innerHTML = escapeHtml(emojiVal);
             clearBtn.remove();
             showMessage('Bild entfernt');
+          });
+        }
+
+        // Emoji-Picker Button
+        const emojiPickBtn = row.querySelector('.slot-sym-emoji-pick-btn');
+        if (emojiPickBtn) {
+          emojiPickBtn.addEventListener('click', async () => {
+            const chosen = await pickEmoji();
+            if (!chosen) return;
+            const emojiInput = row.querySelector('[data-field="emoji"]');
+            if (emojiInput) {
+              emojiInput.value = chosen;
+              const imageUrlField = row.querySelector('[data-field="imageUrl"]');
+              if (!imageUrlField?.value) {
+                const preview = row.querySelector('.sym-preview');
+                if (preview) preview.innerHTML = escapeHtml(chosen);
+              }
+            }
+          });
+        }
+
+        // Gift-Catalog-Picker Button
+        const giftPickBtn = row.querySelector('.slot-sym-gift-pick-btn');
+        if (giftPickBtn) {
+          giftPickBtn.addEventListener('click', () => {
+            openGiftPickerForSlotSymbol((gift) => {
+              const labelInput = row.querySelector('[data-field="label"]');
+              if (labelInput && !labelInput.value.trim()) labelInput.value = gift.name;
+              const idInput = row.querySelector('[data-field="id"]');
+              if (idInput && !idInput.value.trim()) idInput.value = `gift_${gift.id}`;
+              if (gift.imageUrl) {
+                const imageUrlField = row.querySelector('[data-field="imageUrl"]');
+                if (imageUrlField) imageUrlField.value = gift.imageUrl;
+                const preview = row.querySelector('.sym-preview');
+                if (preview) preview.innerHTML = `<img src="${escapeHtml(gift.imageUrl)}" style="width:32px;height:32px;object-fit:contain;" alt="">`;
+                showMessage(`🎁 "${gift.name}" Grafik übernommen`);
+              } else {
+                showMessage(`🎁 "${gift.name}" als Symbol-Label eingetragen (kein Bild verfügbar)`);
+              }
+            });
           });
         }
 
