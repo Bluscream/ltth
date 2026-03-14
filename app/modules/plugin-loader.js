@@ -125,7 +125,19 @@ class PluginAPI {
             };
 
             this.registeredTikTokEvents.push({ event, callback: wrappedCallback });
-            this.log(`Registered TikTok event: ${event}`);
+
+            // Immediately register on the TikTok EventEmitter if already available.
+            // This prevents double-registration when registerPluginTikTokEvents() is
+            // also called later (e.g. on first connect), because that method removes
+            // existing listeners before re-adding them.
+            // Without this, a plugin reload via reloadPlugin() would leave the freshly
+            // registered handlers un-attached to the EventEmitter.
+            if (this.tiktok) {
+                this.tiktok.on(event, wrappedCallback);
+                this.log(`Registered TikTok event (live): ${event}`);
+            } else {
+                this.log(`Registered TikTok event (queued, will attach on connect): ${event}`);
+            }
 
             return true;
         } catch (error) {
@@ -1144,6 +1156,15 @@ class PluginLoader extends EventEmitter {
 
             const pluginPath = path.join(this.pluginsDir, pluginId);
             await this.loadPlugin(pluginPath);
+
+            // Re-register TikTok events after reload (consistent with enablePlugin).
+            // Required when registerTikTokEvent() was called before this.tiktok was set
+            // (race condition on first start), or as a safety-net to ensure all queued
+            // events are properly attached to the EventEmitter.
+            if (this.tiktok) {
+                this.registerPluginTikTokEvents(this.tiktok, pluginId);
+                this.logger.debug(`Re-registered TikTok events for reloaded plugin: ${pluginId}`);
+            }
 
             this.logger.info(`Reloaded plugin: ${pluginId} (reload count: ${this.state[pluginId].reloadCount})`);
             this.emit('plugin:reloaded', pluginId);

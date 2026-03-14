@@ -12,6 +12,10 @@ const FALLBACK_API_KEY = process.env.EULER_FALLBACK_API_KEY || PUBLIC_FALLBACK_A
 // Euler backup key - requires special warning before connection
 const EULER_BACKUP_KEY = process.env.EULER_BACKUP_API_KEY || null;
 
+// Maximum number of milliseconds a gift event timestamp may be in the future before it
+// is rejected as invalid in _generateEventHash(). Prevents hash collisions from skewed clocks.
+const MAX_FUTURE_TIMESTAMP_MS = 60000;
+
 /**
  * TikTok Live Connector - Eulerstream WebSocket API
  * 
@@ -795,9 +799,11 @@ class TikTokConnector extends EventEmitter {
                     teamMemberLevel: userData.teamMemberLevel,
                     isModerator: userData.isModerator,
                     isSubscriber: userData.isSubscriber,
-                    // Use TikTok's original timestamp (createTime) for reliable deduplication
-                    // TikTok sends duplicate events (popup + chat) with identical createTime
-                    // Using original timestamp ensures hash function detects duplicates correctly
+                    // Preserve createTime separately so _generateEventHash() can use it directly.
+                    // TikTok sends duplicate events (popup + chat) with identical createTime;
+                    // having it as a dedicated field prevents the hash from falling back to
+                    // new Date().toISOString() which is always unique and defeats dedup.
+                    createTime: data.createTime || data.timestamp || null,
                     timestamp: data.createTime || data.timestamp || new Date().toISOString()
                 };
 
@@ -1731,20 +1737,24 @@ class TikTokConnector extends EventEmitter {
                 // Also include repeatCount as fallback if coins is not available
                 else if (data.repeatCount) components.push(data.repeatCount.toString());
                 // Include timestamp rounded to nearest second to catch near-duplicate events
-                // but allow legitimate streak updates
-                // Prefer createTime from TikTok for more reliable deduplication
-                // TikTok sends duplicate events (popup + chat) with identical createTime
-                if (data.timestamp) {
-                    try {
-                        // Use createTime if available (more reliable for TikTok duplicates)
-                        const timestampValue = data.createTime || data.timestamp;
-                        const roundedTime = Math.floor(new Date(timestampValue).getTime() / 1000);
-                        if (!isNaN(roundedTime)) {
-                            components.push(roundedTime.toString());
+                // but allow legitimate streak updates.
+                // Prefer createTime from TikTok for more reliable deduplication.
+                // TikTok sends duplicate events (popup + chat) with identical createTime.
+                // IMPORTANT: Never fall back to new Date().toISOString() here – that value
+                // is always unique and would defeat deduplication entirely.
+                {
+                    const rawTime = data.createTime || data.timestamp;
+                    if (rawTime) {
+                        try {
+                            const parsed = typeof rawTime === 'number'
+                                ? rawTime
+                                : new Date(rawTime).getTime();
+                            if (!isNaN(parsed) && parsed > 0 && parsed < Date.now() + MAX_FUTURE_TIMESTAMP_MS) {
+                                components.push(Math.floor(parsed / 1000).toString());
+                            }
+                        } catch (_) {
+                            this.logger.debug(`[HASH] Invalid timestamp in gift event: ${rawTime}`);
                         }
-                    } catch (error) {
-                        // Ignore invalid timestamps - hash will work without timestamp component
-                        this.logger.debug(`[HASH] Invalid timestamp in gift event: ${data.timestamp}`);
                     }
                 }
                 break;
