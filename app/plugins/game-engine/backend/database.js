@@ -1604,12 +1604,20 @@ class GameEngineDatabase {
       config = this.db.prepare('SELECT * FROM game_wheel_config ORDER BY id ASC LIMIT 1').get();
     }
     if (!config) return null;
+
+    const settings = JSON.parse(config.settings);
+    // Backward-compatible: fill missing displayTexts with defaults
+    const wheelDisplayDefaults = {
+      titleText: '🎡 GLÜCKSRAD', labelSpin: '🔄 Dreht sich...', labelResult: '🎉 Ergebnis:',
+      labelNiete: '💔 Niete!', labelWin: '🎊 Gewonnen!', labelQueued: '⏳ In der Warteschlange...'
+    };
+    settings.displayTexts = Object.assign({ ...wheelDisplayDefaults }, settings.displayTexts || {});
     
     return {
       id: config.id,
       name: config.name || 'Unnamed Wheel',
       segments: JSON.parse(config.segments),
-      settings: JSON.parse(config.settings),
+      settings,
       giftTriggers: config.gift_triggers ? JSON.parse(config.gift_triggers) : {},
       chatCommand: config.chat_command || null,
       enabled: config.enabled === 1

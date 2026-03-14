@@ -101,6 +101,51 @@
       "loading": "Loading...",
       "error": "Error",
       "success": "Success"
+    },
+    "display_texts": {
+      "slot": {
+        "title": "🎰 SLOT MACHINE",
+        "label_loss": "😔 No Win",
+        "label_near_miss": "😬 Close!",
+        "label_small_win": "🎉 Small Win!",
+        "label_medium_win": "🎊 Win!",
+        "label_big_win": "🔥 Big Win!",
+        "label_jackpot": "🏆 JACKPOT!"
+      },
+      "wheel": {
+        "title": "🎡 LUCKY WHEEL",
+        "label_spin": "🔄 Spinning...",
+        "label_result": "🎉 Result:",
+        "label_niete": "💔 No prize!",
+        "label_win": "🎊 You won!",
+        "label_queued": "⏳ In queue..."
+      },
+      "plinko": {
+        "title": "🎰 PLINKO",
+        "label_drop": "⬇️ Ball dropped!",
+        "label_win": "🎉 Win!",
+        "multiplier_prefix": "×",
+        "label_queued": "⏳ In queue..."
+      },
+      "connect4": {
+        "title": "🔵 CONNECT 4",
+        "label_player1": "Player 1",
+        "label_player2": "Player 2",
+        "label_your_turn": "Your turn! Type A-G",
+        "label_waiting": "Waiting for opponent...",
+        "label_win": "🏆 {player} wins!",
+        "label_draw": "🤝 Draw!"
+      },
+      "chess": {
+        "title": "♟️ CHESS",
+        "label_white": "White",
+        "label_black": "Black",
+        "label_your_turn": "Your turn",
+        "label_check": "⚠️ Check!",
+        "label_checkmate": "♚ Checkmate!",
+        "label_draw": "🤝 Draw!",
+        "label_win": "🏆 {player} wins!"
+      }
     }
   }
 }

@@ -1040,6 +1040,40 @@
           <input type="number" id="roundWarningTime" value="10" min="3" max="30" step="1">
         </div>
 
+        <h3>📝 Anzeigetexte</h3>
+        <p style="color: #888; font-size: 14px; margin-bottom: 15px;">
+          Diese Texte werden im Overlay angezeigt. Lass das Feld leer, um den Standardtext zu verwenden.
+        </p>
+
+        <div class="form-group">
+          <label>Titel:</label>
+          <input type="text" id="connect4-display-title" placeholder="🔵 CONNECT 4" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Label Spieler 1:</label>
+          <input type="text" id="connect4-display-player1" placeholder="Spieler 1" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Label Spieler 2:</label>
+          <input type="text" id="connect4-display-player2" placeholder="Spieler 2" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Dein Zug:</label>
+          <input type="text" id="connect4-display-your-turn" placeholder="Du bist dran! Tippe A-G" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Warte auf Gegner:</label>
+          <input type="text" id="connect4-display-waiting" placeholder="Warte auf Gegner..." style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Gewinn ({player} wird durch Spielernamen ersetzt):</label>
+          <input type="text" id="connect4-display-win" placeholder="🏆 {player} gewinnt!" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Unentschieden:</label>
+          <input type="text" id="connect4-display-draw" placeholder="🤝 Unentschieden!" style="width:100%;">
+        </div>
+
         <button id="saveSettingsBtn">Einstellungen speichern</button>
       </div>
     </div>
@@ -1213,6 +1247,44 @@
           </p>
         </div>
 
+        <h3 style="margin-top: 30px;">📝 Anzeigetexte</h3>
+        <p style="color: #888; font-size: 14px; margin-bottom: 15px;">
+          Diese Texte werden im Overlay angezeigt. Lass das Feld leer, um den Standardtext zu verwenden.
+        </p>
+
+        <div class="form-group">
+          <label>Titel:</label>
+          <input type="text" id="chess-display-title" placeholder="♟️ SCHACH" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Label Weiß:</label>
+          <input type="text" id="chess-display-white" placeholder="Weiß" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Label Schwarz:</label>
+          <input type="text" id="chess-display-black" placeholder="Schwarz" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Dein Zug:</label>
+          <input type="text" id="chess-display-your-turn" placeholder="Dein Zug" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Schach:</label>
+          <input type="text" id="chess-display-check" placeholder="⚠️ Schach!" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Schachmatt:</label>
+          <input type="text" id="chess-display-checkmate" placeholder="♚ Schachmatt!" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Remis:</label>
+          <input type="text" id="chess-display-draw" placeholder="🤝 Remis!" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Gewinn ({player} = Spielername):</label>
+          <input type="text" id="chess-display-win" placeholder="🏆 {player} gewinnt!" style="width:100%;">
+        </div>
+
         <button id="saveChessSettingsBtn">Schach-Einstellungen speichern</button>
       </div>
 
@@ -1378,6 +1450,32 @@
           <p style="color: #888; font-size: 12px; margin-top: 5px;">
             Abstand zwischen den Pegs
           </p>
+        </div>
+
+        <h3 style="margin-top: 30px;">📝 Anzeigetexte</h3>
+        <p style="color: #888; font-size: 14px; margin-bottom: 15px;">
+          Diese Texte werden im Overlay angezeigt. Lass das Feld leer, um den Standardtext zu verwenden.
+        </p>
+
+        <div class="form-group">
+          <label>Titel:</label>
+          <input type="text" id="plinko-display-title" placeholder="🎰 PLINKO" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Ball gedropt:</label>
+          <input type="text" id="plinko-display-drop" placeholder="⬇️ Ball wird gedropt!" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Gewinn:</label>
+          <input type="text" id="plinko-display-win" placeholder="🎉 Gewonnen!" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Multiplikator-Präfix:</label>
+          <input type="text" id="plinko-display-multiplier-prefix" placeholder="×" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Warteschlange:</label>
+          <input type="text" id="plinko-display-queued" placeholder="⏳ Warteschlange..." style="width:100%;">
         </div>
 
         <button id="savePlinkoSettingsBtn">🎰 Plinko-Einstellungen speichern</button>
@@ -1834,6 +1932,36 @@
           <p style="color: #888; font-size: 12px; margin-top: 5px;">
             Wie lange der Info-Screen angezeigt wird (Standard: 5 Sekunden)
           </p>
+        </div>
+
+        <h3 style="margin-top: 30px;">📝 Anzeigetexte</h3>
+        <p style="color: #888; font-size: 14px; margin-bottom: 15px;">
+          Diese Texte werden im Overlay angezeigt. Lass das Feld leer, um den Standardtext zu verwenden.
+        </p>
+
+        <div class="form-group">
+          <label>Titel:</label>
+          <input type="text" id="wheel-display-title" placeholder="🎡 GLÜCKSRAD" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Dreht sich:</label>
+          <input type="text" id="wheel-display-spin" placeholder="🔄 Dreht sich..." style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Ergebnis:</label>
+          <input type="text" id="wheel-display-result" placeholder="🎉 Ergebnis:" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Niete:</label>
+          <input type="text" id="wheel-display-niete" placeholder="💔 Niete!" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Gewinn:</label>
+          <input type="text" id="wheel-display-win" placeholder="🎊 Gewonnen!" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>Text: Warteschlange:</label>
+          <input type="text" id="wheel-display-queued" placeholder="⏳ In der Warteschlange..." style="width:100%;">
         </div>
 
         <button id="saveWheelSettingsBtn">🎡 Wheel-Einstellungen speichern</button>
@@ -3102,6 +3230,7 @@
       if (document.getElementById('leaderboardLifetime').checked) leaderboardTypes.push('lifetime');
       if (document.getElementById('leaderboardELORotation').checked) leaderboardTypes.push('elo');
 
+      const getC4Dt = (id) => document.getElementById(id)?.value ?? '';
       const config = {
         boardColor: document.getElementById('boardColor').value,
         player1Color: document.getElementById('player1Color').value,
@@ -3127,7 +3256,16 @@
         leaderboardTypes: leaderboardTypes,
         roundTimerEnabled: document.getElementById('roundTimerEnabled').checked,
         roundTimeLimit: parseInt(document.getElementById('roundTimeLimit').value),
-        roundWarningTime: parseInt(document.getElementById('roundWarningTime').value)
+        roundWarningTime: parseInt(document.getElementById('roundWarningTime').value),
+        displayTexts: {
+          titleText:     getC4Dt('connect4-display-title')     || '🔵 CONNECT 4',
+          labelPlayer1:  getC4Dt('connect4-display-player1')   || 'Spieler 1',
+          labelPlayer2:  getC4Dt('connect4-display-player2')   || 'Spieler 2',
+          labelYourTurn: getC4Dt('connect4-display-your-turn') || 'Du bist dran! Tippe A-G',
+          labelWaiting:  getC4Dt('connect4-display-waiting')   || 'Warte auf Gegner...',
+          labelWin:      getC4Dt('connect4-display-win')       || '🏆 {player} gewinnt!',
+          labelDraw:     getC4Dt('connect4-display-draw')      || '🤝 Unentschieden!',
+        }
       };
 
       try {
@@ -3211,6 +3349,17 @@
         if (config.roundTimeLimit) document.getElementById('roundTimeLimit').value = config.roundTimeLimit;
         if (config.roundWarningTime) document.getElementById('roundWarningTime').value = config.roundWarningTime;
 
+        // Display texts
+        const c4dt = (config.displayTexts && typeof config.displayTexts === 'object') ? config.displayTexts : {};
+        const setC4Dt = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
+        setC4Dt('connect4-display-title',     c4dt.titleText,     '🔵 CONNECT 4');
+        setC4Dt('connect4-display-player1',   c4dt.labelPlayer1,  'Spieler 1');
+        setC4Dt('connect4-display-player2',   c4dt.labelPlayer2,  'Spieler 2');
+        setC4Dt('connect4-display-your-turn', c4dt.labelYourTurn, 'Du bist dran! Tippe A-G');
+        setC4Dt('connect4-display-waiting',   c4dt.labelWaiting,  'Warte auf Gegner...');
+        setC4Dt('connect4-display-win',       c4dt.labelWin,      '🏆 {player} gewinnt!');
+        setC4Dt('connect4-display-draw',      c4dt.labelDraw,     '🤝 Unentschieden!');
+
         // Update color previews
         ['board', 'player1', 'player2', 'text'].forEach(prefix => {
           const input = document.getElementById(`${prefix}Color`);
@@ -3226,6 +3375,7 @@
 
     // Chess settings functions
     async function saveChessSettings() {
+      const getChDt = (id) => document.getElementById(id)?.value ?? '';
       const config = {
         defaultTimeControl: document.getElementById('chess-time-control').value,
         streamerRole: document.getElementById('chess-streamer-role').value,
@@ -3248,7 +3398,17 @@
         leaderboardDisplayTime: parseInt(document.getElementById('chess-leaderboard-display-time').value),
         eloEnabled: document.getElementById('chess-elo-enabled').checked,
         eloStartRating: parseInt(document.getElementById('chess-elo-start').value),
-        eloKFactor: parseInt(document.getElementById('chess-elo-k-factor').value)
+        eloKFactor: parseInt(document.getElementById('chess-elo-k-factor').value),
+        displayTexts: {
+          titleText:      getChDt('chess-display-title')     || '♟️ SCHACH',
+          labelWhite:     getChDt('chess-display-white')     || 'Weiß',
+          labelBlack:     getChDt('chess-display-black')     || 'Schwarz',
+          labelYourTurn:  getChDt('chess-display-your-turn') || 'Dein Zug',
+          labelCheck:     getChDt('chess-display-check')     || '⚠️ Schach!',
+          labelCheckmate: getChDt('chess-display-checkmate') || '♚ Schachmatt!',
+          labelDraw:      getChDt('chess-display-draw')      || '🤝 Remis!',
+          labelWin:       getChDt('chess-display-win')       || '🏆 {player} gewinnt!',
+        }
       };
 
       try {
@@ -3298,6 +3458,18 @@
         if (config.eloEnabled !== undefined) document.getElementById('chess-elo-enabled').checked = config.eloEnabled;
         if (config.eloStartRating) document.getElementById('chess-elo-start').value = config.eloStartRating;
         if (config.eloKFactor) document.getElementById('chess-elo-k-factor').value = config.eloKFactor;
+
+        // Display texts
+        const chdt = (config.displayTexts && typeof config.displayTexts === 'object') ? config.displayTexts : {};
+        const setChDt = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
+        setChDt('chess-display-title',     chdt.titleText,      '♟️ SCHACH');
+        setChDt('chess-display-white',     chdt.labelWhite,     'Weiß');
+        setChDt('chess-display-black',     chdt.labelBlack,     'Schwarz');
+        setChDt('chess-display-your-turn', chdt.labelYourTurn,  'Dein Zug');
+        setChDt('chess-display-check',     chdt.labelCheck,     '⚠️ Schach!');
+        setChDt('chess-display-checkmate', chdt.labelCheckmate, '♚ Schachmatt!');
+        setChDt('chess-display-draw',      chdt.labelDraw,      '🤝 Remis!');
+        setChDt('chess-display-win',       chdt.labelWin,       '🏆 {player} gewinnt!');
       } catch (error) {
         console.error('Failed to load chess settings:', error);
       }
@@ -5641,6 +5813,15 @@
         document.getElementById('plinko-test-mode').checked = !!plinkoConfig.physicsSettings.testModeEnabled;
         document.getElementById('plinko-max-balls').value = plinkoConfig.physicsSettings.maxSimultaneousBalls || 5;
         
+        // Load display texts
+        const pdt = (plinkoConfig.displayTexts && typeof plinkoConfig.displayTexts === 'object') ? plinkoConfig.displayTexts : {};
+        const setPdt = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
+        setPdt('plinko-display-title',             pdt.titleText,             '🎰 PLINKO');
+        setPdt('plinko-display-drop',              pdt.labelDrop,             '⬇️ Ball wird gedropt!');
+        setPdt('plinko-display-win',               pdt.labelWin,              '🎉 Gewonnen!');
+        setPdt('plinko-display-multiplier-prefix', pdt.labelMultiplierPrefix, '×');
+        setPdt('plinko-display-queued',            pdt.labelQueued,           '⏳ Warteschlange...');
+        
         // Load gift mappings
         renderPlinkoGiftMappings();
       } catch (error) {
@@ -5837,6 +6018,16 @@
           maxSimultaneousBalls: parseInt(document.getElementById('plinko-max-balls').value) || 5
         };
         
+        // Collect display texts
+        const getPdt = (id) => document.getElementById(id)?.value ?? '';
+        const displayTexts = {
+          titleText:             getPdt('plinko-display-title')             || '🎰 PLINKO',
+          labelDrop:             getPdt('plinko-display-drop')              || '⬇️ Ball wird gedropt!',
+          labelWin:              getPdt('plinko-display-win')               || '🎉 Gewonnen!',
+          labelMultiplierPrefix: getPdt('plinko-display-multiplier-prefix') || '×',
+          labelQueued:           getPdt('plinko-display-queued')            || '⏳ Warteschlange...',
+        };
+        
         // Collect gift mappings
         const giftMappings = {};
         document.querySelectorAll('.plinko-gift-name').forEach(input => {
@@ -5856,7 +6047,7 @@
         const res = await fetch('/api/game-engine/plinko/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ boardId: currentPlinkoBoardId, slots, physicsSettings, giftMappings })
+          body: JSON.stringify({ boardId: currentPlinkoBoardId, slots, physicsSettings, giftMappings, displayTexts })
         });
         
         if (res.ok) {
@@ -5866,7 +6057,7 @@
             ? `Plinko-Einstellungen gespeichert! ⚡ ${osEnabledCount} Slot(s) mit OpenShock Belohnungen.`
             : 'Plinko-Einstellungen gespeichert!';
           showMessage(message);
-          plinkoConfig = { ...plinkoConfig, slots, physicsSettings, giftMappings };
+          plinkoConfig = { ...plinkoConfig, slots, physicsSettings, giftMappings, displayTexts };
           renderPlinkoSlots();
           renderPlinkoGiftMappings();
         } else {
@@ -6485,6 +6676,16 @@
         document.getElementById('wheel-info-screen-text').value = settings.infoScreenText || 'Um deinen Gewinn abzuholen, besuche discord.gg/deinserver';
         document.getElementById('wheel-info-screen-duration').value = settings.infoScreenDuration || 5;
         
+        // Load display texts
+        const dt = (settings.displayTexts && typeof settings.displayTexts === 'object') ? settings.displayTexts : {};
+        const setDt = (id, val, fallback) => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : fallback; };
+        setDt('wheel-display-title',  dt.titleText,   '🎡 GLÜCKSRAD');
+        setDt('wheel-display-spin',   dt.labelSpin,   '🔄 Dreht sich...');
+        setDt('wheel-display-result', dt.labelResult, '🎉 Ergebnis:');
+        setDt('wheel-display-niete',  dt.labelNiete,  '💔 Niete!');
+        setDt('wheel-display-win',    dt.labelWin,    '🎊 Gewonnen!');
+        setDt('wheel-display-queued', dt.labelQueued, '⏳ In der Warteschlange...');
+        
         // Load gift triggers
         renderWheelGiftTriggers();
         
@@ -6879,6 +7080,7 @@
         });
         
         // Collect settings
+        const getWheelDt = (id) => document.getElementById(id)?.value ?? '';
         const settings = {
           spinDuration: parseInt(document.getElementById('wheel-spin-duration').value) || 5000,
           winnerDisplayDuration: parseInt(document.getElementById('wheel-winner-display-duration').value) || 5,
@@ -6894,7 +7096,16 @@
           // Info Screen settings
           infoScreenEnabled: document.getElementById('wheel-info-screen-enabled').checked,
           infoScreenText: document.getElementById('wheel-info-screen-text').value || 'Um deinen Gewinn abzuholen, besuche discord.gg/deinserver',
-          infoScreenDuration: parseInt(document.getElementById('wheel-info-screen-duration').value) || 5
+          infoScreenDuration: parseInt(document.getElementById('wheel-info-screen-duration').value) || 5,
+          // Display texts
+          displayTexts: {
+            titleText:   getWheelDt('wheel-display-title')  || '🎡 GLÜCKSRAD',
+            labelSpin:   getWheelDt('wheel-display-spin')   || '🔄 Dreht sich...',
+            labelResult: getWheelDt('wheel-display-result') || '🎉 Ergebnis:',
+            labelNiete:  getWheelDt('wheel-display-niete')  || '💔 Niete!',
+            labelWin:    getWheelDt('wheel-display-win')    || '🎊 Gewonnen!',
+            labelQueued: getWheelDt('wheel-display-queued') || '⏳ In der Warteschlange...',
+          }
         };
         
         const res = await fetch('/api/game-engine/wheel/config', {

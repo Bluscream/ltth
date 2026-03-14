@@ -994,11 +994,27 @@
         document.body.style.fontFamily = config.fontFamily;
       }
 
+      // Apply display texts
+      applyDisplayTexts(config.displayTexts);
+
       // Update column labels visibility
       const columnLabels = document.getElementById('column-labels');
       if (config.showCoordinates === false) {
         columnLabels.style.display = 'none';
       }
+    }
+
+    /**
+     * Apply display text tokens from displayTexts config to overlay elements
+     * @param {Object} dt - displayTexts object from connect4 config
+     */
+    function applyDisplayTexts(dt) {
+      if (!dt || typeof dt !== 'object') return;
+      const titleEl = document.getElementById('game-title');
+      if (titleEl && dt.titleText) titleEl.textContent = dt.titleText;
+      // Store for dynamic use in updateStatus / updatePlayerInfo
+      if (!gameConfig) return;
+      gameConfig._displayTexts = dt;
     }
 
     // Update board display
@@ -1052,17 +1068,19 @@
     // Update game status
     function updateStatus(state) {
       const statusDiv = document.getElementById('game-status');
+      const dt = (gameConfig && gameConfig._displayTexts) || {};
       
       if (state.status === 'completed') {
         if (state.winner) {
           const winnerInfo = state.winner === 1 ? state.player1 : state.player2;
-          statusDiv.textContent = `🎉 ${winnerInfo.nickname || winnerInfo.username} gewinnt!`;
+          const winLabel = dt.labelWin || '🏆 {player} gewinnt!';
+          statusDiv.textContent = winLabel.replace('{player}', winnerInfo.nickname || winnerInfo.username);
         } else {
-          statusDiv.textContent = '🤝 Unentschieden!';
+          statusDiv.textContent = dt.labelDraw || '🤝 Unentschieden!';
         }
       } else {
         const currentPlayerInfo = state.currentPlayer === 1 ? state.player1 : state.player2;
-        const columnText = currentPlayerInfo.role === 'viewer' ? ' Tippe A-G im Chat!' : '';
+        const columnText = currentPlayerInfo.role === 'viewer' ? ` ${dt.labelYourTurn || 'Tippe A-G im Chat!'}` : '';
         statusDiv.textContent = `Am Zug: ${currentPlayerInfo.nickname || currentPlayerInfo.username}${columnText}`;
       }
     }
@@ -1072,10 +1090,12 @@
       const resultDiv = document.getElementById('game-result');
       const resultText = document.getElementById('result-text');
       const xpReward = document.getElementById('xp-reward');
+      const dt = (gameConfig && gameConfig._displayTexts) || {};
       
       if (data.winner) {
         const winnerInfo = data.state.winner === 1 ? data.state.player1 : data.state.player2;
-        resultText.innerHTML = `<span class="winner-text">🏆 ${winnerInfo.nickname || winnerInfo.username} gewinnt!</span>`;
+        const winLabel = dt.labelWin || '🏆 {player} gewinnt!';
+        resultText.innerHTML = `<span class="winner-text">${winLabel.replace('{player}', winnerInfo.nickname || winnerInfo.username)}</span>`;
         
         // Play appropriate win sound based on which player won
         const winSound = data.state.winner === 1 
@@ -1085,7 +1105,7 @@
         
         celebrateWin();
       } else if (data.reason === 'draw') {
-        resultText.innerHTML = '<span class="draw-text">🤝 Unentschieden!</span>';
+        resultText.innerHTML = `<span class="draw-text">${dt.labelDraw || '🤝 Unentschieden!'}</span>`;
         playAudioFile('/game-engine/sounds/default/game over.mp3');
       } else {
         resultText.innerHTML = '<span>Spiel beendet</span>';

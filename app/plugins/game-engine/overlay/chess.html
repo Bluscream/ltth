@@ -649,12 +649,39 @@
     // Initialize
     initBoard();
 
+    // Load initial chess config for display texts (best-effort)
+    fetch('/api/game-engine/config/chess')
+      .then(res => res.json())
+      .then(cfg => { if (cfg) { config = cfg; applyDisplayTexts(cfg.displayTexts); } })
+      .catch(() => {});
+
+    /**
+     * Apply display text tokens from displayTexts config to overlay elements
+     * @param {Object} dt - displayTexts object from chess config
+     */
+    function applyDisplayTexts(dt) {
+      if (!dt || typeof dt !== 'object') return;
+      config._displayTexts = dt;
+      // Apply static label texts that can be set immediately
+      if (dt.labelWhite) {
+        const whiteLabel = document.getElementById('white-player');
+        if (whiteLabel) whiteLabel.dataset.label = dt.labelWhite;
+      }
+      if (dt.labelBlack) {
+        const blackLabel = document.getElementById('black-player');
+        if (blackLabel) blackLabel.dataset.label = dt.labelBlack;
+      }
+    }
+
     // Socket events
     socket.on('game-engine:game-started', (data) => {
       if (data.gameType !== 'chess') return;
       
       gameState = data.state;
       config = data.config;
+      
+      // Apply display texts if present in config
+      applyDisplayTexts(config.displayTexts);
       
       // Update player names
       document.getElementById('white-name').textContent = gameState.whitePlayer.nickname;
@@ -703,30 +730,34 @@
         
         if (data.winner) {
           const winnerInfo = data.winner === 'white' ? gameState.whitePlayer : gameState.blackPlayer;
-          title.textContent = '🏆 Victory!';
+          const dt = config._displayTexts || {};
+          const winLabel = dt.labelWin || '🏆 {player} gewinnt!';
+          title.textContent = dt.titleText || '🏆 Victory!';
           title.style.color = data.winner === 'white' ? '#4CAF50' : '#2196F3';
-          winnerName.textContent = winnerInfo.nickname + ' wins!';
+          winnerName.textContent = winLabel.replace('{player}', winnerInfo.nickname);
           winnerName.style.color = data.winner === 'white' ? '#4CAF50' : '#2196F3';
           
           if (config.celebrationEnabled) {
             showConfetti();
           }
         } else {
-          title.textContent = 'Draw';
+          const dt = config._displayTexts || {};
+          title.textContent = dt.labelDraw || '🤝 Remis!';
           title.style.color = '#FFC107';
-          winnerName.textContent = 'Game drawn';
+          winnerName.textContent = dt.labelDraw || '🤝 Remis!';
           winnerName.style.color = '#FFC107';
         }
         
+        const dt = config._displayTexts || {};
         const reasonText = {
-          'checkmate': 'by Checkmate',
+          'checkmate': dt.labelCheckmate || '♚ Schachmatt!',
           'timeout': 'by Timeout',
           'resignation': 'by Resignation',
           'stalemate': 'Stalemate',
           'repetition': 'by Threefold Repetition',
           'insufficient_material': 'Insufficient Material',
           'fifty_move_rule': 'by Fifty-Move Rule',
-          'draw_agreement': 'by Agreement'
+          'draw_agreement': dt.labelDraw || '🤝 Remis!'
         };
         reason.textContent = reasonText[data.reason] || data.reason;
         
@@ -743,6 +774,7 @@
     socket.on('game-engine:config-updated', (data) => {
       if (data.gameType === 'chess') {
         config = data.config;
+        applyDisplayTexts(config.displayTexts);
       }
     });
 

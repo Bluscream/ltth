@@ -888,6 +888,22 @@
       socket.emit('plinko:request-config');
     });
 
+    /**
+     * Apply display text tokens from displayTexts config to overlay elements
+     * @param {Object} dt - displayTexts object from plinko config
+     */
+    function applyDisplayTexts(dt) {
+      if (!dt || typeof dt !== 'object') return;
+      config.displayTexts = dt;
+      // Apply multiplier prefix to all slot labels
+      if (dt.labelMultiplierPrefix !== undefined) {
+        document.querySelectorAll('.slot-label').forEach(label => {
+          const mul = label.dataset.multiplier;
+          if (mul) label.textContent = `${dt.labelMultiplierPrefix}${mul}`;
+        });
+      }
+    }
+
     socket.on('plinko:spawn-ball', (data) => {
       console.log('🎰 Received spawn-ball event', data);
       spawnBall(data);
@@ -898,16 +914,19 @@
       config.slots = newConfig.slots;
       config.physicsSettings = newConfig.physicsSettings;
       config.giftMappings = newConfig.giftMappings;
-        overlayTestMode = overlayTestMode || !!config.physicsSettings.testModeEnabled;
+      overlayTestMode = overlayTestMode || !!config.physicsSettings.testModeEnabled;
+      
+      // Apply display texts
+      applyDisplayTexts(newConfig.displayTexts);
       
       // Update gravity
       engine.gravity.y = config.physicsSettings.gravity;
       
       // Rebuild world
       setupWorld();
-        if (overlayTestMode) {
-          enableTestModeUI();
-        }
+      if (overlayTestMode) {
+        enableTestModeUI();
+      }
     });
 
     socket.on('plinko:config', (newConfig) => {
@@ -917,6 +936,9 @@
         config.physicsSettings = newConfig.physicsSettings;
         config.giftMappings = newConfig.giftMappings || {};
         overlayTestMode = overlayTestMode || !!config.physicsSettings.testModeEnabled;
+        
+        // Apply display texts
+        applyDisplayTexts(newConfig.displayTexts);
         
         // Update gravity
         engine.gravity.y = config.physicsSettings.gravity;

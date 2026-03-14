@@ -1023,7 +1023,8 @@
         // Handle "Niete" (no win) case
         // Use custom Niete text from settings or default
         const nieteText = config.settings.nieteText || 'Leider kein Gewinn!';
-        congratsText.textContent = '😢 Schade!';
+        const dt = config._displayTexts || {};
+        congratsText.textContent = dt.labelNiete || '💔 Niete!';
         prizeText.textContent = nieteText;
         prizeText.style.color = prizeColor || '#90A4AE';
         winAnnouncement.classList.add('niete');
@@ -1031,7 +1032,8 @@
         // Don't spawn confetti for Niete
       } else {
         // Regular win
-        congratsText.textContent = '🎉 Glückwunsch!';
+        const dt = config._displayTexts || {};
+        congratsText.textContent = dt.labelWin || '🎊 Gewonnen!';
         prizeText.textContent = prize;
         prizeText.style.color = prizeColor || '#FFD700';
         winAnnouncement.classList.remove('niete');
@@ -1264,6 +1266,17 @@
     }
 
     /**
+     * Apply display text tokens from settings.displayTexts to overlay elements
+     * @param {Object} dt - displayTexts object from wheel settings
+     */
+    function applyDisplayTexts(dt) {
+      if (!dt || typeof dt !== 'object') return;
+      // titleText: no dedicated static title element on wheel overlay; used in announcements
+      // Store for use in showWinAnnouncement and showPlayerInfo
+      config._displayTexts = dt;
+    }
+
+    /**
      * Spawn confetti particles
      */
     function spawnConfetti() {
@@ -1332,6 +1345,9 @@
       config.segments = newConfig.segments || [];
       config.settings = newConfig.settings || config.settings;
       
+      // Apply display texts from settings
+      applyDisplayTexts(newConfig.settings && newConfig.settings.displayTexts);
+      
       console.log(`✅ Config applied: ${config.segments.length} segments`);
       drawWheel(currentRotation);
       
@@ -1359,6 +1375,9 @@
       
       config.segments = newConfig.segments || config.segments;
       config.settings = newConfig.settings || config.settings;
+      
+      // Apply display texts if provided
+      applyDisplayTexts(newConfig.settings && newConfig.settings.displayTexts);
       
       console.log(`✅ Config updated: ${config.segments.length} segments`);
       drawWheel(currentRotation);
