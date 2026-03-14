@@ -403,6 +403,13 @@ logger.info(`💡 All settings (including API keys) are stored here and will sur
 logger.info(`👤 Streamer ID for scoped data: ${activeProfile}`);
 initState.setDatabaseReady();
 
+// Ensure soundboard_enabled has a default value so that alerts.js and the
+// soundboard plugin both agree on the initial state (prevents double audio
+// on first start when the setting has never been explicitly saved).
+if (!db.getSetting('soundboard_enabled')) {
+    db.setSetting('soundboard_enabled', 'true');
+}
+
 // Store the loaded profile in memory to detect profile mismatches
 const loadedProfile = activeProfile;
 
@@ -2990,6 +2997,13 @@ tiktok.on('like', async (data) => {
 tiktok.on('connected', async (data) => {
     debugLogger.log('system', 'TikTok connected', { username: data.username });
     await iftttEngine.processEvent('system:connected', data);
+
+    // Re-register all plugin TikTok event handlers after every (re-)connect.
+    // The TikTok EventEmitter is set up fresh on each connect and plugin handlers
+    // must be re-attached to ensure they fire correctly after a reconnect.
+    // registerPluginTikTokEvents() performs an atomic removeListener + on(), so
+    // calling it here is idempotent and safe even on the initial connection.
+    pluginLoader.registerPluginTikTokEvents(tiktok);
 });
 
 // Disconnected Event (System)
