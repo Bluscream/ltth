@@ -1198,11 +1198,26 @@ class TikTokConnector extends EventEmitter {
                            data.diamondCount || data.diamond_count ||
                            gift.cost || gift.value || data.cost || 0;
 
-        // Determine if streak/combo has ended
-        // repeatEnd is true if: explicit repeatEnd flag, or explicit repeat_end flag
-        // If neither is set, we assume it's not a streakable gift (single gift send)
+        // Extract giftType using nullish coalescing (??) to preserve 0 as a valid value.
+        // Using || would skip 0 (non-streakable) and incorrectly fall through to the next candidate.
+        // Field precedence (first defined value wins):
+        //   data.giftType         – top-level field from Eulerstream v2+ and TikTok-Live-Connector
+        //   data.gift_type        – snake_case variant used by some Eulerstream versions
+        //   gift.giftType         – nested in data.gift / data.giftInfo object
+        //   gift.gift_type        – snake_case nested variant
+        //   gift.type             – short alias used in older Eulerstream payloads
+        //   data.gift?.type       – direct reference when data.gift is the payload root
+        const giftType = data.giftType ?? data.gift_type ?? gift.giftType ?? gift.gift_type ?? gift.type ?? data.gift?.type ?? 0;
+
+        // Determine if streak/combo has ended.
+        // If the repeatEnd field is absent AND giftType === 1 (streakable), default to false
+        // (the streak is still running — this is a mid-animation Popup event).
+        // If the repeatEnd field is absent AND giftType !== 1 (non-streakable / unknown),
+        // default to true (treat it as a completed single-send gift).
         const hasRepeatEnd = data.repeatEnd !== undefined || data.repeat_end !== undefined;
-        const repeatEnd = hasRepeatEnd ? (data.repeatEnd || data.repeat_end) : true;
+        const repeatEnd = hasRepeatEnd
+            ? Boolean(data.repeatEnd ?? data.repeat_end)
+            : giftType !== 1;
 
         const extractedData = {
             giftName: giftName,
@@ -1210,7 +1225,7 @@ class TikTokConnector extends EventEmitter {
             giftPictureUrl: giftPictureUrl,
             diamondCount: diamondCount,
             repeatCount: data.repeatCount || data.repeat_count || data.comboCount || 1,
-            giftType: data.giftType || data.gift_type || gift.giftType || gift.type || 0,
+            giftType: giftType,
             repeatEnd: repeatEnd
         };
 
@@ -1756,6 +1771,15 @@ class TikTokConnector extends EventEmitter {
                             this.logger.debug(`[HASH] Invalid timestamp in gift event: ${rawTime}`);
                         }
                     }
+                }
+                // Defense-in-depth: include isStreakEnd in the hash so that
+                // a Popup-event (isStreakEnd=false) and its Chat-counterpart
+                // (isStreakEnd=true) always produce different hashes.
+                // After fixes to extractGiftData(), Popup events never reach
+                // this point (shouldEmitGift=false), but this safeguards
+                // against future regressions or edge cases.
+                if (data.isStreakEnd !== undefined) {
+                    components.push(data.isStreakEnd ? '1' : '0');
                 }
                 break;
             case 'like':
