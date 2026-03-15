@@ -74,6 +74,11 @@ function generateGiftEventHash(eventType, data) {
                 // Ignore invalid timestamps - hash will work without timestamp component
             }
         }
+        // Defense-in-depth: include isStreakEnd so that a Popup-event (isStreakEnd=false)
+        // and its Chat-counterpart (isStreakEnd=true) always produce different hashes.
+        if (data.isStreakEnd !== undefined) {
+            components.push(data.isStreakEnd ? '1' : '0');
+        }
     }
     
     return components.join('|');
@@ -342,6 +347,40 @@ runTest('TikTok popup and chat events with identical createTime generate same ha
     assert(hash1 === expectedHash, `Hash should match expected format: ${expectedHash}, got: ${hash1}`);
 });
 
+// Test 10: Popup (isStreakEnd=false) and streak-end (isStreakEnd=true) events produce different hashes
+runTest('Popup event (isStreakEnd=false) and streak-end event (isStreakEnd=true) generate different hashes', () => {
+    const createTime = '2024-01-01T10:00:00.123Z';
+
+    // Popup/animation event sent by TikTok during the streak (not yet ended)
+    const popupEvent = {
+        username: 'user1',
+        giftId: 5655,
+        giftName: 'Rose',
+        coins: 1,
+        repeatCount: 1,
+        createTime: createTime,
+        timestamp: createTime,
+        isStreakEnd: false  // streak still running
+    };
+
+    // Final streak-end event (what plugins should act on)
+    const streakEndEvent = {
+        username: 'user1',
+        giftId: 5655,
+        giftName: 'Rose',
+        coins: 1,
+        repeatCount: 1,
+        createTime: createTime,
+        timestamp: createTime,
+        isStreakEnd: true  // streak finished
+    };
+
+    const hash1 = generateGiftEventHash('gift', popupEvent);
+    const hash2 = generateGiftEventHash('gift', streakEndEvent);
+
+    assert(hash1 !== hash2, 'Popup (isStreakEnd=false) and streak-end (isStreakEnd=true) events should have different hashes');
+});
+
 console.log(`\n📊 Test Summary: ${passed} passed, ${failed} failed`);
 
 if (failed > 0) {
@@ -354,4 +393,5 @@ if (failed > 0) {
     console.log('  ✓ Includes timestamp (rounded to seconds) to catch near-duplicates');
     console.log('  ✓ Allows legitimate streak updates (different coins/timestamps)');
     console.log('  ✓ Prevents duplicate gifts like "teamherz" from being shown twice');
+    console.log('  ✓ isStreakEnd in hash differentiates popup vs. chat events (defense-in-depth)');
 }
