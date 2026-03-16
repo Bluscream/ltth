@@ -265,6 +265,14 @@ class TikTokConnector extends EventEmitter {
 
             this.isConnected = true;
 
+            // Reset auto-reconnect counter on every successful connection
+            this.autoReconnectCount = 0;
+            if (this.autoReconnectResetTimeout) {
+                clearTimeout(this.autoReconnectResetTimeout);
+                this.autoReconnectResetTimeout = null;
+            }
+            this.logger.info('✅ Auto-reconnect counter reset (successful connection)');
+
             // Initialize stream start time
             // Note: _persistedStreamStart is always cleared on disconnect (see disconnect method)
             // This ensures each connection detects the actual current stream start time
@@ -315,15 +323,6 @@ class TikTokConnector extends EventEmitter {
                     currentDuration: Math.floor((Date.now() - this.streamStartTime) / 1000)
                 });
             }
-
-            // Reset auto-reconnect counter after 5 minutes of stable connection
-            if (this.autoReconnectResetTimeout) {
-                clearTimeout(this.autoReconnectResetTimeout);
-            }
-            this.autoReconnectResetTimeout = setTimeout(() => {
-                this.autoReconnectCount = 0;
-                this.logger.info('✅ Auto-reconnect counter reset');
-            }, 5 * 60 * 1000);
 
             // Broadcast success
             this.broadcastStatus('connected', {
@@ -441,64 +440,102 @@ class TikTokConnector extends EventEmitter {
         this.ws.on('close', (code, reason) => {
             const reasonText = Buffer.isBuffer(reason) ? reason.toString('utf-8') : (reason || '');
             this.logger.info(`🔴 Eulerstream WebSocket disconnected: ${code} - ${ClientCloseCode[code] || reasonText}`);
-            
-            // Special handling for authentication errors
+
+            this.isConnected = false;
+
+            // Helper: emit disconnected event for IFTTT engine and plugins
+            const emitDisconnect = (reasonOverride) => {
+                this.emit('disconnected', {
+                    username: this.currentUsername,
+                    timestamp: new Date().toISOString(),
+                    reason: reasonOverride || reasonText || ClientCloseCode[code] || 'Connection closed',
+                    code: code
+                });
+            };
+
+            // 4401 – Invalid API Key → no reconnect, manual fix required
             if (code === 4401) {
                 this.logger.error('❌ Authentication Error: The provided Eulerstream API key is invalid.');
                 this.logger.error('💡 Please check your API key configuration:');
                 this.logger.error('   1. Verify the API key in Dashboard Settings (tiktok_euler_api_key)');
                 this.logger.error('   2. Or check environment variable EULER_API_KEY');
                 this.logger.error('   3. Get a valid key from: https://www.eulerstream.com');
-                this.logger.error(`   4. Key format should be a long alphanumeric string (64+ characters)`);
-                if (reasonText) {
-                    this.logger.error(`   Server message: ${reasonText}`);
-                }
-            } else if (code === 4400) {
-                this.logger.error('❌ Invalid Options: The connection parameters are incorrect.');
-                this.logger.error('💡 Please check the username and API key are correct.');
-            } else if (code === 4404) {
-                this.logger.warn('⚠️  User Not Live: The requested TikTok user is not currently streaming.');
-            }
-            
-            this.isConnected = false;
-            this.broadcastStatus('disconnected');
-            
-            // Emit disconnected event for IFTTT engine
-            this.emit('disconnected', {
-                username: this.currentUsername,
-                timestamp: new Date().toISOString(),
-                reason: reasonText || ClientCloseCode[code] || 'Connection closed',
-                code: code
-            });
-
-            // Don't auto-reconnect on authentication errors
-            if (code === 4401 || code === 4400) {
-                this.logger.warn('⚠️  Auto-reconnect disabled due to authentication/configuration error. Please fix the issue and manually reconnect.');
+                this.logger.error('   4. Key format should be a long alphanumeric string (64+ characters)');
+                if (reasonText) this.logger.error(`   Server message: ${reasonText}`);
                 this.broadcastStatus('auth_error', {
-                    code: code,
+                    code,
                     message: 'Authentication failed - manual reconnect required',
                     suggestion: 'Please check your Eulerstream API key configuration'
                 });
+                emitDisconnect('Authentication failed');
                 return;
             }
-            
-            // Auto-Reconnect with limit (for non-auth errors)
+
+            // 4400 – Invalid Options → no reconnect, manual fix required
+            if (code === 4400) {
+                this.logger.error('❌ Invalid Options: The connection parameters are incorrect.');
+                this.logger.error('💡 Please check the username and API key are correct.');
+                this.broadcastStatus('auth_error', {
+                    code,
+                    message: 'Invalid connection options - manual reconnect required'
+                });
+                emitDisconnect('Invalid options');
+                return;
+            }
+
+            // 4005 – Stream ended normally → no reconnect, broadcast stream_ended
+            if (code === 4005) {
+                this.logger.info('🏁 Stream ended (STREAM_END). Waiting for next stream...');
+                this.broadcastStatus('stream_ended');
+                emitDisconnect('Stream ended');
+                return;
+            }
+
+            // 4404 – Not live → soft retry with long delay, does NOT consume autoReconnectCount
+            if (code === 4404) {
+                this.logger.warn('⚠️  User Not Live: The requested TikTok user is not currently streaming.');
+                this.broadcastStatus('not_live');
+                emitDisconnect('User not live');
+                if (this.currentUsername) {
+                    const notLiveDelay = 30000;
+                    this.logger.info(`⏳ Retrying in ${notLiveDelay / 1000}s (stream may be starting soon)...`);
+                    setTimeout(() => {
+                        this.connect(this.currentUsername).catch(err => {
+                            this.logger.error('Not-live retry failed:', err.message);
+                        });
+                    }, notLiveDelay);
+                }
+                return;
+            }
+
+            // 4429 – Too many connections → wait 30s then single retry
+            if (code === 4429) {
+                this.logger.warn('⚠️  Too many connections. Waiting 30s before retry...');
+                this.broadcastStatus('disconnected');
+                emitDisconnect('Too many connections');
+                if (this.currentUsername) {
+                    setTimeout(() => {
+                        this.connect(this.currentUsername).catch(err => {
+                            this.logger.error('4429 retry failed:', err.message);
+                        });
+                    }, 30000);
+                }
+                return;
+            }
+
+            // All other codes (1000, 1011, 4500, unknown) → standard auto-reconnect with exponential backoff
+            this.broadcastStatus('disconnected');
+            emitDisconnect();
+
             if (this.currentUsername && this.autoReconnectCount < this.maxAutoReconnects) {
                 this.autoReconnectCount++;
-                const delay = 5000;
-
-                this.logger.info(`🔄 Attempting auto-reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} in ${delay/1000}s...`);
-
+                const delay = Math.min(5000 * this.autoReconnectCount, 30000);
+                this.logger.info(`🔄 Attempting auto-reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} in ${delay / 1000}s...`);
                 setTimeout(() => {
                     this.connect(this.currentUsername).catch(err => {
                         this.logger.error(`Auto-reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} failed:`, err.message);
                     });
                 }, delay);
-
-                // Reset Counter after 5 minutes successful connection
-                if (this.autoReconnectResetTimeout) {
-                    clearTimeout(this.autoReconnectResetTimeout);
-                }
             } else if (this.autoReconnectCount >= this.maxAutoReconnects) {
                 this.logger.warn(`⚠️ Max auto-reconnect attempts (${this.maxAutoReconnects}) reached. Manual reconnect required.`);
                 this.broadcastStatus('max_reconnects_reached', {
