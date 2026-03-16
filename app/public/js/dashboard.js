@@ -1540,6 +1540,9 @@ async function loadSettings() {
             ttsFishspeechKeyInput.placeholder = 'API key configured (hidden)';
         }
 
+        // Load username aliases for active profile
+        await loadUsernameAliases();
+
     } catch (error) {
         console.error('Error loading settings:', error);
     }
@@ -5033,4 +5036,183 @@ function showEulerBackupKeyWarning(data) {
             }, 500);
         }
     }, data.duration || 10000);
+}
+
+// ========== USERNAME ALIASES ==========
+
+/**
+ * Load and render all username aliases for the active profile
+ */
+async function loadUsernameAliases() {
+    try {
+        const response = await fetch('/api/profiles/aliases');
+        if (!response.ok) return;
+        const result = await response.json();
+        if (!result.success) return;
+
+        renderUsernameAliases(result.aliases);
+    } catch (error) {
+        console.error('[Aliases] Error loading aliases:', error);
+    }
+}
+
+/**
+ * Render alias list into #alias-list
+ * @param {Array} aliases
+ */
+function renderUsernameAliases(aliases) {
+    const container = document.getElementById('alias-list');
+    const emptyMsg = document.getElementById('alias-list-empty');
+    if (!container) return;
+
+    if (!aliases || aliases.length === 0) {
+        if (emptyMsg) emptyMsg.style.display = '';
+        container.innerHTML = '';
+        if (emptyMsg) container.appendChild(emptyMsg);
+        return;
+    }
+
+    if (emptyMsg) emptyMsg.style.display = 'none';
+
+    const rows = aliases.map(alias => {
+        const lastSeen = alias.last_seen_at
+            ? new Date(alias.last_seen_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+            : '—';
+        const addedAt = alias.added_at
+            ? new Date(alias.added_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+            : '—';
+        const isPrimary = alias.is_primary === 1 || alias.is_primary === true;
+
+        return `
+            <div class="alias-row flex items-center gap-3 p-3 bg-gray-700/50 rounded-lg border border-gray-600/50 hover:border-gray-500/70 transition-colors"
+                 data-alias-username="${escapeHtml(alias.username)}">
+                <button
+                    class="alias-star-btn text-lg flex-shrink-0 transition-colors ${isPrimary ? 'text-yellow-400' : 'text-gray-500 hover:text-yellow-300'}"
+                    title="${isPrimary ? 'Haupt-Username (aktiv)' : 'Als Haupt-Username setzen'}"
+                    onclick="setAliasAsPrimary('${escapeHtml(alias.username)}')"
+                    ${isPrimary ? 'disabled' : ''}
+                >⭐</button>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono font-semibold text-white">@${escapeHtml(alias.username)}</span>
+                        ${isPrimary ? '<span class="text-xs bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-2 py-0.5 rounded">Haupt</span>' : ''}
+                        ${alias.label ? `<span class="text-xs text-gray-400 truncate">${escapeHtml(alias.label)}</span>` : ''}
+                    </div>
+                    <div class="text-xs text-gray-500 mt-0.5">
+                        Hinzugefügt: ${addedAt}
+                        ${alias.last_seen_at ? ` · Zuletzt gesehen: ${lastSeen}` : ''}
+                    </div>
+                </div>
+                <button
+                    class="alias-delete-btn text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 p-1 rounded hover:bg-red-500/10"
+                    title="Alias entfernen"
+                    onclick="removeUsernameAlias('${escapeHtml(alias.username)}')"
+                >
+                    <i data-lucide="trash-2" style="width:16px;height:16px;"></i>
+                </button>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = rows;
+
+    // Re-init lucide icons inside the new HTML
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+
+/**
+ * Add a new username alias via the form inputs
+ */
+async function addUsernameAlias() {
+    const usernameInput = document.getElementById('new-alias-username');
+    const labelInput = document.getElementById('new-alias-label');
+    if (!usernameInput) return;
+
+    const username = usernameInput.value.trim().replace(/^@/, '');
+    const label = labelInput ? labelInput.value.trim() : '';
+
+    if (!username) {
+        alert('Bitte einen TikTok-Username eingeben.');
+        usernameInput.focus();
+        return;
+    }
+
+    if (!/^[a-zA-Z0-9._-]+$/.test(username)) {
+        alert('Ungültiger Username. Erlaubt sind: Buchstaben, Zahlen, Punkt, Unterstrich, Bindestrich.');
+        return;
+    }
+
+    const btn = document.getElementById('add-alias-btn');
+    if (btn) btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/profiles/aliases', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, label: label || null, isPrimary: false })
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            usernameInput.value = '';
+            if (labelInput) labelInput.value = '';
+            await loadUsernameAliases();
+        } else {
+            alert('Fehler: ' + (result.error || 'Unbekannter Fehler'));
+        }
+    } catch (error) {
+        console.error('[Aliases] Error adding alias:', error);
+        alert('Netzwerkfehler beim Hinzufügen.');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+/**
+ * Remove a username alias
+ * @param {string} username
+ */
+async function removeUsernameAlias(username) {
+    if (!confirm(`Username "@${username}" aus dem Profil entfernen?\n\nDas Profil wird bei diesem Usernamen nicht mehr automatisch erkannt.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/profiles/aliases/${encodeURIComponent(username)}`, {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            await loadUsernameAliases();
+        } else {
+            alert('Fehler beim Entfernen: ' + (result.error || 'Unbekannter Fehler'));
+        }
+    } catch (error) {
+        console.error('[Aliases] Error removing alias:', error);
+        alert('Netzwerkfehler beim Entfernen.');
+    }
+}
+
+/**
+ * Set a specific alias as the primary (current) username
+ * @param {string} username
+ */
+async function setAliasAsPrimary(username) {
+    try {
+        const response = await fetch(`/api/profiles/aliases/${encodeURIComponent(username)}/primary`, {
+            method: 'PATCH'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            await loadUsernameAliases();
+        } else {
+            alert('Fehler: ' + (result.error || 'Unbekannter Fehler'));
+        }
+    } catch (error) {
+        console.error('[Aliases] Error setting primary alias:', error);
+    }
 }

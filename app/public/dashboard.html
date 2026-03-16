@@ -3083,6 +3083,55 @@
                                 </div>
                             </div>
 
+                            <!-- Username Aliases -->
+                            <div class="settings-card mt-4" id="username-aliases-card">
+                                <h3 class="card-title">
+                                    <i data-lucide="at-sign"></i>
+                                    TikTok Benutzernamen (Aliases)
+                                </h3>
+                                <p class="text-sm text-gray-400 mb-4">
+                                    Hinterlege alle TikTok-Usernamen, die zu diesem Profil gehören.
+                                    Das Tool erkennt das Profil auch nach einer Namensänderung automatisch.
+                                </p>
+
+                                <!-- Alias List -->
+                                <div id="alias-list" class="space-y-2 mb-4">
+                                    <p class="text-gray-500 text-sm" id="alias-list-empty">Keine Usernamen hinterlegt. Das Profil wird beim nächsten Verbinden automatisch eingetragen.</p>
+                                </div>
+
+                                <!-- Add Alias Form -->
+                                <div class="flex gap-2 mt-3">
+                                    <div class="flex-1">
+                                        <input
+                                            type="text"
+                                            id="new-alias-username"
+                                            class="form-input w-full"
+                                            placeholder="TikTok Username (ohne @)"
+                                            maxlength="100"
+                                        >
+                                    </div>
+                                    <div class="flex-1">
+                                        <input
+                                            type="text"
+                                            id="new-alias-label"
+                                            class="form-input w-full"
+                                            placeholder="Bezeichnung (optional, z.B. 'Alter Name')"
+                                            maxlength="100"
+                                        >
+                                    </div>
+                                    <button id="add-alias-btn" class="btn btn-primary flex-shrink-0" onclick="addUsernameAlias()">
+                                        <i data-lucide="plus"></i>
+                                        Hinzufügen
+                                    </button>
+                                </div>
+
+                                <p class="text-xs text-gray-500 mt-2">
+                                    ⭐ = Aktueller Hauptname &nbsp;|&nbsp;
+                                    Klicke auf ⭐ um einen Namen als Haupt-Username zu setzen &nbsp;|&nbsp;
+                                    Das Profil wird beim Verbinden automatisch erkannt wenn einer dieser Namen verwendet wird.
+                                </p>
+                            </div>
+
                             <!-- Config Path Management -->
                             <div class="settings-card">
                                 <h3 class="card-title">

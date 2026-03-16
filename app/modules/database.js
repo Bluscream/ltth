@@ -440,6 +440,24 @@ class DatabaseManager {
             )
         `);
 
+        // Username Aliases for streamer profile recognition after username change
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS profile_username_aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                label TEXT,
+                is_primary INTEGER DEFAULT 0,
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at DATETIME,
+                notes TEXT
+            )
+        `);
+
+        this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_alias_username
+            ON profile_username_aliases(username COLLATE NOCASE)
+        `);
+
         // Default-Einstellungen setzen
         this.setDefaultSettings();
         this.initializeEmojiRainDefaults();
@@ -459,6 +477,128 @@ class DatabaseManager {
      */
     getStreamerId() {
         return this.streamerId;
+    }
+
+    // ========== USERNAME ALIASES ==========
+
+    /**
+     * Get all username aliases for this profile
+     * @returns {Array} Array of alias objects
+     */
+    getUsernameAliases() {
+        try {
+            return this.db.prepare(
+                'SELECT * FROM profile_username_aliases ORDER BY is_primary DESC, added_at ASC'
+            ).all();
+        } catch (error) {
+            console.error('[DB] Error getting username aliases:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Add a username alias to this profile
+     * @param {string} username - TikTok username (without @)
+     * @param {string} label - Optional human-readable label
+     * @param {boolean} isPrimary - Whether this is the primary/current username
+     * @returns {Object} Created alias
+     */
+    addUsernameAlias(username, label = null, isPrimary = false) {
+        try {
+            username = username.replace(/^@/, '').trim().toLowerCase();
+            if (!username) throw new Error('Username cannot be empty');
+
+            if (isPrimary) {
+                // Demote all existing primary aliases
+                this.db.prepare(
+                    'UPDATE profile_username_aliases SET is_primary = 0 WHERE is_primary = 1'
+                ).run();
+            }
+
+            const stmt = this.db.prepare(`
+                INSERT INTO profile_username_aliases (username, label, is_primary, added_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(username) DO UPDATE SET
+                    label = excluded.label,
+                    is_primary = excluded.is_primary
+            `);
+            stmt.run(username, label, isPrimary ? 1 : 0);
+
+            return this.db.prepare(
+                'SELECT * FROM profile_username_aliases WHERE username = ?'
+            ).get(username);
+        } catch (error) {
+            console.error('[DB] Error adding username alias:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Remove a username alias from this profile
+     * @param {string} username - TikTok username to remove
+     */
+    removeUsernameAlias(username) {
+        try {
+            username = username.replace(/^@/, '').trim().toLowerCase();
+            this.db.prepare(
+                'DELETE FROM profile_username_aliases WHERE username = ?'
+            ).run(username);
+        } catch (error) {
+            console.error('[DB] Error removing username alias:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Set a username as the primary alias
+     * @param {string} username - TikTok username to set as primary
+     */
+    setPrimaryAlias(username) {
+        try {
+            username = username.replace(/^@/, '').trim().toLowerCase();
+            this.db.prepare(
+                'UPDATE profile_username_aliases SET is_primary = 0'
+            ).run();
+            this.db.prepare(
+                'UPDATE profile_username_aliases SET is_primary = 1 WHERE username = ?'
+            ).run(username);
+        } catch (error) {
+            console.error('[DB] Error setting primary alias:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Check if a username matches any alias of this profile (case-insensitive)
+     * @param {string} username - TikTok username to check
+     * @returns {boolean}
+     */
+    hasUsernameAlias(username) {
+        try {
+            username = username.replace(/^@/, '').trim().toLowerCase();
+            const result = this.db.prepare(
+                'SELECT id FROM profile_username_aliases WHERE username = ? COLLATE NOCASE'
+            ).get(username);
+            return !!result;
+        } catch (error) {
+            console.error('[DB] Error checking username alias:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Update last_seen_at for an alias (called on TikTok connect)
+     * @param {string} username
+     */
+    touchUsernameAlias(username) {
+        try {
+            username = username.replace(/^@/, '').trim().toLowerCase();
+            this.db.prepare(
+                'UPDATE profile_username_aliases SET last_seen_at = CURRENT_TIMESTAMP WHERE username = ? COLLATE NOCASE'
+            ).run(username);
+        } catch (error) {
+            console.error('[DB] Error touching alias:', error);
+        }
     }
 
     runMigrations() {

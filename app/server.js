@@ -1025,6 +1025,38 @@ app.post('/api/connect', authLimiter, async (req, res) => {
             fieldName: 'username'
         });
 
+        // Check if any existing profile has this username as an alias
+        // This handles the case where a user changed their TikTok username
+        const aliasMatchedProfile = profileManager.findProfileByUsername(username);
+        if (aliasMatchedProfile && aliasMatchedProfile !== loadedProfile) {
+            logger.info(`🔗 Username "${username}" found as alias of profile "${aliasMatchedProfile}"`);
+            // Switch to that profile instead of creating a new one
+            profileManager.setActiveProfile(aliasMatchedProfile);
+            io.emit('profile:switched', {
+                from: loadedProfile,
+                to: aliasMatchedProfile,
+                aliasMatch: username,
+                requiresRestart: true
+            });
+            return res.json({
+                success: true,
+                profileSwitched: true,
+                aliasMatch: true,
+                originalUsername: username,
+                message: `Profil "${aliasMatchedProfile}" wurde über Alias "${username}" gefunden. Neustart erforderlich.`,
+                requiresRestart: true,
+                newProfile: aliasMatchedProfile
+            });
+        }
+
+        // If the active profile already matches via alias, just touch and proceed
+        if (aliasMatchedProfile && aliasMatchedProfile === loadedProfile) {
+            try { db.touchUsernameAlias(username); } catch (_) {}
+            await tiktok.connect(username);
+            logger.info(`✅ Connected to TikTok user: ${username} (alias of profile "${loadedProfile}")`);
+            return res.json({ success: true, profileSwitched: false });
+        }
+
         // Check if the loaded database profile matches the requested username
         // This is critical: we must compare against the LOADED profile, not the file
         if (loadedProfile !== username) {
@@ -1062,6 +1094,17 @@ app.post('/api/connect', authLimiter, async (req, res) => {
         // Profile already active, proceed with connection
         await tiktok.connect(username);
         logger.info(`✅ Connected to TikTok user: ${username}`);
+
+        // Auto-register the connected username as a primary alias (idempotent)
+        try {
+            if (!db.hasUsernameAlias(username)) {
+                db.addUsernameAlias(username, 'Auto-registered on connect', true);
+                logger.info(`📝 Auto-registered "${username}" as primary alias for profile "${loadedProfile}"`);
+            } else {
+                db.touchUsernameAlias(username);
+            }
+        } catch (_) {}
+
         res.json({ success: true, profileSwitched: false });
     } catch (error) {
         if (error instanceof ValidationError) {
@@ -1077,6 +1120,88 @@ app.post('/api/disconnect', authLimiter, (req, res) => {
     tiktok.disconnect();
     logger.info('🔌 Disconnected from TikTok');
     res.json({ success: true });
+});
+
+// ========== USERNAME ALIASES ==========
+
+// GET /api/profiles/aliases — List aliases of active profile
+app.get('/api/profiles/aliases', apiLimiter, (req, res) => {
+    try {
+        const aliases = db.getUsernameAliases();
+        res.json({ success: true, aliases, activeProfile: loadedProfile });
+    } catch (error) {
+        logger.error('Error getting aliases:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /api/profiles/aliases — Add alias to active profile
+app.post('/api/profiles/aliases', apiLimiter, (req, res) => {
+    try {
+        const username = Validators.string(req.body.username, {
+            required: true,
+            minLength: 1,
+            maxLength: 100,
+            pattern: /^@?[a-zA-Z0-9._-]+$/,
+            fieldName: 'username'
+        });
+        const label = req.body.label ? String(req.body.label).substring(0, 100) : null;
+        const isPrimary = req.body.isPrimary === true || req.body.isPrimary === 'true';
+
+        const alias = db.addUsernameAlias(username, label, isPrimary);
+        logger.info(`➕ Added username alias: "${username}" to profile "${loadedProfile}"`);
+        res.json({ success: true, alias });
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        logger.error('Error adding alias:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE /api/profiles/aliases/:username — Remove alias from active profile
+app.delete('/api/profiles/aliases/:username', apiLimiter, (req, res) => {
+    try {
+        const username = Validators.string(req.params.username, {
+            required: true,
+            minLength: 1,
+            maxLength: 100,
+            pattern: /^@?[a-zA-Z0-9._-]+$/,
+            fieldName: 'username'
+        });
+        db.removeUsernameAlias(username);
+        logger.info(`🗑️ Removed username alias: "${username}" from profile "${loadedProfile}"`);
+        res.json({ success: true });
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        logger.error('Error removing alias:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// PATCH /api/profiles/aliases/:username/primary — Set alias as primary
+app.patch('/api/profiles/aliases/:username/primary', apiLimiter, (req, res) => {
+    try {
+        const username = Validators.string(req.params.username, {
+            required: true,
+            minLength: 1,
+            maxLength: 100,
+            pattern: /^@?[a-zA-Z0-9._-]+$/,
+            fieldName: 'username'
+        });
+        db.setPrimaryAlias(username);
+        logger.info(`⭐ Set primary alias: "${username}" for profile "${loadedProfile}"`);
+        res.json({ success: true });
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        logger.error('Error setting primary alias:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.get('/api/status', apiLimiter, (req, res) => {
