@@ -74,7 +74,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             loadFlows(),
             loadActiveProfile(),
             loadConfigPathInfo(),
-            loadSessionStatus() // Load TikTok SessionID status
+            loadSessionStatus(), // Load TikTok SessionID status
+            loadUsernameAliases()
         ]);
     } catch (err) {
         console.error('Failed to load initial data:', err);
@@ -3046,6 +3047,7 @@ async function showProfileModal() {
     if (window.NavigationManager) {
         window.NavigationManager.switchView('settings');
     }
+    await loadUsernameAliases();
 }
 
 // Versteckt das Profile Modal

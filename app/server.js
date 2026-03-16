@@ -1025,7 +1025,16 @@ app.post('/api/connect', authLimiter, async (req, res) => {
             fieldName: 'username'
         });
 
-        // Check if any existing profile has this username as an alias
+        // Check active profile's open DB directly (avoids WAL contention on the active DB)
+        const isActiveProfileAlias = db.hasUsernameAlias(username);
+        if (isActiveProfileAlias) {
+            try { db.touchUsernameAlias(username); } catch (_) {}
+            await tiktok.connect(username);
+            logger.info(`✅ Connected to TikTok user: ${username} (alias of active profile "${loadedProfile}")`);
+            return res.json({ success: true, profileSwitched: false });
+        }
+
+        // Check if any other profile has this username as an alias
         // This handles the case where a user changed their TikTok username
         const aliasMatchedProfile = profileManager.findProfileByUsername(username);
         if (aliasMatchedProfile && aliasMatchedProfile !== loadedProfile) {
@@ -1047,14 +1056,6 @@ app.post('/api/connect', authLimiter, async (req, res) => {
                 requiresRestart: true,
                 newProfile: aliasMatchedProfile
             });
-        }
-
-        // If the active profile already matches via alias, just touch and proceed
-        if (aliasMatchedProfile && aliasMatchedProfile === loadedProfile) {
-            try { db.touchUsernameAlias(username); } catch (_) {}
-            await tiktok.connect(username);
-            logger.info(`✅ Connected to TikTok user: ${username} (alias of profile "${loadedProfile}")`);
-            return res.json({ success: true, profileSwitched: false });
         }
 
         // Check if the loaded database profile matches the requested username
