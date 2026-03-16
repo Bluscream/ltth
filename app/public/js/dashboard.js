@@ -420,6 +420,20 @@ function initializeButtons() {
     if (configTextarea) {
         loadConfigToTextarea();
     }
+
+    // Username Alias - Add Button
+    const addAliasBtnEl = document.getElementById('add-alias-btn');
+    if (addAliasBtnEl) {
+        addAliasBtnEl.addEventListener('click', addUsernameAlias);
+    }
+
+    // Username Alias - Enter key support
+    const newAliasUsernameInput = document.getElementById('new-alias-username');
+    if (newAliasUsernameInput) {
+        newAliasUsernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addUsernameAlias();
+        });
+    }
 }
 
 // ========== EVENT DELEGATION FOR DYNAMIC BUTTONS ==========
