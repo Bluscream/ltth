@@ -225,6 +225,50 @@ class UserProfileManager {
             timestamp: new Date()
         };
     }
+    /**
+     * Find a profile that has the given username as an alias.
+     * Returns the profile name (string) or null.
+     * @param {string} username
+     * @returns {string|null}
+     */
+    findProfileByUsername(username) {
+        const cleanUsername = username.replace(/^@/, '').trim().toLowerCase();
+        const profiles = this.listProfiles();
+
+        for (const profile of profiles) {
+            // Always check exact name match first (fast path)
+            if (profile.username.toLowerCase() === cleanUsername) {
+                return profile.username;
+            }
+
+            // Check alias table in the profile's DB
+            try {
+                const BetterSqlite3 = require('better-sqlite3');
+                const profileDb = new BetterSqlite3(profile.path, { readonly: true });
+                try {
+                    const tableExists = profileDb.prepare(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='profile_username_aliases'"
+                    ).get();
+
+                    if (tableExists) {
+                        const alias = profileDb.prepare(
+                            'SELECT id FROM profile_username_aliases WHERE username = ? COLLATE NOCASE'
+                        ).get(cleanUsername);
+                        if (alias) {
+                            profileDb.close();
+                            return profile.username;
+                        }
+                    }
+                } finally {
+                    profileDb.close();
+                }
+            } catch (err) {
+                // Non-critical: skip this profile silently
+            }
+        }
+
+        return null;
+    }
 }
 
 module.exports = UserProfileManager;
