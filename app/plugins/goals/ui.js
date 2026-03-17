@@ -621,10 +621,13 @@ document.getElementById('create-multigoal-btn').addEventListener('click', () => 
     openMultiGoalModal();
 });
 
-document.getElementById('create-first-multigoal-btn').addEventListener('click', () => {
-    editingMultiGoalId = null;
-    openMultiGoalModal();
-});
+const initialMultigoalBtn = document.getElementById('create-first-multigoal-btn');
+if (initialMultigoalBtn) {
+    initialMultigoalBtn.addEventListener('click', () => {
+        editingMultiGoalId = null;
+        openMultiGoalModal();
+    });
+}
 
 document.getElementById('cancel-multigoal-btn').addEventListener('click', () => {
     closeMultiGoalModal();
@@ -637,6 +640,11 @@ document.getElementById('multigoal-form').addEventListener('submit', async (e) =
 
 // Load multigoals from server
 function loadMultiGoals() {
+    if (!socket || !socket.connected) {
+        // Socket not connected – wait briefly and retry
+        setTimeout(() => loadMultiGoals(), 1000);
+        return;
+    }
     socket.emit('multigoals:get-all');
 }
 
@@ -858,7 +866,7 @@ function renderMultiGoalCard(multigoal) {
                            onclick="this.select()">
                     <button class="btn btn-secondary" 
                             style="padding: 8px 16px;"
-                            onclick="copyToClipboard('${overlayUrl}')">
+                            onclick="copyToClipboard('${overlayUrl}', this)">
                         📋 Copy
                     </button>
                 </div>
@@ -909,9 +917,9 @@ async function deleteMultiGoal(id, name) {
 }
 
 // Copy to clipboard helper
-function copyToClipboard(text) {
+function copyToClipboard(text, btnElement) {
     navigator.clipboard.writeText(text).then(() => {
-        const btn = event.target;
+        const btn = btnElement;
         const originalText = btn.textContent;
         btn.textContent = '✓ Copied!';
         setTimeout(() => {
