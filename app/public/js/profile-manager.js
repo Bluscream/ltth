@@ -272,18 +272,104 @@
     }
 
     /**
-     * Restart the application now
+     * Restart the application now via server restart API.
+     * Falls back to location.reload() if the API is unavailable (e.g. direct node server.js without launcher).
      */
-    function restartNow() {
-        console.log('♻️ Restarting application to activate new profile...');
-        
-        // Clear pending state
+    async function restartNow() {
+        console.log('♻️ Requesting server restart to activate new profile...');
+
+        // Clear pending countdown
         if (restartCountdown) {
             clearInterval(restartCountdown);
+            restartCountdown = null;
         }
 
-        // Reload the page
-        window.location.reload();
+        try {
+            const response = await fetch('/api/server/restart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (response.ok) {
+                // Server acknowledged restart request.
+                // Poll until server is back online, then reload the page.
+                console.log('✅ Server restart initiated. Waiting for server to come back online...');
+                showRestartWaitingOverlay();
+                await waitForServerRestart();
+                window.location.reload();
+            } else {
+                // API returned an error – fall back to page reload
+                console.warn('⚠️ Server restart API returned error, falling back to page reload');
+                window.location.reload();
+            }
+        } catch (error) {
+            // Network error (server already restarting) – wait and reload
+            console.log('♻️ Server appears to be restarting (network error expected). Waiting...');
+            showRestartWaitingOverlay();
+            await waitForServerRestart();
+            window.location.reload();
+        }
+    }
+
+    /**
+     * Shows a full-screen overlay while the server restarts.
+     */
+    function showRestartWaitingOverlay() {
+        // Remove existing overlay if any
+        const existing = document.getElementById('server-restart-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'server-restart-overlay';
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'background:rgba(0,0,0,0.85)',
+            'display:flex', 'flex-direction:column', 'align-items:center',
+            'justify-content:center', 'z-index:99999', 'color:#fff',
+            'font-family:sans-serif', 'gap:16px'
+        ].join(';');
+        overlay.innerHTML = `
+            <div style="font-size:2.5rem">&#x267B;&#xFE0F;</div>
+            <div style="font-size:1.25rem;font-weight:600">
+                ${window.i18n?.t('profile.restarting') || 'Server wird neu gestartet...'}
+            </div>
+            <div style="font-size:0.9rem;color:#aaa">
+                ${window.i18n?.t('profile.restart_wait') || 'Bitte warten \u2013 die Seite l\u00e4dt automatisch neu.'}
+            </div>
+        `;
+        document.body.appendChild(overlay);
+    }
+
+    /**
+     * Polls /api/status until the server responds again (max 30 seconds).
+     * Resolves when the server is back online or on timeout.
+     */
+    function waitForServerRestart(maxWaitMs = 30000, intervalMs = 500) {
+        return new Promise((resolve) => {
+            const deadline = Date.now() + maxWaitMs;
+
+            const poll = async () => {
+                try {
+                    const r = await fetch('/api/status', { cache: 'no-store' });
+                    if (r.ok) {
+                        resolve();
+                        return;
+                    }
+                } catch (_) {
+                    // Server not yet up – expected during restart
+                }
+
+                if (Date.now() < deadline) {
+                    setTimeout(poll, intervalMs);
+                } else {
+                    // Timeout – reload anyway
+                    resolve();
+                }
+            };
+
+            // Wait a minimum of 1 second before first poll
+            // (server needs time to shut down before coming back)
+            setTimeout(poll, 1000);
+        });
     }
 
     /**

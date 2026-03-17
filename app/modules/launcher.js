@@ -342,6 +342,7 @@ class Launcher {
 
     /**
      * Startet den Server
+     * Unterstützt Auto-Restart via Exit Code 75 (z.B. nach Profilwechsel)
      */
     async startServer() {
         this.log.newLine();
@@ -353,34 +354,29 @@ class Launcher {
         this.log.separator();
         this.log.newLine();
 
-        // Server starten (blockierend)
         const serverPath = path.join(this.projectRoot, 'server.js');
 
-        try {
-            // Server als Child Process starten
+        const spawnServer = () => {
             const { spawn } = require('child_process');
 
             const serverProcess = spawn('node', [serverPath], {
                 cwd: this.projectRoot,
-                stdio: 'inherit' // Output direkt an Console
+                stdio: 'inherit'
             });
 
-            // Cleanup bei Exit
-            process.on('SIGINT', () => {
-                this.log.newLine();
-                this.log.separator();
-                this.log.info('Server wird beendet...');
-                serverProcess.kill('SIGINT');
-                process.exit(0);
-            });
-
-            process.on('SIGTERM', () => {
-                serverProcess.kill('SIGTERM');
-                process.exit(0);
-            });
-
-            // Warte auf Server-Exit
             serverProcess.on('exit', (code) => {
+                // Exit Code 75 = Neustart angefordert (z.B. Profilwechsel)
+                if (code === 75) {
+                    this.log.newLine();
+                    this.log.separator();
+                    this.log.info('♻️  Server-Neustart wird durchgeführt (Profilwechsel)...');
+                    this.log.separator();
+                    this.log.newLine();
+                    // Kurze Verzögerung damit Datei-Handles sauber geschlossen werden
+                    setTimeout(() => spawnServer(), 500);
+                    return;
+                }
+
                 this.log.newLine();
                 this.log.separator();
                 this.log.info(`Server wurde beendet (Exit Code: ${code || 0})`);
@@ -388,6 +384,23 @@ class Launcher {
                 process.exit(code || 0);
             });
 
+            // process.once verhindert das Akkumulieren von Handlern bei wiederholtem Spawn
+            process.once('SIGINT', () => {
+                this.log.newLine();
+                this.log.separator();
+                this.log.info('Server wird beendet...');
+                serverProcess.kill('SIGINT');
+                process.exit(0);
+            });
+
+            process.once('SIGTERM', () => {
+                serverProcess.kill('SIGTERM');
+                process.exit(0);
+            });
+        };
+
+        try {
+            spawnServer();
         } catch (error) {
             this.log.error(`Server konnte nicht gestartet werden: ${error.message}`);
             throw error;

@@ -1785,6 +1785,31 @@ app.post('/api/profiles/switch', apiLimiter, (req, res) => {
     }
 });
 
+// ========== SERVER RESTART ROUTE ==========
+
+/**
+ * POST /api/server/restart
+ * Löst einen sauberen Server-Neustart via Exit Code 75 aus.
+ * Der Launcher-Auto-Restart-Loop fängt diesen Exit Code ab und startet den Server neu.
+ * Wird nach Profilwechseln verwendet, um das neue Profil ohne manuellen Eingriff zu aktivieren.
+ */
+app.post('/api/server/restart', authLimiter, (req, res) => {
+    logger.info('♻️  Server restart requested via API');
+
+    // Antwort senden bevor der Prozess beendet wird
+    res.json({ success: true, message: 'Server is restarting...' });
+
+    // Nach dem Senden der Antwort den Prozess beenden
+    res.on('finish', () => {
+        // DB-Batch-Queue leeren falls vorhanden
+        try { db.flushEventBatch(); } catch (err) { logger.debug(`flushEventBatch skipped: ${err.message}`); }
+
+        logger.info('♻️  Exiting with restart code 75...');
+        // Kurze Verzögerung damit Logger flushen kann
+        setTimeout(() => process.exit(75), 300);
+    });
+});
+
 // Profil-Backup erstellen
 app.post('/api/profiles/:username/backup', apiLimiter, (req, res) => {
     const { username } = req.params;
