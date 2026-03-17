@@ -420,7 +420,11 @@ class GoalsDatabase {
         const multigoals = stmt.all();
 
         return multigoals.map(mg => {
-            return this.getMultiGoalWithGoals(mg.id);
+            const full = this.getMultiGoalWithGoals(mg.id);
+            if (!full) {
+                console.warn(`[GoalsDB] getAllMultiGoals: getMultiGoalWithGoals returned null for id=${mg.id}`);
+            }
+            return full;
         }).filter(mg => mg !== null);
     }
 

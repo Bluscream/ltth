@@ -132,7 +132,7 @@ class MultiGoalOverlayRenderer {
 
         // Goal deleted - remove from our list and stop rotation if only 1 remains
         this.socket.on('goals:deleted', (data) => {
-            const idx = this.goals.findIndex(g => g.id === data.goalId);
+            const idx = this.goals.findIndex(g => String(g.id) === String(data.goalId));
             if (idx === -1) return;
 
             this.goals.splice(idx, 1);

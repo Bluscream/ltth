@@ -639,10 +639,11 @@ document.getElementById('multigoal-form').addEventListener('submit', async (e) =
 });
 
 // Load multigoals from server
-function loadMultiGoals() {
+function loadMultiGoals(retries = 10) {
     if (!socket || !socket.connected) {
+        if (retries <= 0) return;
         // Socket not connected – wait briefly and retry
-        setTimeout(() => loadMultiGoals(), 1000);
+        setTimeout(() => loadMultiGoals(retries - 1), 1000);
         return;
     }
     socket.emit('multigoals:get-all');
