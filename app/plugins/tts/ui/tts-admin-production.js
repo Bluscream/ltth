@@ -2322,6 +2322,9 @@ async function loadEventTTSConfig() {
             setValue('topGifterVoice', advanced.topGifterAnnouncement.voiceId || '');
         }
         
+        // Top-N Gifter TTS Access
+        loadTopGifterTTSAccess(advanced);
+        
         // Periodic Reminder
         if (advanced.periodicReminder) {
             setValue('periodicReminderEnabled', advanced.periodicReminder.enabled || false);
@@ -2477,6 +2480,8 @@ async function saveEventTTSConfig() {
                     template: getValue('topGifterTemplate'),
                     voiceId: getValue('topGifterVoice') || null
                 },
+                // Top-N Gifter TTS Access
+                topGifterTTSAccess: getTopGifterTTSAccess(),
                 // Periodic Reminder
                 periodicReminder: {
                     enabled: getValue('periodicReminderEnabled'),
@@ -2738,6 +2743,12 @@ function setupEventTTSListeners() {
         saveEventTriggersBtn.addEventListener('click', saveEventTTSConfig);
     }
     
+    // Refresh Top Gifter List button
+    const refreshTopGifterListBtn = document.getElementById('refreshTopGifterListBtn');
+    if (refreshTopGifterListBtn) {
+        refreshTopGifterListBtn.addEventListener('click', refreshTopGifterList);
+    }
+    
     // Add Specific Gift Rule button
     const addGiftRuleBtn = document.getElementById('addGiftRuleBtn');
     if (addGiftRuleBtn) {
@@ -2752,6 +2763,54 @@ function setupEventTTSListeners() {
         addReminderMessageBtn.addEventListener('click', () => {
             addPeriodicReminderMessage('');
         });
+    }
+}
+
+// ============================================================================
+// TOP-N GIFTER TTS ACCESS
+// ============================================================================
+
+function loadTopGifterTTSAccess(advancedConfig) {
+    const cfg = advancedConfig?.topGifterTTSAccess || { enabled: false, topN: 3 };
+    const enabledEl = document.getElementById('topGifterTTSAccessEnabled');
+    const topNEl = document.getElementById('topGifterTTSAccessTopN');
+    if (enabledEl) enabledEl.checked = cfg.enabled === true;
+    if (topNEl) topNEl.value = cfg.topN || 3;
+    refreshTopGifterList();
+}
+
+function getTopGifterTTSAccess() {
+    const enabled = document.getElementById('topGifterTTSAccessEnabled')?.checked || false;
+    const topN = parseInt(document.getElementById('topGifterTTSAccessTopN')?.value || '3', 10);
+    return {
+        enabled,
+        topN: Math.max(1, Math.min(100, isNaN(topN) ? 3 : topN)),
+        mode: 'session'
+    };
+}
+
+async function refreshTopGifterList() {
+    const container = document.getElementById('topGifterTTSLiveList');
+    if (!container) return;
+    try {
+        const response = await fetch('/api/tts/top-gifters');
+        const data = await response.json();
+        if (!data.success) {
+            container.innerHTML = '<span class="text-red-400">Fehler beim Laden.</span>';
+            return;
+        }
+        if (!data.gifters || data.gifters.length === 0) {
+            container.innerHTML = '<span class="text-gray-500">Noch keine Gifter in dieser Session.</span>';
+            return;
+        }
+        container.innerHTML = data.gifters.map(g =>
+            `<div class="flex justify-between items-center py-0.5">
+                <span>#${g.rank} ${escapeHtml(g.username)}</span>
+                <span class="text-yellow-400 font-mono">${g.totalCoins} 🪙</span>
+            </div>`
+        ).join('');
+    } catch (error) {
+        container.innerHTML = `<span class="text-red-400">Fehler: ${escapeHtml(String(error.message))}</span>`;
     }
 }
 
