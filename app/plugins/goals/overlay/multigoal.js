@@ -99,7 +99,7 @@ class MultiGoalOverlayRenderer {
 
         // MultiGoal config changed
         this.socket.on('multigoals:config-changed', (data) => {
-            if (data.multigoal.id !== this.multigoalId) return;
+            if (String(data.multigoal.id) !== String(this.multigoalId)) return;
 
             console.log('Config changed');
             this.multigoal = data.multigoal;
@@ -111,7 +111,7 @@ class MultiGoalOverlayRenderer {
 
         // MultiGoal deleted
         this.socket.on('multigoals:deleted', (data) => {
-            if (data.multigoalId !== this.multigoalId) return;
+            if (String(data.multigoalId) !== String(this.multigoalId)) return;
 
             console.log('MultiGoal deleted');
             this.stopRotation();
@@ -127,6 +127,27 @@ class MultiGoalOverlayRenderer {
                 if (goalIndex === this.currentIndex) {
                     this.renderCurrentGoal();
                 }
+            }
+        });
+
+        // Goal deleted - remove from our list and stop rotation if only 1 remains
+        this.socket.on('goals:deleted', (data) => {
+            const idx = this.goals.findIndex(g => String(g.id) === String(data.goalId));
+            if (idx === -1) return;
+
+            this.goals.splice(idx, 1);
+
+            // Clamp currentIndex
+            if (this.currentIndex >= this.goals.length) {
+                this.currentIndex = Math.max(0, this.goals.length - 1);
+            }
+
+            // Re-render remaining goals
+            this.renderGoals();
+
+            // Stop rotation if only 1 or 0 goals remain
+            if (this.goals.length <= 1) {
+                this.stopRotation();
             }
         });
     }
@@ -463,44 +484,58 @@ class WebGLAnimator {
     }
 
     /**
-     * Perform transition animation
+     * Perform transition animation using CSS (DOM-based)
      */
     async transition(fromElement, toElement, animationType) {
-        const duration = 1000; // 1 second transition
-        const program = this.shaderPrograms[animationType] || this.shaderPrograms.fade;
-
-        if (!program) {
-            console.error('Shader program not available');
-            return;
-        }
-
-        // For a simpler implementation, we'll use the WebGL canvas as an overlay
-        // and apply shader effects during the transition
-        const startTime = Date.now();
-
+        const duration = 600;
         return new Promise((resolve) => {
-            const animate = () => {
-                const elapsed = Date.now() - startTime;
-                const progress = Math.min(elapsed / duration, 1.0);
+            // Set initial states
+            fromElement.style.transition = `opacity ${duration}ms ease, transform ${duration}ms ease`;
+            toElement.style.transition = `opacity ${duration}ms ease, transform ${duration}ms ease`;
+            toElement.style.opacity = '0';
+            toElement.style.display = 'block';
 
-                // Render WebGL transition effect
-                this.renderTransitionEffect(program, progress);
+            if (animationType === 'slide') {
+                fromElement.style.transform = 'translateX(-100%)';
+                toElement.style.transform = 'translateX(100%)';
+            } else if (animationType === 'cube') {
+                fromElement.style.transform = 'rotateY(-90deg) scale(0.8)';
+                toElement.style.transform = 'rotateY(90deg) scale(0.8)';
+            } else {
+                // fade, wave, particle → simple cross-fade
+                fromElement.style.transform = '';
+                toElement.style.transform = '';
+            }
 
-                if (progress < 1.0) {
-                    requestAnimationFrame(animate);
-                } else {
-                    // Clear canvas after transition
-                    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-                    resolve();
-                }
-            };
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    fromElement.style.opacity = '0';
+                    if (animationType === 'slide') {
+                        toElement.style.transform = 'translateX(0)';
+                    } else if (animationType === 'cube') {
+                        toElement.style.transform = 'rotateY(0deg) scale(1)';
+                    } else {
+                        toElement.style.transform = '';
+                    }
+                    toElement.style.opacity = '1';
 
-            animate();
+                    setTimeout(() => {
+                        // Clean up inline styles
+                        fromElement.style.transition = '';
+                        fromElement.style.transform = '';
+                        fromElement.style.opacity = '';
+                        toElement.style.transition = '';
+                        toElement.style.transform = '';
+                        toElement.style.opacity = '';
+                        resolve();
+                    }, duration);
+                });
+            });
         });
     }
 
     /**
-     * Render transition effect (simplified version)
+     * Render transition effect (stub – kept for future DOM-capture WebGL use)
      */
     renderTransitionEffect(program, progress) {
         const gl = this.gl;

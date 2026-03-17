@@ -199,7 +199,7 @@ class GoalsWebSocket {
         });
 
         // Store io instance for broadcasting
-        this.io = this.api.io;
+        this.io = this.api.getSocketIO();
 
         this.api.log('✅ Goals WebSocket handlers registered', 'info');
     }

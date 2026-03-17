@@ -54,6 +54,53 @@ class GoalsAPI {
             }
         });
 
+        // Get available templates
+        this.api.registerRoute('get', '/api/goals/meta/templates', (req, res) => {
+            try {
+                const templates = templateRegistry.getAllMetadata();
+                res.json({
+                    success: true,
+                    templates: templates
+                });
+            } catch (error) {
+                this.api.log(`Error getting templates: ${error.message}`, 'error');
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        // Get available animations
+        this.api.registerRoute('get', '/api/goals/meta/animations', (req, res) => {
+            try {
+                const animations = animationRegistry.getAllMetadata();
+                res.json({
+                    success: true,
+                    animations: animations
+                });
+            } catch (error) {
+                this.api.log(`Error getting animations: ${error.message}`, 'error');
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        // Get goal types
+        this.api.registerRoute('get', '/api/goals/meta/types', (req, res) => {
+            res.json({
+                success: true,
+                types: [
+                    { id: 'coin', name: 'Coins', icon: '🪙', description: 'Track gift coins from viewers' },
+                    { id: 'likes', name: 'Likes', icon: '❤️', description: 'Track stream likes' },
+                    { id: 'follower', name: 'Followers', icon: '👥', description: 'Track new followers' },
+                    { id: 'custom', name: 'Custom', icon: '⭐', description: 'Manually controlled goal' }
+                ]
+            });
+        });
+
         // Get single goal
         this.api.registerRoute('get', '/api/goals/:id', (req, res) => {
             try {
@@ -299,53 +346,6 @@ class GoalsAPI {
             }
         });
 
-        // Get available templates
-        this.api.registerRoute('get', '/api/goals/meta/templates', (req, res) => {
-            try {
-                const templates = templateRegistry.getAllMetadata();
-                res.json({
-                    success: true,
-                    templates: templates
-                });
-            } catch (error) {
-                this.api.log(`Error getting templates: ${error.message}`, 'error');
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
-            }
-        });
-
-        // Get available animations
-        this.api.registerRoute('get', '/api/goals/meta/animations', (req, res) => {
-            try {
-                const animations = animationRegistry.getAllMetadata();
-                res.json({
-                    success: true,
-                    animations: animations
-                });
-            } catch (error) {
-                this.api.log(`Error getting animations: ${error.message}`, 'error');
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
-            }
-        });
-
-        // Get goal types
-        this.api.registerRoute('get', '/api/goals/meta/types', (req, res) => {
-            res.json({
-                success: true,
-                types: [
-                    { id: 'coin', name: 'Coins', icon: '🪙', description: 'Track gift coins from viewers' },
-                    { id: 'likes', name: 'Likes', icon: '❤️', description: 'Track stream likes' },
-                    { id: 'follower', name: 'Followers', icon: '👥', description: 'Track new followers' },
-                    { id: 'custom', name: 'Custom', icon: '⭐', description: 'Manually controlled goal' }
-                ]
-            });
-        });
-
         // ========================================
         // MULTIGOAL ROUTES
         // ========================================
@@ -370,6 +370,20 @@ class GoalsAPI {
                     error: error.message
                 });
             }
+        });
+
+        // Get available WebGL animations for multigoals
+        this.api.registerRoute('get', '/api/multigoals/meta/animations', (req, res) => {
+            res.json({
+                success: true,
+                animations: [
+                    { id: 'slide', name: 'Slide Transition', description: 'Smooth sliding animation' },
+                    { id: 'fade', name: 'Fade Transition', description: 'Cross-fade between goals' },
+                    { id: 'cube', name: 'Cube Rotation', description: '3D cube flip effect' },
+                    { id: 'wave', name: 'Wave Distortion', description: 'Ripple wave effect' },
+                    { id: 'particle', name: 'Particle Transition', description: 'Particle dissolve effect' }
+                ]
+            });
         });
 
         // Get single multigoal
@@ -513,20 +527,6 @@ class GoalsAPI {
                     error: error.message
                 });
             }
-        });
-
-        // Get available WebGL animations for multigoals
-        this.api.registerRoute('get', '/api/multigoals/meta/animations', (req, res) => {
-            res.json({
-                success: true,
-                animations: [
-                    { id: 'slide', name: 'Slide Transition', description: 'Smooth sliding animation' },
-                    { id: 'fade', name: 'Fade Transition', description: 'Cross-fade between goals' },
-                    { id: 'cube', name: 'Cube Rotation', description: '3D cube flip effect' },
-                    { id: 'wave', name: 'Wave Distortion', description: 'Ripple wave effect' },
-                    { id: 'particle', name: 'Particle Transition', description: 'Particle dissolve effect' }
-                ]
-            });
         });
 
         this.api.log('✅ Goals API routes registered', 'info');
