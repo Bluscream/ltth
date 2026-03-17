@@ -121,15 +121,40 @@ class AdaptiveBatchProcessor {
    * Process a batch of events
    */
   async processBatch(events) {
-    // Use database batch insert
+    // Use batch insert if available on the db wrapper (e.g. CoinBattleDatabase)
     if (this.db.batchInsertGiftEvents) {
       await this.db.batchInsertGiftEvents(events);
-    } else {
-      // Fallback: insert one by one
-      for (const event of events) {
-        await this.db.insertGiftEvent(event);
-      }
+      return;
     }
+
+    // Fallback: use a prepared statement directly on the raw better-sqlite3 db
+    // (this.db is the raw better-sqlite3 instance passed from CoinBattlePlugin.init())
+    const insertOne = this.db.prepare(`
+      INSERT OR IGNORE INTO coinbattle_gift_events
+          (match_id, player_id, user_id, gift_id, gift_name, coins, multiplier, team, event_id, idempotency_key, timestamp)
+      VALUES
+          (@match_id, @player_id, @user_id, @gift_id, @gift_name, @coins, @multiplier, @team, @event_id, @idempotency_key, @timestamp)
+    `);
+
+    const insertMany = this.db.transaction((evts) => {
+      for (const evt of evts) {
+        insertOne.run({
+          match_id: evt.matchId || evt.match_id || null,
+          player_id: evt.playerId || evt.player_id || null,
+          user_id: evt.userId || evt.user_id || '',
+          gift_id: evt.giftId || evt.gift_id || 0,
+          gift_name: evt.giftName || evt.gift_name || '',
+          coins: evt.coins || 0,
+          multiplier: evt.multiplier || 1.0,
+          team: evt.team || null,
+          event_id: evt.eventId || evt.event_id || null,
+          idempotency_key: evt.idempotencyKey || evt.idempotency_key || null,
+          timestamp: evt.timestamp || Math.floor(Date.now() / 1000)
+        });
+      }
+    });
+
+    insertMany(events);
   }
 
   /**

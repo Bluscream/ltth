@@ -973,6 +973,58 @@ class CoinBattleDatabase {
   }
 
   /**
+   * Insert a single gift event (used as fallback by AdaptiveBatchProcessor)
+   */
+  insertGiftEvent(event) {
+    return this.db.prepare(`
+      INSERT OR IGNORE INTO coinbattle_gift_events
+          (match_id, player_id, user_id, gift_id, gift_name, coins, multiplier, team, event_id, idempotency_key, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      event.matchId || event.match_id || null,
+      event.playerId || event.player_id || null,
+      event.userId || event.user_id || '',
+      event.giftId || event.gift_id || 0,
+      event.giftName || event.gift_name || '',
+      event.coins || 0,
+      event.multiplier || 1.0,
+      event.team || null,
+      event.eventId || event.event_id || null,
+      event.idempotencyKey || event.idempotency_key || null,
+      event.timestamp || Math.floor(Date.now() / 1000)
+    );
+  }
+
+  /**
+   * Batch insert gift events using a transaction for performance
+   */
+  batchInsertGiftEvents(events) {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO coinbattle_gift_events
+          (match_id, player_id, user_id, gift_id, gift_name, coins, multiplier, team, event_id, idempotency_key, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertMany = this.db.transaction((evts) => {
+      for (const evt of evts) {
+        stmt.run(
+          evt.matchId || evt.match_id || null,
+          evt.playerId || evt.player_id || null,
+          evt.userId || evt.user_id || '',
+          evt.giftId || evt.gift_id || 0,
+          evt.giftName || evt.gift_name || '',
+          evt.coins || 0,
+          evt.multiplier || 1.0,
+          evt.team || null,
+          evt.eventId || evt.event_id || null,
+          evt.idempotencyKey || evt.idempotency_key || null,
+          evt.timestamp || Math.floor(Date.now() / 1000)
+        );
+      }
+    });
+    insertMany(events);
+  }
+
+  /**
    * Cleanup on destruction
    */
   destroy() {

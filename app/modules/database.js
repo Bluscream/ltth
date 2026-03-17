@@ -45,6 +45,10 @@ class DatabaseManager {
         // Flag für Shutdown-Handler (verhindert doppelte Registrierung)
         this.shutdownHandlersRegistered = false;
 
+        // In-memory cache for getEmojiRainConfig() to avoid redundant DB reads per event tick
+        this._emojiRainConfigCache = null;
+        this._emojiRainConfigCacheTs = 0;
+
         // Graceful shutdown handler (nur einmal registrieren)
         this.setupShutdownHandler();
     }
@@ -1468,6 +1472,12 @@ class DatabaseManager {
      * Get Emoji Rain configuration
      */
     getEmojiRainConfig() {
+        // 500ms in-memory cache to prevent multiple DB reads within the same event tick
+        const now = Date.now();
+        if (this._emojiRainConfigCache && (now - this._emojiRainConfigCacheTs) < 500) {
+            return this._emojiRainConfigCache;
+        }
+
         console.log('🔍 [DATABASE] getEmojiRainConfig() called');
         const stmt = this.db.prepare('SELECT * FROM emoji_rain_config WHERE id = 1');
         const row = stmt.get();
@@ -1499,6 +1509,10 @@ class DatabaseManager {
         console.log('✅ [DATABASE] result.enabled:', result.enabled);
         console.log('✅ [DATABASE] result.emoji_set:', result.emoji_set);
 
+        // Cache the result
+        this._emojiRainConfigCache = result;
+        this._emojiRainConfigCacheTs = now;
+
         return result;
     }
 
@@ -1524,6 +1538,10 @@ class DatabaseManager {
             WHERE id = 1
         `);
         stmt.run(JSON.stringify(mergedConfig), newEnabled);
+
+        // Invalidate cache after update
+        this._emojiRainConfigCache = null;
+        this._emojiRainConfigCacheTs = 0;
 
         return {
             enabled: Boolean(newEnabled),
