@@ -530,23 +530,10 @@ function initializeSocketListeners() {
         showEulerBackupKeyWarning(data);
     });
 
-    // Profile Switched Event - Auto-reload to activate new profile
+    // Profile Switched Event - handled by profile-manager.js (shows restart overlay)
     socket.on('profile:switched', (data) => {
         console.log(`🔄 Profile switched from "${data.from}" to "${data.to}"`);
-        
-        if (data.requiresRestart) {
-            const message = window.i18n 
-                ? window.i18n.t('profile.switched_notification', { profile: data.to }) || 
-                  `Profil wurde zu "${data.to}" gewechselt.\n\nDie Anwendung wird neu geladen, um das neue Profil zu aktivieren...`
-                : `Profile switched to "${data.to}".\n\nThe application will reload to activate the new profile...`;
-            alert(message);
-            
-            // Auto-reload after 2 seconds
-            setTimeout(() => {
-                console.log('♻️ Reloading application to activate new profile...');
-                window.location.reload();
-            }, 2000);
-        }
+        // profile-manager.js handles the restart overlay and actual server restart via restartNow()
     });
 
     // ========== AUDIO PLAYBACK (Dashboard) ==========
@@ -3105,7 +3092,7 @@ async function createProfile() {
 async function switchProfile(username) {
     const confirmSwitch = confirm(
         `Möchtest du zu Profil "${username}" wechseln?\n\n` +
-        `⚠️ Die Anwendung muss danach neu gestartet werden!`
+        `⚠️ Der Server wird danach automatisch neu gestartet.`
     );
 
     if (!confirmSwitch) return;
@@ -3120,17 +3107,15 @@ async function switchProfile(username) {
         const result = await response.json();
 
         if (result.success) {
-            alert(
-                `✅ Profil gewechselt zu "${username}"!\n\n` +
-                `Bitte starte die Anwendung neu, um das neue Profil zu verwenden.`
-            );
             hideProfileModal();
+            // profile-manager.js handles the actual restart via socket event 'profile:switched'
+            // No alert needed – the restart overlay will appear automatically
         } else {
             alert('❌ Fehler beim Wechseln des Profils: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('Error switching profile:', error);
-        alert('❌ Fehler beim Wechseln des Profils!');
+        alert('❌ Netzwerkfehler: ' + error.message);
     }
 }
 
