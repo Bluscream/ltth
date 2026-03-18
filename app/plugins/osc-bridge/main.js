@@ -371,7 +371,7 @@ class OSCBridgePlugin {
             oscQuery: {
                 enabled: false,
                 host: '127.0.0.1',
-                port: 9001,
+                port: 9002,
                 autoSubscribe: true
             },
             // Live Parameter Monitoring
@@ -724,7 +724,7 @@ class OSCBridgePlugin {
             try {
                 if (!this.oscQueryClient) {
                     const host = this.config.oscQuery?.host || '127.0.0.1';
-                    const port = this.config.oscQuery?.port || 9001;
+                    const port = this.config.oscQuery?.port || 9002;
                     this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
                 }
                 const result = await this.oscQueryClient.discover();
@@ -734,11 +734,77 @@ class OSCBridgePlugin {
             }
         });
 
+        this.api.registerRoute('post', '/api/osc/oscquery/scan-port', async (req, res) => {
+            try {
+                const { startPort, endPort, timeout, autoSave = true } = req.body || {};
+                const host = this.config.oscQuery?.host || '127.0.0.1';
+
+                // Validate optional numeric params
+                const isValidPort = (v) => Number.isInteger(v) && v >= 1 && v <= 65535;
+                const isValidTimeout = (v) => Number.isInteger(v) && v >= 50 && v <= 30000;
+
+                if (startPort !== undefined && !isValidPort(startPort)) {
+                    return res.status(400).json({ success: false, error: 'Invalid startPort: must be an integer between 1 and 65535' });
+                }
+                if (endPort !== undefined && !isValidPort(endPort)) {
+                    return res.status(400).json({ success: false, error: 'Invalid endPort: must be an integer between 1 and 65535' });
+                }
+                if (startPort !== undefined && endPort !== undefined && startPort > endPort) {
+                    return res.status(400).json({ success: false, error: 'Invalid port range: startPort must be <= endPort' });
+                }
+                if (timeout !== undefined && !isValidTimeout(timeout)) {
+                    return res.status(400).json({ success: false, error: 'Invalid timeout: must be an integer between 50 and 30000 ms' });
+                }
+
+                const scanOptions = {};
+                if (startPort !== undefined) scanOptions.startPort = startPort;
+                if (endPort !== undefined) scanOptions.endPort = endPort;
+                if (timeout !== undefined) scanOptions.timeout = timeout;
+
+                const scanResult = await OSCQueryClient.scanForVRChatOSCQuery(host, scanOptions, this.logger);
+
+                if (scanResult.found) {
+                    // Destroy old client if exists to avoid lingering reconnect timers
+                    if (this.oscQueryClient) {
+                        this.oscQueryClient.destroy();
+                    }
+                    this.oscQueryClient = new OSCQueryClient(host, scanResult.port, this.logger);
+
+                    let autoSaved = false;
+                    if (autoSave) {
+                        if (!this.config.oscQuery) this.config.oscQuery = {};
+                        this.config.oscQuery.port = scanResult.port;
+                        this.config.oscQuery.enabled = true;
+                        await this.api.setConfig('config', this.config);
+                        autoSaved = true;
+                    }
+
+                    return res.json({
+                        success: true,
+                        port: scanResult.port,
+                        hostInfo: scanResult.hostInfo,
+                        candidates: scanResult.candidates,
+                        autoSaved
+                    });
+                }
+
+                return res.json({
+                    success: false,
+                    error: 'No VRChat OSCQuery server found',
+                    scannedPorts: scanResult.scannedPorts,
+                    candidates: scanResult.candidates
+                });
+            } catch (error) {
+                this.logger.error('OSCQuery port scan error:', error);
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
         this.api.registerRoute('post', '/api/osc/oscquery/subscribe', (req, res) => {
             try {
                 if (!this.oscQueryClient) {
                     const host = this.config.oscQuery?.host || '127.0.0.1';
-                    const port = this.config.oscQuery?.port || 9001;
+                    const port = this.config.oscQuery?.port || 9002;
                     this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
                 }
                 const success = this.oscQueryClient.subscribe((update) => {
@@ -1003,15 +1069,37 @@ class OSCBridgePlugin {
                 // On-demand client init if oscQuery is enabled but client not yet created (race condition fallback)
                 if (!this.oscQueryClient && this.config.oscQuery?.enabled) {
                     const host = this.config.oscQuery.host || '127.0.0.1';
-                    const port = this.config.oscQuery.port || 9001;
+                    const port = this.config.oscQuery.port || 9002;
                     this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
                     this.logger.info('📡 OSCQuery client on-demand initialized for auto-detect');
                 }
 
                 if (!this.oscQueryClient) {
-                    return res.status(400).json({ 
-                        success: false, 
-                        error: 'OSCQuery not configured. Please enable OSCQuery in settings and start the bridge.' 
+                    // Try auto-scan first (quick, port range 9000-9020)
+                    const scanResult = await OSCQueryClient.scanForVRChatOSCQuery(
+                        this.config.oscQuery?.host || '127.0.0.1',
+                        { startPort: 9000, endPort: 9020, timeout: 400 },
+                        this.logger
+                    );
+                    if (scanResult.found) {
+                        this.oscQueryClient = new OSCQueryClient(
+                            this.config.oscQuery?.host || '127.0.0.1',
+                            scanResult.port,
+                            this.logger
+                        );
+                        // Auto-save discovered port
+                        if (!this.config.oscQuery) this.config.oscQuery = {};
+                        this.config.oscQuery.port = scanResult.port;
+                        this.config.oscQuery.enabled = true;
+                        await this.api.setConfig('config', this.config);
+                        this.logger.info(`📡 Auto-scan found VRChat OSCQuery on port ${scanResult.port}`);
+                    }
+                }
+
+                if (!this.oscQueryClient) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'OSCQuery not configured and auto-scan found no VRChat OSCQuery server. Make sure VRChat is running with OSC enabled.'
                     });
                 }
                 

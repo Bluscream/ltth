@@ -8,7 +8,7 @@ const WebSocket = require('ws');
 const axios = require('axios');
 
 class OSCQueryClient {
-    constructor(host = '127.0.0.1', port = 9001, logger = console) {
+    constructor(host = '127.0.0.1', port = 9002, logger = console) {
         // Validate host
         if (!host || typeof host !== 'string' || host.trim().length === 0) {
             throw new Error('Invalid host: must be a non-empty string');
@@ -432,6 +432,74 @@ class OSCQueryClient {
         this.disconnect();
         this.parameters.clear();
         this.listeners.clear();
+    }
+
+    /**
+     * Scan a port range for a VRChat OSCQuery HTTP server.
+     * All ports are probed in parallel for speed.
+     *
+     * @param {string} host - Host to scan (default: '127.0.0.1')
+     * @param {object} options
+     * @param {number} options.startPort - First port to scan (default: 9000)
+     * @param {number} options.endPort   - Last port to scan (default: 9010)
+     * @param {number} options.timeout   - Per-port HTTP timeout in ms (default: 500)
+     * @param {boolean} options.requireVRChat - Require VRChat-specific fields (default: true)
+     * @param logger - Logger instance (default: console)
+     * @returns {{ found: boolean, port?: number, hostInfo?: object, candidates: Array, scannedPorts?: number }}
+     */
+    static async scanForVRChatOSCQuery(host = '127.0.0.1', options = {}, logger = console) {
+        const {
+            startPort = 9000,
+            endPort = 9010,
+            timeout = 500,
+            requireVRChat = true
+        } = options;
+
+        logger.info(`🔍 Scanning ports ${startPort}–${endPort} on ${host} for VRChat OSCQuery...`);
+
+        const portRange = [];
+        for (let p = startPort; p <= endPort; p++) portRange.push(p);
+
+        const results = await Promise.allSettled(
+            portRange.map(async (port) => {
+                const url = `http://${host}:${port}/?HOST_INFO`;
+                const response = await axios.get(url, { timeout, validateStatus: s => s === 200 });
+                const data = response.data;
+
+                // Must be valid JSON object with NAME field (OSCQuery spec)
+                if (!data || typeof data !== 'object' || !data.NAME) {
+                    throw new Error('Not a valid OSCQuery host info response');
+                }
+
+                // VRChat-specific validation: check for VRChat in NAME or OSC_PORT presence
+                if (requireVRChat) {
+                    const isVRChat = (
+                        (typeof data.NAME === 'string' && data.NAME.toLowerCase().includes('vrchat')) ||
+                        data.OSC_PORT !== undefined ||
+                        data.OSC_TRANSPORT !== undefined
+                    );
+                    if (!isVRChat) throw new Error('Response does not appear to be VRChat OSCQuery');
+                }
+
+                logger.debug(`📡 OSCQuery candidate found on port ${port} (NAME: ${data.NAME})`);
+                return { port, hostInfo: data };
+            })
+        );
+
+        const found = results
+            .filter(r => r.status === 'fulfilled')
+            .map(r => r.value);
+
+        if (found.length > 0) {
+            // Prefer lower port numbers (VRChat typically uses 9002)
+            found.sort((a, b) => a.port - b.port);
+            const best = found[0];
+            logger.info(`✅ VRChat OSCQuery found on port ${best.port} (NAME: ${best.hostInfo.NAME})`);
+            return { found: true, port: best.port, hostInfo: best.hostInfo, candidates: found };
+        }
+
+        logger.info(`❌ No VRChat OSCQuery server found in port range ${startPort}–${endPort}`);
+        return { found: false, scannedPorts: portRange.length, candidates: [] };
     }
 }
 
