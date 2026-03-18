@@ -83,7 +83,7 @@ class TikTokConnector extends EventEmitter {
         // Gift-level deduplication map: key=`${userId}:${giftId}:${repeatCount}`, value=timestamp
         // TikTok sends two WebSocket packets for the same gift ~2-3s apart (giftType=0).
         this._giftDedupeMap = new Map();
-        this._giftDedupeTtlMs = 3000; // 3 seconds covers TikTok's double-packet window
+        this._giftDedupeTtlMs = 5000; // 5 seconds: covers TikTok's double-packet window with jitter buffer
 
         // Gift catalog tracking - gifts seen in current stream session
         this.sessionGifts = new Map(); // Map<giftId, giftData>
@@ -741,33 +741,42 @@ class TikTokConnector extends EventEmitter {
         this.eventEmitter.on('gift', (data) => {
             trackEarliestEventTime(data);
 
-            // CONNECTOR-LEVEL GIFT DEDUPLICATION
-            // TikTok sends two WebSocket packets for the same gift ~2-3s apart (giftType=0).
-            // Deduplicate here at the source so ALL plugins are protected without individual changes.
-            const rawUserId = data.user?.userId || data.user?.uniqueId || data.userId || data.uniqueId || 'unknown';
-            const rawGiftId = data.gift?.id || data.giftId || data.id || null;
-            const rawRepeatCount = data.repeatCount || data.repeat_count || data.comboCount || 1;
-            const dedupeKey = `${rawUserId}:${rawGiftId}:${rawRepeatCount}`;
-            const nowMs = Date.now();
-
-            // Cleanup stale entries
-            for (const [k, t] of this._giftDedupeMap) {
-                if (nowMs - t > this._giftDedupeTtlMs) this._giftDedupeMap.delete(k);
-            }
-
-            if (this._giftDedupeMap.has(dedupeKey)) {
-                this.logger.info(`🔕 [GIFT DEDUP] Connector-level duplicate blocked: ${dedupeKey}`);
-                return;
-            }
-            this._giftDedupeMap.set(dedupeKey, nowMs);
-
-            // Extract gift data
+            // STEP 1: Extract gift data first so we can inspect the payload before any filtering
             const giftData = this.extractGiftData(data);
 
-            // Skip null/zero-coin TikTok protocol packets (giftType=0, no name, no coins)
+            // STEP 2: Skip null/zero-coin TikTok protocol packets BEFORE dedup.
+            // TikTok sends a protocol packet (giftType=0, no name, 0 diamonds) for every gift,
+            // followed ~1-3s later by the real gift with the same userId:giftId:repeatCount key.
+            // Filtering first prevents these protocol packets from poisoning the dedup map
+            // and accidentally blocking the real gifts that follow.
             if (!giftData.giftName && giftData.diamondCount === 0 && giftData.giftType === 0) {
                 this.logger.debug(`[GIFT FILTER] Skipping null/zero-coin protocol packet (giftId: ${giftData.giftId})`);
                 return;
+            }
+
+            // STEP 3: CONNECTOR-LEVEL GIFT DEDUPLICATION
+            // Only applied after confirming this is a real gift (not a protocol packet).
+            // TikTok sends two WebSocket packets for the same gift ~2-3s apart (giftType=0).
+            // Deduplicate here at the source so ALL plugins are protected without individual changes.
+            const rawUserId = data.user?.userId || data.user?.uniqueId || data.userId || data.uniqueId || 'unknown';
+            const rawGiftId = giftData.giftId || null;
+            const rawRepeatCount = data.repeatCount || data.repeat_count || data.comboCount || 1;
+
+            // Only deduplicate when we have a valid giftId; null giftIds must never enter the dedup map
+            if (rawGiftId != null) {
+                const dedupeKey = `${rawUserId}:${rawGiftId}:${rawRepeatCount}`;
+                const nowMs = Date.now();
+
+                // Cleanup stale entries
+                for (const [k, t] of this._giftDedupeMap) {
+                    if (nowMs - t > this._giftDedupeTtlMs) this._giftDedupeMap.delete(k);
+                }
+
+                if (this._giftDedupeMap.has(dedupeKey)) {
+                    this.logger.info(`🔕 [GIFT DEDUP] Connector-level duplicate blocked: ${dedupeKey}`);
+                    return;
+                }
+                this._giftDedupeMap.set(dedupeKey, nowMs);
             }
 
             // Auto-update gift catalog with received gift data
