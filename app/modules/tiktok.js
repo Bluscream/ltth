@@ -758,13 +758,19 @@ class TikTokConnector extends EventEmitter {
             // Only applied after confirming this is a real gift (not a protocol packet).
             // TikTok sends two WebSocket packets for the same gift ~2-3s apart (giftType=0).
             // Deduplicate here at the source so ALL plugins are protected without individual changes.
+            //
+            // IMPORTANT: the dedup key includes giftData.repeatEnd so that a streakable gift's
+            // mid-animation Popup event (repeatEnd=false) and the final streak-end event
+            // (repeatEnd=true) produce DIFFERENT keys. Without this, the Popup (which is not
+            // emitted, but IS added to the map at this step) would block the streak-end event
+            // that arrives later with the same userId:giftId:repeatCount combination.
             const rawUserId = data.user?.userId || data.user?.uniqueId || data.userId || data.uniqueId || 'unknown';
             const rawGiftId = giftData.giftId || null;
             const rawRepeatCount = data.repeatCount || data.repeat_count || data.comboCount || 1;
 
             // Only deduplicate when we have a valid giftId; null giftIds must never enter the dedup map
             if (rawGiftId != null) {
-                const dedupeKey = `${rawUserId}:${rawGiftId}:${rawRepeatCount}`;
+                const dedupeKey = `${rawUserId}:${rawGiftId}:${rawRepeatCount}:${giftData.repeatEnd ? '1' : '0'}`;
                 const nowMs = Date.now();
 
                 // Cleanup stale entries
