@@ -367,6 +367,16 @@ class TalkingHeadsPlugin {
   }
 
   /**
+   * Slugify a set name to produce a safe setId
+   * @param {string} name
+   * @returns {string}
+   * @private
+   */
+  _slugifySetId(name) {
+    return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64);
+  }
+
+  /**
    * Emit spawn animation event for new avatars
    * @param {string} userId
    * @param {string} username
@@ -1503,7 +1513,7 @@ class TalkingHeadsPlugin {
         }
 
         // Slugify setName to create setId
-        const setId = setName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64);
+        const setId = this._slugifySetId(setName);
         if (!setId) {
           return res.status(400).json({ success: false, error: 'setName produces an empty setId' });
         }
@@ -1966,10 +1976,10 @@ class TalkingHeadsPlugin {
   _getManualStyleKeyForUser(userId) {
     try {
       // Check if the user has any cache entry with a manual: style key
-      const rows = this.db.prepare(
+      const row = this.db.prepare(
         "SELECT style_key FROM talking_heads_cache WHERE user_id = ? AND style_key LIKE 'manual:%' LIMIT 1"
-      ).all(userId);
-      return rows.length > 0 ? rows[0].style_key : null;
+      ).get(userId);
+      return row ? row.style_key : null;
     } catch (_) {
       return null;
     }

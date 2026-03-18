@@ -484,11 +484,11 @@ class CacheManager {
     }
 
     // Store in the main cache table using style_key = 'manual:{setId}'
-    // Use a placeholder avatar_path since manual sets don't have a full avatar image
+    // avatar_path reuses idle_neutral since manual sets don't have a separate full avatar image
     const styleKey = `manual:${setId}`;
-    const dummyAvatarPath = set.sprites.idle_neutral;
+    const avatarPath = set.sprites.idle_neutral;
 
-    this.saveAvatar(userId, username, styleKey, dummyAvatarPath, set.sprites, null);
+    this.saveAvatar(userId, username, styleKey, avatarPath, set.sprites, null);
     this.logger.info(`TalkingHeads: Assigned manual set "${setId}" to user ${username} (${userId})`);
     return true;
   }
