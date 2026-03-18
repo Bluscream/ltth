@@ -744,6 +744,23 @@ class TikTokConnector extends EventEmitter {
             // STEP 1: Extract gift data first so we can inspect the payload before any filtering
             const giftData = this.extractGiftData(data);
 
+            // STEP 1.5: Try catalog lookup to fill in missing gift metadata BEFORE filtering.
+            // extractGiftData() may still produce giftName=null / diamondCount=0 for unknown
+            // schema variants. Filling from the catalog here prevents real gifts that are
+            // already known to the system from being misidentified as protocol packets.
+            if (!giftData.giftName && giftData.giftId) {
+                const catalogGift = this.db.getGift(giftData.giftId);
+                if (catalogGift) {
+                    giftData.giftName = catalogGift.name;
+                    if (!giftData.diamondCount && catalogGift.diamond_count) {
+                        giftData.diamondCount = catalogGift.diamond_count;
+                    }
+                    if (!giftData.giftPictureUrl && catalogGift.image_url) {
+                        giftData.giftPictureUrl = catalogGift.image_url;
+                    }
+                }
+            }
+
             // STEP 2: Skip null/zero-coin TikTok protocol packets BEFORE dedup.
             // TikTok sends a protocol packet (giftType=0, no name, 0 diamonds) for every gift,
             // followed ~1-3s later by the real gift with the same userId:giftId:repeatCount key.
@@ -1258,7 +1275,10 @@ class TikTokConnector extends EventEmitter {
      * @private
      */
     extractGiftData(data) {
-        const gift = data.gift || data.giftInfo || data;
+        // Eulerstream v1 schema: gift metadata (giftName, diamondCount, giftType, giftImage)
+        // is nested inside data.giftDetails, NOT at the top level or in data.gift/data.giftInfo.
+        // data.giftDetails MUST be checked first to correctly resolve Eulerstream payloads.
+        const gift = data.giftDetails || data.gift || data.giftInfo || data;
 
         // Extract gift name from various possible fields
         let giftName = gift.name || gift.giftName || gift.gift_name || 
@@ -1268,9 +1288,12 @@ class TikTokConnector extends EventEmitter {
         let giftId = gift.id || gift.giftId || gift.gift_id || 
                      data.giftId || data.id || null;
         
-        // Extract picture URL from various possible structures
-        // Eulerstream may use giftImage, image.url_list, or other formats
-        let giftPictureUrl = gift.giftImage || gift.giftPictureUrl || gift.picture_url ||
+        // Extract picture URL from various possible structures.
+        // Eulerstream v1 schema: giftDetails.giftImage is an object { giftPictureUrl: "https://..." }
+        // so we check gift.giftImage?.giftPictureUrl first before falling back to a bare URL string.
+        let giftPictureUrl = gift.giftImage?.giftPictureUrl ||
+                             gift.giftImage?.url_list?.[0] ||
+                             gift.giftImage || gift.giftPictureUrl || gift.picture_url ||
                              gift.image?.url_list?.[0] || gift.image?.url || gift.image?.urls?.[0] ||
                              gift.icon?.url_list?.[0] || gift.icon?.urls?.[0] ||
                              data.giftImage || data.giftPictureUrl || data.image?.url_list?.[0] || null;
@@ -1284,13 +1307,13 @@ class TikTokConnector extends EventEmitter {
         // Extract giftType using nullish coalescing (??) to preserve 0 as a valid value.
         // Using || would skip 0 (non-streakable) and incorrectly fall through to the next candidate.
         // Field precedence (first defined value wins):
-        //   data.giftType         – top-level field from Eulerstream v2+ and TikTok-Live-Connector
-        //   data.gift_type        – snake_case variant used by some Eulerstream versions
-        //   gift.giftType         – nested in data.gift / data.giftInfo object
+        //   gift.giftType         – Eulerstream v1: nested in data.giftDetails.giftType (gift = giftDetails)
         //   gift.gift_type        – snake_case nested variant
         //   gift.type             – short alias used in older Eulerstream payloads
+        //   data.giftType         – top-level field from Eulerstream v2+ and TikTok-Live-Connector
+        //   data.gift_type        – snake_case top-level variant
         //   data.gift?.type       – direct reference when data.gift is the payload root
-        const giftType = data.giftType ?? data.gift_type ?? gift.giftType ?? gift.gift_type ?? gift.type ?? data.gift?.type ?? 0;
+        const giftType = gift.giftType ?? gift.gift_type ?? gift.type ?? data.giftType ?? data.gift_type ?? data.gift?.type ?? 0;
 
         // Determine if streak/combo has ended.
         // If the repeatEnd field is absent AND giftType === 1 (streakable), default to false
@@ -1314,6 +1337,7 @@ class TikTokConnector extends EventEmitter {
 
         if (!extractedData.giftName && !extractedData.giftId) {
             this.logger.warn('⚠️ No gift data found in event. Event structure:', {
+                hasGiftDetails: !!data.giftDetails,
                 hasGift: !!data.gift,
                 hasGiftInfo: !!data.giftInfo,
                 hasGiftName: !!(data.giftName || data.name),
@@ -1322,6 +1346,9 @@ class TikTokConnector extends EventEmitter {
                 keys: Object.keys(data).slice(0, 20)
             });
         }
+
+        const giftSrc = data.giftDetails ? 'giftDetails' : data.gift ? 'gift' : data.giftInfo ? 'giftInfo' : 'data-root';
+        this.logger.debug(`[GIFT EXTRACT] Source: ${giftSrc}, giftId=${extractedData.giftId}, name=${extractedData.giftName}, diamonds=${extractedData.diamondCount}, type=${extractedData.giftType}`);
 
         return extractedData;
     }
