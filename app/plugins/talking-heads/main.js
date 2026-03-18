@@ -43,6 +43,10 @@ class TalkingHeadsPlugin {
 
     // Bridge handlers for TTS playback events
     this.ttsBridgeHandlers = null;
+
+    // Viewer presence tracker for Viewer Bar
+    this.viewerPresence = new Map(); // userId → { username, sprites, lastSeen, joinedAt }
+    this.viewerCleanupInterval = null;
   }
 
   /**
@@ -74,11 +78,40 @@ class TalkingHeadsPlugin {
       requireCustomVoice: false,
       avatarResolution: 1500,
       spriteResolution: 512,
-      debugLogging: false // Enable/disable detailed logging
+      debugLogging: false, // Enable/disable detailed logging
+      // Manual sprite mode
+      spriteMode: 'auto',        // 'auto' | 'manual' | 'hybrid'
+      manualFallback: true,      // fallback to AI when manual mode but no set assigned
+      defaultManualSetId: null,  // default manual set for users without an assigned set
+      // Viewer Bar configuration
+      viewerBar: {
+        enabled: false,
+        maxVisibleViewers: 20,
+        avatarSize: 64,
+        scrollSpeed: 30,
+        scrollDirection: 'left',
+        popUpDuration: 5000,
+        popUpHeight: 150,
+        popUpAnimation: 'bounce',
+        showChatBubble: true,
+        chatBubbleDuration: 4000,
+        barPosition: 'bottom',
+        barBackground: 'rgba(0,0,0,0.3)',
+        barBorderRadius: 12,
+        idleBlinkEnabled: true,
+        idleBlinkInterval: 3000,
+        viewerTimeout: 300000,
+        requireAvatar: true,
+        fallbackAvatar: 'default',
+        showUsername: true,
+        pauseScrollOnSpeak: true
+      }
     };
 
     const savedConfig = this.api.getConfig('talking_heads_config');
     const mergedConfig = savedConfig ? { ...defaultConfig, ...savedConfig } : defaultConfig;
+    // Deep-merge viewerBar so partial saved configs don't lose defaults
+    mergedConfig.viewerBar = { ...defaultConfig.viewerBar, ...(mergedConfig.viewerBar || {}) };
     return {
       ...mergedConfig,
       imageApiUrl: this._normalizeImageApiUrl(
@@ -314,6 +347,26 @@ class TalkingHeadsPlugin {
   }
 
   /**
+   * Convert absolute manual sprite paths to relative URLs using the manual-sprite route
+   * @param {string} setId - Set identifier
+   * @param {object} sprites - Absolute file paths
+   * @returns {object} Relative URL paths
+   * @private
+   */
+  _getManualRelativeSpritePaths(setId, sprites) {
+    const safeSetId = encodeURIComponent(setId);
+    const relativeSprites = {};
+    Object.entries(sprites || {}).forEach(([key, value]) => {
+      if (value) {
+        const filename = path.basename(value);
+        const safeFilename = filename.replace(/[^a-zA-Z0-9_.-]/g, '_');
+        relativeSprites[key] = `/api/talkingheads/manual-sprite/${safeSetId}/${encodeURIComponent(safeFilename)}`;
+      }
+    });
+    return relativeSprites;
+  }
+
+  /**
    * Emit spawn animation event for new avatars
    * @param {string} userId
    * @param {string} username
@@ -485,6 +538,10 @@ class TalkingHeadsPlugin {
 
     // Bridge playback events from TTS plugin so avatars follow speech
     this._registerPlaybackBridge();
+
+    // Register Viewer Bar TikTok events
+    this._log('Registering viewer bar events...', 'debug');
+    this._registerViewerBarEvents();
 
     // Load custom voice users from TTS plugin
     this._log('Loading custom voice users...', 'debug');
@@ -1363,7 +1420,7 @@ class TalkingHeadsPlugin {
       }
     });
 
-    // Serve sprite images
+    // Serve sprite images (from avatars/ directory)
     this.api.registerRoute('get', '/api/talkingheads/sprite/:filename', async (req, res) => {
       try {
         const filename = req.params.filename;
@@ -1377,6 +1434,301 @@ class TalkingHeadsPlugin {
         res.sendFile(filepath);
       } catch (error) {
         res.status(404).json({ success: false, error: 'Sprite not found' });
+      }
+    });
+
+    // Serve manual sprite images (from manual/{setId}/ directory)
+    this.api.registerRoute('get', '/api/talkingheads/manual-sprite/:setId/:filename', async (req, res) => {
+      try {
+        const { setId, filename } = req.params;
+        const safeSetId = path.basename(setId || '');
+        const safeFilename = path.basename(filename || '');
+        if (!safeSetId || !safeFilename) {
+          return res.status(400).json({ success: false, error: 'Invalid path' });
+        }
+        const pluginDataDir = this.api.getPluginDataDir();
+        const filepath = path.join(pluginDataDir, 'manual', safeSetId, safeFilename);
+        await fs.access(filepath);
+        res.sendFile(filepath);
+      } catch (error) {
+        res.status(404).json({ success: false, error: 'Manual sprite not found' });
+      }
+    });
+
+    // ==================== MANUAL SPRITE UPLOAD ROUTES ====================
+
+    // Upload manual sprite set (5 PNGs or 1 ZIP)
+    this.api.registerRoute('post', '/api/talkingheads/manual-upload', async (req, res) => {
+      try {
+        const multer = require('multer');
+        const pluginDataDir = this.api.getPluginDataDir();
+        const tmpDir = path.join(pluginDataDir, 'manual', '_tmp');
+        await fs.mkdir(tmpDir, { recursive: true });
+
+        const storage = multer.diskStorage({
+          destination: (_req, _file, cb) => cb(null, tmpDir),
+          filename: (_req, file, cb) => cb(null, `${Date.now()}_${path.basename(file.originalname)}`)
+        });
+
+        const SPRITE_FIELDS = ['idle_neutral', 'blink', 'speak_closed', 'speak_mid', 'speak_open'];
+        const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB per file
+
+        const uploadMiddleware = multer({
+          storage,
+          limits: { fileSize: MAX_FILE_SIZE },
+          fileFilter: (_req, file, cb) => {
+            const ext = path.extname(file.originalname).toLowerCase();
+            if (ext === '.png' || ext === '.zip') {
+              cb(null, true);
+            } else {
+              cb(new Error('Only PNG or ZIP files are accepted'));
+            }
+          }
+        }).fields([
+          ...SPRITE_FIELDS.map((f) => ({ name: f, maxCount: 1 })),
+          { name: 'zip', maxCount: 1 }
+        ]);
+
+        // Run multer inside the handler
+        await new Promise((resolve, reject) => {
+          uploadMiddleware(req, res, (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+
+        const setName = (req.body && req.body.setName) ? String(req.body.setName).trim() : '';
+        if (!setName) {
+          return res.status(400).json({ success: false, error: 'Missing setName' });
+        }
+
+        // Slugify setName to create setId
+        const setId = setName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64);
+        if (!setId) {
+          return res.status(400).json({ success: false, error: 'setName produces an empty setId' });
+        }
+
+        const setDir = path.join(pluginDataDir, 'manual', setId);
+        await fs.mkdir(setDir, { recursive: true });
+
+        let spritePaths = {};
+
+        // Handle ZIP upload
+        if (req.files && req.files.zip && req.files.zip[0]) {
+          const zipFile = req.files.zip[0];
+          const extractDir = path.join(tmpDir, `zip_${Date.now()}`);
+          try {
+            const extractZip = require('extract-zip');
+            await fs.mkdir(extractDir, { recursive: true });
+            await extractZip(zipFile.path, { dir: extractDir });
+
+            // Copy matching frames from the extracted contents
+            const extractedFiles = await fs.readdir(extractDir);
+            for (const file of extractedFiles) {
+              const base = path.basename(file, '.png');
+              if (SPRITE_FIELDS.includes(base)) {
+                const srcPath = path.join(extractDir, file);
+                const destPath = path.join(setDir, `${base}.png`);
+                await fs.copyFile(srcPath, destPath);
+                spritePaths[base] = destPath;
+              }
+            }
+          } finally {
+            try { await fs.unlink(zipFile.path); } catch (_) {}
+            // Cleanup extracted temp dir
+            try {
+              const tmpExtracted = await fs.readdir(extractDir);
+              for (const f of tmpExtracted) {
+                try { await fs.unlink(path.join(extractDir, f)); } catch (_) {}
+              }
+              await fs.rmdir(extractDir);
+            } catch (_) {}
+          }
+        }
+
+        // Handle individual PNG uploads (overrides ZIP for matching fields)
+        for (const field of SPRITE_FIELDS) {
+          if (req.files && req.files[field] && req.files[field][0]) {
+            const uploadedFile = req.files[field][0];
+            const destPath = path.join(setDir, `${field}.png`);
+            try {
+              await fs.rename(uploadedFile.path, destPath);
+            } catch (_) {
+              // rename may fail across devices; fall back to copy+delete
+              await fs.copyFile(uploadedFile.path, destPath);
+              try { await fs.unlink(uploadedFile.path); } catch (__) {}
+            }
+            spritePaths[field] = destPath;
+          }
+        }
+
+        // Clean up leftover tmp files
+        try {
+          const tmpFiles = await fs.readdir(tmpDir);
+          for (const f of tmpFiles) {
+            try { await fs.unlink(path.join(tmpDir, f)); } catch (_) {}
+          }
+        } catch (_) {}
+
+        // Validate all 5 frames are present
+        const missing = SPRITE_FIELDS.filter((f) => !spritePaths[f]);
+        if (missing.length > 0) {
+          // Clean up partial upload
+          for (const p of Object.values(spritePaths)) {
+            try { await fs.unlink(p); } catch (_) {}
+          }
+          return res.status(400).json({
+            success: false,
+            error: `Missing sprite frames: ${missing.join(', ')}`
+          });
+        }
+
+        // Save to DB
+        this.cacheManager.cacheManualSprites(setId, setName, spritePaths);
+
+        this.io.emit('talkingheads:manual:uploaded', { setId, setName });
+        this._log(`Manual sprite set uploaded: ${setName} (${setId})`, 'info');
+
+        res.json({
+          success: true,
+          setId,
+          setName,
+          sprites: this._getManualRelativeSpritePaths(setId, spritePaths)
+        });
+      } catch (error) {
+        this.logger.error('TalkingHeads: Manual sprite upload failed', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // List all manual sprite sets
+    this.api.registerRoute('get', '/api/talkingheads/manual-templates', (req, res) => {
+      try {
+        const sets = this.cacheManager.listManualSets();
+        const result = sets.map((s) => ({
+          setId: s.setId,
+          setName: s.setName,
+          createdAt: s.createdAt,
+          sprites: this._getManualRelativeSpritePaths(s.setId, s.sprites)
+        }));
+        res.json({ success: true, sets: result });
+      } catch (error) {
+        this.logger.error('TalkingHeads: Failed to list manual templates', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Assign a manual sprite set to a user
+    this.api.registerRoute('post', '/api/talkingheads/manual-assign', (req, res) => {
+      try {
+        const { userId, username, setId } = req.body;
+
+        if (!userId || !username || !setId) {
+          return res.status(400).json({ success: false, error: 'Missing userId, username, or setId' });
+        }
+
+        const sanitizedUserId = this._sanitizeInput(userId, 'userId');
+        const sanitizedUsername = this._sanitizeInput(username, 'username');
+        const sanitizedSetId = String(setId).replace(/[^a-z0-9-]/g, '').slice(0, 64);
+
+        if (!sanitizedUserId || !sanitizedUsername || !sanitizedSetId) {
+          return res.status(400).json({ success: false, error: 'Invalid input parameters' });
+        }
+
+        this.cacheManager.assignManualSetToUser(sanitizedUserId, sanitizedUsername, sanitizedSetId);
+
+        const set = this.cacheManager.getManualSet(sanitizedSetId);
+        this.io.emit('talkingheads:manual:assigned', {
+          userId: sanitizedUserId,
+          username: sanitizedUsername,
+          setId: sanitizedSetId,
+          sprites: set ? this._getManualRelativeSpritePaths(sanitizedSetId, set.sprites) : null
+        });
+
+        this._log(`Manual set "${sanitizedSetId}" assigned to ${sanitizedUsername}`, 'info');
+        res.json({ success: true, userId: sanitizedUserId, username: sanitizedUsername, setId: sanitizedSetId });
+      } catch (error) {
+        this.logger.error('TalkingHeads: Manual sprite assignment failed', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Delete a manual sprite set
+    this.api.registerRoute('delete', '/api/talkingheads/manual-upload/:setId', async (req, res) => {
+      try {
+        const rawSetId = req.params.setId || '';
+        const setId = String(rawSetId).replace(/[^a-z0-9-]/g, '').slice(0, 64);
+        if (!setId) {
+          return res.status(400).json({ success: false, error: 'Invalid setId' });
+        }
+
+        const deleted = await this.cacheManager.deleteManualSet(setId);
+        if (!deleted) {
+          return res.status(404).json({ success: false, error: 'Manual sprite set not found' });
+        }
+
+        this.io.emit('talkingheads:manual:deleted', { setId });
+        res.json({ success: true, setId });
+      } catch (error) {
+        this.logger.error('TalkingHeads: Failed to delete manual sprite set', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // ==================== VIEWER BAR ROUTES ====================
+
+    // Serve Viewer Bar overlay HTML
+    this.api.registerRoute('get', '/talking-heads/viewer-bar', (req, res) => {
+      res.sendFile(path.join(__dirname, 'viewer-bar.html'));
+    });
+
+    this.api.registerRoute('get', '/overlay/talking-heads/viewer-bar', (req, res) => {
+      res.sendFile(path.join(__dirname, 'viewer-bar.html'));
+    });
+
+    // Get Viewer Bar configuration
+    this.api.registerRoute('get', '/api/talkingheads/viewer-bar/config', (req, res) => {
+      try {
+        const port = this.api.getConfig('server_port') || process.env.PORT || 3000;
+        res.json({
+          success: true,
+          config: this.config.viewerBar,
+          overlayUrl: `http://localhost:${port}/talking-heads/viewer-bar`
+        });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Save Viewer Bar configuration
+    this.api.registerRoute('post', '/api/talkingheads/viewer-bar/config', (req, res) => {
+      try {
+        const newViewerBarConfig = { ...this.config.viewerBar, ...req.body };
+        this._saveConfig({ viewerBar: newViewerBarConfig });
+        this.io.emit('viewer-bar:config:update', { config: this.config.viewerBar });
+        res.json({ success: true, config: this.config.viewerBar });
+      } catch (error) {
+        this.logger.error('TalkingHeads: Failed to save viewer bar config', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get current viewer list with sprites
+    this.api.registerRoute('get', '/api/talkingheads/viewer-bar/viewers', (req, res) => {
+      try {
+        const viewers = [];
+        for (const [userId, data] of this.viewerPresence.entries()) {
+          viewers.push({
+            userId,
+            username: data.username,
+            sprites: data.sprites,
+            lastSeen: data.lastSeen,
+            joinedAt: data.joinedAt
+          });
+        }
+        res.json({ success: true, viewers });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
       }
     });
 
@@ -1528,10 +1880,46 @@ class TalkingHeadsPlugin {
 
     this._log(`User ${username} is eligible for talking head`, 'debug');
 
-    // Check cache first
-    this._log(`Checking cache for user ${username} with style ${this.config.defaultStyle}`, 'debug');
-    let avatarData = this.cacheManager.getAvatar(userId, this.config.defaultStyle);
-    const wasCached = !!avatarData;
+    // Resolve sprites based on spriteMode
+    const spriteMode = this.config.spriteMode || 'auto';
+    let avatarData = null;
+    let wasCached = false;
+
+    if (spriteMode === 'manual' || spriteMode === 'hybrid') {
+      // Check for manually assigned sprite set first
+      const manualStyleKey = this._getManualStyleKeyForUser(userId);
+      if (manualStyleKey) {
+        avatarData = this.cacheManager.getAvatar(userId, manualStyleKey);
+        wasCached = !!avatarData;
+        this._log(`Using manual sprites (${manualStyleKey}) for ${username}`, 'debug');
+      }
+
+      if (!avatarData && this.config.defaultManualSetId) {
+        // Use default manual set if no user-specific one
+        const defaultSet = this.cacheManager.getManualSet(this.config.defaultManualSetId);
+        if (defaultSet) {
+          avatarData = { userId, username, styleKey: `manual:${this.config.defaultManualSetId}`, sprites: defaultSet.sprites };
+          wasCached = true;
+          this._log(`Using default manual set "${this.config.defaultManualSetId}" for ${username}`, 'debug');
+        }
+      }
+
+      if (!avatarData && spriteMode === 'manual') {
+        if (this.config.manualFallback) {
+          this._log(`No manual sprites for ${username}, falling back to AI`, 'warn');
+        } else {
+          this._log(`No manual sprites for ${username} and fallback disabled`, 'warn');
+          return;
+        }
+      }
+    }
+
+    if (!avatarData) {
+      // Auto mode or hybrid fallback: check AI cache
+      this._log(`Checking cache for user ${username} with style ${this.config.defaultStyle}`, 'debug');
+      avatarData = this.cacheManager.getAvatar(userId, this.config.defaultStyle);
+      wasCached = !!avatarData;
+    }
 
     if (!avatarData) {
       // Generate new avatar and sprites
@@ -1567,6 +1955,192 @@ class TalkingHeadsPlugin {
       avatarData.sprites,
       duration || 5000
     );
+  }
+
+  /**
+   * Find if user has a manually assigned sprite set and return its styleKey
+   * @param {string} userId
+   * @returns {string|null} styleKey of the form 'manual:{setId}' or null
+   * @private
+   */
+  _getManualStyleKeyForUser(userId) {
+    try {
+      // Check if the user has any cache entry with a manual: style key
+      const rows = this.db.prepare(
+        "SELECT style_key FROM talking_heads_cache WHERE user_id = ? AND style_key LIKE 'manual:%' LIMIT 1"
+      ).all(userId);
+      return rows.length > 0 ? rows[0].style_key : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Register Viewer Bar TikTok event handlers (member join, chat speak)
+   * @private
+   */
+  _registerViewerBarEvents() {
+    // Listen for new Socket.IO connections to sync state to newly connected overlays
+    this.io.on('connection', (socket) => {
+      socket.on('viewer-bar:request:sync', () => {
+        const viewers = [];
+        for (const [userId, data] of this.viewerPresence.entries()) {
+          viewers.push({ userId, username: data.username, sprites: data.sprites });
+        }
+        socket.emit('viewer-bar:state:sync', { viewers, config: this.config.viewerBar });
+      });
+    });
+
+    // TikTok member join
+    this.api.registerTikTokEvent('member', async (data) => {
+      if (!this.config.viewerBar || !this.config.viewerBar.enabled) return;
+
+      try {
+        const userId = data.userId || data.uniqueId;
+        const username = data.nickname || data.uniqueId || 'Unknown';
+        if (!userId) return;
+
+        const now = Date.now();
+
+        // Get sprites for this viewer
+        const sprites = await this._getSpritesForViewerBar(userId, username);
+
+        if (!sprites && this.config.viewerBar.requireAvatar) {
+          this._log(`Viewer bar: No sprites for ${username}, requireAvatar=true, skipping`, 'debug');
+          return;
+        }
+
+        this.viewerPresence.set(userId, {
+          username,
+          sprites: sprites || null,
+          lastSeen: now,
+          joinedAt: this.viewerPresence.has(userId) ? this.viewerPresence.get(userId).joinedAt : now
+        });
+
+        const relativeSprites = sprites ? this._resolveViewerBarSprites(userId, sprites) : null;
+        this.io.emit('viewer-bar:viewer:join', { userId, username, sprites: relativeSprites });
+        this._log(`Viewer bar: ${username} joined`, 'debug');
+      } catch (error) {
+        this.logger.error('TalkingHeads: Viewer bar member event failed', error);
+      }
+    });
+
+    // TikTok chat event – viewer speaks
+    this.api.registerTikTokEvent('chat', (data) => {
+      if (!this.config.viewerBar || !this.config.viewerBar.enabled) return;
+
+      try {
+        const userId = data.userId || data.uniqueId;
+        const username = data.nickname || data.uniqueId || 'Unknown';
+        const message = data.comment || data.message || '';
+        if (!userId) return;
+
+        const now = Date.now();
+
+        // Update lastSeen; if viewer is not in presence map, add with null sprites
+        if (!this.viewerPresence.has(userId)) {
+          this.viewerPresence.set(userId, {
+            username,
+            sprites: null,
+            lastSeen: now,
+            joinedAt: now
+          });
+        } else {
+          this.viewerPresence.get(userId).lastSeen = now;
+          this.viewerPresence.get(userId).username = username;
+        }
+
+        const presenceData = this.viewerPresence.get(userId);
+        const relativeSprites = presenceData.sprites
+          ? this._resolveViewerBarSprites(userId, presenceData.sprites)
+          : null;
+
+        const duration = (this.config.viewerBar.popUpDuration || 5000);
+
+        this.io.emit('viewer-bar:viewer:speak', {
+          userId,
+          username,
+          message,
+          duration,
+          sprites: relativeSprites
+        });
+      } catch (error) {
+        this.logger.error('TalkingHeads: Viewer bar chat event failed', error);
+      }
+    });
+
+    // Periodic cleanup: remove viewers not seen for viewerTimeout ms
+    const timeoutMs = (this.config.viewerBar && this.config.viewerBar.viewerTimeout) || 300000;
+    this.viewerCleanupInterval = setInterval(() => {
+      const cutoff = Date.now() - timeoutMs;
+      for (const [userId, data] of this.viewerPresence.entries()) {
+        if (data.lastSeen < cutoff) {
+          this.viewerPresence.delete(userId);
+          this.io.emit('viewer-bar:viewer:leave', { userId });
+          this._log(`Viewer bar: removed idle viewer ${data.username}`, 'debug');
+        }
+      }
+    }, Math.min(timeoutMs, 60000));
+
+    this._log('Viewer bar events registered', 'info');
+  }
+
+  /**
+   * Get sprites for a viewer based on the current spriteMode
+   * Returns absolute-path sprites object or null
+   * @param {string} userId
+   * @param {string} username
+   * @returns {Promise<object|null>}
+   * @private
+   */
+  async _getSpritesForViewerBar(userId, username) {
+    const spriteMode = this.config.spriteMode || 'auto';
+
+    // Manual / hybrid: check manual assignment first
+    if (spriteMode === 'manual' || spriteMode === 'hybrid') {
+      const manualStyleKey = this._getManualStyleKeyForUser(userId);
+      if (manualStyleKey) {
+        const cached = this.cacheManager.getAvatar(userId, manualStyleKey);
+        if (cached) return cached.sprites;
+      }
+
+      if (this.config.defaultManualSetId) {
+        const defaultSet = this.cacheManager.getManualSet(this.config.defaultManualSetId);
+        if (defaultSet) return defaultSet.sprites;
+      }
+
+      if (spriteMode === 'manual') return null; // no AI fallback in pure manual mode
+    }
+
+    // Auto / hybrid fallback: check AI cache (do NOT generate on-the-fly for viewer bar)
+    const cached = this.cacheManager.getAvatar(userId, this.config.defaultStyle);
+    return cached ? cached.sprites : null;
+  }
+
+  /**
+   * Resolve viewer bar sprite paths to relative URLs
+   * Handles both regular (avatars/) and manual (manual/{setId}/) paths
+   * @param {string} userId
+   * @param {object} sprites - Absolute paths
+   * @returns {object}
+   * @private
+   */
+  _resolveViewerBarSprites(userId, sprites) {
+    if (!sprites) return null;
+
+    // Check if these are manual sprites (path contains '/manual/')
+    const firstPath = Object.values(sprites).find(Boolean) || '';
+    const pluginDataDir = this.api.getPluginDataDir();
+    const manualDir = path.join(pluginDataDir, 'manual');
+
+    if (firstPath.startsWith(manualDir)) {
+      // Extract setId from path: manual/{setId}/filename
+      const relative = firstPath.slice(manualDir.length + 1);
+      const setId = relative.split(/[\\/]/)[0];
+      return this._getManualRelativeSpritePaths(setId, sprites);
+    }
+
+    return this._getRelativeSpritePaths(sprites);
   }
 
   /**
@@ -1789,6 +2363,11 @@ Keep the description focused and specific. This will be used to generate the act
       // Clear cleanup interval
       if (this.cacheCleanupInterval) {
         clearInterval(this.cacheCleanupInterval);
+      }
+
+      // Clear viewer bar cleanup interval
+      if (this.viewerCleanupInterval) {
+        clearInterval(this.viewerCleanupInterval);
       }
 
       this.logger.info('TalkingHeads: Plugin destroyed');

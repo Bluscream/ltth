@@ -13,6 +13,7 @@ class CacheManager {
     this.logger = logger;
     this.config = config;
     this.cacheDir = path.join(pluginDataDir, 'avatars');
+    this.manualDir = path.join(pluginDataDir, 'manual');
     this.initialized = false;
   }
 
@@ -21,8 +22,9 @@ class CacheManager {
    */
   async init() {
     try {
-      // Ensure cache directory exists
+      // Ensure cache directories exist
       await fs.mkdir(this.cacheDir, { recursive: true });
+      await fs.mkdir(this.manualDir, { recursive: true });
 
       // Create database table for avatar metadata
       this.db.prepare(`
@@ -39,6 +41,20 @@ class CacheManager {
           created_at INTEGER NOT NULL,
           last_used INTEGER NOT NULL,
           profile_image_url TEXT
+        )
+      `).run();
+
+      // Create table for manual sprite sets
+      this.db.prepare(`
+        CREATE TABLE IF NOT EXISTS talking_heads_manual_sets (
+          set_id TEXT PRIMARY KEY,
+          set_name TEXT NOT NULL,
+          sprite_idle_neutral TEXT NOT NULL,
+          sprite_blink TEXT NOT NULL,
+          sprite_speak_closed TEXT NOT NULL,
+          sprite_speak_mid TEXT NOT NULL,
+          sprite_speak_open TEXT NOT NULL,
+          created_at INTEGER NOT NULL
         )
       `).run();
 
@@ -306,6 +322,175 @@ class CacheManager {
       this.logger.error('TalkingHeads: Error clearing cache', error);
       return 0;
     }
+  }
+
+  /**
+   * Save a manual sprite set to the database
+   * @param {string} setId - Unique set identifier (slugified from setName)
+   * @param {string} setName - Human-readable set name
+   * @param {object} spritePaths - Absolute paths to the 5 sprite files
+   */
+  cacheManualSprites(setId, setName, spritePaths) {
+    if (!this.initialized) {
+      throw new Error('Cache manager not initialized');
+    }
+
+    try {
+      const now = Date.now();
+      this.db.prepare(`
+        INSERT OR REPLACE INTO talking_heads_manual_sets (
+          set_id, set_name,
+          sprite_idle_neutral, sprite_blink, sprite_speak_closed,
+          sprite_speak_mid, sprite_speak_open, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        setId,
+        setName,
+        spritePaths.idle_neutral,
+        spritePaths.blink,
+        spritePaths.speak_closed,
+        spritePaths.speak_mid,
+        spritePaths.speak_open,
+        now
+      );
+      this.logger.info(`TalkingHeads: Cached manual sprite set "${setName}" (${setId})`);
+    } catch (error) {
+      this.logger.error('TalkingHeads: Failed to save manual sprite set', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Retrieve a manual sprite set by its ID
+   * @param {string} setId
+   * @returns {object|null}
+   */
+  getManualSet(setId) {
+    if (!this.initialized) return null;
+
+    try {
+      const row = this.db.prepare(
+        'SELECT * FROM talking_heads_manual_sets WHERE set_id = ?'
+      ).get(setId);
+
+      if (!row) return null;
+
+      return {
+        setId: row.set_id,
+        setName: row.set_name,
+        sprites: {
+          idle_neutral: row.sprite_idle_neutral,
+          blink: row.sprite_blink,
+          speak_closed: row.sprite_speak_closed,
+          speak_mid: row.sprite_speak_mid,
+          speak_open: row.sprite_speak_open
+        },
+        createdAt: row.created_at
+      };
+    } catch (error) {
+      this.logger.error('TalkingHeads: Error retrieving manual sprite set', error);
+      return null;
+    }
+  }
+
+  /**
+   * List all manual sprite sets
+   * @returns {Array}
+   */
+  listManualSets() {
+    if (!this.initialized) return [];
+
+    try {
+      const rows = this.db.prepare(
+        'SELECT * FROM talking_heads_manual_sets ORDER BY created_at DESC'
+      ).all();
+
+      return rows.map((row) => ({
+        setId: row.set_id,
+        setName: row.set_name,
+        sprites: {
+          idle_neutral: row.sprite_idle_neutral,
+          blink: row.sprite_blink,
+          speak_closed: row.sprite_speak_closed,
+          speak_mid: row.sprite_speak_mid,
+          speak_open: row.sprite_speak_open
+        },
+        createdAt: row.created_at
+      }));
+    } catch (error) {
+      this.logger.error('TalkingHeads: Failed to list manual sprite sets', error);
+      return [];
+    }
+  }
+
+  /**
+   * Delete a manual sprite set including its files
+   * @param {string} setId
+   * @returns {boolean} True if deleted
+   */
+  async deleteManualSet(setId) {
+    if (!this.initialized) return false;
+
+    try {
+      const set = this.getManualSet(setId);
+      if (!set) return false;
+
+      // Delete sprite files
+      const files = Object.values(set.sprites);
+      for (const file of files) {
+        if (file) {
+          try {
+            await fs.unlink(file);
+          } catch (_) {
+            // File may not exist, ignore
+          }
+        }
+      }
+
+      // Try to remove the directory if empty
+      try {
+        const setDir = path.join(this.manualDir, setId);
+        await fs.rmdir(setDir);
+      } catch (_) {
+        // Directory may not be empty or may not exist
+      }
+
+      // Remove DB row
+      this.db.prepare('DELETE FROM talking_heads_manual_sets WHERE set_id = ?').run(setId);
+
+      this.logger.info(`TalkingHeads: Deleted manual sprite set ${setId}`);
+      return true;
+    } catch (error) {
+      this.logger.error('TalkingHeads: Failed to delete manual sprite set', error);
+      return false;
+    }
+  }
+
+  /**
+   * Assign a manual sprite set to a user (stores in main cache table)
+   * @param {string} userId
+   * @param {string} username
+   * @param {string} setId
+   * @returns {boolean} True if successful
+   */
+  assignManualSetToUser(userId, username, setId) {
+    if (!this.initialized) {
+      throw new Error('Cache manager not initialized');
+    }
+
+    const set = this.getManualSet(setId);
+    if (!set) {
+      throw new Error(`Manual sprite set "${setId}" not found`);
+    }
+
+    // Store in the main cache table using style_key = 'manual:{setId}'
+    // Use a placeholder avatar_path since manual sets don't have a full avatar image
+    const styleKey = `manual:${setId}`;
+    const dummyAvatarPath = set.sprites.idle_neutral;
+
+    this.saveAvatar(userId, username, styleKey, dummyAvatarPath, set.sprites, null);
+    this.logger.info(`TalkingHeads: Assigned manual set "${setId}" to user ${username} (${userId})`);
+    return true;
   }
 
   /**
