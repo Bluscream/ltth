@@ -278,6 +278,14 @@ class OSCBridgePlugin {
             // Config laden
             this.config = await this.api.getConfig('config') || this.getDefaultConfig();
 
+            // Early-init OSCQueryClient if enabled — prevents race condition with auto-detect endpoint
+            if (this.config.oscQuery?.enabled) {
+                const host = this.config.oscQuery.host || '127.0.0.1';
+                const port = this.config.oscQuery.port || 9001;
+                this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
+                this.logger.info(`📡 OSCQuery client pre-initialized: ${host}:${port}`);
+            }
+
             // Initialize modular components
             this.avatarStateStore = new AvatarStateStore(this.api);
             this.expressionController = new ExpressionController(this.api, this);
@@ -717,7 +725,7 @@ class OSCBridgePlugin {
                 if (!this.oscQueryClient) {
                     const host = this.config.oscQuery?.host || '127.0.0.1';
                     const port = this.config.oscQuery?.port || 9001;
-                    this.oscQueryClient = new OSCQueryClient(host, port);
+                    this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
                 }
                 const result = await this.oscQueryClient.discover();
                 res.json({ success: true, ...result });
@@ -731,7 +739,7 @@ class OSCBridgePlugin {
                 if (!this.oscQueryClient) {
                     const host = this.config.oscQuery?.host || '127.0.0.1';
                     const port = this.config.oscQuery?.port || 9001;
-                    this.oscQueryClient = new OSCQueryClient(host, port);
+                    this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
                 }
                 const success = this.oscQueryClient.subscribe((update) => {
                     this.api.emit('osc:oscquery-update', update);
@@ -992,6 +1000,14 @@ class OSCBridgePlugin {
 
         this.api.registerRoute('post', '/api/osc/avatar/auto-detect', async (req, res) => {
             try {
+                // On-demand client init if oscQuery is enabled but client not yet created (race condition fallback)
+                if (!this.oscQueryClient && this.config.oscQuery?.enabled) {
+                    const host = this.config.oscQuery.host || '127.0.0.1';
+                    const port = this.config.oscQuery.port || 9001;
+                    this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
+                    this.logger.info('📡 OSCQuery client on-demand initialized for auto-detect');
+                }
+
                 if (!this.oscQueryClient) {
                     return res.status(400).json({ 
                         success: false, 
@@ -1471,6 +1487,25 @@ class OSCBridgePlugin {
             }
 
             this.config = { ...this.config, ...newConfig };
+
+            // Sync oscQueryClient with updated config
+            const oscCfg = this.config.oscQuery;
+            if (oscCfg?.enabled) {
+                // Re-create client in case host/port changed, or it was previously disabled
+                if (this.oscQueryClient) {
+                    this.oscQueryClient.disconnect();
+                }
+                this.oscQueryClient = new OSCQueryClient(
+                    oscCfg.host || '127.0.0.1',
+                    oscCfg.port || 9001,
+                    this.logger
+                );
+                this.logger.info('📡 OSCQuery client re-initialized after config update');
+            } else if (!oscCfg?.enabled && this.oscQueryClient) {
+                this.oscQueryClient.disconnect();
+                this.oscQueryClient = null;
+                this.logger.info('📡 OSCQuery client removed (disabled in config)');
+            }
 
             await this.api.setConfig('config', this.config);
 
