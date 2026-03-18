@@ -868,6 +868,223 @@
             "></div>
         </div>
 
+        <!-- Manual Sprites Section -->
+        <div class="config-section" id="manualSpritesSection">
+            <div class="section-title">
+                <i data-lucide="upload"></i>
+                <span>Manuelle Sprites</span>
+            </div>
+
+            <!-- Sprite Mode Selector -->
+            <div class="form-group">
+                <label class="form-label">Sprite-Modus</label>
+                <select class="form-select" id="spriteModeSelect">
+                    <option value="auto">Auto (nur KI-Generierung)</option>
+                    <option value="manual">Manuell (nur eigene Sprites)</option>
+                    <option value="hybrid">Hybrid (Manuell bevorzugt, KI als Fallback)</option>
+                </select>
+                <div class="form-help">Bestimmt, wie Sprites für Viewer ausgewählt werden.</div>
+            </div>
+
+            <div class="form-group" id="manualFallbackGroup" style="display:none;">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="manualFallbackToggle">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">KI-Fallback bei fehlendem manuellem Set</span>
+                </label>
+            </div>
+
+            <div class="form-group" id="defaultManualSetGroup" style="display:none;">
+                <label class="form-label">Standard-Sprite-Set (für alle ohne eigenes)</label>
+                <select class="form-select" id="defaultManualSetSelect">
+                    <option value="">-- Kein Standard --</option>
+                </select>
+            </div>
+
+            <!-- Upload Zone -->
+            <div class="form-group">
+                <label class="form-label">Neues Sprite-Set hochladen</label>
+                <input type="text" class="form-input" id="manualSetNameInput" placeholder="Set-Name (z.B. MeinAvatar)" style="margin-bottom:8px;">
+
+                <div id="manualUploadDropZone" style="
+                    border: 2px dashed var(--color-border);
+                    border-radius: 8px;
+                    padding: 20px;
+                    text-align: center;
+                    cursor: pointer;
+                    color: var(--color-text-secondary);
+                    transition: border-color 0.2s;
+                    margin-bottom: 8px;
+                " ondragover="event.preventDefault();this.style.borderColor='var(--color-accent-primary)';"
+                   ondragleave="this.style.borderColor='var(--color-border)';"
+                   ondrop="window.handleManualDropZoneDrop(event)">
+                    <i data-lucide="upload-cloud" style="width:32px;height:32px;margin:0 auto 8px;display:block;"></i>
+                    <div style="font-size:0.875rem;">5 PNGs hier ablegen oder klicken zum Auswählen</div>
+                    <div style="font-size:0.75rem;margin-top:4px;">Dateinamen: <code>idle_neutral.png, blink.png, speak_closed.png, speak_mid.png, speak_open.png</code></div>
+                    <input type="file" id="manualSpriteFilesInput" accept=".png" multiple style="display:none;">
+                </div>
+
+                <div style="text-align:center;font-size:0.75rem;color:var(--color-text-secondary);margin-bottom:8px;">oder</div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="file" id="manualZipInput" accept=".zip" style="flex:1;" class="form-input">
+                    <span style="font-size:0.75rem;color:var(--color-text-secondary);">ZIP mit den 5 Frames hochladen</span>
+                </div>
+
+                <button class="btn btn-primary" id="uploadManualSetBtn" style="margin-top:12px;">
+                    <i data-lucide="upload" class="inline-block w-4 h-4 mr-1"></i>
+                    Set hochladen
+                </button>
+                <div id="manualUploadStatus" style="margin-top:8px;font-size:0.8rem;"></div>
+            </div>
+
+            <!-- Uploaded Sets List -->
+            <div class="form-group">
+                <label class="form-label">Vorhandene Sprite-Sets</label>
+                <div id="manualSetsList" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- User Assignment -->
+            <div class="form-group">
+                <label class="form-label">Sprite-Set einem User zuweisen</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                    <div style="flex:1;min-width:160px;">
+                        <label class="form-label" style="font-size:0.75rem;">User</label>
+                        <select class="form-select" id="manualAssignUserSelect">
+                            <option value="">-- User wählen --</option>
+                        </select>
+                    </div>
+                    <div style="flex:1;min-width:160px;">
+                        <label class="form-label" style="font-size:0.75rem;">Sprite-Set</label>
+                        <select class="form-select" id="manualAssignSetSelect">
+                            <option value="">-- Set wählen --</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-success" id="manualAssignBtn">
+                        <i data-lucide="check" class="inline-block w-4 h-4 mr-1"></i>
+                        Zuweisen
+                    </button>
+                </div>
+                <div id="manualAssignStatus" style="margin-top:6px;font-size:0.8rem;"></div>
+            </div>
+        </div>
+
+        <!-- Viewer Bar Section -->
+        <div class="config-section" id="viewerBarSection">
+            <div class="section-title">
+                <i data-lucide="layout-dashboard"></i>
+                <span>Viewer Rotator Bar</span>
+            </div>
+
+            <div class="form-group">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="viewerBarEnabledToggle">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Viewer Bar aktivieren</span>
+                </label>
+            </div>
+
+            <!-- OBS URL -->
+            <div class="form-group" id="viewerBarUrlGroup">
+                <label class="form-label">OBS Browser Source URL</label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" class="form-input" id="viewerBarUrlDisplay" readonly style="flex:1;font-family:monospace;font-size:0.8rem;">
+                    <button class="btn btn-secondary" id="copyViewerBarUrlBtn" style="padding:8px 12px;" title="URL kopieren">
+                        <i data-lucide="copy" class="inline-block w-4 h-4"></i>
+                    </button>
+                    <a id="viewerBarPreviewLink" href="#" target="_blank">
+                        <button class="btn btn-secondary" style="padding:8px 12px;" title="Vorschau öffnen">
+                            <i data-lucide="external-link" class="inline-block w-4 h-4"></i>
+                        </button>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Avatar Size -->
+            <div class="form-group">
+                <label class="form-label">Avatar-Größe: <span id="avatarSizeValue">64</span>px</label>
+                <input type="range" id="viewerBarAvatarSize" min="32" max="128" value="64" class="form-input" style="padding:0;">
+            </div>
+
+            <!-- Scroll Speed -->
+            <div class="form-group">
+                <label class="form-label">Scroll-Geschwindigkeit: <span id="scrollSpeedValue">30</span> px/s (0 = kein Scroll)</label>
+                <input type="range" id="viewerBarScrollSpeed" min="0" max="100" value="30" class="form-input" style="padding:0;">
+            </div>
+
+            <!-- Scroll Direction -->
+            <div class="form-group">
+                <label class="form-label">Scroll-Richtung</label>
+                <select class="form-select" id="viewerBarScrollDirection">
+                    <option value="left">Links (Standard)</option>
+                    <option value="right">Rechts</option>
+                </select>
+            </div>
+
+            <!-- Pop-up Duration -->
+            <div class="form-group">
+                <label class="form-label">Pop-Up Dauer: <span id="popUpDurationValue">5</span>s</label>
+                <input type="range" id="viewerBarPopUpDuration" min="2" max="15" value="5" class="form-input" style="padding:0;">
+            </div>
+
+            <!-- Max Viewers -->
+            <div class="form-group">
+                <label class="form-label">Max. sichtbare Viewer</label>
+                <input type="number" class="form-input" id="viewerBarMaxViewers" min="1" max="50" value="20" style="width:100px;">
+            </div>
+
+            <!-- Chat Bubble -->
+            <div class="form-group">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="viewerBarShowChatBubble" checked>
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Chat-Bubble anzeigen</span>
+                </label>
+            </div>
+
+            <!-- Show Username -->
+            <div class="form-group">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="viewerBarShowUsername" checked>
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Benutzername anzeigen</span>
+                </label>
+            </div>
+
+            <!-- Idle Blink -->
+            <div class="form-group">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="viewerBarIdleBlink" checked>
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Idle Blink-Animation</span>
+                </label>
+            </div>
+
+            <!-- Pause Scroll on Speak -->
+            <div class="form-group">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="viewerBarPauseOnSpeak" checked>
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Scroll pausieren wenn Viewer spricht</span>
+                </label>
+            </div>
+
+            <!-- Bar Background -->
+            <div class="form-group">
+                <label class="form-label">Bar-Hintergrundfarbe</label>
+                <input type="text" class="form-input" id="viewerBarBackground" value="rgba(0,0,0,0.3)" placeholder="rgba(0,0,0,0.3)" style="width:250px;">
+                <div class="form-help">CSS Farbe (z.B. rgba(0,0,0,0.5) oder #1a1a1a)</div>
+            </div>
+
+            <!-- Save Bar Config -->
+            <button class="btn btn-success" id="saveViewerBarConfigBtn" style="margin-top:8px;">
+                <i data-lucide="save" class="inline-block w-4 h-4 mr-1"></i>
+                Viewer Bar Konfiguration speichern
+            </button>
+            <div id="viewerBarSaveStatus" style="margin-top:8px;font-size:0.8rem;"></div>
+        </div>
+
         <!-- Save Button -->
         <div class="flex justify-end gap-4 mb-6">
             <button class="btn btn-primary" id="testApiBtn">
@@ -891,6 +1108,340 @@
         if (typeof lucide !== 'undefined') {
             lucide.createIcons();
         }
+    </script>
+    <script>
+    // =====================================================================
+    // Manual Sprites UI
+    // =====================================================================
+    (function () {
+        const SPRITE_FIELDS = ['idle_neutral', 'blink', 'speak_closed', 'speak_mid', 'speak_open'];
+
+        // --- Sprite Mode ---
+        const spriteModeSelect = document.getElementById('spriteModeSelect');
+        const manualFallbackGroup = document.getElementById('manualFallbackGroup');
+        const defaultManualSetGroup = document.getElementById('defaultManualSetGroup');
+
+        function updateManualVisibility() {
+            const mode = spriteModeSelect ? spriteModeSelect.value : 'auto';
+            if (manualFallbackGroup) manualFallbackGroup.style.display = mode === 'manual' ? '' : 'none';
+            if (defaultManualSetGroup) defaultManualSetGroup.style.display = (mode !== 'auto') ? '' : 'none';
+        }
+
+        if (spriteModeSelect) {
+            spriteModeSelect.addEventListener('change', updateManualVisibility);
+        }
+
+        // Load current config and prefill
+        fetch('/api/talkingheads/config')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) return;
+                const cfg = data.config || {};
+                if (spriteModeSelect) spriteModeSelect.value = cfg.spriteMode || 'auto';
+                const manualFallbackToggle = document.getElementById('manualFallbackToggle');
+                if (manualFallbackToggle) manualFallbackToggle.checked = cfg.manualFallback !== false;
+                updateManualVisibility();
+                loadManualSets(cfg.defaultManualSetId);
+            })
+            .catch(() => {});
+
+        // Sprite Mode save integration (add to main save button)
+        const origSaveConfigBtn = document.getElementById('saveConfigBtn');
+        if (origSaveConfigBtn) {
+            origSaveConfigBtn.addEventListener('click', function () {
+                const manualFallbackToggle = document.getElementById('manualFallbackToggle');
+                const defaultManualSetSelect = document.getElementById('defaultManualSetSelect');
+                const extraConfig = {
+                    spriteMode: spriteModeSelect ? spriteModeSelect.value : 'auto',
+                    manualFallback: manualFallbackToggle ? manualFallbackToggle.checked : true,
+                    defaultManualSetId: defaultManualSetSelect ? defaultManualSetSelect.value || null : null
+                };
+                fetch('/api/talkingheads/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(extraConfig)
+                }).catch(() => {});
+            }, true); // capture phase so it runs before ui.js handler
+        }
+
+        // --- Upload ---
+        const dropZone = document.getElementById('manualUploadDropZone');
+        const filesInput = document.getElementById('manualSpriteFilesInput');
+        const zipInput = document.getElementById('manualZipInput');
+        const uploadBtn = document.getElementById('uploadManualSetBtn');
+        const uploadStatus = document.getElementById('manualUploadStatus');
+
+        if (dropZone) {
+            dropZone.addEventListener('click', () => filesInput && filesInput.click());
+        }
+
+        window.handleManualDropZoneDrop = function (event) {
+            event.preventDefault();
+            if (dropZone) dropZone.style.borderColor = 'var(--color-border)';
+            if (filesInput && event.dataTransfer.files.length) {
+                filesInput.files = event.dataTransfer.files;
+            }
+        };
+
+        if (uploadBtn) {
+            uploadBtn.addEventListener('click', async function () {
+                const setName = (document.getElementById('manualSetNameInput') || {}).value || '';
+                if (!setName.trim()) {
+                    if (uploadStatus) { uploadStatus.style.color = 'var(--color-accent-danger)'; uploadStatus.textContent = 'Bitte einen Set-Namen eingeben.'; }
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('setName', setName.trim());
+
+                // Individual PNGs
+                if (filesInput && filesInput.files.length) {
+                    for (const file of filesInput.files) {
+                        const fieldName = file.name.replace(/\.png$/i, '');
+                        if (SPRITE_FIELDS.includes(fieldName)) {
+                            formData.append(fieldName, file, file.name);
+                        }
+                    }
+                }
+
+                // ZIP
+                if (zipInput && zipInput.files.length) {
+                    formData.append('zip', zipInput.files[0]);
+                }
+
+                if (uploadStatus) { uploadStatus.style.color = 'var(--color-text-secondary)'; uploadStatus.textContent = 'Wird hochgeladen…'; }
+                uploadBtn.disabled = true;
+
+                try {
+                    const resp = await fetch('/api/talkingheads/manual-upload', { method: 'POST', body: formData });
+                    const data = await resp.json();
+                    if (data.success) {
+                        if (uploadStatus) { uploadStatus.style.color = 'var(--color-accent-success)'; uploadStatus.textContent = `✅ Set "${data.setName}" hochgeladen (ID: ${data.setId})`; }
+                        loadManualSets();
+                        if (filesInput) filesInput.value = '';
+                        if (zipInput) zipInput.value = '';
+                        if (document.getElementById('manualSetNameInput')) document.getElementById('manualSetNameInput').value = '';
+                    } else {
+                        if (uploadStatus) { uploadStatus.style.color = 'var(--color-accent-danger)'; uploadStatus.textContent = '❌ ' + (data.error || 'Fehler'); }
+                    }
+                } catch (err) {
+                    if (uploadStatus) { uploadStatus.style.color = 'var(--color-accent-danger)'; uploadStatus.textContent = '❌ Netzwerkfehler: ' + err.message; }
+                } finally {
+                    uploadBtn.disabled = false;
+                }
+            });
+        }
+
+        // --- Load Sets ---
+        async function loadManualSets(currentDefaultId) {
+            try {
+                const resp = await fetch('/api/talkingheads/manual-templates');
+                const data = await resp.json();
+                if (!data.success) return;
+
+                const setsList = document.getElementById('manualSetsList');
+                const defaultSelect = document.getElementById('defaultManualSetSelect');
+                const assignSetSelect = document.getElementById('manualAssignSetSelect');
+
+                // Rebuild sets list
+                if (setsList) {
+                    setsList.innerHTML = '';
+                    if (data.sets.length === 0) {
+                        setsList.innerHTML = '<div style="color:var(--color-text-secondary);font-size:0.85rem;">Noch keine manuellen Sets vorhanden.</div>';
+                    } else {
+                        for (const set of data.sets) {
+                            const card = document.createElement('div');
+                            card.style.cssText = 'background:var(--color-bg-tertiary);border:1px solid var(--color-border);border-radius:8px;padding:10px;min-width:130px;max-width:160px;text-align:center;';
+                            const previewSrc = (set.sprites && set.sprites.idle_neutral) ? set.sprites.idle_neutral : '';
+                            card.innerHTML = `
+                                <img src="${previewSrc}" alt="${set.setName}" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--color-border);margin-bottom:6px;" onerror="this.style.display='none'">
+                                <div style="font-size:0.8rem;font-weight:600;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${set.setName}">${set.setName}</div>
+                                <div style="font-size:0.7rem;color:var(--color-text-secondary);margin-bottom:6px;">${set.setId}</div>
+                                <button class="btn btn-danger" data-set-id="${set.setId}" style="padding:4px 8px;font-size:0.75rem;">Löschen</button>
+                            `;
+                            card.querySelector('button').addEventListener('click', function () {
+                                deleteManualSet(this.getAttribute('data-set-id'));
+                            });
+                            setsList.appendChild(card);
+                        }
+                    }
+                }
+
+                // Rebuild selects
+                const setOptions = data.sets.map(s => `<option value="${s.setId}">${s.setName}</option>`).join('');
+                if (defaultSelect) {
+                    defaultSelect.innerHTML = '<option value="">-- Kein Standard --</option>' + setOptions;
+                    if (currentDefaultId) defaultSelect.value = currentDefaultId;
+                }
+                if (assignSetSelect) {
+                    assignSetSelect.innerHTML = '<option value="">-- Set wählen --</option>' + setOptions;
+                }
+            } catch (_) {}
+        }
+
+        async function deleteManualSet(setId) {
+            if (!confirm(`Sprite-Set "${setId}" wirklich löschen?`)) return;
+            try {
+                const resp = await fetch(`/api/talkingheads/manual-upload/${encodeURIComponent(setId)}`, { method: 'DELETE' });
+                const data = await resp.json();
+                if (data.success) loadManualSets();
+            } catch (_) {}
+        }
+
+        // --- Load users for assignment ---
+        async function loadUsersForAssignment() {
+            try {
+                const resp = await fetch('/api/talkingheads/users?limit=200');
+                const data = await resp.json();
+                if (!data.success) return;
+                const select = document.getElementById('manualAssignUserSelect');
+                if (select) {
+                    select.innerHTML = '<option value="">-- User wählen --</option>' + data.users.map(u => `<option value="${u.userId}" data-username="${u.username}">${u.username} (${u.uniqueId || u.userId})</option>`).join('');
+                }
+            } catch (_) {}
+        }
+        loadUsersForAssignment();
+
+        // --- Assign ---
+        const assignBtn = document.getElementById('manualAssignBtn');
+        if (assignBtn) {
+            assignBtn.addEventListener('click', async function () {
+                const userSelect = document.getElementById('manualAssignUserSelect');
+                const setSelect = document.getElementById('manualAssignSetSelect');
+                const statusEl = document.getElementById('manualAssignStatus');
+
+                const userId = userSelect ? userSelect.value : '';
+                const username = userSelect ? (userSelect.options[userSelect.selectedIndex] || {}).getAttribute('data-username') || '' : '';
+                const setId = setSelect ? setSelect.value : '';
+
+                if (!userId || !setId) {
+                    if (statusEl) { statusEl.style.color = 'var(--color-accent-danger)'; statusEl.textContent = 'Bitte User und Set auswählen.'; }
+                    return;
+                }
+
+                try {
+                    const resp = await fetch('/api/talkingheads/manual-assign', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId, username, setId })
+                    });
+                    const data = await resp.json();
+                    if (data.success) {
+                        if (statusEl) { statusEl.style.color = 'var(--color-accent-success)'; statusEl.textContent = `✅ Set "${setId}" wurde ${username} zugewiesen.`; }
+                    } else {
+                        if (statusEl) { statusEl.style.color = 'var(--color-accent-danger)'; statusEl.textContent = '❌ ' + (data.error || 'Fehler'); }
+                    }
+                } catch (err) {
+                    if (statusEl) { statusEl.style.color = 'var(--color-accent-danger)'; statusEl.textContent = '❌ Fehler: ' + err.message; }
+                }
+            });
+        }
+    })();
+
+    // =====================================================================
+    // Viewer Bar UI
+    // =====================================================================
+    (function () {
+        const avatarSizeSlider = document.getElementById('viewerBarAvatarSize');
+        const avatarSizeValue = document.getElementById('avatarSizeValue');
+        const scrollSpeedSlider = document.getElementById('viewerBarScrollSpeed');
+        const scrollSpeedValue = document.getElementById('scrollSpeedValue');
+        const popUpDurationSlider = document.getElementById('viewerBarPopUpDuration');
+        const popUpDurationValue = document.getElementById('popUpDurationValue');
+
+        if (avatarSizeSlider && avatarSizeValue) {
+            avatarSizeSlider.addEventListener('input', () => { avatarSizeValue.textContent = avatarSizeSlider.value; });
+        }
+        if (scrollSpeedSlider && scrollSpeedValue) {
+            scrollSpeedSlider.addEventListener('input', () => { scrollSpeedValue.textContent = scrollSpeedSlider.value; });
+        }
+        if (popUpDurationSlider && popUpDurationValue) {
+            popUpDurationSlider.addEventListener('input', () => { popUpDurationValue.textContent = popUpDurationSlider.value; });
+        }
+
+        // Load current config
+        fetch('/api/talkingheads/viewer-bar/config')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) return;
+                const cfg = data.config || {};
+
+                const el = id => document.getElementById(id);
+                if (el('viewerBarEnabledToggle')) el('viewerBarEnabledToggle').checked = !!cfg.enabled;
+                if (el('viewerBarAvatarSize')) { el('viewerBarAvatarSize').value = cfg.avatarSize || 64; if (avatarSizeValue) avatarSizeValue.textContent = cfg.avatarSize || 64; }
+                if (el('viewerBarScrollSpeed')) { el('viewerBarScrollSpeed').value = cfg.scrollSpeed || 30; if (scrollSpeedValue) scrollSpeedValue.textContent = cfg.scrollSpeed || 30; }
+                if (el('viewerBarScrollDirection')) el('viewerBarScrollDirection').value = cfg.scrollDirection || 'left';
+                if (el('viewerBarPopUpDuration')) { const v = Math.round((cfg.popUpDuration || 5000) / 1000); el('viewerBarPopUpDuration').value = v; if (popUpDurationValue) popUpDurationValue.textContent = v; }
+                if (el('viewerBarMaxViewers')) el('viewerBarMaxViewers').value = cfg.maxVisibleViewers || 20;
+                if (el('viewerBarShowChatBubble')) el('viewerBarShowChatBubble').checked = cfg.showChatBubble !== false;
+                if (el('viewerBarShowUsername')) el('viewerBarShowUsername').checked = cfg.showUsername !== false;
+                if (el('viewerBarIdleBlink')) el('viewerBarIdleBlink').checked = cfg.idleBlinkEnabled !== false;
+                if (el('viewerBarPauseOnSpeak')) el('viewerBarPauseOnSpeak').checked = cfg.pauseScrollOnSpeak !== false;
+                if (el('viewerBarBackground')) el('viewerBarBackground').value = cfg.barBackground || 'rgba(0,0,0,0.3)';
+
+                if (data.overlayUrl) {
+                    if (el('viewerBarUrlDisplay')) el('viewerBarUrlDisplay').value = data.overlayUrl;
+                    const previewLink = el('viewerBarPreviewLink');
+                    if (previewLink) previewLink.href = data.overlayUrl;
+                }
+            })
+            .catch(() => {});
+
+        // Copy URL
+        const copyBtn = document.getElementById('copyViewerBarUrlBtn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', function () {
+                const urlInput = document.getElementById('viewerBarUrlDisplay');
+                if (urlInput) {
+                    navigator.clipboard.writeText(urlInput.value).catch(() => {
+                        urlInput.select();
+                        document.execCommand('copy');
+                    });
+                }
+            });
+        }
+
+        // Save
+        const saveBtn = document.getElementById('saveViewerBarConfigBtn');
+        const saveStatus = document.getElementById('viewerBarSaveStatus');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async function () {
+                const el = id => document.getElementById(id);
+                const cfg = {
+                    enabled: !!(el('viewerBarEnabledToggle') && el('viewerBarEnabledToggle').checked),
+                    avatarSize: parseInt((el('viewerBarAvatarSize') || {}).value || '64', 10),
+                    scrollSpeed: parseInt((el('viewerBarScrollSpeed') || {}).value || '30', 10),
+                    scrollDirection: (el('viewerBarScrollDirection') || {}).value || 'left',
+                    popUpDuration: parseInt((el('viewerBarPopUpDuration') || {}).value || '5', 10) * 1000,
+                    maxVisibleViewers: parseInt((el('viewerBarMaxViewers') || {}).value || '20', 10),
+                    showChatBubble: !!(el('viewerBarShowChatBubble') && el('viewerBarShowChatBubble').checked),
+                    showUsername: !!(el('viewerBarShowUsername') && el('viewerBarShowUsername').checked),
+                    idleBlinkEnabled: !!(el('viewerBarIdleBlink') && el('viewerBarIdleBlink').checked),
+                    pauseScrollOnSpeak: !!(el('viewerBarPauseOnSpeak') && el('viewerBarPauseOnSpeak').checked),
+                    barBackground: (el('viewerBarBackground') || {}).value || 'rgba(0,0,0,0.3)'
+                };
+
+                saveBtn.disabled = true;
+                try {
+                    const resp = await fetch('/api/talkingheads/viewer-bar/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(cfg)
+                    });
+                    const data = await resp.json();
+                    if (data.success) {
+                        if (saveStatus) { saveStatus.style.color = 'var(--color-accent-success)'; saveStatus.textContent = '✅ Konfiguration gespeichert'; }
+                    } else {
+                        if (saveStatus) { saveStatus.style.color = 'var(--color-accent-danger)'; saveStatus.textContent = '❌ ' + (data.error || 'Fehler'); }
+                    }
+                } catch (err) {
+                    if (saveStatus) { saveStatus.style.color = 'var(--color-accent-danger)'; saveStatus.textContent = '❌ Fehler: ' + err.message; }
+                } finally {
+                    saveBtn.disabled = false;
+                }
+            });
+        }
+    })();
     </script>
 </body>
 </html>
