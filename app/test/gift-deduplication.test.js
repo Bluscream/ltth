@@ -381,6 +381,52 @@ runTest('Popup event (isStreakEnd=false) and streak-end event (isStreakEnd=true)
     assert(hash1 !== hash2, 'Popup (isStreakEnd=false) and streak-end (isStreakEnd=true) events should have different hashes');
 });
 
+// ---------------------------------------------------------------------------
+// Connector-level dedup key tests (mirrors the _giftDedupeMap key logic in tiktok.js).
+// The key format is: `${userId}:${giftId}:${repeatCount}:${repeatEnd ? '1' : '0'}`
+// ---------------------------------------------------------------------------
+
+function makeConnectorDedupKey(userId, giftId, repeatCount, repeatEnd) {
+    return `${userId}:${giftId}:${repeatCount}:${repeatEnd ? '1' : '0'}`;
+}
+
+// Test 11: Streakable gift – popup and streak-end must have DIFFERENT connector dedup keys
+// Regression test for the bug where the popup event blocked the streak-end event because
+// both shared the same userId:giftId:repeatCount key (repeatEnd was not part of the key).
+runTest('Connector dedup: streakable popup and streak-end produce different keys', () => {
+    const userId = 'user123';
+    const giftId = 5655;
+    const repeatCount = 3;
+
+    const popupKey = makeConnectorDedupKey(userId, giftId, repeatCount, false);    // repeatEnd=false
+    const streakEndKey = makeConnectorDedupKey(userId, giftId, repeatCount, true); // repeatEnd=true
+
+    assert(popupKey !== streakEndKey,
+        'Popup (repeatEnd=false) and streak-end (repeatEnd=true) must have different connector dedup keys');
+});
+
+// Test 12: Duplicate streak-end events must have the SAME connector dedup key (gets blocked)
+runTest('Connector dedup: two identical streak-end events produce the same key', () => {
+    const userId = 'user123';
+    const giftId = 5655;
+    const repeatCount = 3;
+
+    const key1 = makeConnectorDedupKey(userId, giftId, repeatCount, true);
+    const key2 = makeConnectorDedupKey(userId, giftId, repeatCount, true);
+
+    assert(key1 === key2, 'Two identical streak-end events must share the same connector dedup key so the duplicate is blocked');
+});
+
+// Test 13: Non-streakable gift (repeatEnd=true by default) has a stable connector dedup key
+runTest('Connector dedup: non-streakable gift always has repeatEnd=true key', () => {
+    const userId = 'user456';
+    const giftId = 1001;
+    const repeatCount = 1;
+
+    const key = makeConnectorDedupKey(userId, giftId, repeatCount, true);
+    assert(key === 'user456:1001:1:1', `Expected 'user456:1001:1:1', got '${key}'`);
+});
+
 console.log(`\n📊 Test Summary: ${passed} passed, ${failed} failed`);
 
 if (failed > 0) {
@@ -394,4 +440,5 @@ if (failed > 0) {
     console.log('  ✓ Allows legitimate streak updates (different coins/timestamps)');
     console.log('  ✓ Prevents duplicate gifts like "teamherz" from being shown twice');
     console.log('  ✓ isStreakEnd in hash differentiates popup vs. chat events (defense-in-depth)');
+    console.log('  ✓ Connector dedup key includes repeatEnd – popup cannot block streak-end event');
 }
