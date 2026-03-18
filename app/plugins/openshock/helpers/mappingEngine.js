@@ -262,25 +262,55 @@ class MappingEngine {
         }
       }
 
-      // For gift events: If there's a specific gift mapping, exclude generic catch-all mappings
-      if (eventType === 'gift' && matches.length > 0) {
-        // Check if any match has a specific giftName condition
-        const hasSpecificGiftMapping = matches.some(m => 
-          m.mapping.conditions?.giftName && 
-          m.mapping.conditions.giftName.trim() !== '' &&
-          m.mapping.conditions.giftName !== '*'
-        );
-        
-        if (hasSpecificGiftMapping) {
-          // Filter out generic/catch-all mappings (no giftName or wildcard)
-          const filteredMatches = matches.filter(m => {
-            const hasSpecificGift = m.mapping.conditions?.giftName && 
-                                   m.mapping.conditions.giftName.trim() !== '' &&
-                                   m.mapping.conditions.giftName !== '*';
-            return hasSpecificGift;
-          });
-          
-          this.logger.info(`[MappingEngine] Gift event: Specific mapping found, ignoring ${matches.length - filteredMatches.length} generic mappings`);
+      // ================================================================
+      // GIFT SPECIFICITY FAILSAFE:
+      // If a gift matches BOTH a specific giftName mapping AND a generic
+      // coin-range-only mapping, the specific mapping wins and the
+      // generic one is suppressed to prevent double triggers.
+      //
+      // Specificity hierarchy (highest to lowest):
+      //   3. giftName + coinRange  (most specific)
+      //   2. giftName only         (specific)
+      //   1. coinRange only        (generic catch-all)
+      //   0. no conditions          (ultra-generic catch-all)
+      // ================================================================
+      if (eventType === 'gift' && matches.length > 1) {
+        // Classify each match by specificity
+        const classified = matches.map(m => {
+          const conditions = m.mapping.conditions || {};
+          const hasGiftName = conditions.giftName && 
+                              conditions.giftName.trim() !== '' && 
+                              conditions.giftName !== '*';
+          const hasCoinRange = conditions.minCoins !== undefined ||
+                               conditions.maxCoins !== undefined;
+
+          let specificity = 0;
+          if (hasGiftName && hasCoinRange) specificity = 3; // giftName + coinRange
+          else if (hasGiftName) specificity = 2;            // giftName only
+          else if (hasCoinRange) specificity = 1;           // coinRange only (generic)
+          // else specificity = 0;                          // no conditions (ultra-generic)
+
+          return { match: m, specificity, hasGiftName };
+        });
+
+        // Find the highest specificity level among all matches
+        const maxSpecificity = Math.max(...classified.map(c => c.specificity));
+
+        // If ANY match has a specific giftName (specificity >= 2),
+        // filter out all generic matches (specificity < 2)
+        if (maxSpecificity >= 2) {
+          const filteredMatches = classified
+            .filter(c => c.specificity >= 2)
+            .map(c => c.match);
+
+          const removedCount = matches.length - filteredMatches.length;
+          if (removedCount > 0) {
+            this.logger.info(
+              `[MappingEngine] Gift specificity failsafe: ${removedCount} generic mapping(s) suppressed ` +
+              `(specific giftName mapping found for "${eventData.giftName || eventData.gift?.name || 'unknown'}")`
+            );
+          }
+
           matches.length = 0;
           matches.push(...filteredMatches);
         }
