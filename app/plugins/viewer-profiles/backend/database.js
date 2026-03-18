@@ -151,6 +151,9 @@ class ViewerProfilesDatabase {
         CREATE INDEX IF NOT EXISTS idx_heatmap_viewer ON viewer_activity_heatmap(viewer_id);
       `);
 
+      // Migrate schema (add any missing columns to existing tables)
+      this.migrateSchema();
+
       // Initialize default VIP tiers if not exist
       this.initializeDefaultVIPTiers();
 
@@ -227,6 +230,130 @@ class ViewerProfilesDatabase {
       }
 
       this.api.log('Initialized default VIP tiers', 'info');
+    }
+  }
+
+  /**
+   * Migrate database schema: add any columns missing from existing tables.
+   * Uses PRAGMA table_info for broad SQLite compatibility.
+   */
+  migrateSchema() {
+    const tables = {
+      viewer_profiles: [
+        { name: 'tiktok_username', def: 'TEXT', critical: true },
+        { name: 'tiktok_user_id', def: 'TEXT' },
+        { name: 'display_name', def: 'TEXT' },
+        { name: 'profile_picture_url', def: 'TEXT' },
+        { name: 'bio', def: 'TEXT' },
+        { name: 'age', def: 'INTEGER' },
+        { name: 'gender', def: 'TEXT' },
+        { name: 'country', def: 'TEXT' },
+        { name: 'language', def: 'TEXT' },
+        { name: 'verified', def: 'INTEGER DEFAULT 0' },
+        { name: 'follower_count', def: 'INTEGER DEFAULT 0' },
+        { name: 'following_count', def: 'INTEGER DEFAULT 0' },
+        { name: 'first_seen_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'last_seen_at', def: 'TEXT' },
+        { name: 'total_visits', def: 'INTEGER DEFAULT 0' },
+        { name: 'total_watchtime_seconds', def: 'INTEGER DEFAULT 0' },
+        { name: 'total_coins_spent', def: 'INTEGER DEFAULT 0' },
+        { name: 'total_gifts_sent', def: 'INTEGER DEFAULT 0' },
+        { name: 'total_comments', def: 'INTEGER DEFAULT 0' },
+        { name: 'total_likes', def: 'INTEGER DEFAULT 0' },
+        { name: 'total_shares', def: 'INTEGER DEFAULT 0' },
+        { name: 'tts_voice', def: 'TEXT' },
+        { name: 'discord_username', def: 'TEXT' },
+        { name: 'birthday', def: 'TEXT' },
+        { name: 'notes', def: 'TEXT' },
+        { name: 'tags', def: 'TEXT' },
+        { name: 'is_vip', def: 'INTEGER DEFAULT 0' },
+        { name: 'vip_since', def: 'TEXT' },
+        { name: 'vip_tier', def: 'TEXT' },
+        { name: 'loyalty_points', def: 'INTEGER DEFAULT 0' },
+        { name: 'is_blocked', def: 'INTEGER DEFAULT 0' },
+        { name: 'is_favorite', def: 'INTEGER DEFAULT 0' },
+        { name: 'is_moderator', def: 'INTEGER DEFAULT 0' },
+        { name: 'created_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'updated_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+      ],
+      viewer_gift_history: [
+        { name: 'viewer_id', def: 'INTEGER' },
+        { name: 'gift_id', def: 'TEXT' },
+        { name: 'gift_name', def: 'TEXT' },
+        { name: 'gift_coins', def: 'INTEGER DEFAULT 0' },
+        { name: 'gift_diamond_count', def: 'INTEGER DEFAULT 0' },
+        { name: 'quantity', def: 'INTEGER DEFAULT 1' },
+        { name: 'streak_count', def: 'INTEGER DEFAULT 0' },
+        { name: 'timestamp', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+      ],
+      viewer_sessions: [
+        { name: 'viewer_id', def: 'INTEGER' },
+        { name: 'joined_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'left_at', def: 'TEXT' },
+        { name: 'duration_seconds', def: 'INTEGER DEFAULT 0' },
+        { name: 'stream_id', def: 'TEXT' },
+      ],
+      viewer_interactions: [
+        { name: 'viewer_id', def: 'INTEGER' },
+        { name: 'interaction_type', def: 'TEXT' },
+        { name: 'content', def: 'TEXT' },
+        { name: 'timestamp', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+      ],
+      viewer_activity_heatmap: [
+        { name: 'viewer_id', def: 'INTEGER' },
+        { name: 'hour_of_day', def: 'INTEGER' },
+        { name: 'day_of_week', def: 'INTEGER' },
+        { name: 'activity_count', def: 'INTEGER DEFAULT 1' },
+        { name: 'total_coins_in_hour', def: 'INTEGER DEFAULT 0' },
+      ],
+      vip_tier_config: [
+        { name: 'tier_name', def: 'TEXT' },
+        { name: 'min_coins_spent', def: 'INTEGER DEFAULT 0' },
+        { name: 'min_watchtime_hours', def: 'INTEGER DEFAULT 0' },
+        { name: 'min_visits', def: 'INTEGER DEFAULT 0' },
+        { name: 'benefits', def: 'TEXT' },
+        { name: 'badge_color', def: 'TEXT' },
+        { name: 'sort_order', def: 'INTEGER DEFAULT 0' },
+      ],
+    };
+
+    const safeIdentifier = /^\w+$/;
+    let migratedCount = 0;
+
+    for (const [tableName, expectedColumns] of Object.entries(tables)) {
+      if (!safeIdentifier.test(tableName)) {
+        this.api.log(`Migration skipped unsafe table name: ${tableName}`, 'warn');
+        continue;
+      }
+
+      const existingColumns = this.db.prepare(`PRAGMA table_info(${tableName})`).all();
+      const existingColumnNames = new Set(existingColumns.map(col => col.name));
+
+      for (const col of expectedColumns) {
+        if (!safeIdentifier.test(col.name)) {
+          this.api.log(`Migration skipped unsafe column name: ${col.name} in ${tableName}`, 'warn');
+          continue;
+        }
+
+        if (!existingColumnNames.has(col.name)) {
+          try {
+            this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${col.name} ${col.def}`);
+            if (col.critical) {
+              this.api.log(`Migration: added critical column ${col.name} to ${tableName} — WARNING: this column was missing and is required for core functionality. Please verify data integrity before use.`, 'warn');
+            } else {
+              this.api.log(`Migration: added column ${col.name} to ${tableName}`, 'info');
+            }
+            migratedCount++;
+          } catch (error) {
+            this.api.log(`Migration error adding column ${col.name} to ${tableName}: ${error.message}`, 'error');
+            throw error;
+          }
+        }
+      }
+    }
+
+    if (migratedCount === 0) {
+      this.api.log('Schema is up to date', 'info');
     }
   }
 
