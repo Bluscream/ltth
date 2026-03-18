@@ -137,7 +137,11 @@ class ViewerProfilesDatabase {
         )
       `);
 
-      // Create indices for performance
+      // ⚠️ Migrate schema FIRST — before creating indices!
+      // This ensures all columns exist before we reference them in indices.
+      this.migrateSchema();
+
+      // Create indices for performance (AFTER migration so all columns exist)
       this.db.exec(`
         CREATE INDEX IF NOT EXISTS idx_viewer_username ON viewer_profiles(tiktok_username);
         CREATE INDEX IF NOT EXISTS idx_viewer_user_id ON viewer_profiles(tiktok_user_id);
@@ -150,9 +154,6 @@ class ViewerProfilesDatabase {
         CREATE INDEX IF NOT EXISTS idx_interaction_type ON viewer_interactions(interaction_type);
         CREATE INDEX IF NOT EXISTS idx_heatmap_viewer ON viewer_activity_heatmap(viewer_id);
       `);
-
-      // Migrate schema (add any missing columns to existing tables)
-      this.migrateSchema();
 
       // Initialize default VIP tiers if not exist
       this.initializeDefaultVIPTiers();
