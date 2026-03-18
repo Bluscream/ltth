@@ -695,6 +695,13 @@ class TTSPlugin {
                         voiceId: null
                     },
                     
+                    // Top-N Gifter TTS Access - only top N session gifters can use chat TTS
+                    topGifterTTSAccess: {
+                        enabled: false,
+                        topN: 3,
+                        mode: 'session'
+                    },
+                    
                     // Periodic Reminder TTS - Auto-announce every X minutes
                     periodicReminder: {
                         enabled: false,
@@ -1800,6 +1807,26 @@ class TTSPlugin {
             }
         });
 
+        // Get current top-N gifters (session-based) for admin UI preview
+        this.api.registerRoute('GET', '/api/tts/top-gifters', (req, res) => {
+            try {
+                const advancedConfig = this.config.eventTTS?.advanced || {};
+                const topNConfig = advancedConfig.topGifterTTSAccess || { enabled: false, topN: 3 };
+                const gifters = this.eventTTSHandler
+                    ? this.eventTTSHandler.getTopNGifters()
+                    : [];
+                res.json({
+                    success: true,
+                    enabled: topNConfig.enabled,
+                    topN: topNConfig.topN,
+                    gifters
+                });
+            } catch (error) {
+                this.logger.error(`Failed to get top gifters: ${error.message}`);
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
         // Get recent active chat users for autocomplete
         this.api.registerRoute('GET', '/api/tts/recent-users', (req, res) => {
             try {
@@ -2221,13 +2248,41 @@ class TTSPlugin {
                         username,
                         reason: permissionCheck.reason
                     });
-                    this.logger.info(`TTS permission denied for ${username}: ${permissionCheck.reason}`);
-                    return {
-                        success: false,
-                        error: 'permission_denied',
-                        reason: permissionCheck.reason,
-                        details: permissionCheck
-                    };
+
+                    // === TOP-N GIFTER TTS ACCESS CHECK ===
+                    // If regular permission check failed, check if user is in the top-N gifter set.
+                    // Blacklisted users are never overridden (reason === 'blacklisted').
+                    let permission = permissionCheck;
+                    if (source === 'chat') {
+                        const advancedConfig = this.config.eventTTS?.advanced || {};
+                        const topNConfig = advancedConfig.topGifterTTSAccess;
+                        if (
+                            topNConfig?.enabled &&
+                            topNConfig.topN > 0 &&
+                            this.eventTTSHandler &&
+                            this.eventTTSHandler.isTopNGifter(userId)
+                        ) {
+                            if (permission.reason !== 'blacklisted') {
+                                this._logDebug('SPEAK_PERMISSION', 'Top-N gifter override: permission granted', {
+                                    userId,
+                                    username,
+                                    topN: topNConfig.topN
+                                });
+                                this.logger.info(`TTS: Top-N gifter access granted for ${username} (top ${topNConfig.topN})`);
+                                permission = { allowed: true, reason: 'top_n_gifter' };
+                            }
+                        }
+                    }
+
+                    if (!permission.allowed) {
+                        this.logger.info(`TTS permission denied for ${username}: ${permission.reason}`);
+                        return {
+                            success: false,
+                            error: 'permission_denied',
+                            reason: permission.reason,
+                            details: permission
+                        };
+                    }
                 }
             } else {
                 this._logDebug('SPEAK_STEP1', 'Skipping permission check for preview', {

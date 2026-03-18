@@ -22,9 +22,10 @@ class EventTTSHandler {
     // Gift combo streak tracking
     this.giftStreaks = new Map(); // key: userId -> { count, lastGiftTime, timeoutId }
     
-    // Session gifter tracking for top gifter announcements
+    // Session gifter tracking for top gifter announcements + Top-N TTS access
     this.sessionGifters = new Map(); // key: userId -> { username, totalCoins }
     this.currentTopGifter = null; // { userId, username, coins }
+    this.topNGifterSet = new Set(); // userId set of current top-N gifters
     
     // Periodic reminder system
     this.periodicReminderInterval = null;
@@ -241,45 +242,88 @@ class EventTTSHandler {
    * Update session gifter tracking for top gifter announcements
    */
   _updateSessionGifter(userId, username, coins) {
-    const advancedConfig = this.tts.config.eventTTS.advanced || {};
-    if (!advancedConfig.topGifterAnnouncement?.enabled) return;
+    if (!userId) return;
 
-    // Update or create gifter entry
+    // Always track session gifters (needed for Top-N TTS access AND announcements)
     if (!this.sessionGifters.has(userId)) {
       this.sessionGifters.set(userId, { username, totalCoins: 0 });
     }
-    
     const gifter = this.sessionGifters.get(userId);
     gifter.totalCoins += coins;
-    gifter.username = username; // Update in case username changed
+    gifter.username = username;
 
-    // Check if this user is now the top gifter
-    let newTopGifter = null;
-    let maxCoins = 0;
+    // Always rebuild Top-N set after a coin update
+    this._rebuildTopNGifterSet();
 
-    for (const [uid, data] of this.sessionGifters.entries()) {
-      if (data.totalCoins > maxCoins) {
-        maxCoins = data.totalCoins;
-        newTopGifter = { userId: uid, username: data.username, coins: data.totalCoins };
+    // Top Gifter Announcement (only when enabled)
+    const advancedConfig = this.tts.config.eventTTS.advanced || {};
+    if (advancedConfig.topGifterAnnouncement?.enabled) {
+      let newTopGifter = null;
+      let maxCoins = 0;
+      for (const [uid, data] of this.sessionGifters.entries()) {
+        if (data.totalCoins > maxCoins) {
+          maxCoins = data.totalCoins;
+          newTopGifter = { userId: uid, username: data.username, coins: data.totalCoins };
+        }
+      }
+      if (newTopGifter && (!this.currentTopGifter || newTopGifter.userId !== this.currentTopGifter.userId)) {
+        const previousTopGifter = this.currentTopGifter ? this.currentTopGifter.username : 'None';
+        this.currentTopGifter = newTopGifter;
+        const template = advancedConfig.topGifterAnnouncement.template ||
+          '🏆 {username} ist jetzt der Top Supporter mit {coins} Coins!';
+        const text = this._fillTemplate(template, {
+          username: newTopGifter.username,
+          coins: newTopGifter.coins,
+          previousTopGifter
+        });
+        this._queueEventTTS(text, newTopGifter.userId, newTopGifter.username, 'top-gifter', advancedConfig.topGifterAnnouncement.voiceId);
       }
     }
+  }
 
-    // Announce if top gifter changed
-    if (newTopGifter && (!this.currentTopGifter || newTopGifter.userId !== this.currentTopGifter.userId)) {
-      const previousTopGifter = this.currentTopGifter ? this.currentTopGifter.username : 'None';
-      this.currentTopGifter = newTopGifter;
+  /**
+   * Returns true if userId is in the current top-N gifter set
+   * @param {string} userId
+   * @returns {boolean}
+   */
+  isTopNGifter(userId) {
+    if (!userId) return false;
+    return this.topNGifterSet.has(userId);
+  }
 
-      const template = advancedConfig.topGifterAnnouncement.template || 
-        '🏆 {username} ist jetzt der Top Supporter mit {coins} Coins!';
-      
-      const text = this._fillTemplate(template, {
-        username: newTopGifter.username,
-        coins: newTopGifter.coins,
-        previousTopGifter: previousTopGifter
-      });
+  /**
+   * Returns the current top-N gifters sorted by coins descending
+   * @returns {Array<{userId, username, totalCoins, rank}>}
+   */
+  getTopNGifters() {
+    const advancedConfig = this.tts.config.eventTTS.advanced || {};
+    const topN = advancedConfig.topGifterTTSAccess?.topN || 3;
+    return Array.from(this.sessionGifters.entries())
+      .map(([userId, data]) => ({ userId, username: data.username, totalCoins: data.totalCoins }))
+      .sort((a, b) => b.totalCoins - a.totalCoins)
+      .slice(0, topN)
+      .map((entry, index) => ({ ...entry, rank: index + 1 }));
+  }
 
-      this._queueEventTTS(text, newTopGifter.userId, newTopGifter.username, 'top-gifter', advancedConfig.topGifterAnnouncement.voiceId);
+  /**
+   * Rebuilds the topNGifterSet based on current session gifters and config
+   */
+  _rebuildTopNGifterSet() {
+    const advancedConfig = this.tts.config.eventTTS.advanced || {};
+    const accessConfig = advancedConfig.topGifterTTSAccess;
+    if (!accessConfig?.enabled || !accessConfig.topN || accessConfig.topN <= 0) {
+      this.topNGifterSet.clear();
+      return;
     }
+    const topN = accessConfig.topN;
+    const sorted = Array.from(this.sessionGifters.entries())
+      .sort((a, b) => b[1].totalCoins - a[1].totalCoins)
+      .slice(0, topN);
+    this.topNGifterSet.clear();
+    for (const [userId] of sorted) {
+      this.topNGifterSet.add(userId);
+    }
+    this.logger.debug(`Top-N TTS set rebuilt: topN=${topN}, members=[${Array.from(this.topNGifterSet).join(', ')}]`);
   }
 
   /**
@@ -395,6 +439,7 @@ class EventTTSHandler {
     // Clear session gifters
     this.sessionGifters.clear();
     this.currentTopGifter = null;
+    this.topNGifterSet.clear();
     
     // Clear periodic reminder interval
     if (this.periodicReminderInterval) {

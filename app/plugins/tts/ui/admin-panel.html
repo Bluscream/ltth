@@ -904,6 +904,39 @@
                         </div>
                     </div>
 
+                    <!-- Top-N Gifter TTS Access -->
+                    <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600 mt-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-md font-semibold">🏆 Top-Gifter TTS-Zugang</h3>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="topGifterTTSAccessEnabled" class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                            </label>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">
+                            Nur die Top-N Schenker der Session erhalten Zugang zum Chat-TTS. Wird beim Stream-Start zurückgesetzt.
+                            Blacklistete User werden weiterhin blockiert.
+                        </p>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1">Anzahl Top-Gifter (Top-N)</label>
+                                <input type="number" id="topGifterTTSAccessTopN"
+                                       class="w-full bg-gray-600 border border-gray-500 rounded px-3 py-2 text-white text-sm"
+                                       min="1" max="100" value="3" placeholder="3">
+                                <p class="text-xs text-gray-400 mt-1">z.B. 3 = nur Top 3 Schenker dürfen TTS nutzen</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1">Aktuelle Top-Gifter (Live)</label>
+                                <div id="topGifterTTSLiveList" class="bg-gray-800 rounded p-2 text-xs text-gray-300 min-h-[60px]">
+                                    <span class="text-gray-500">Noch keine Gifter in dieser Session.</span>
+                                </div>
+                                <button id="refreshTopGifterListBtn" class="mt-1 text-xs text-purple-400 hover:text-purple-300">
+                                    🔄 Aktualisieren
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Periodic Reminder -->
                     <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
                         <div class="flex items-center justify-between mb-4">
