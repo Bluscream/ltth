@@ -21,28 +21,44 @@
     <section class="card">
       <div class="card-header">
         <div>
-          <h2>Now Playing</h2>
-          <p class="text-secondary">Aktueller Track und Lautstärke</p>
+          <h2>Player &amp; Suche</h2>
+          <p class="text-secondary">YouTube-Vorschau, Suche und Queue-Steuerung</p>
         </div>
-        <div class="volume-control">
-          <label for="volume-input">Volume</label>
-          <input type="range" id="volume-input" min="0" max="100" value="50">
-          <span id="volume-value">50</span>
+        <div class="pill" id="preview-source">YouTube</div>
+      </div>
+      <div class="player-grid">
+        <div class="player-pane">
+          <div class="search-row">
+            <input type="text" id="search-input" placeholder="Titel oder YouTube-Link" autocomplete="off">
+            <button id="search-btn" class="btn ghost" type="button">Suchen</button>
+            <button id="request-btn" class="btn primary" type="button">Zur Queue hinzufügen</button>
+          </div>
+          <div id="search-feedback" class="feedback"></div>
+          <div class="player-frame">
+            <iframe id="preview-frame" title="YouTube Preview" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
         </div>
-      </div>
-      <div class="volume-control">
-        <label for="crossfade-input">Crossfade Duration (Sek.)</label>
-        <input type="range" id="crossfade-input" min="0" max="10" value="3" step="1">
-        <span id="crossfade-value">3s</span>
-      </div>
-      <div id="now-playing" class="now-playing empty">
-        <p>Aktuell läuft nichts.</p>
-      </div>
-      <div class="actions">
-        <button id="pause-btn" class="btn ghost">Pause</button>
-        <button id="resume-btn" class="btn">Resume</button>
-        <button id="skip-btn" class="btn danger">Skip</button>
-        <button id="clear-btn" class="btn ghost">Queue leeren</button>
+        <div class="player-meta">
+          <div class="volume-control stacked">
+            <label for="volume-input">Volume</label>
+            <input type="range" id="volume-input" min="0" max="100" value="50">
+            <span id="volume-value">50</span>
+          </div>
+          <div class="volume-control stacked">
+            <label for="crossfade-input">Crossfade Duration (Sek.)</label>
+            <input type="range" id="crossfade-input" min="0" max="10" value="3" step="1">
+            <span id="crossfade-value">3s</span>
+          </div>
+          <div id="now-playing" class="now-playing empty">
+            <p>Aktuell läuft nichts.</p>
+          </div>
+          <div class="actions">
+            <button id="pause-btn" class="btn ghost">Pause</button>
+            <button id="resume-btn" class="btn">Resume</button>
+            <button id="skip-btn" class="btn danger">Skip</button>
+            <button id="clear-btn" class="btn ghost">Queue leeren</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -79,6 +95,11 @@
         <label class="field">
           <span>Cooldown (Sekunden)</span>
           <input type="number" id="cooldown-seconds" min="0" value="30">
+        </label>
+        <label class="field">
+          <span>yt-dlp Pfad</span>
+          <input type="text" id="ytdlp-path" placeholder="z.B. /usr/local/bin/yt-dlp">
+          <small class="text-secondary">Benötigt für YouTube/SoundCloud. Standard: yt-dlp</small>
         </label>
         <label class="checkbox-field">
           <input type="checkbox" id="cooldown-bypass-gifts">

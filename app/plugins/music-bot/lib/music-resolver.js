@@ -110,6 +110,14 @@ class MusicResolver {
 
       proc.on('error', (error) => {
         clearTimeout(timeout);
+        if (error?.code === 'ENOENT') {
+          reject(
+            new Error(
+              `yt-dlp not found at "${this.config.ytdlpPath}". Install yt-dlp or set resolver.ytdlpPath in Music Bot settings (e.g., /usr/local/bin/yt-dlp).`
+            )
+          );
+          return;
+        }
         reject(error);
       });
 

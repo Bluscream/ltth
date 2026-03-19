@@ -73,7 +73,7 @@ const DEFAULT_CONFIG = {
     playlistUrls: []
   },
   resolver: {
-    ytdlpPath: 'yt-dlp',
+    ytdlpPath: process.env.YTDLP_PATH || 'yt-dlp',
     searchTimeout: 15000,
     maxCacheSizeMB: 2048,
     cacheTTLDays: 30
@@ -301,6 +301,32 @@ class MusicBotPlugin extends EventEmitter {
 
     this.api.registerRoute('get', '/api/plugins/music-bot/status', async (req, res) => {
       res.json(this._buildStatusPayload());
+    });
+
+    this.api.registerRoute('get', '/api/plugins/music-bot/resolve', async (req, res) => {
+      const query = req.query?.q || req.query?.query;
+      if (!query) {
+        res.status(400).json({ success: false, error: 'Missing query' });
+        return;
+      }
+      try {
+        const resolved = await this.musicResolver.resolve(query);
+        if (!resolved?.success) {
+          res.status(400).json(resolved);
+          return;
+        }
+
+        const banMessage = this._checkBans(resolved.song, 'dashboard');
+        if (banMessage) {
+          res.status(400).json({ success: false, error: banMessage });
+          return;
+        }
+
+        res.json({ success: true, song: resolved.song });
+      } catch (error) {
+        this.api.log(`[music-bot] Resolve failed: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
     });
 
     this.api.registerRoute('get', '/api/plugins/music-bot/queue', async (req, res) => {

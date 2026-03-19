@@ -8,6 +8,12 @@
   const requestForm = document.getElementById('request-form');
   const requestInput = document.getElementById('request-input');
   const requestFeedback = document.getElementById('request-feedback');
+  const searchInput = document.getElementById('search-input');
+  const searchBtn = document.getElementById('search-btn');
+  const requestBtn = document.getElementById('request-btn');
+  const searchFeedback = document.getElementById('search-feedback');
+  const previewFrame = document.getElementById('preview-frame');
+  const previewSource = document.getElementById('preview-source');
   const volumeInput = document.getElementById('volume-input');
   const volumeValue = document.getElementById('volume-value');
   const crossfadeInput = document.getElementById('crossfade-input');
@@ -35,6 +41,7 @@
   const banAdd = document.getElementById('ban-add');
   const banFeedback = document.getElementById('ban-feedback');
   const banTable = document.getElementById('ban-table');
+  const ytdlpPathInput = document.getElementById('ytdlp-path');
 
   document.getElementById('pause-btn').addEventListener('click', () => {
     post('/pause');
@@ -58,6 +65,41 @@
     if (result?.success) {
       requestFeedback.textContent = `Hinzugefügt: ${result.song.title}`;
       requestInput.value = '';
+    } else {
+      requestFeedback.textContent = result?.error || 'Fehler beim Request.';
+    }
+  });
+
+  async function resolvePreview() {
+    const query = searchInput.value.trim();
+    if (!query) return;
+    searchFeedback.textContent = 'Suche...';
+    const res = await get(`/resolve?q=${encodeURIComponent(query)}`);
+    if (res?.success) {
+      searchFeedback.textContent = `${res.song.title} • ${formatDuration(res.song.duration)} • ${res.song.channelName || 'Unbekannter Channel'}`;
+      updatePreviewFrame(res.song);
+    } else {
+      searchFeedback.textContent = res?.error || 'Kein Ergebnis.';
+      updatePreviewFrame(null);
+    }
+  }
+
+  searchBtn?.addEventListener('click', resolvePreview);
+  searchInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      resolvePreview();
+    }
+  });
+
+  requestBtn?.addEventListener('click', async () => {
+    const query = searchInput.value.trim();
+    if (!query) return;
+    requestFeedback.textContent = 'Wird verarbeitet...';
+    const result = await post('/request', { query });
+    if (result?.success) {
+      requestFeedback.textContent = `Hinzugefügt: ${result.song.title}`;
+      renderQueueFromServer();
     } else {
       requestFeedback.textContent = result?.error || 'Fehler beim Request.';
     }
@@ -116,6 +158,11 @@
       aliases[input.dataset.command] = parseList(input.value);
     });
     await post('/config', { commandAliases: aliases });
+  });
+
+  ytdlpPathInput?.addEventListener('blur', async () => {
+    const value = (ytdlpPathInput.value || '').trim();
+    await post('/config', { resolver: { ytdlpPath: value || 'yt-dlp' } });
   });
 
   rejectAge?.addEventListener('change', async () => {
@@ -248,6 +295,9 @@
         blockedKeywords.value = configData.config.moderation.blockedKeywords.join('\n');
       }
     }
+    if (configData?.config?.resolver?.ytdlpPath) {
+      ytdlpPathInput.value = configData.config.resolver.ytdlpPath;
+    }
 
     await refreshAutoDjStatus();
     await refreshBans();
@@ -325,6 +375,55 @@
           `<div class="item"><strong>#${idx + 1}</strong> ${item.title} <span class="text-secondary">(${item.requestedBy || 'Viewer'})</span></div>`
       )
       .join('');
+  }
+
+  async function renderQueueFromServer() {
+    const queueData = await get('/queue');
+    if (queueData?.queue) {
+      renderQueue(queueData.queue, queueData.queue.length);
+    }
+  }
+
+  function updatePreviewFrame(song) {
+    if (!previewFrame) return;
+    if (!song) {
+      previewFrame.src = '';
+      previewSource.textContent = 'Preview';
+      return;
+    }
+    const embedUrl = buildEmbedUrl(song);
+    previewFrame.src = embedUrl || '';
+    previewSource.textContent = song.source || 'YouTube';
+  }
+
+  function buildEmbedUrl(song) {
+    if (!song) return '';
+    if (song.youtubeId) {
+      return `https://www.youtube.com/embed/${song.youtubeId}`;
+    }
+    if (song.url && song.url.includes('youtube.com/watch')) {
+      try {
+        const url = new URL(song.url);
+        const id = url.searchParams.get('v');
+        if (id) return `https://www.youtube.com/embed/${id}`;
+      } catch (error) {
+        return '';
+      }
+    }
+    if (song.url && song.url.includes('youtu.be/')) {
+      const id = song.url.split('youtu.be/')[1]?.split('?')[0];
+      if (id) return `https://www.youtube.com/embed/${id}`;
+    }
+    return song.url || '';
+  }
+
+  function formatDuration(seconds) {
+    if (!Number.isFinite(seconds)) return '—';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60)
+      .toString()
+      .padStart(2, '0');
+    return `${mins}:${secs}`;
   }
 
   function renderHistory(history = []) {
