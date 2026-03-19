@@ -1,4 +1,6 @@
 const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const EventEmitter = require('events');
 const CommandParser = require('./lib/command-parser');
 const QueueManager = require('./lib/queue-manager');
@@ -107,6 +109,8 @@ class MusicBotPlugin extends EventEmitter {
     this._loadConfig();
     this.api.ensurePluginDataDir();
 
+    await this._ensureYtDlp();
+
     this.queueManager = new QueueManager(this.config, this.api);
     this.musicResolver = new MusicResolver(
       { ...this.config.resolver, moderation: this.config.moderation },
@@ -168,6 +172,44 @@ class MusicBotPlugin extends EventEmitter {
       // Ensure new defaults are persisted
       this.api.setConfig('config', merged);
     }
+  }
+
+  async _ensureYtDlp() {
+    const execFileAsync = promisify(execFile);
+    const ytdlpPath = this.config.resolver.ytdlpPath || 'yt-dlp';
+
+    // Check if yt-dlp is already available
+    try {
+      await execFileAsync(ytdlpPath, ['--version'], { timeout: 5000 });
+      this.api.log('[music-bot] yt-dlp found and ready', 'debug');
+      return;
+    } catch (err) {
+      if (err.code !== 'ENOENT' && err.code !== 'EACCES') {
+        // Executable found but errored for another reason – treat as present
+        this.api.log('[music-bot] yt-dlp found (version check returned error, but executable exists)', 'debug');
+        return;
+      }
+    }
+
+    this.api.log('[music-bot] yt-dlp not found, attempting automatic installation via pip...', 'warn');
+
+    // Try pip3, then pip
+    for (const pip of ['pip3', 'pip']) {
+      try {
+        await execFileAsync(pip, ['install', '--upgrade', 'yt-dlp'], { timeout: 120000 });
+        this.api.log(`[music-bot] yt-dlp installed successfully via ${pip}`, 'info');
+        return;
+      } catch (installErr) {
+        this.api.log(`[music-bot] yt-dlp installation via ${pip} failed: ${installErr.message}`, 'debug');
+      }
+    }
+
+    this.api.log(
+      '[music-bot] yt-dlp could not be installed automatically. ' +
+      'Please install it manually: pip3 install yt-dlp  ' +
+      'or set the path in Music Bot settings.',
+      'warn'
+    );
   }
 
   _mergeDeep(target, source) {
