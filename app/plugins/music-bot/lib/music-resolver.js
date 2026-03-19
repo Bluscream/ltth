@@ -39,7 +39,8 @@ class MusicResolver {
       duration: data.duration || null,
       thumbnail: Array.isArray(data.thumbnails) ? data.thumbnails.at(-1)?.url : data.thumbnail,
       url: data.webpage_url || data.url || trimmed,
-      source: data.extractor || (isUrl ? 'url' : 'youtube')
+      source: data.extractor || (isUrl ? 'url' : 'youtube'),
+      youtubeId: data.id || null
     };
 
     this._addToCache(trimmed, song);

@@ -63,6 +63,123 @@
     <section class="card">
       <div class="card-header">
         <div>
+          <h2>Einstellungen</h2>
+          <p class="text-secondary">Duplicate Detection &amp; Gifts</p>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label class="field">
+          <span>Duplicate Detection</span>
+          <select id="duplicate-detection">
+            <option value="strict">Strict</option>
+            <option value="fuzzy">Fuzzy</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Cooldown (Sekunden)</span>
+          <input type="number" id="cooldown-seconds" min="0" value="30">
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" id="cooldown-bypass-gifts">
+          <span>Cooldown für Gifts überspringen</span>
+        </label>
+        <label class="field">
+          <span>Skip-Immunity Gifts (Komma oder Zeile)</span>
+          <textarea id="skip-immunity-gifts" rows="2" placeholder="Rose, Garnele"></textarea>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Auto-DJ</h2>
+          <p class="text-secondary">Füllt die Queue automatisch</p>
+        </div>
+        <span id="auto-dj-status" class="pill">Deaktiviert</span>
+      </div>
+      <div class="form-grid">
+        <label class="checkbox-field">
+          <input type="checkbox" id="auto-dj-enabled">
+          <span>Auto-DJ aktivieren</span>
+        </label>
+        <label class="field">
+          <span>Modus</span>
+          <select id="auto-dj-mode">
+            <option value="history">History</option>
+            <option value="playlist">Playlist</option>
+            <option value="random">Random</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Min. Plays in History</span>
+          <input type="number" id="auto-dj-history-plays" min="1" value="2">
+        </label>
+        <label class="field">
+          <span>Max. aufeinanderfolgende Tracks</span>
+          <input type="number" id="auto-dj-max-consecutive" min="1" value="10">
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" id="auto-dj-announce">
+          <span>Chat-Ansage für Auto-DJ</span>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="auto-dj-save" class="btn primary">Speichern</button>
+        <button id="auto-dj-skip" class="btn ghost">Nächster Auto-DJ Track</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Command Aliases</h2>
+          <p class="text-secondary">Kommagetrennt, z.B. <em>play, song</em></p>
+        </div>
+      </div>
+      <div class="form-grid" id="alias-grid">
+        <label class="field">
+          <span>Request</span>
+          <input type="text" data-command="request" class="alias-input" placeholder="play, song">
+        </label>
+        <label class="field">
+          <span>Skip</span>
+          <input type="text" data-command="skip" class="alias-input" placeholder="skip">
+        </label>
+        <label class="field">
+          <span>Queue</span>
+          <input type="text" data-command="queue" class="alias-input" placeholder="q, list">
+        </label>
+        <label class="field">
+          <span>Now Playing</span>
+          <input type="text" data-command="nowPlaying" class="alias-input" placeholder="now, current">
+        </label>
+        <label class="field">
+          <span>Volume</span>
+          <input type="text" data-command="volume" class="alias-input" placeholder="v, volume">
+        </label>
+        <label class="field">
+          <span>Pause</span>
+          <input type="text" data-command="pause" class="alias-input" placeholder="stop">
+        </label>
+        <label class="field">
+          <span>Resume</span>
+          <input type="text" data-command="resume" class="alias-input" placeholder="continue">
+        </label>
+        <label class="field">
+          <span>Clear</span>
+          <input type="text" data-command="clear" class="alias-input" placeholder="">
+        </label>
+      </div>
+      <div class="actions">
+        <button id="alias-save" class="btn primary">Aliases speichern</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
           <h2>Queue</h2>
           <p class="text-secondary">Aktuelle Warteschlange</p>
         </div>

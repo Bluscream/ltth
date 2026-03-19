@@ -30,6 +30,7 @@ class PlaybackEngine extends EventEmitter {
     const hasCurrent = this.nowPlaying && this.state === 'playing';
 
     const newTrackPayload = {
+      id: track.id,
       title: track.title,
       artist: track.artist || '',
       duration: track.duration || null,
@@ -37,6 +38,8 @@ class PlaybackEngine extends EventEmitter {
       requestedBy: track.requestedBy || 'viewer',
       source: track.source || 'youtube',
       url: track.url,
+      youtubeId: track.youtubeId || null,
+      isGiftRequest: Boolean(track.isGiftRequest),
       startedAt: Date.now()
     };
 

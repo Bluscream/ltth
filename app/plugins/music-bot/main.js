@@ -5,6 +5,7 @@ const QueueManager = require('./lib/queue-manager');
 const MusicResolver = require('./lib/music-resolver');
 const PlaybackEngine = require('./lib/playback-engine');
 const BanList = require('./lib/ban-list');
+const AutoDJ = require('./lib/auto-dj');
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -34,7 +35,9 @@ const DEFAULT_CONFIG = {
     maxPerUser: 3,
     maxSongDurationSeconds: 600,
     allowDuplicates: false,
-    cooldownPerUserSeconds: 30
+    cooldownPerUserSeconds: 30,
+    duplicateDetection: 'strict',
+    cooldownBypassForGifts: false
   },
   playback: {
     defaultVolume: 50,
@@ -55,6 +58,19 @@ const DEFAULT_CONFIG = {
     enabled: true,
     thresholdPercent: 50,
     minVotes: 3
+  },
+  giftIntegration: {
+    skipImmunityGifts: []
+  },
+  autoDJ: {
+    enabled: false,
+    mode: 'history',
+    historyMinPlays: 2,
+    historyShuffled: true,
+    maxConsecutiveAutoDJ: 10,
+    announceAutoDJ: true,
+    randomKeywords: ['lofi hip hop', 'chill music', 'gaming music', 'pop hits'],
+    playlistUrls: []
   },
   resolver: {
     ytdlpPath: 'yt-dlp',
@@ -77,21 +93,18 @@ class MusicBotPlugin extends EventEmitter {
     this.musicResolver = null;
     this.playbackEngine = null;
     this.commandParser = null;
-
-    this.voteSkipState = {
-      voters: new Set(),
-      required: DEFAULT_CONFIG.voteSkip.minVotes
-    };
+    this.autoDJ = null;
   }
 
   async init() {
     this._loadConfig();
     this.api.ensurePluginDataDir();
 
-    this.queueManager = new QueueManager(this.config.queue, this.api);
+    this.queueManager = new QueueManager(this.config, this.api);
     this.musicResolver = new MusicResolver(this.config.resolver, this.api);
     this.playbackEngine = new PlaybackEngine(this.config.playback, this.api);
     this.banList = new BanList();
+    this.autoDJ = new AutoDJ(this.config.autoDJ, this.musicResolver, this.db, this.api);
 
     this.commandParser = new CommandParser(
       this.config,
@@ -120,7 +133,6 @@ class MusicBotPlugin extends EventEmitter {
     }
 
     this.queueManager.clear();
-    this.voteSkipState.voters.clear();
     this.removeAllListeners();
     this.api.log('[music-bot] Plugin destroyed', 'info');
   }
@@ -156,6 +168,46 @@ class MusicBotPlugin extends EventEmitter {
     return output;
   }
 
+  _validateCommandAliases(config) {
+    const commandNames = new Map();
+    Object.entries(config.commands || {}).forEach(([type, value]) => {
+      if (!value) return;
+      commandNames.set(String(value).toLowerCase(), type);
+    });
+
+    const sanitizedAliases = {};
+    try {
+      Object.entries(config.commandAliases || {}).forEach(([type, aliases]) => {
+        const unique = new Set();
+        (aliases || []).forEach((aliasRaw) => {
+          const alias = String(aliasRaw || '').trim().toLowerCase();
+          if (!alias) return;
+          if (commandNames.has(alias) && commandNames.get(alias) !== type) {
+            throw new Error(`Alias "${alias}" conflicts with another command`);
+          }
+          if (unique.has(alias)) {
+            return;
+          }
+          if (Object.values(sanitizedAliases).some((arr) => arr?.includes(alias))) {
+            throw new Error(`Alias "${alias}" is already in use`);
+          }
+          unique.add(alias);
+        });
+        sanitizedAliases[type] = Array.from(unique);
+      });
+      Object.keys(config.commands || {}).forEach((cmd) => {
+        if (!sanitizedAliases[cmd]) {
+          sanitizedAliases[cmd] = [];
+        }
+      });
+    } catch (error) {
+      return { valid: false, error: error.message };
+    }
+
+    config.commandAliases = sanitizedAliases;
+    return { valid: true };
+  }
+
   async _restoreState() {
     // Future: restore queue/history from persistent store. For now, broadcast empty state.
     this._emitStatus();
@@ -165,12 +217,16 @@ class MusicBotPlugin extends EventEmitter {
   _registerPlaybackEvents() {
     this.playbackEngine.on('track-start', (track) => {
       this.queueManager.markPlaying(track);
+      this.queueManager.resetVoteSkips();
       this._emitNowPlaying(track);
     });
 
     this.playbackEngine.on('track-end', (info) => {
-      this.queueManager.addToHistory(info.track);
-      this.voteSkipState.voters.clear();
+      this.queueManager.addToHistory(info.track, info.reason === 'skip');
+      if (info.track?.requestedBy) {
+        this.queueManager.removeSkipImmunity(info.track.requestedBy);
+      }
+      this.queueManager.resetVoteSkips();
       this._playNextFromQueue();
     });
 
@@ -248,6 +304,7 @@ class MusicBotPlugin extends EventEmitter {
     this.api.registerRoute('post', '/api/plugins/music-bot/clear', async (req, res) => {
       this.queueManager.clear();
       await this.playbackEngine.stop();
+      this.autoDJ?.reset();
       this._emitQueue();
       res.json({ success: true });
     });
@@ -258,13 +315,40 @@ class MusicBotPlugin extends EventEmitter {
 
     this.api.registerRoute('post', '/api/plugins/music-bot/config', async (req, res) => {
       const update = req.body || {};
-      this.config = this._mergeDeep(this.config, update);
+      const merged = this._mergeDeep(this.config, update);
+      const aliasValidation = this._validateCommandAliases(merged);
+      if (!aliasValidation.valid) {
+        res.status(400).json({ success: false, error: aliasValidation.error });
+        return;
+      }
+      this.config = merged;
+      this.queueManager.config = merged;
+      this.queueManager.queueConfig = merged.queue;
+      this.playbackEngine.config = merged.playback;
+      this.autoDJ?.updateConfig(merged.autoDJ);
       await this.api.setConfig('config', this.config);
       res.json({ success: true, config: this.config });
     });
 
     this.api.registerRoute('get', '/api/plugins/music-bot/history', async (req, res) => {
       res.json({ success: true, history: this.queueManager.getHistory() });
+    });
+
+    this.api.registerRoute('get', '/api/plugins/music-bot/auto-dj/status', async (req, res) => {
+      res.json({ success: true, status: this.autoDJ?.getStatus() });
+    });
+
+    this.api.registerRoute('post', '/api/plugins/music-bot/auto-dj/toggle', async (req, res) => {
+      const payload = req.body || {};
+      this.config.autoDJ = this._mergeDeep(this.config.autoDJ, payload);
+      this.autoDJ?.updateConfig(this.config.autoDJ);
+      await this.api.setConfig('config', this.config);
+      res.json({ success: true, status: this.autoDJ?.getStatus() });
+    });
+
+    this.api.registerRoute('post', '/api/plugins/music-bot/auto-dj/skip', async (req, res) => {
+      const next = await this._maybePlayAutoDJ(true);
+      res.json({ success: Boolean(next), track: next || null });
     });
   }
 
@@ -307,6 +391,9 @@ class MusicBotPlugin extends EventEmitter {
     this.api.registerTikTokEvent('chat', async (data) => {
       await this.commandParser.parse(data, (command) => this._handleCommand(command, data));
     });
+    this.api.registerTikTokEvent('gift', async (data) => {
+      await this._handleGiftEvent(data);
+    });
   }
 
   // ---------- Command handling ----------
@@ -316,6 +403,9 @@ class MusicBotPlugin extends EventEmitter {
       case 'request':
         return this._handleRequest(command.query, chatData.username || 'unknown');
       case 'skip':
+        if (command.force) {
+          return this._skipCurrent(chatData.username || 'viewer');
+        }
         return this._handleSkipVote(chatData.username || 'viewer');
       case 'queue':
         this._emitChatResponse(`Queue length: ${this.queueManager.getQueue().length}`, chatData.username);
@@ -342,6 +432,7 @@ class MusicBotPlugin extends EventEmitter {
       case 'clear':
         this.queueManager.clear();
         await this.playbackEngine.stop();
+        this.autoDJ?.reset();
         this._emitQueue();
         return;
       default:
@@ -356,6 +447,7 @@ class MusicBotPlugin extends EventEmitter {
       if (!added.success) {
         return added;
       }
+      this.autoDJ?.onSongRequested();
       this._emitSongAdded(added.song, added.position);
       if (!this.playbackEngine.isPlaying() && this.config.playback.autoPlay) {
         await this._playNextFromQueue();
@@ -388,6 +480,7 @@ class MusicBotPlugin extends EventEmitter {
         this._emitChatResponse(addResult.error || 'Song konnte nicht hinzugefügt werden.', username);
         return;
       }
+      this.autoDJ?.onSongRequested();
       this._emitSongAdded(addResult.song, addResult.position);
 
       if (!this.playbackEngine.isPlaying() && this.config.playback.autoPlay) {
@@ -407,32 +500,31 @@ class MusicBotPlugin extends EventEmitter {
       return;
     }
 
-    if (this.voteSkipState.voters.has(username)) {
+    const voteResult = this.queueManager.addVoteSkip(username);
+    if (voteResult.duplicateVote) {
       this._emitChatResponse('Du hast bereits für Skip gestimmt.', username);
       return;
     }
 
-    this.voteSkipState.voters.add(username);
-    const required = this._computeRequiredVotes();
-    this._emitVoteSkipUpdate(required);
+    this._emitVoteSkipUpdate(voteResult);
 
-    if (this.voteSkipState.voters.size >= required) {
+    if (voteResult.immuneInfo) {
+      this._emitChatResponse(
+        `⛔ Dieser Song hat Skip-Immunität! (@${voteResult.immuneInfo.requestedBy} hat mit einem Gift requested)`,
+        username
+      );
+      return;
+    }
+
+    if (voteResult.skipped) {
       await this._skipCurrent(username);
-      this.voteSkipState.voters.clear();
+      this.queueManager.resetVoteSkips();
     } else {
       this._emitChatResponse(
-        `Skip-Votes: ${this.voteSkipState.voters.size}/${required}`,
+        `Skip-Votes: ${voteResult.votes}/${voteResult.required}`,
         username
       );
     }
-  }
-
-  _computeRequiredVotes() {
-    const base = Math.max(this.config.voteSkip.minVotes, 1);
-    const threshold = Math.ceil((this.config.voteSkip.thresholdPercent / 100) * base);
-    const required = Math.max(base, threshold);
-    this.voteSkipState.required = required;
-    return required;
   }
 
   async _skipCurrent(reasonUser) {
@@ -448,9 +540,12 @@ class MusicBotPlugin extends EventEmitter {
   async _playNextFromQueue() {
     const next = this.queueManager.shiftNext();
     if (!next) {
-      this.playbackEngine.clearNowPlaying();
-      this._emitPlaybackStopped();
-      this._emitQueue();
+      const autoDJTrack = await this._maybePlayAutoDJ();
+      if (!autoDJTrack) {
+        this.playbackEngine.clearNowPlaying();
+        this._emitPlaybackStopped();
+        this._emitQueue();
+      }
       return;
     }
     try {
@@ -520,11 +615,13 @@ class MusicBotPlugin extends EventEmitter {
     this.api.emit('musicbot:now-playing', payload);
   }
 
-  _emitVoteSkipUpdate(required) {
+  _emitVoteSkipUpdate(result) {
     this.api.emit('musicbot:vote-skip-update', {
-      votes: this.voteSkipState.voters.size,
-      required,
-      voters: Array.from(this.voteSkipState.voters)
+      votes: result.votes,
+      required: result.required,
+      voters: this.queueManager.getVoteVoters(),
+      title: this.playbackEngine.getNowPlaying()?.title || null,
+      immuneInfo: result.immuneInfo
     });
   }
 
@@ -538,13 +635,78 @@ class MusicBotPlugin extends EventEmitter {
     }
   }
 
+  async _handleGiftEvent(data) {
+    const gifts = (this.config.giftIntegration?.skipImmunityGifts || []).map((g) =>
+      String(g || '').toLowerCase().trim()
+    );
+    if (!gifts.length) return;
+
+    const giftName = String(
+      data?.gift?.name || data?.giftName || data?.giftId || data?.id || ''
+    ).toLowerCase();
+    if (!giftName) return;
+
+    const match = gifts.find((entry) => String(entry || '').toLowerCase() === giftName);
+    if (!match) return;
+
+    const username =
+      data?.username || data?.nickname || data?.user?.uniqueId || data?.user?.nickname;
+    if (!username) return;
+
+    const hasSong = this._findSongByUser(username);
+    if (!hasSong) return;
+
+    hasSong.isGiftRequest = true;
+    this.queueManager.addSkipImmunity(username);
+    this.api.emit('musicbot:skip-immunity-granted', { username, giftName: match });
+    this._emitChatResponse(`${username} hat Skip-Immunity erhalten (${match}).`, username);
+  }
+
+  _findSongByUser(username) {
+    const lower = String(username || '').toLowerCase();
+    if (!lower) return null;
+    const current = this.playbackEngine.getNowPlaying();
+    if (current?.requestedBy?.toLowerCase() === lower) {
+      return current;
+    }
+    return this.queueManager.getQueue().find((item) => item.requestedBy?.toLowerCase() === lower);
+  }
+
+  async _maybePlayAutoDJ(force = false) {
+    if (!this.autoDJ || !this.config.autoDJ?.enabled) {
+      return null;
+    }
+
+    const result = force ? await this.autoDJ.getNextSong(true) : await this.autoDJ.onQueueEmpty();
+    if (!result) return null;
+
+    const track = result.song || result;
+    try {
+      await this.playbackEngine.play(track);
+      this.queueManager.markPlaying(track);
+      this._emitQueue();
+      this.api.emit('musicbot:auto-dj-playing', {
+        title: track.title,
+        mode: this.autoDJ.getStatus().mode
+      });
+      if (result.announce && this.config.autoDJ.announceAutoDJ) {
+        this._emitChatResponse(`AutoDJ spielt: ${track.title}`, 'AutoDJ');
+      }
+      return track;
+    } catch (error) {
+      this.api.log(`[music-bot] AutoDJ playback failed: ${error.message}`, 'error');
+      return null;
+    }
+  }
+
   _buildStatusPayload() {
     return {
       success: true,
       nowPlaying: this.playbackEngine.getNowPlaying(),
       queueLength: this.queueManager.getQueue().length,
       volume: this.playbackEngine.getVolume(),
-      playbackState: this.playbackEngine.getState()
+      playbackState: this.playbackEngine.getState(),
+      autoDJ: this.autoDJ?.getStatus()
     };
   }
 

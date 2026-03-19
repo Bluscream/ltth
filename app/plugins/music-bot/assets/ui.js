@@ -12,6 +12,20 @@
   const volumeValue = document.getElementById('volume-value');
   const crossfadeInput = document.getElementById('crossfade-input');
   const crossfadeValue = document.getElementById('crossfade-value');
+  const duplicateDetection = document.getElementById('duplicate-detection');
+  const cooldownSecondsInput = document.getElementById('cooldown-seconds');
+  const cooldownBypassGifts = document.getElementById('cooldown-bypass-gifts');
+  const skipImmunityGifts = document.getElementById('skip-immunity-gifts');
+  const autoDjEnabled = document.getElementById('auto-dj-enabled');
+  const autoDjMode = document.getElementById('auto-dj-mode');
+  const autoDjHistoryPlays = document.getElementById('auto-dj-history-plays');
+  const autoDjMaxConsecutive = document.getElementById('auto-dj-max-consecutive');
+  const autoDjAnnounce = document.getElementById('auto-dj-announce');
+  const autoDjStatus = document.getElementById('auto-dj-status');
+  const autoDjSave = document.getElementById('auto-dj-save');
+  const autoDjSkip = document.getElementById('auto-dj-skip');
+  const aliasInputs = document.querySelectorAll('.alias-input');
+  const aliasSave = document.getElementById('alias-save');
 
   document.getElementById('pause-btn').addEventListener('click', () => {
     post('/pause');
@@ -50,6 +64,49 @@
     const seconds = Number(crossfadeInput.value);
     crossfadeValue.textContent = `${seconds}s`;
     await post('/config', { playback: { crossfadeDuration: seconds * 1000 } });
+  });
+
+  duplicateDetection.addEventListener('change', async () => {
+    await post('/config', { queue: { duplicateDetection: duplicateDetection.value } });
+  });
+
+  cooldownSecondsInput.addEventListener('change', async () => {
+    const seconds = Math.max(0, Number(cooldownSecondsInput.value) || 0);
+    cooldownSecondsInput.value = seconds;
+    await post('/config', { queue: { cooldownPerUserSeconds: seconds } });
+  });
+
+  cooldownBypassGifts.addEventListener('change', async () => {
+    await post('/config', { queue: { cooldownBypassForGifts: cooldownBypassGifts.checked } });
+  });
+
+  skipImmunityGifts.addEventListener('blur', async () => {
+    const gifts = parseList(skipImmunityGifts.value);
+    await post('/config', { giftIntegration: { skipImmunityGifts: gifts } });
+  });
+
+  autoDjSave.addEventListener('click', async () => {
+    const payload = {
+      enabled: autoDjEnabled.checked,
+      mode: autoDjMode.value,
+      historyMinPlays: Number(autoDjHistoryPlays.value) || 1,
+      maxConsecutiveAutoDJ: Number(autoDjMaxConsecutive.value) || 1,
+      announceAutoDJ: autoDjAnnounce.checked
+    };
+    await post('/auto-dj/toggle', payload);
+    await refreshAutoDjStatus();
+  });
+
+  autoDjSkip.addEventListener('click', async () => {
+    await post('/auto-dj/skip');
+  });
+
+  aliasSave.addEventListener('click', async () => {
+    const aliases = {};
+    aliasInputs.forEach((input) => {
+      aliases[input.dataset.command] = parseList(input.value);
+    });
+    await post('/config', { commandAliases: aliases });
   });
 
   socket.on('connect', () => {
@@ -102,6 +159,35 @@
       crossfadeInput.value = seconds;
       crossfadeValue.textContent = `${seconds}s`;
     }
+
+    if (configData?.config?.queue?.duplicateDetection) {
+      duplicateDetection.value = configData.config.queue.duplicateDetection;
+    }
+    if (configData?.config?.queue?.cooldownPerUserSeconds !== undefined) {
+      cooldownSecondsInput.value = configData.config.queue.cooldownPerUserSeconds;
+    }
+    if (configData?.config?.queue?.cooldownBypassForGifts !== undefined) {
+      cooldownBypassGifts.checked = Boolean(configData.config.queue.cooldownBypassForGifts);
+    }
+    if (Array.isArray(configData?.config?.giftIntegration?.skipImmunityGifts)) {
+      skipImmunityGifts.value = configData.config.giftIntegration.skipImmunityGifts.join(', ');
+    }
+    if (configData?.config?.commandAliases) {
+      aliasInputs.forEach((input) => {
+        const list = configData.config.commandAliases[input.dataset.command] || [];
+        input.value = list.join(', ');
+      });
+    }
+
+    if (configData?.config?.autoDJ) {
+      autoDjEnabled.checked = Boolean(configData.config.autoDJ.enabled);
+      autoDjMode.value = configData.config.autoDJ.mode || 'history';
+      autoDjHistoryPlays.value = configData.config.autoDJ.historyMinPlays || 1;
+      autoDjMaxConsecutive.value = configData.config.autoDJ.maxConsecutiveAutoDJ || 1;
+      autoDjAnnounce.checked = Boolean(configData.config.autoDJ.announceAutoDJ);
+    }
+
+    await refreshAutoDjStatus();
   }
 
   async function refreshHistory() {
@@ -185,6 +271,25 @@
 
   function updateState(state) {
     stateEl.textContent = state || 'Idle';
+  }
+
+  async function refreshAutoDjStatus() {
+    const statusRes = await get('/auto-dj/status');
+    const status = statusRes?.status;
+    if (!status) return;
+    autoDjEnabled.checked = Boolean(status.enabled);
+    autoDjMode.value = status.mode || 'history';
+    autoDjHistoryPlays.value = status.historyMinPlays || 1;
+    autoDjMaxConsecutive.value = status.maxConsecutiveAutoDJ || 1;
+    autoDjAnnounce.checked = Boolean(status.announceAutoDJ);
+    autoDjStatus.textContent = status.enabled ? 'Aktiv' : 'Deaktiviert';
+  }
+
+  function parseList(value = '') {
+    return value
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
 
   init();

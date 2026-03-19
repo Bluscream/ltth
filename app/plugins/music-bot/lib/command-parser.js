@@ -24,14 +24,14 @@ class CommandParser {
     const commandType = this._resolveCommand(commandKey.toLowerCase());
     if (!commandType) return;
 
-    const required = this.config.permissions[commandType] || 'viewer';
+    const required = this._getPermissionForCommand(commandType);
     const allowed = await this._hasPermission(username, required);
     if (!allowed) {
       this._respond(`Keine Berechtigung für ${commandType}.`, username);
       return;
     }
 
-    const commandPayload = this._buildCommandPayload(commandType, args);
+    const commandPayload = this._buildCommandPayload(commandType, args, required);
     if (commandPayload && onCommand) {
       await onCommand(commandPayload);
     }
@@ -41,15 +41,16 @@ class CommandParser {
     const entries = Object.entries(this.config.commands);
     for (const [type, value] of entries) {
       if (value === key) return type;
-      const aliases = this.config.commandAliases[type] || [];
-      if (aliases.includes(key)) {
-        return type;
-      }
+    }
+
+    for (const [type, value] of entries) {
+      const aliases = this.config.commandAliases?.[type] || [];
+      if (aliases.includes(key)) return type;
     }
     return null;
   }
 
-  _buildCommandPayload(type, args) {
+  _buildCommandPayload(type, args, requiredPermission) {
     switch (type) {
       case 'request':
         return { type, query: args.join(' ') };
@@ -61,6 +62,7 @@ class CommandParser {
         return { type };
       }
       case 'skip':
+        return { type, force: requiredPermission !== 'viewer' };
       case 'queue':
       case 'nowPlaying':
       case 'pause':
@@ -80,6 +82,10 @@ class CommandParser {
     }
     // follower/subscriber/mod: fallback to viewer until richer role data is available
     return true;
+  }
+
+  _getPermissionForCommand(type) {
+    return this.config.permissions?.[type] || 'viewer';
   }
 
   async _getStreamerUsername() {
