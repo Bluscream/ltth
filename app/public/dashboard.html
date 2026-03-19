@@ -811,6 +811,10 @@
                             <i data-lucide="mic"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.tts">TTS</span>
                         </a>
+                        <a href="#" class="sidebar-item" data-view="music-bot" data-plugin="music-bot">
+                            <i data-lucide="headphones"></i>
+                            <span class="sidebar-item-text" data-i18n="navigation.music_bot">Music Bot</span>
+                        </a>
                         <a href="#" class="sidebar-item" data-view="soundboard" data-plugin="soundboard">
                             <i data-lucide="music"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.soundboard">Soundboard</span>
@@ -1590,6 +1594,25 @@
                         </div>
                         <div class="iframe-container">
                             <iframe data-src="/plugins/talking-heads/ui.html" title="Talking Heads Configuration"></iframe>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- View: Music Bot -->
+                <div id="view-music-bot" class="content-view" data-plugin="music-bot">
+                    <section class="view-section">
+                        <div class="view-header">
+                            <h2 class="view-title">
+                                <i data-lucide="headphones"></i>
+                                Music Bot
+                            </h2>
+                            <a href="/plugins/music-bot/ui" target="_blank" class="btn btn-sm btn-ghost">
+                                <i data-lucide="external-link"></i>
+                                Open in New Tab
+                            </a>
+                        </div>
+                        <div class="iframe-container">
+                            <iframe data-src="/plugins/music-bot/ui" title="Music Bot Configuration"></iframe>
                         </div>
                     </section>
                 </div>
