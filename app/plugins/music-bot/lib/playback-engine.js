@@ -17,6 +17,7 @@ class PlaybackEngine extends EventEmitter {
     this.state = 'idle';
     this.volume = config.defaultVolume;
     this._buffer = '';
+    this._fadeTimer = null;
   }
 
   async play(track) {
@@ -25,10 +26,10 @@ class PlaybackEngine extends EventEmitter {
     }
 
     await this._ensureProcess();
-    await this._sendCommand(['loadfile', track.url, 'replace']);
-    await this.setVolume(this.volume);
+    const crossfadeMs = Number(this.config.crossfadeDuration || 0);
+    const hasCurrent = this.nowPlaying && this.state === 'playing';
 
-    this.nowPlaying = {
+    const newTrackPayload = {
       title: track.title,
       artist: track.artist || '',
       duration: track.duration || null,
@@ -38,8 +39,28 @@ class PlaybackEngine extends EventEmitter {
       url: track.url,
       startedAt: Date.now()
     };
-    this.state = 'playing';
-    this.emit('track-start', this.nowPlaying);
+
+    if (crossfadeMs > 0 && hasCurrent) {
+      const currentVolume = this.volume;
+      await this._fadeVolume(currentVolume, 0, crossfadeMs, true);
+
+      await this._sendCommand(['loadfile', track.url, 'append-play']);
+      await this._sendCommand(['playlist-next', 'force']);
+      await this._sendCommand(['set_property', 'volume', 0]);
+
+      this.nowPlaying = newTrackPayload;
+      this.state = 'playing';
+      this.emit('track-start', this.nowPlaying);
+
+      await this._fadeVolume(0, currentVolume, crossfadeMs, true);
+    } else {
+      await this._sendCommand(['loadfile', track.url, 'replace']);
+      await this.setVolume(this.volume);
+
+      this.nowPlaying = newTrackPayload;
+      this.state = 'playing';
+      this.emit('track-start', this.nowPlaying);
+    }
   }
 
   async pause() {
@@ -123,7 +144,7 @@ class PlaybackEngine extends EventEmitter {
       '--force-window=no',
       '--audio-display=no',
       '--audio-device',
-      this.config.audioDevice
+      this.config.audioDevice || 'auto'
     ];
 
     this.process = spawn(this.config.mpvPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -170,6 +191,88 @@ class PlaybackEngine extends EventEmitter {
     if (!this.socket) return;
     const payload = JSON.stringify({ command });
     this.socket.write(`${payload}\n`);
+  }
+
+  async _fadeVolume(from, to, durationMs, emitVolumeEvent = true) {
+    if (this._fadeTimer) {
+      clearInterval(this._fadeTimer);
+      this._fadeTimer = null;
+    }
+    const duration = Math.max(durationMs, 0);
+    if (duration === 0 || from === to) {
+      this.volume = to;
+      await this._sendCommand(['set_property', 'volume', to]);
+      if (emitVolumeEvent) {
+        this.emit('volume-changed', to);
+      }
+      return;
+    }
+
+    const stepInterval = 50;
+    const steps = Math.ceil(duration / stepInterval);
+    const delta = (to - from) / steps;
+    let currentStep = 0;
+    let currentVolume = from;
+
+    await this._sendCommand(['set_property', 'volume', from]);
+
+    await new Promise((resolve) => {
+      this._fadeTimer = setInterval(async () => {
+        try {
+          currentStep += 1;
+          currentVolume = currentVolume + delta;
+          if (currentStep >= steps) {
+            currentVolume = to;
+          }
+          this.volume = currentVolume;
+          await this._sendCommand(['set_property', 'volume', currentVolume]);
+          if (emitVolumeEvent) {
+            this.emit('volume-changed', currentVolume);
+          }
+          if (currentStep >= steps) {
+            clearInterval(this._fadeTimer);
+            this._fadeTimer = null;
+            resolve();
+          }
+        } catch (error) {
+          clearInterval(this._fadeTimer);
+          this._fadeTimer = null;
+          this.emit('error', error);
+          resolve();
+        }
+      }, stepInterval);
+    });
+  }
+
+  async getAvailableDevices() {
+    return new Promise((resolve) => {
+      try {
+        const proc = spawn(this.config.mpvPath, ['--audio-device=help'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '';
+        proc.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+        proc.on('close', () => {
+          const lines = stdout.split('\n');
+          const devices = [];
+          lines.forEach((line) => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('Available') || trimmed.startsWith('Auto')) {
+              return;
+            }
+            const parts = trimmed.split(':').map((p) => p.trim());
+            if (parts.length >= 2) {
+              devices.push({ id: parts[0], name: parts.slice(1).join(':') });
+            }
+          });
+          resolve(devices);
+        });
+        proc.on('error', () => resolve([]));
+      } catch (error) {
+        this.api.log?.(`[music-bot] Failed to list audio devices: ${error.message}`, 'error');
+        resolve([]);
+      }
+    });
   }
 
   _onData(chunk) {

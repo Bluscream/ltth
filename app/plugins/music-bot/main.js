@@ -40,7 +40,8 @@ const DEFAULT_CONFIG = {
     defaultVolume: 50,
     mpvPath: 'mpv',
     audioDevice: 'auto',
-    autoPlay: true
+    autoPlay: true,
+    crossfadeDuration: 3000
   },
   permissions: {
     request: 'viewer',

@@ -10,6 +10,8 @@
   const requestFeedback = document.getElementById('request-feedback');
   const volumeInput = document.getElementById('volume-input');
   const volumeValue = document.getElementById('volume-value');
+  const crossfadeInput = document.getElementById('crossfade-input');
+  const crossfadeValue = document.getElementById('crossfade-value');
 
   document.getElementById('pause-btn').addEventListener('click', () => {
     post('/pause');
@@ -42,6 +44,12 @@
     const vol = Number(volumeInput.value);
     volumeValue.textContent = vol;
     await post('/volume', { volume: vol });
+  });
+
+  crossfadeInput.addEventListener('input', async () => {
+    const seconds = Number(crossfadeInput.value);
+    crossfadeValue.textContent = `${seconds}s`;
+    await post('/config', { playback: { crossfadeDuration: seconds * 1000 } });
   });
 
   socket.on('connect', () => {
@@ -85,6 +93,14 @@
     const historyData = await get('/history');
     if (historyData?.history) {
       renderHistory(historyData.history);
+    }
+
+    const configData = await get('/config');
+    const crossfadeMs = configData?.config?.playback?.crossfadeDuration;
+    if (typeof crossfadeMs === 'number') {
+      const seconds = Math.round(crossfadeMs / 1000);
+      crossfadeInput.value = seconds;
+      crossfadeValue.textContent = `${seconds}s`;
     }
   }
 
