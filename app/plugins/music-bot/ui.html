@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Music Bot</title>
+  <link rel="stylesheet" href="/css/themes.css">
+  <link rel="stylesheet" href="/plugins/music-bot/assets/ui-style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <p class="eyebrow">LTTH Plugin</p>
+        <h1>Music Bot</h1>
+        <p class="subtitle">Viewer-controlled Song Requests via TikTok Chat</p>
+      </div>
+      <div class="status" id="playback-state">Idle</div>
+    </header>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Now Playing</h2>
+          <p class="text-secondary">Aktueller Track und Lautstärke</p>
+        </div>
+        <div class="volume-control">
+          <label for="volume-input">Volume</label>
+          <input type="range" id="volume-input" min="0" max="100" value="50">
+          <span id="volume-value">50</span>
+        </div>
+      </div>
+      <div id="now-playing" class="now-playing empty">
+        <p>Aktuell läuft nichts.</p>
+      </div>
+      <div class="actions">
+        <button id="pause-btn" class="btn ghost">Pause</button>
+        <button id="resume-btn" class="btn">Resume</button>
+        <button id="skip-btn" class="btn danger">Skip</button>
+        <button id="clear-btn" class="btn ghost">Queue leeren</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Song Request</h2>
+          <p class="text-secondary">YouTube oder SoundCloud Links / Suche</p>
+        </div>
+      </div>
+      <form id="request-form" class="request-form">
+        <input type="text" id="request-input" placeholder="z.B. https://youtu.be/..." required>
+        <button type="submit" class="btn primary">Request</button>
+      </form>
+      <div id="request-feedback" class="feedback"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Queue</h2>
+          <p class="text-secondary">Aktuelle Warteschlange</p>
+        </div>
+        <span id="queue-length" class="pill">0</span>
+      </div>
+      <div id="queue-list" class="list empty">
+        <p>Keine Songs in der Queue.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>History</h2>
+          <p class="text-secondary">Letzte gespielte Songs</p>
+        </div>
+      </div>
+      <div id="history-list" class="list empty">
+        <p>Noch keine History.</p>
+      </div>
+    </section>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/plugins/music-bot/assets/ui.js"></script>
+</body>
+</html>
