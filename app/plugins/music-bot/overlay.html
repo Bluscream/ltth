@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Music Bot Now Playing Overlay</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      --bg: rgba(20, 24, 38, 0.5);
+      --card: rgba(20, 24, 38, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #f8fafc;
+      --muted: #cbd5e1;
+      --accent: #38bdf8;
+      --shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+    }
+
+    body {
+      margin: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: transparent;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #overlay-root {
+      position: fixed;
+      pointer-events: none;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+
+    /* Position presets */
+    .pos-top-left { justify-content: flex-start; align-items: flex-start; }
+    .pos-top-right { justify-content: flex-end; align-items: flex-start; }
+    .pos-bottom-left { justify-content: flex-start; align-items: flex-end; }
+    .pos-bottom-right { justify-content: flex-end; align-items: flex-end; }
+    .pos-top-center { justify-content: center; align-items: flex-start; }
+    .pos-bottom-center { justify-content: center; align-items: flex-end; }
+
+    #widget {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      min-width: 280px;
+      max-width: 520px;
+      padding: 12px 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 220ms ease, transform 220ms ease;
+    }
+
+    #widget.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .thumb {
+      width: 80px;
+      height: 80px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      background-size: cover;
+      background-position: center;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .meta {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .artist,
+    .requester {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .progress {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .bar {
+      position: relative;
+      flex: 1;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #60a5fa);
+      transition: width 0.3s ease;
+    }
+
+    .time {
+      font-size: 12px;
+      color: var(--muted);
+      min-width: 84px;
+      text-align: right;
+    }
+
+    /* Themes */
+    .theme-dark {
+      --card: rgba(12, 16, 24, 0.8);
+      --border: rgba(255, 255, 255, 0.06);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #22d3ee;
+      --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    .theme-neon {
+      --card: rgba(10, 12, 26, 0.85);
+      --border: rgba(94, 234, 212, 0.35);
+      --text: #e2f3f5;
+      --muted: #94d2bd;
+      --accent: #7c3aed;
+      --shadow: 0 14px 48px rgba(124, 58, 237, 0.35);
+    }
+
+    .theme-sunset {
+      --card: rgba(33, 16, 34, 0.82);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #ffe4e6;
+      --muted: #fecdd3;
+      --accent: #fb7185;
+      --shadow: 0 14px 48px rgba(251, 113, 133, 0.35);
+    }
+
+    .theme-ice {
+      --card: rgba(10, 24, 34, 0.78);
+      --border: rgba(148, 163, 184, 0.35);
+      --text: #e0f2fe;
+      --muted: #bae6fd;
+      --accent: #38bdf8;
+      --shadow: 0 14px 48px rgba(56, 189, 248, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay-root" class="pos-bottom-left">
+    <div id="widget">
+      <div id="thumb" class="thumb" aria-hidden="true"></div>
+      <div class="meta">
+        <p id="title" class="title">Waiting for music...</p>
+        <p id="artist" class="artist"></p>
+        <p id="requester" class="requester"></p>
+        <div class="progress">
+          <div class="bar">
+            <div id="bar-fill" class="bar-fill"></div>
+          </div>
+          <div id="time" class="time">--:-- / --:--</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const allowedPositions = new Set([
+        'top-left',
+        'top-right',
+        'bottom-left',
+        'bottom-right',
+        'top-center',
+        'bottom-center'
+      ]);
+      const allowedThemes = new Set(['glass', 'dark', 'neon', 'sunset', 'ice']);
+      const params = new URLSearchParams(window.location.search);
+      const position = allowedPositions.has(params.get('position'))
+        ? params.get('position')
+        : 'bottom-left';
+      const theme = allowedThemes.has(params.get('theme')) ? params.get('theme') : 'glass';
+
+      const root = document.getElementById('overlay-root');
+      root.classList.add(`pos-${position}`);
+      if (theme !== 'glass') {
+        document.body.classList.add(`theme-${theme}`);
+      }
+
+      const widget = document.getElementById('widget');
+      const thumb = document.getElementById('thumb');
+      const titleEl = document.getElementById('title');
+      const artistEl = document.getElementById('artist');
+      const requesterEl = document.getElementById('requester');
+      const barFill = document.getElementById('bar-fill');
+      const timeEl = document.getElementById('time');
+
+      let socket = null;
+      let currentTrack = null;
+      let state = 'idle';
+      let progressTimer = null;
+      let pausedProgress = 0;
+
+      function connect() {
+        if (typeof io !== 'function') {
+          console.warn('[music-bot overlay] Socket.IO not available.');
+          return;
+        }
+        socket = io();
+        socket.on('connect', () => socket.emit('musicbot:request-status'));
+        socket.on('musicbot:now-playing', handleNowPlaying);
+        socket.on('musicbot:paused', () => setState('paused'));
+        socket.on('musicbot:resumed', () => setState('playing'));
+        socket.on('musicbot:playback-stopped', clearTrack);
+        socket.on('musicbot:queue-update', () => {
+          // no-op for now; kept for future extensions
+        });
+        socket.on('musicbot:volume-changed', () => {});
+        socket.on('musicbot:playback-sync', handleNowPlaying);
+      }
+
+      function handleNowPlaying(payload) {
+        if (!payload) {
+          clearTrack();
+          return;
+        }
+        const duration = Number(payload.duration) || 0;
+        const positionSeconds = Number(payload.position);
+        const baseStarted =
+          Number.isFinite(positionSeconds) && positionSeconds >= 0
+            ? Date.now() - positionSeconds * 1000
+            : payload.startedAt || Date.now();
+        currentTrack = {
+          title: payload.title || 'Unbekannter Titel',
+          artist: payload.artist || '',
+          requestedBy: payload.requestedBy || '',
+          duration,
+          startedAt: baseStarted,
+          thumbnail: payload.thumbnail || null,
+          state: payload.state || 'playing'
+        };
+        state = currentTrack.state || 'playing';
+        pausedProgress = 0;
+        renderTrack();
+      }
+
+      function renderTrack() {
+        if (!currentTrack) return;
+        widget.classList.add('visible');
+        titleEl.textContent = currentTrack.title;
+        artistEl.textContent = currentTrack.artist ? currentTrack.artist : ' ';
+        requesterEl.textContent = currentTrack.requestedBy
+          ? `Requested by @${currentTrack.requestedBy}`
+          : '';
+
+        if (currentTrack.thumbnail) {
+          thumb.style.backgroundImage = `url('${currentTrack.thumbnail}')`;
+        } else {
+          thumb.style.backgroundImage =
+            'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(14,165,233,0.2))';
+        }
+
+        startProgressLoop();
+      }
+
+      function setState(nextState) {
+        state = nextState;
+        if (state === 'paused') {
+          pausedProgress = computeElapsed();
+          updateProgress(true);
+        }
+        if (state === 'playing' && currentTrack) {
+          if (pausedProgress && currentTrack.duration) {
+            currentTrack.startedAt = Date.now() - pausedProgress * 1000;
+          }
+          startProgressLoop();
+          pausedProgress = 0;
+        }
+      }
+
+      function clearTrack() {
+        currentTrack = null;
+        widget.classList.remove('visible');
+        stopProgressLoop();
+        barFill.style.width = '0%';
+        timeEl.textContent = '--:-- / --:--';
+      }
+
+      function startProgressLoop() {
+        stopProgressLoop();
+        updateProgress();
+        progressTimer = setInterval(updateProgress, 1000);
+      }
+
+      function stopProgressLoop() {
+        if (progressTimer) {
+          clearInterval(progressTimer);
+          progressTimer = null;
+        }
+      }
+
+      function updateProgress(force = false) {
+        if (!currentTrack) return;
+        const duration = currentTrack.duration || 0;
+        const elapsed = state === 'paused' ? pausedProgress : computeElapsed();
+        const clamped = duration > 0 ? Math.min(elapsed, duration) : elapsed;
+        const percent = duration > 0 ? (clamped / duration) * 100 : 0;
+
+        if (state !== 'playing' && !force) {
+          // Do not animate forward while paused
+        } else {
+          barFill.style.width = `${Math.min(100, percent)}%`;
+        }
+
+        timeEl.textContent = `${formatTime(clamped)} / ${duration ? formatTime(duration) : '--:--'}`;
+
+        if (duration > 0 && clamped >= duration && state === 'playing') {
+          clearTrack();
+        }
+      }
+
+      function computeElapsed() {
+        if (!currentTrack?.startedAt) return 0;
+        return Math.max(0, (Date.now() - currentTrack.startedAt) / 1000);
+      }
+
+      function formatTime(seconds) {
+        if (!Number.isFinite(seconds)) return '--:--';
+        const total = Math.max(0, Math.floor(seconds));
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      }
+
+      // Expose small debug API for manual previews
+      window.musicBotOverlay = {
+        show(track) {
+          handleNowPlaying({
+            title: track?.title || 'Sample Song',
+            artist: track?.artist || 'Sample Artist',
+            requestedBy: track?.requestedBy || 'viewer',
+            duration: track?.duration ?? 240,
+            startedAt: Date.now(),
+            thumbnail: track?.thumbnail || null,
+            state: 'playing'
+          });
+        },
+        hide: clearTrack
+      };
+
+      connect();
+    })();
+  </script>
+</body>
+</html>
