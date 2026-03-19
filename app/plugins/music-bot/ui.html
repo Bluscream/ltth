@@ -193,6 +193,72 @@
     <section class="card">
       <div class="card-header">
         <div>
+          <h2>Moderation</h2>
+          <p class="text-secondary">NSFW / Keywords &amp; Ban-Liste</p>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label class="checkbox-field">
+          <input type="checkbox" id="reject-age" checked>
+          <span>NSFW/Age-Restricted Videos ablehnen</span>
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" id="reject-explicit">
+          <span>Explicit-Metadaten ablehnen</span>
+        </label>
+        <label class="field">
+          <span>Geblockte Keywords (eine Zeile pro Keyword)</span>
+          <textarea id="blocked-keywords" rows="3" placeholder="keyword1&#10;keyword2"></textarea>
+        </label>
+      </div>
+
+      <div class="card-header">
+        <div>
+          <h3>Ban-Liste</h3>
+          <p class="text-secondary">URLs, Keywords, Channels oder User sperren</p>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label class="field">
+          <span>Typ</span>
+          <select id="ban-type">
+            <option value="url">URL</option>
+            <option value="keyword">Keyword</option>
+            <option value="channel">Channel</option>
+            <option value="user">User</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Wert</span>
+          <input type="text" id="ban-value" placeholder="https://... oder Keyword">
+        </label>
+        <label class="field">
+          <span>Reason</span>
+          <input type="text" id="ban-reason" placeholder="Optional">
+        </label>
+      </div>
+      <div class="actions">
+        <button id="ban-add" class="btn primary" type="button">Ban hinzufügen</button>
+        <div id="ban-feedback" class="feedback"></div>
+      </div>
+      <div class="table-wrapper">
+        <table class="table" id="ban-table">
+          <thead>
+            <tr>
+              <th>Typ</th>
+              <th>Wert</th>
+              <th>Reason</th>
+              <th>Aktion</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
           <h2>History</h2>
           <p class="text-secondary">Letzte gespielte Songs</p>
         </div>

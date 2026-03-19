@@ -126,8 +126,8 @@ class AutoDJ {
       if (!item) break;
       try {
         const resolved = await this.musicResolver.resolve(item);
-        if (resolved) {
-          return resolved;
+        if (resolved?.success) {
+          return resolved.song;
         }
       } catch (error) {
         this.api.log?.(`[music-bot] AutoDJ playlist resolve failed: ${error.message}`, 'error');
@@ -143,7 +143,7 @@ class AutoDJ {
         : DEFAULT_RANDOM_KEYWORDS;
     const keyword = keywords[Math.floor(Math.random() * keywords.length)];
     const resolved = await this.musicResolver.resolve(keyword);
-    return resolved;
+    return resolved?.success ? resolved.song : null;
   }
 
   async _pickFromHistory() {

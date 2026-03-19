@@ -77,6 +77,11 @@ const DEFAULT_CONFIG = {
     searchTimeout: 15000,
     maxCacheSizeMB: 2048,
     cacheTTLDays: 30
+  },
+  moderation: {
+    rejectExplicit: false,
+    rejectAgeRestricted: true,
+    blockedKeywords: []
   }
 };
 
@@ -87,6 +92,7 @@ class MusicBotPlugin extends EventEmitter {
     this.io = api.getSocketIO();
     this.db = api.getDatabase();
     this.playbackSyncTimer = null;
+    this._mpvRestartAttempts = 0;
 
     this.config = { ...DEFAULT_CONFIG };
     this.banList = null;
@@ -102,9 +108,12 @@ class MusicBotPlugin extends EventEmitter {
     this.api.ensurePluginDataDir();
 
     this.queueManager = new QueueManager(this.config, this.api);
-    this.musicResolver = new MusicResolver(this.config.resolver, this.api);
+    this.musicResolver = new MusicResolver(
+      { ...this.config.resolver, moderation: this.config.moderation },
+      this.api
+    );
     this.playbackEngine = new PlaybackEngine(this.config.playback, this.api);
-    this.banList = new BanList();
+    this.banList = new BanList(this.api);
     this.autoDJ = new AutoDJ(this.config.autoDJ, this.musicResolver, this.db, this.api);
 
     this.commandParser = new CommandParser(
@@ -149,6 +158,10 @@ class MusicBotPlugin extends EventEmitter {
     const saved = this.api.getConfig('config');
     const merged = this._mergeDeep(DEFAULT_CONFIG, saved || {});
     this.config = merged;
+    this.config.moderation = this._mergeDeep(DEFAULT_CONFIG.moderation, this.config.moderation || {});
+    if (!Array.isArray(this.config.moderation.blockedKeywords)) {
+      this.config.moderation.blockedKeywords = [];
+    }
     if (!saved) {
       this.api.setConfig('config', merged);
     } else if (JSON.stringify(saved) !== JSON.stringify(merged)) {
@@ -225,6 +238,7 @@ class MusicBotPlugin extends EventEmitter {
       this.queueManager.markPlaying(track);
       this.queueManager.resetVoteSkips();
       this._emitNowPlaying(track);
+      this._mpvRestartAttempts = 0;
     });
 
     this.playbackEngine.on('track-end', (info) => {
@@ -242,6 +256,25 @@ class MusicBotPlugin extends EventEmitter {
 
     this.playbackEngine.on('error', (error) => {
       this._emitError(error.message || error);
+    });
+
+    this.playbackEngine.on('crashed', async () => {
+      const current = this.playbackEngine.getNowPlaying();
+      this._mpvRestartAttempts += 1;
+      if (this._mpvRestartAttempts > 3 || !current) {
+        this.api.log('[music-bot] mpv crashed and could not be restarted', 'error');
+        this.playbackEngine.clearNowPlaying();
+        this._emitPlaybackStopped();
+        return;
+      }
+      this.api.log('[music-bot] mpv crashed, attempting automatic restart', 'warn');
+      setTimeout(async () => {
+        try {
+          await this.playbackEngine.play(current);
+        } catch (error) {
+          this.api.log(`[music-bot] mpv restart failed: ${error.message}`, 'error');
+        }
+      }, 2000);
     });
   }
 
@@ -333,9 +366,14 @@ class MusicBotPlugin extends EventEmitter {
         return;
       }
       this.config = merged;
+      this.config.moderation = this._mergeDeep(DEFAULT_CONFIG.moderation, this.config.moderation || {});
+      if (!Array.isArray(this.config.moderation.blockedKeywords)) {
+        this.config.moderation.blockedKeywords = [];
+      }
       this.queueManager.config = merged;
       this.queueManager.queueConfig = merged.queue;
       this.playbackEngine.config = merged.playback;
+      this.musicResolver.config = { ...this.config.resolver, moderation: this.config.moderation };
       this.autoDJ?.updateConfig(merged.autoDJ);
       await this.api.setConfig('config', this.config);
       res.json({ success: true, config: this.config });
@@ -343,6 +381,42 @@ class MusicBotPlugin extends EventEmitter {
 
     this.api.registerRoute('get', '/api/plugins/music-bot/history', async (req, res) => {
       res.json({ success: true, history: this.queueManager.getHistory() });
+    });
+
+    this.api.registerRoute('get', '/api/plugins/music-bot/bans', async (req, res) => {
+      try {
+        res.json({ success: true, bans: this.banList.getAllBans() });
+      } catch (error) {
+        this.api.log(`[music-bot] Failed to load bans: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: 'Failed to load bans' });
+      }
+    });
+
+    this.api.registerRoute('post', '/api/plugins/music-bot/bans', async (req, res) => {
+      const { type, value, reason } = req.body || {};
+      const validTypes = ['url', 'keyword', 'channel', 'user'];
+      if (!validTypes.includes(type) || !value || !String(value).trim()) {
+        res.status(400).json({ success: false, error: 'type and value are required' });
+        return;
+      }
+      try {
+        const ban = this.banList.addBan(type, String(value).trim(), reason, 'dashboard');
+        res.json({ success: true, ban });
+      } catch (error) {
+        this.api.log(`[music-bot] Failed to add ban: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    this.api.registerRoute('delete', '/api/plugins/music-bot/bans/:id', async (req, res) => {
+      try {
+        const id = Number(req.params.id);
+        const result = this.banList.removeBan(id);
+        res.status(result.success ? 200 : 404).json({ success: result.success });
+      } catch (error) {
+        this.api.log(`[music-bot] Failed to remove ban: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: 'Failed to remove ban' });
+      }
     });
 
     this.api.registerRoute('get', '/api/plugins/music-bot/auto-dj/status', async (req, res) => {
@@ -453,8 +527,17 @@ class MusicBotPlugin extends EventEmitter {
 
   async _handleDashboardRequest(query, username) {
     try {
-      const song = await this.musicResolver.resolve(query);
-      const added = this.queueManager.addSong({ ...song, requestedBy: username });
+      const resolved = await this.musicResolver.resolve(query);
+      if (!resolved?.success) {
+        return { success: false, error: resolved?.message || 'Song konnte nicht geladen werden.' };
+      }
+
+      const banMessage = this._checkBans(resolved.song, username);
+      if (banMessage) {
+        return { success: false, error: banMessage };
+      }
+
+      const added = this.queueManager.addSong({ ...resolved.song, requestedBy: username });
       if (!added.success) {
         return added;
       }
@@ -475,18 +558,26 @@ class MusicBotPlugin extends EventEmitter {
       this._emitChatResponse('Bitte gib einen Song an.', username);
       return;
     }
-    if (this.banList.isUserBanned(username) || this.banList.matchesKeyword(query)) {
-      this._emitChatResponse('Dieser Song ist nicht erlaubt.', username);
+    const userBan = this.banList?.isUserBanned(username);
+    if (userBan?.banned) {
+      this._emitChatResponse('Dieser Nutzer darf keine Songs anfragen.', username);
       return;
     }
 
     try {
-      const song = await this.musicResolver.resolve(query);
-      if (!song) {
-        this._emitChatResponse('Kein Ergebnis gefunden.', username);
+      const resolved = await this.musicResolver.resolve(query);
+      if (!resolved?.success) {
+        this._emitChatResponse(resolved?.message || 'Song konnte nicht geladen werden.', username);
         return;
       }
-      const addResult = this.queueManager.addSong({ ...song, requestedBy: username });
+
+      const banMessage = this._checkBans(resolved.song, username);
+      if (banMessage) {
+        this._emitChatResponse(banMessage, username);
+        return;
+      }
+
+      const addResult = this.queueManager.addSong({ ...resolved.song, requestedBy: username });
       if (!addResult.success) {
         this._emitChatResponse(addResult.error || 'Song konnte nicht hinzugefügt werden.', username);
         return;
@@ -498,7 +589,7 @@ class MusicBotPlugin extends EventEmitter {
         await this._playNextFromQueue();
       }
 
-      this._emitChatResponse(`Hinzugefügt: ${song.title} (#${addResult.position})`, username);
+      this._emitChatResponse(`Hinzugefügt: ${resolved.song.title} (#${addResult.position})`, username);
     } catch (error) {
       this.api.log(`[music-bot] request failed: ${error.message}`, 'error');
       this._emitChatResponse('Song konnte nicht geladen werden.', username);
@@ -536,6 +627,33 @@ class MusicBotPlugin extends EventEmitter {
         username
       );
     }
+  }
+
+  _checkBans(song, username) {
+    if (!song) return null;
+    const userBan = this.banList?.isUserBanned(username);
+    if (userBan?.banned) {
+      return 'Dieser Nutzer darf keine Songs anfragen.';
+    }
+
+    const urlBan = this.banList?.isUrlBanned(song.url, song.youtubeId);
+    if (urlBan?.banned) {
+      return 'Dieser Song ist gesperrt.';
+    }
+
+    const keywordBanTitle = this.banList?.isKeywordBanned(song.title || '');
+    const keywordBanChannel = this.banList?.isKeywordBanned(song.channelName || '');
+    const keywordBan = keywordBanTitle?.banned ? keywordBanTitle : keywordBanChannel;
+    if (keywordBan?.banned) {
+      return `Dieser Song ist geblockt (Keyword: ${keywordBan.keyword}).`;
+    }
+
+    const channelBan = this.banList?.isChannelBanned(song.channelId, song.channelName);
+    if (channelBan?.banned) {
+      return 'Dieser Kanal ist gesperrt.';
+    }
+
+    return null;
   }
 
   async _skipCurrent(reasonUser) {

@@ -26,6 +26,15 @@
   const autoDjSkip = document.getElementById('auto-dj-skip');
   const aliasInputs = document.querySelectorAll('.alias-input');
   const aliasSave = document.getElementById('alias-save');
+  const rejectAge = document.getElementById('reject-age');
+  const rejectExplicit = document.getElementById('reject-explicit');
+  const blockedKeywords = document.getElementById('blocked-keywords');
+  const banType = document.getElementById('ban-type');
+  const banValue = document.getElementById('ban-value');
+  const banReason = document.getElementById('ban-reason');
+  const banAdd = document.getElementById('ban-add');
+  const banFeedback = document.getElementById('ban-feedback');
+  const banTable = document.getElementById('ban-table');
 
   document.getElementById('pause-btn').addEventListener('click', () => {
     post('/pause');
@@ -109,6 +118,51 @@
     await post('/config', { commandAliases: aliases });
   });
 
+  rejectAge?.addEventListener('change', async () => {
+    await post('/config', { moderation: { rejectAgeRestricted: rejectAge.checked } });
+  });
+
+  rejectExplicit?.addEventListener('change', async () => {
+    await post('/config', { moderation: { rejectExplicit: rejectExplicit.checked } });
+  });
+
+  blockedKeywords?.addEventListener('blur', async () => {
+    const keywords = parseList(blockedKeywords.value, true);
+    await post('/config', { moderation: { blockedKeywords: keywords } });
+  });
+
+  banAdd?.addEventListener('click', async () => {
+    if (!banType || !banValue) return;
+    const type = banType.value;
+    const value = banValue.value.trim();
+    const reason = banReason?.value?.trim();
+    if (!value) {
+      showBanFeedback('Bitte einen Wert eingeben.', true);
+      return;
+    }
+    const result = await post('/bans', { type, value, reason });
+    if (result?.success) {
+      showBanFeedback('Ban hinzugefügt.', false);
+      banValue.value = '';
+      if (banReason) banReason.value = '';
+      await refreshBans();
+    } else {
+      showBanFeedback(result?.error || 'Ban konnte nicht hinzugefügt werden.', true);
+    }
+  });
+
+  banTable?.addEventListener('click', async (event) => {
+    const btn = event.target.closest('[data-ban-id]');
+    if (!btn) return;
+    const id = btn.dataset.banId;
+    const result = await del(`/bans/${id}`);
+    if (result?.success) {
+      await refreshBans();
+    } else {
+      showBanFeedback('Ban konnte nicht entfernt werden.', true);
+    }
+  });
+
   socket.on('connect', () => {
     socket.emit('musicbot:request-status');
   });
@@ -187,7 +241,16 @@
       autoDjAnnounce.checked = Boolean(configData.config.autoDJ.announceAutoDJ);
     }
 
+    if (configData?.config?.moderation) {
+      rejectAge.checked = Boolean(configData.config.moderation.rejectAgeRestricted);
+      rejectExplicit.checked = Boolean(configData.config.moderation.rejectExplicit);
+      if (Array.isArray(configData.config.moderation.blockedKeywords)) {
+        blockedKeywords.value = configData.config.moderation.blockedKeywords.join('\n');
+      }
+    }
+
     await refreshAutoDjStatus();
+    await refreshBans();
   }
 
   async function refreshHistory() {
@@ -213,6 +276,18 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined
+      });
+      return await res.json();
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  }
+
+  async function del(path) {
+    try {
+      const res = await fetch(`/api/plugins/music-bot${path}`, {
+        method: 'DELETE'
       });
       return await res.json();
     } catch (error) {
@@ -285,11 +360,46 @@
     autoDjStatus.textContent = status.enabled ? 'Aktiv' : 'Deaktiviert';
   }
 
-  function parseList(value = '') {
+  function parseList(value = '', keepNewLinesOnly = false) {
+    const splitter = keepNewLinesOnly ? /\n/ : /[,\n]/;
     return value
-      .split(/[,\n]/)
+      .split(splitter)
       .map((item) => item.trim())
       .filter(Boolean);
+  }
+
+  async function refreshBans() {
+    const res = await get('/bans');
+    if (res?.bans) {
+      renderBans(res.bans);
+    }
+  }
+
+  function renderBans(bans = []) {
+    if (!banTable) return;
+    const tbody = banTable.querySelector('tbody');
+    if (!tbody) return;
+    if (!bans.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-secondary">Keine Einträge.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = bans
+      .map(
+        (ban) => `
+        <tr>
+          <td>${ban.type}</td>
+          <td>${ban.value}</td>
+          <td>${ban.reason || ''}</td>
+          <td><button class="btn ghost small" data-ban-id="${ban.id}">Löschen</button></td>
+        </tr>`
+      )
+      .join('');
+  }
+
+  function showBanFeedback(message, isError = false) {
+    if (!banFeedback) return;
+    banFeedback.textContent = message;
+    banFeedback.style.color = isError ? '#ef4444' : 'var(--color-text-secondary)';
   }
 
   init();

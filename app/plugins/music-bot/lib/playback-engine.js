@@ -18,6 +18,8 @@ class PlaybackEngine extends EventEmitter {
     this.volume = config.defaultVolume;
     this._buffer = '';
     this._fadeTimer = null;
+    this._restartAttempts = 0;
+    this._shuttingDown = false;
   }
 
   async play(track) {
@@ -99,6 +101,7 @@ class PlaybackEngine extends EventEmitter {
   }
 
   async shutdown() {
+    this._shuttingDown = true;
     if (this.socket) {
       this.socket.destroy();
       this.socket = null;
@@ -112,6 +115,8 @@ class PlaybackEngine extends EventEmitter {
     }
     this.nowPlaying = null;
     this.state = 'idle';
+    this._restartAttempts = 0;
+    this._shuttingDown = false;
   }
 
   getNowPlaying() {
@@ -151,9 +156,22 @@ class PlaybackEngine extends EventEmitter {
     ];
 
     this.process = spawn(this.config.mpvPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    this._shuttingDown = false;
+    this._restartAttempts = 0;
 
     this.process.on('error', (error) => {
       this.emit('error', error);
+    });
+
+    this.process.on('close', (code) => {
+      this.socket?.destroy();
+      this.socket = null;
+      this.process = null;
+      if (this._shuttingDown) {
+        return;
+      }
+      this.state = 'idle';
+      this.emit('crashed', { code });
     });
 
     this.process.stderr.on('data', (data) => {
