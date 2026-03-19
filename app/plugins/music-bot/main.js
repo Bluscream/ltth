@@ -86,6 +86,7 @@ class MusicBotPlugin extends EventEmitter {
     this.api = api;
     this.io = api.getSocketIO();
     this.db = api.getDatabase();
+    this.playbackSyncTimer = null;
 
     this.config = { ...DEFAULT_CONFIG };
     this.banList = null;
@@ -120,6 +121,7 @@ class MusicBotPlugin extends EventEmitter {
     this._registerRoutes();
     this._registerSocketEvents();
     this._registerTikTokEvents();
+    this._startPlaybackSync();
 
     await this._restoreState();
     this.api.log('[music-bot] Plugin initialized', 'info');
@@ -134,6 +136,10 @@ class MusicBotPlugin extends EventEmitter {
 
     this.queueManager.clear();
     this.removeAllListeners();
+    if (this.playbackSyncTimer) {
+      clearInterval(this.playbackSyncTimer);
+      this.playbackSyncTimer = null;
+    }
     this.api.log('[music-bot] Plugin destroyed', 'info');
   }
 
@@ -242,6 +248,7 @@ class MusicBotPlugin extends EventEmitter {
   _registerRoutes() {
     const uiPath = path.join(__dirname, 'ui.html');
     const assetsPath = path.join(__dirname, 'assets');
+    const overlayPath = path.join(__dirname, 'overlay.html');
 
     this.api.registerRoute('get', '/plugins/music-bot/ui', async (req, res) => {
       res.sendFile(uiPath);
@@ -253,6 +260,10 @@ class MusicBotPlugin extends EventEmitter {
 
     this.api.registerRoute('get', '/plugins/music-bot/assets/ui.js', async (req, res) => {
       res.sendFile(path.join(assetsPath, 'ui.js'));
+    });
+
+    this.api.registerRoute('get', '/plugins/music-bot/overlay', async (req, res) => {
+      res.sendFile(overlayPath);
     });
 
     this.api.registerRoute('get', '/api/plugins/music-bot/status', async (req, res) => {
@@ -716,6 +727,27 @@ class MusicBotPlugin extends EventEmitter {
       return 'Aktuell läuft nichts.';
     }
     return `Jetzt läuft: ${current.title} (${current.duration || '?'}s)`;
+  }
+
+  _startPlaybackSync() {
+    if (this.playbackSyncTimer) {
+      clearInterval(this.playbackSyncTimer);
+    }
+    this.playbackSyncTimer = setInterval(() => {
+      const nowPlaying = this.playbackEngine.getNowPlaying();
+      if (!nowPlaying) return;
+      const elapsed = nowPlaying.startedAt ? Math.max(0, Math.floor((Date.now() - nowPlaying.startedAt) / 1000)) : null;
+      this.api.emit('musicbot:playback-sync', {
+        title: nowPlaying.title,
+        artist: nowPlaying.artist,
+        requestedBy: nowPlaying.requestedBy,
+        thumbnail: nowPlaying.thumbnail,
+        duration: nowPlaying.duration,
+        position: elapsed,
+        startedAt: nowPlaying.startedAt,
+        state: this.playbackEngine.getState()
+      });
+    }, 5000);
   }
 }
 
