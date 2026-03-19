@@ -13,6 +13,7 @@
   const requestBtn = document.getElementById('request-btn');
   const searchFeedback = document.getElementById('search-feedback');
   const previewFrame = document.getElementById('preview-frame');
+  const playerFrameBox = document.getElementById('player-frame-box');
   const previewSource = document.getElementById('preview-source');
   const volumeInput = document.getElementById('volume-input');
   const volumeValue = document.getElementById('volume-value');
@@ -43,6 +44,39 @@
   const banTable = document.getElementById('ban-table');
   const ytdlpPathInput = document.getElementById('ytdlp-path');
 
+  // Client-side YouTube ID extraction (no server call needed for direct links)
+  function extractYouTubeId(url) {
+    try {
+      const parsed = new URL(url.trim());
+      const h = parsed.hostname.replace(/^www\./, '');
+      if (h === 'youtu.be') {
+        return parsed.pathname.slice(1).split('?')[0] || null;
+      }
+      if (h === 'youtube.com' || h === 'm.youtube.com') {
+        if (parsed.pathname === '/watch') return parsed.searchParams.get('v') || null;
+        if (parsed.pathname.startsWith('/embed/')) return parsed.pathname.slice(7).split('?')[0] || null;
+        if (parsed.pathname.startsWith('/shorts/')) return parsed.pathname.slice(8).split('?')[0] || null;
+      }
+    } catch (e) {
+      // not a valid URL
+    }
+    return null;
+  }
+
+  function setPreviewVideo(youtubeId) {
+    if (!previewFrame || !youtubeId) return;
+    previewFrame.src = `https://www.youtube.com/embed/${youtubeId}`;
+    playerFrameBox?.classList.add('has-video');
+    previewSource.textContent = 'YouTube';
+  }
+
+  function clearPreview() {
+    if (!previewFrame) return;
+    previewFrame.src = '';
+    playerFrameBox?.classList.remove('has-video');
+    previewSource.textContent = 'YouTube';
+  }
+
   document.getElementById('pause-btn').addEventListener('click', () => {
     post('/pause');
   });
@@ -56,6 +90,7 @@
     post('/clear');
   });
 
+  // Hidden legacy request form (kept for backward compatibility with queue button)
   requestForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const query = requestInput.value.trim();
@@ -63,24 +98,49 @@
     requestFeedback.textContent = 'Wird verarbeitet...';
     const result = await post('/request', { query });
     if (result?.success) {
-      requestFeedback.textContent = `Hinzugefügt: ${result.song.title}`;
+      requestFeedback.textContent = `✅ Hinzugefügt: ${result.song.title}`;
       requestInput.value = '';
     } else {
       requestFeedback.textContent = result?.error || 'Fehler beim Request.';
     }
   });
 
+  // Auto-detect YouTube URLs as the user types/pastes
+  searchInput?.addEventListener('input', () => {
+    const val = searchInput.value.trim();
+    const ytId = extractYouTubeId(val);
+    if (ytId) {
+      setPreviewVideo(ytId);
+      searchFeedback.textContent = '';
+    }
+  });
+
   async function resolvePreview() {
     const query = searchInput.value.trim();
     if (!query) return;
-    searchFeedback.textContent = 'Suche...';
+
+    // For YouTube URLs: show the player immediately client-side, then fetch metadata
+    const ytId = extractYouTubeId(query);
+    if (ytId) {
+      setPreviewVideo(ytId);
+      searchFeedback.textContent = '⏳ Lade Informationen...';
+    } else {
+      searchFeedback.textContent = '🔍 Suche...';
+    }
+
     const res = await get(`/resolve?q=${encodeURIComponent(query)}`);
     if (res?.success) {
-      searchFeedback.textContent = `${res.song.title} • ${formatDuration(res.song.duration)} • ${res.song.channelName || 'Unbekannter Channel'}`;
-      updatePreviewFrame(res.song);
+      const dur = formatDuration(res.song.duration);
+      const channel = res.song.channelName || res.song.artist || '';
+      searchFeedback.textContent = `🎵 ${res.song.title}${channel ? ' • ' + channel : ''}${dur !== '—' ? ' • ' + dur : ''}`;
+      if (!ytId) {
+        updatePreviewFrame(res.song);
+      }
     } else {
-      searchFeedback.textContent = res?.error || 'Kein Ergebnis.';
-      updatePreviewFrame(null);
+      searchFeedback.textContent = `⚠️ ${res?.error || 'Kein Ergebnis.'}`;
+      if (!ytId) {
+        clearPreview();
+      }
     }
   }
 
@@ -95,13 +155,13 @@
   requestBtn?.addEventListener('click', async () => {
     const query = searchInput.value.trim();
     if (!query) return;
-    requestFeedback.textContent = 'Wird verarbeitet...';
+    requestFeedback.textContent = '⏳ Wird zur Queue hinzugefügt...';
     const result = await post('/request', { query });
     if (result?.success) {
-      requestFeedback.textContent = `Hinzugefügt: ${result.song.title}`;
+      requestFeedback.textContent = `✅ Hinzugefügt: ${result.song.title}`;
       renderQueueFromServer();
     } else {
-      requestFeedback.textContent = result?.error || 'Fehler beim Request.';
+      requestFeedback.textContent = `⚠️ ${result?.error || 'Fehler beim Request.'}`;
     }
   });
 
@@ -216,6 +276,11 @@
 
   socket.on('musicbot:now-playing', (payload) => {
     renderNowPlaying(payload);
+    // If the currently-playing track is a YouTube video, show it in the player
+    if (payload?.youtubeId) {
+      setPreviewVideo(payload.youtubeId);
+      searchInput.value = payload.url || '';
+    }
     refreshHistory();
   });
 
@@ -243,6 +308,11 @@
       volumeInput.value = status.volume;
       volumeValue.textContent = status.volume;
       renderQueue([], status.queueLength);
+      // Show currently playing video
+      if (status.nowPlaying?.youtubeId) {
+        setPreviewVideo(status.nowPlaying.youtubeId);
+        if (searchInput) searchInput.value = status.nowPlaying.url || '';
+      }
     }
     const queueData = await get('/queue');
     if (queueData?.queue) {
@@ -315,7 +385,6 @@
       const res = await fetch(`/api/plugins/music-bot${path}`);
       return await res.json();
     } catch (error) {
-      console.error(error);
       return null;
     }
   }
@@ -329,7 +398,6 @@
       });
       return await res.json();
     } catch (error) {
-      console.error(error);
       return null;
     }
   }
@@ -341,7 +409,6 @@
       });
       return await res.json();
     } catch (error) {
-      console.error(error);
       return null;
     }
   }
@@ -354,9 +421,10 @@
       return;
     }
     nowPlayingEl.classList.remove('empty');
+    const dur = formatDuration(track.duration);
     nowPlayingEl.innerHTML = `
-      <p class="title">${track.title}</p>
-      <p class="meta">${track.artist || ''} • Angefragt von ${track.requestedBy || 'Viewer'}</p>
+      <p class="title">🎵 ${track.title}</p>
+      <p class="meta">${track.artist || ''} • Angefragt von <strong>${track.requestedBy || 'Viewer'}</strong>${dur !== '—' ? ' • ' + dur : ''}</p>
     `;
     updateState('Playing');
   }
@@ -370,10 +438,16 @@
     }
     queueListEl.classList.remove('empty');
     queueListEl.innerHTML = queue
-      .map(
-        (item, idx) =>
-          `<div class="item"><strong>#${idx + 1}</strong> ${item.title} <span class="text-secondary">(${item.requestedBy || 'Viewer'})</span></div>`
-      )
+      .map((item, idx) => {
+        const thumb = item.youtubeId
+          ? `<img src="https://i.ytimg.com/vi/${item.youtubeId}/default.jpg" class="queue-thumb" alt="">`
+          : '<span class="queue-thumb-placeholder">🎵</span>';
+        return `<div class="item queue-item">
+          ${thumb}
+          <span class="queue-title"><strong>#${idx + 1}</strong> ${item.title}</span>
+          <span class="text-secondary queue-by">${item.requestedBy || 'Viewer'}</span>
+        </div>`;
+      })
       .join('');
   }
 
@@ -387,12 +461,14 @@
   function updatePreviewFrame(song) {
     if (!previewFrame) return;
     if (!song) {
-      previewFrame.src = '';
-      previewSource.textContent = 'Preview';
+      clearPreview();
       return;
     }
     const embedUrl = buildEmbedUrl(song);
-    previewFrame.src = embedUrl || '';
+    if (embedUrl) {
+      previewFrame.src = embedUrl;
+      playerFrameBox?.classList.add('has-video');
+    }
     previewSource.textContent = song.source || 'YouTube';
   }
 
@@ -436,10 +512,12 @@
     historyListEl.innerHTML = history
       .slice(-10)
       .reverse()
-      .map(
-        (item) =>
-          `<div class="item">${item.title} <span class="text-secondary">(${item.requestedBy || 'Viewer'})</span></div>`
-      )
+      .map((item) => {
+        const thumb = item.youtubeId
+          ? `<img src="https://i.ytimg.com/vi/${item.youtubeId}/default.jpg" class="queue-thumb" alt="">`
+          : '<span class="queue-thumb-placeholder">🎵</span>';
+        return `<div class="item queue-item">${thumb}<span class="queue-title">${item.title}</span><span class="text-secondary queue-by">${item.requestedBy || 'Viewer'}</span></div>`;
+      })
       .join('');
   }
 

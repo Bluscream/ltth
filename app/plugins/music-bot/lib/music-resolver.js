@@ -1,4 +1,5 @@
 const { spawn } = require('child_process');
+const https = require('https');
 
 class MusicResolver {
   constructor(config, api) {
@@ -56,7 +57,27 @@ class MusicResolver {
       target
     ];
 
-    const output = await this._runYtDlp(args);
+    const output = await this._runYtDlp(args).catch(async (error) => {
+      if (error.ytdlpNotFound && isUrl && this._extractYouTubeId(trimmed)) {
+        this.api.log('[music-bot] yt-dlp not found; using YouTube oEmbed fallback', 'warn');
+        try {
+          const oembedResult = await this._resolveViaOEmbed(trimmed);
+          const modResult = this._applyModeration(oembedResult.song);
+          if (modResult) return modResult;
+          this._addToCache(trimmed, oembedResult);
+          return oembedResult;
+        } catch (oembedError) {
+          this.api.log(`[music-bot] oEmbed fallback failed: ${oembedError.message}`, 'warn');
+        }
+      }
+      throw error;
+    });
+
+    // If the oEmbed fallback already returned a full result object, return it directly
+    if (output && typeof output === 'object' && 'success' in output) {
+      return output;
+    }
+
     const { data, meta } = this._parseYtDlpOutput(output);
 
     const ageLimit = Number.isFinite(meta.ageLimit) ? meta.ageLimit : Number(data.age_limit ?? NaN);
@@ -111,11 +132,11 @@ class MusicResolver {
       proc.on('error', (error) => {
         clearTimeout(timeout);
         if (error?.code === 'ENOENT') {
-          reject(
-            new Error(
-              `yt-dlp not found at "${this.config.ytdlpPath}". Install yt-dlp or set resolver.ytdlpPath in Music Bot settings (e.g., /usr/local/bin/yt-dlp).`
-            )
+          const err = new Error(
+            `yt-dlp not found at "${this.config.ytdlpPath}". Install yt-dlp or set resolver.ytdlpPath in Music Bot settings (e.g., /usr/local/bin/yt-dlp).`
           );
+          err.ytdlpNotFound = true;
+          reject(err);
           return;
         }
         reject(error);
@@ -214,6 +235,74 @@ class MusicResolver {
     }
 
     return null;
+  }
+
+  _extractYouTubeId(url) {
+    try {
+      const parsed = new URL(url);
+      const h = parsed.hostname.replace(/^www\./, '');
+      if (h === 'youtu.be') {
+        return parsed.pathname.slice(1).split('?')[0] || null;
+      }
+      if (h === 'youtube.com' || h === 'm.youtube.com') {
+        if (parsed.pathname === '/watch') {
+          return parsed.searchParams.get('v') || null;
+        }
+        if (parsed.pathname.startsWith('/embed/')) {
+          return parsed.pathname.slice(7).split('?')[0] || null;
+        }
+        if (parsed.pathname.startsWith('/shorts/')) {
+          return parsed.pathname.slice(8).split('?')[0] || null;
+        }
+      }
+    } catch (e) {
+      // ignore parse error
+    }
+    return null;
+  }
+
+  _resolveViaOEmbed(url) {
+    return new Promise((resolve, reject) => {
+      const apiUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+      const req = https.get(apiUrl, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            reject(new Error(`oEmbed HTTP ${res.statusCode}`));
+            return;
+          }
+          try {
+            const json = JSON.parse(data);
+            const youtubeId = this._extractYouTubeId(url);
+            resolve({
+              success: true,
+              song: {
+                title: json.title || url,
+                artist: json.author_name || '',
+                duration: null,
+                thumbnail: json.thumbnail_url || null,
+                url,
+                localPath: null,
+                source: 'youtube',
+                youtubeId,
+                channelId: null,
+                channelName: json.author_name || '',
+                ageLimit: null,
+                categories: []
+              }
+            });
+          } catch (e) {
+            reject(new Error(`oEmbed parse error: ${e.message}`));
+          }
+        });
+      });
+      req.on('error', (e) => reject(new Error(`oEmbed request failed: ${e.message}`)));
+      req.setTimeout(8000, () => {
+        req.destroy();
+        reject(new Error('oEmbed request timed out'));
+      });
+    });
   }
 
   _fromCache(key) {

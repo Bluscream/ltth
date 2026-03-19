@@ -246,13 +246,13 @@ app.use((req, res, next) => {
             `'sha256-pkIZTNQY7BAA6zzvdEQOswJQVdWjCCJ1kfPGeTNsf7I=' 'sha256-NLOkSEP75l2qahhI8V8waw8g5W+9Zf51oD/q4a/qGUQ=' 'sha256-D/hVuFkLXG80cISOvW06JGm4tZkFXx4l076EvvbhR7c=' ` +
             `'sha256-K5uNRn2aLxLeK0fjnkWTYWN1J4Vdf92BTAKxjxfz/nQ=' 'sha256-3ymA831yuAiigbGNakMhiy5HDRlr4NxqwATjV/Nn01I=' ` +  // Additional inline event handlers
             `https://st.chatango.com; ` +  // Socket.IO hash + admin-panel hash + viewer-xp inline handlers + Chatango eval
-            `script-src-elem 'self' 'unsafe-inline' https://st.chatango.com https://cdnjs.cloudflare.com https://cdn.tailwindcss.com; ` +  // Allow Chatango inline script elements with JSON config + GSAP from cdnjs + TailwindCSS
+            `script-src-elem 'self' 'unsafe-inline' https://st.chatango.com https://cdnjs.cloudflare.com https://cdn.tailwindcss.com https://www.youtube.com; ` +  // Allow Chatango inline script elements with JSON config + GSAP from cdnjs + TailwindCSS + YouTube IFrame API
             `style-src 'self' 'unsafe-inline'; ` +
             `img-src 'self' data: blob: https:; ` +
             `font-src 'self' data:; ` +
             `connect-src 'self' ws: wss: wss://ws.eulerstream.com https://www.eulerstream.com http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://myinstants-api.vercel.app https://www.myinstants.com wss://*.chatango.com https://*.chatango.com; ` +
             `media-src 'self' blob: data: https:; ` +
-            `frame-src 'self' https://*.chatango.com https://vdo.ninja https://*.vdo.ninja; ` +
+            `frame-src 'self' https://*.chatango.com https://vdo.ninja https://*.vdo.ninja https://www.youtube.com https://www.youtube-nocookie.com; ` +
             `object-src 'none'; ` +
             `base-uri 'self'; ` +
             `form-action 'self'; ` +
