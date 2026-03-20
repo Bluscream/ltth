@@ -54,7 +54,8 @@ const DEFAULT_CONFIG = {
     volume: 'mod',
     pause: 'mod',
     resume: 'mod',
-    clear: 'streamer'
+    clear: 'streamer',
+    requireSuperfanForRequest: false
   },
   voteSkip: {
     enabled: true,
@@ -657,7 +658,8 @@ class MusicBotPlugin extends EventEmitter {
         await this._playNextFromQueue();
       }
 
-      this._emitChatResponse(`Hinzugefügt: ${resolved.song.title} (#${addResult.position})`, username);
+      const artist = resolved.song.artist ? ` von ${resolved.song.artist}` : '';
+      this._emitChatResponse(`Hinzugefügt: ${resolved.song.title}${artist} (#${addResult.position})`, username);
     } catch (error) {
       this.api.log(`[music-bot] request failed: ${error.message}`, 'error');
       this._emitChatResponse('Song konnte nicht geladen werden.', username);

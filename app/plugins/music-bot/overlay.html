@@ -38,6 +38,7 @@
       align-items: center;
       justify-content: center;
       padding: 32px;
+      box-sizing: border-box;
     }
 
     /* Position presets */
@@ -48,7 +49,8 @@
     .pos-top-center { justify-content: center; align-items: flex-start; }
     .pos-bottom-center { justify-content: center; align-items: flex-end; }
 
-    #widget {
+    /* ===== COMPACT design (default / existing) ===== */
+    #widget-compact {
       display: flex;
       gap: 12px;
       align-items: center;
@@ -64,13 +66,11 @@
       transform: translateY(10px);
       transition: opacity 220ms ease, transform 220ms ease;
     }
-
-    #widget.visible {
+    #widget-compact.visible {
       opacity: 1;
       transform: translateY(0);
     }
-
-    .thumb {
+    #widget-compact .thumb {
       width: 80px;
       height: 80px;
       border-radius: 10px;
@@ -80,16 +80,14 @@
       border: 1px solid var(--border);
       flex-shrink: 0;
     }
-
-    .meta {
+    #widget-compact .meta {
       display: flex;
       flex-direction: column;
       gap: 4px;
       min-width: 0;
       flex: 1;
     }
-
-    .title {
+    #widget-compact .title {
       margin: 0;
       font-size: 16px;
       font-weight: 700;
@@ -99,9 +97,8 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-
-    .artist,
-    .requester {
+    #widget-compact .artist,
+    #widget-compact .requester {
       margin: 0;
       font-size: 13px;
       color: var(--muted);
@@ -109,15 +106,13 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-
-    .progress {
+    #widget-compact .progress {
       margin-top: 6px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-
-    .bar {
+    #widget-compact .bar {
       position: relative;
       flex: 1;
       height: 8px;
@@ -125,25 +120,287 @@
       background: rgba(255, 255, 255, 0.1);
       overflow: hidden;
     }
-
-    .bar-fill {
+    #widget-compact .bar-fill {
       position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
+      left: 0; top: 0; bottom: 0;
       width: 0%;
       background: linear-gradient(90deg, var(--accent), #60a5fa);
       transition: width 0.3s ease;
     }
-
-    .time {
+    #widget-compact .time {
       font-size: 12px;
       color: var(--muted);
       min-width: 84px;
       text-align: right;
     }
 
-    /* Themes */
+    /* ===== FULLWIDTH design ===== */
+    #widget-fullwidth {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      width: 100vw;
+      padding: 10px 20px;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      box-sizing: border-box;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 220ms ease, transform 220ms ease;
+    }
+    #widget-fullwidth.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    #widget-fullwidth .thumb {
+      width: 52px;
+      height: 52px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      background-size: cover;
+      background-position: center;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #widget-fullwidth .meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      flex: 1;
+    }
+    #widget-fullwidth .title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #widget-fullwidth .artist {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #widget-fullwidth .requester {
+      margin: 0;
+      font-size: 11px;
+      color: var(--accent);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #widget-fullwidth .progress-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 220px;
+      flex-shrink: 0;
+    }
+    #widget-fullwidth .bar {
+      position: relative;
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+    }
+    #widget-fullwidth .bar-fill {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #60a5fa);
+      transition: width 0.3s ease;
+    }
+    #widget-fullwidth .time {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+    }
+    #widget-fullwidth .queue-count {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+      padding-left: 8px;
+    }
+
+    /* fullwidth needs no padding in overlay-root, override */
+    .design-fullwidth #overlay-root {
+      padding: 0;
+      align-items: flex-end;
+    }
+    .design-fullwidth .pos-top-left,
+    .design-fullwidth .pos-top-right,
+    .design-fullwidth .pos-top-center {
+      align-items: flex-start;
+    }
+
+    /* ===== MINIMAL design ===== */
+    #widget-minimal {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 600px;
+      padding: 8px 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 220ms ease, transform 220ms ease;
+      overflow: hidden;
+    }
+    #widget-minimal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    #widget-minimal .marquee-wrapper {
+      flex: 1;
+      overflow: hidden;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    #widget-minimal .marquee-text {
+      display: inline-block;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      animation: none;
+    }
+    #widget-minimal .marquee-text.scrolling {
+      animation: marquee-scroll 15s linear infinite;
+    }
+    @keyframes marquee-scroll {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    /* ===== CARD design ===== */
+    #widget-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      width: 280px;
+      padding: 20px 18px 18px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateY(12px) scale(0.97);
+      transition: opacity 250ms ease, transform 250ms ease;
+    }
+    #widget-card.visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    #widget-card .thumb {
+      width: 200px;
+      height: 200px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      background-size: cover;
+      background-position: center;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #widget-card .meta {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      align-items: center;
+      text-align: center;
+    }
+    #widget-card .title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    #widget-card .artist {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    #widget-card .requester {
+      margin: 0;
+      font-size: 12px;
+      color: var(--accent);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    #widget-card .progress {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    #widget-card .bar {
+      position: relative;
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+    }
+    #widget-card .bar-fill {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #60a5fa);
+      transition: width 0.3s ease;
+    }
+    #widget-card .time {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+    }
+    #widget-card .queue-preview {
+      width: 100%;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+    }
+    #widget-card .queue-preview-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 4px;
+    }
+    #widget-card .queue-preview-item {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 2px 0;
+    }
+
+    /* ===== Themes ===== */
     .theme-dark {
       --card: rgba(12, 16, 24, 0.8);
       --border: rgba(255, 255, 255, 0.06);
@@ -152,7 +409,6 @@
       --accent: #22d3ee;
       --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
     }
-
     .theme-neon {
       --card: rgba(10, 12, 26, 0.85);
       --border: rgba(94, 234, 212, 0.35);
@@ -161,7 +417,6 @@
       --accent: #7c3aed;
       --shadow: 0 14px 48px rgba(124, 58, 237, 0.35);
     }
-
     .theme-sunset {
       --card: rgba(33, 16, 34, 0.82);
       --border: rgba(255, 255, 255, 0.08);
@@ -170,7 +425,6 @@
       --accent: #fb7185;
       --shadow: 0 14px 48px rgba(251, 113, 133, 0.35);
     }
-
     .theme-ice {
       --card: rgba(10, 24, 34, 0.78);
       --border: rgba(148, 163, 184, 0.35);
@@ -183,58 +437,139 @@
 </head>
 <body>
   <div id="overlay-root" class="pos-bottom-left">
-    <div id="widget">
-      <div id="thumb" class="thumb" aria-hidden="true"></div>
+
+    <!-- COMPACT (default) -->
+    <div id="widget-compact" style="display:none">
+      <div id="compact-thumb" class="thumb" aria-hidden="true"></div>
       <div class="meta">
-        <p id="title" class="title">Waiting for music...</p>
-        <p id="artist" class="artist"></p>
-        <p id="requester" class="requester"></p>
+        <p id="compact-title" class="title">Waiting for music...</p>
+        <p id="compact-artist" class="artist"></p>
+        <p id="compact-requester" class="requester"></p>
         <div class="progress">
           <div class="bar">
-            <div id="bar-fill" class="bar-fill"></div>
+            <div id="compact-bar-fill" class="bar-fill"></div>
           </div>
-          <div id="time" class="time">--:-- / --:--</div>
+          <div id="compact-time" class="time">--:-- / --:--</div>
         </div>
       </div>
     </div>
+
+    <!-- FULLWIDTH -->
+    <div id="widget-fullwidth" style="display:none">
+      <div id="fullwidth-thumb" class="thumb" aria-hidden="true"></div>
+      <div class="meta">
+        <p id="fullwidth-title" class="title">Waiting for music...</p>
+        <p id="fullwidth-artist" class="artist"></p>
+        <p id="fullwidth-requester" class="requester"></p>
+      </div>
+      <div class="progress-wrap">
+        <div class="bar">
+          <div id="fullwidth-bar-fill" class="bar-fill"></div>
+        </div>
+        <div id="fullwidth-time" class="time">--:-- / --:--</div>
+      </div>
+      <div id="fullwidth-queue-count" class="queue-count"></div>
+    </div>
+
+    <!-- MINIMAL -->
+    <div id="widget-minimal" style="display:none">
+      <div class="marquee-wrapper">
+        <span id="minimal-text" class="marquee-text">🎵 Waiting for music...</span>
+      </div>
+    </div>
+
+    <!-- CARD -->
+    <div id="widget-card" style="display:none">
+      <div id="card-thumb" class="thumb" aria-hidden="true"></div>
+      <div class="meta">
+        <p id="card-title" class="title">Waiting for music...</p>
+        <p id="card-artist" class="artist"></p>
+        <p id="card-requester" class="requester"></p>
+      </div>
+      <div class="progress">
+        <div class="bar">
+          <div id="card-bar-fill" class="bar-fill"></div>
+        </div>
+        <div id="card-time" class="time">--:-- / --:--</div>
+      </div>
+      <div id="card-queue-preview" class="queue-preview" style="display:none">
+        <div class="queue-preview-label">Nächste Songs</div>
+        <div id="card-queue-items"></div>
+      </div>
+    </div>
+
   </div>
 
   <script>
     (() => {
       const allowedPositions = new Set([
-        'top-left',
-        'top-right',
-        'bottom-left',
-        'bottom-right',
-        'top-center',
-        'bottom-center'
+        'top-left', 'top-right', 'bottom-left', 'bottom-right', 'top-center', 'bottom-center'
       ]);
       const allowedThemes = new Set(['glass', 'dark', 'neon', 'sunset', 'ice']);
+      const allowedDesigns = new Set(['compact', 'fullwidth', 'minimal', 'card']);
+
       const params = new URLSearchParams(window.location.search);
-      const position = allowedPositions.has(params.get('position'))
-        ? params.get('position')
-        : 'bottom-left';
+      const position = allowedPositions.has(params.get('position')) ? params.get('position') : 'bottom-left';
       const theme = allowedThemes.has(params.get('theme')) ? params.get('theme') : 'glass';
+      const design = allowedDesigns.has(params.get('design')) ? params.get('design') : 'compact';
 
       const root = document.getElementById('overlay-root');
       root.classList.add(`pos-${position}`);
       if (theme !== 'glass') {
         document.body.classList.add(`theme-${theme}`);
       }
+      document.body.classList.add(`design-${design}`);
 
-      const widget = document.getElementById('widget');
-      const thumb = document.getElementById('thumb');
-      const titleEl = document.getElementById('title');
-      const artistEl = document.getElementById('artist');
-      const requesterEl = document.getElementById('requester');
-      const barFill = document.getElementById('bar-fill');
-      const timeEl = document.getElementById('time');
+      // Show only the active design widget
+      const widgetEl = document.getElementById(`widget-${design}`);
+      if (widgetEl) widgetEl.style.display = '';
+
+      // ---- Element refs per design ----
+      const refs = {
+        compact: {
+          widget: document.getElementById('widget-compact'),
+          thumb: document.getElementById('compact-thumb'),
+          title: document.getElementById('compact-title'),
+          artist: document.getElementById('compact-artist'),
+          requester: document.getElementById('compact-requester'),
+          barFill: document.getElementById('compact-bar-fill'),
+          time: document.getElementById('compact-time')
+        },
+        fullwidth: {
+          widget: document.getElementById('widget-fullwidth'),
+          thumb: document.getElementById('fullwidth-thumb'),
+          title: document.getElementById('fullwidth-title'),
+          artist: document.getElementById('fullwidth-artist'),
+          requester: document.getElementById('fullwidth-requester'),
+          barFill: document.getElementById('fullwidth-bar-fill'),
+          time: document.getElementById('fullwidth-time'),
+          queueCount: document.getElementById('fullwidth-queue-count')
+        },
+        minimal: {
+          widget: document.getElementById('widget-minimal'),
+          text: document.getElementById('minimal-text')
+        },
+        card: {
+          widget: document.getElementById('widget-card'),
+          thumb: document.getElementById('card-thumb'),
+          title: document.getElementById('card-title'),
+          artist: document.getElementById('card-artist'),
+          requester: document.getElementById('card-requester'),
+          barFill: document.getElementById('card-bar-fill'),
+          time: document.getElementById('card-time'),
+          queuePreview: document.getElementById('card-queue-preview'),
+          queueItems: document.getElementById('card-queue-items')
+        }
+      };
+
+      const r = refs[design];
 
       let socket = null;
       let currentTrack = null;
       let state = 'idle';
       let progressTimer = null;
       let pausedProgress = 0;
+      let currentQueue = [];
 
       function connect() {
         if (typeof io !== 'function') {
@@ -247,18 +582,22 @@
         socket.on('musicbot:paused', () => setState('paused'));
         socket.on('musicbot:resumed', () => setState('playing'));
         socket.on('musicbot:playback-stopped', clearTrack);
-        socket.on('musicbot:queue-update', () => {
-          // no-op for now; kept for future extensions
-        });
+        socket.on('musicbot:queue-update', handleQueueUpdate);
         socket.on('musicbot:volume-changed', () => {});
         socket.on('musicbot:playback-sync', handleNowPlaying);
       }
 
-      function handleNowPlaying(payload) {
-        if (!payload) {
-          clearTrack();
-          return;
+      function handleQueueUpdate(payload) {
+        if (Array.isArray(payload?.queue)) {
+          currentQueue = payload.queue;
+        } else if (typeof payload?.length === 'number') {
+          // minimal payload without queue array
         }
+        renderQueueExtras();
+      }
+
+      function handleNowPlaying(payload) {
+        if (!payload) { clearTrack(); return; }
         const duration = Number(payload.duration) || 0;
         const positionSeconds = Number(payload.position);
         const baseStarted =
@@ -281,21 +620,60 @@
 
       function renderTrack() {
         if (!currentTrack) return;
-        widget.classList.add('visible');
-        titleEl.textContent = currentTrack.title;
-        artistEl.textContent = currentTrack.artist ? currentTrack.artist : ' ';
-        requesterEl.textContent = currentTrack.requestedBy
-          ? `Requested by @${currentTrack.requestedBy}`
-          : '';
 
-        if (currentTrack.thumbnail) {
-          thumb.style.backgroundImage = `url('${currentTrack.thumbnail}')`;
-        } else {
-          thumb.style.backgroundImage =
-            'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(14,165,233,0.2))';
+        if (design === 'compact' || design === 'fullwidth' || design === 'card') {
+          r.widget.classList.add('visible');
+          r.title.textContent = currentTrack.title;
+          if (r.artist) r.artist.textContent = currentTrack.artist || ' ';
+          if (r.requester) {
+            r.requester.textContent = currentTrack.requestedBy
+              ? `Requested by @${currentTrack.requestedBy}` : '';
+          }
+          if (r.thumb) {
+            r.thumb.style.backgroundImage = currentTrack.thumbnail
+              ? `url('${currentTrack.thumbnail}')`
+              : 'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(14,165,233,0.2))';
+          }
+          renderQueueExtras();
+          startProgressLoop();
+        } else if (design === 'minimal') {
+          r.widget.classList.add('visible');
+          const label = currentTrack.artist
+            ? `🎵 ${currentTrack.title} – ${currentTrack.artist}`
+            : `🎵 ${currentTrack.title}`;
+          r.text.textContent = label;
+          // Enable marquee if text is long
+          const wrapperWidth = r.widget.offsetWidth - 32;
+          const textWidth = r.text.scrollWidth;
+          if (textWidth > wrapperWidth) {
+            // Duplicate text for seamless loop
+            r.text.textContent = `${label}   •   ${label}`;
+            r.text.classList.add('scrolling');
+          } else {
+            r.text.classList.remove('scrolling');
+          }
         }
+      }
 
-        startProgressLoop();
+      function renderQueueExtras() {
+        if (design === 'fullwidth' && r.queueCount) {
+          const qLen = currentQueue.length;
+          r.queueCount.textContent = qLen > 0 ? `🎵 +${qLen} in Queue` : '';
+        }
+        if (design === 'card' && r.queuePreview && r.queueItems) {
+          const next3 = currentQueue.slice(0, 3);
+          if (next3.length > 0) {
+            r.queuePreview.style.display = '';
+            r.queueItems.innerHTML = next3
+              .map((s, i) => {
+                const label = s.artist ? `${s.title} – ${s.artist}` : s.title;
+                return `<div class="queue-preview-item">${i + 1}. ${label}</div>`;
+              })
+              .join('');
+          } else {
+            r.queuePreview.style.display = 'none';
+          }
+        }
       }
 
       function setState(nextState) {
@@ -315,40 +693,39 @@
 
       function clearTrack() {
         currentTrack = null;
-        widget.classList.remove('visible');
+        if (r.widget) r.widget.classList.remove('visible');
         stopProgressLoop();
-        barFill.style.width = '0%';
-        timeEl.textContent = '--:-- / --:--';
+        if (r.barFill) r.barFill.style.width = '0%';
+        if (r.time) r.time.textContent = '--:-- / --:--';
+        if (design === 'minimal' && r.text) {
+          r.text.textContent = '🎵 Waiting for music...';
+          r.text.classList.remove('scrolling');
+        }
       }
 
       function startProgressLoop() {
         stopProgressLoop();
         updateProgress();
-        progressTimer = setInterval(updateProgress, 1000);
-      }
-
-      function stopProgressLoop() {
-        if (progressTimer) {
-          clearInterval(progressTimer);
-          progressTimer = null;
+        if (design !== 'minimal') {
+          progressTimer = setInterval(updateProgress, 1000);
         }
       }
 
+      function stopProgressLoop() {
+        if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+      }
+
       function updateProgress(force = false) {
-        if (!currentTrack) return;
+        if (!currentTrack || design === 'minimal') return;
+        if (!r.barFill || !r.time) return;
         const duration = currentTrack.duration || 0;
         const elapsed = state === 'paused' ? pausedProgress : computeElapsed();
         const clamped = duration > 0 ? Math.min(elapsed, duration) : elapsed;
         const percent = duration > 0 ? (clamped / duration) * 100 : 0;
-
-        if (state !== 'playing' && !force) {
-          // Do not animate forward while paused
-        } else {
-          barFill.style.width = `${Math.min(100, percent)}%`;
+        if (state === 'playing' || force) {
+          r.barFill.style.width = `${Math.min(100, percent)}%`;
         }
-
-        timeEl.textContent = `${formatTime(clamped)} / ${duration ? formatTime(duration) : '--:--'}`;
-
+        r.time.textContent = `${formatTime(clamped)} / ${duration ? formatTime(duration) : '--:--'}`;
         if (duration > 0 && clamped >= duration && state === 'playing') {
           clearTrack();
         }

@@ -43,6 +43,13 @@
   const banFeedback = document.getElementById('ban-feedback');
   const banTable = document.getElementById('ban-table');
   const ytdlpPathInput = document.getElementById('ytdlp-path');
+  const requireSuperfan = document.getElementById('require-superfan');
+  const overlayDesign = document.getElementById('overlay-design');
+  const overlayTheme = document.getElementById('overlay-theme');
+  const overlayPosition = document.getElementById('overlay-position');
+  const overlayUrl = document.getElementById('overlay-url');
+  const overlayCopy = document.getElementById('overlay-copy');
+  const overlayOpen = document.getElementById('overlay-open');
 
   // Client-side YouTube ID extraction (no server call needed for direct links)
   function extractYouTubeId(url) {
@@ -194,6 +201,46 @@
   skipImmunityGifts.addEventListener('blur', async () => {
     const gifts = parseList(skipImmunityGifts.value);
     await post('/config', { giftIntegration: { skipImmunityGifts: gifts } });
+  });
+
+  requireSuperfan?.addEventListener('change', async () => {
+    await post('/config', { permissions: { requireSuperfanForRequest: requireSuperfan.checked } });
+  });
+
+  function buildOverlayUrl() {
+    const design = overlayDesign?.value || 'compact';
+    const theme = overlayTheme?.value || 'glass';
+    const position = overlayPosition?.value || 'bottom-left';
+    const base = `${window.location.protocol}//${window.location.host}/plugins/music-bot/overlay.html`;
+    return `${base}?design=${design}&theme=${theme}&position=${position}`;
+  }
+
+  function refreshOverlayUrl() {
+    if (overlayUrl) overlayUrl.value = buildOverlayUrl();
+  }
+
+  overlayDesign?.addEventListener('change', refreshOverlayUrl);
+  overlayTheme?.addEventListener('change', refreshOverlayUrl);
+  overlayPosition?.addEventListener('change', refreshOverlayUrl);
+
+  overlayCopy?.addEventListener('click', () => {
+    const url = buildOverlayUrl();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        const orig = overlayCopy.textContent;
+        overlayCopy.textContent = '✅ Kopiert!';
+        setTimeout(() => { overlayCopy.textContent = orig; }, 2000);
+      }).catch(() => {
+        if (overlayUrl) { overlayUrl.select(); }
+        alert('URL in die Zwischenablage kopieren fehlgeschlagen. Bitte manuell kopieren.');
+      });
+    } else {
+      if (overlayUrl) { overlayUrl.select(); }
+    }
+  });
+
+  overlayOpen?.addEventListener('click', () => {
+    window.open(buildOverlayUrl(), '_blank');
   });
 
   autoDjSave.addEventListener('click', async () => {
@@ -368,6 +415,11 @@
     if (configData?.config?.resolver?.ytdlpPath) {
       ytdlpPathInput.value = configData.config.resolver.ytdlpPath;
     }
+    if (configData?.config?.permissions?.requireSuperfanForRequest !== undefined && requireSuperfan) {
+      requireSuperfan.checked = Boolean(configData.config.permissions.requireSuperfanForRequest);
+    }
+
+    refreshOverlayUrl();
 
     await refreshAutoDjStatus();
     await refreshBans();
