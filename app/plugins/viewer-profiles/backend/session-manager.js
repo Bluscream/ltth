@@ -34,9 +34,10 @@ class SessionManager {
     }
 
     // End all active sessions
-    this.activeSessions.forEach((session, username) => {
+    const usernames = Array.from(this.activeSessions.keys());
+    for (const username of usernames) {
       this.endSession(username);
-    });
+    }
 
     this.api.log('Session tracking stopped', 'info');
   }
@@ -68,7 +69,8 @@ class SessionManager {
       this.activeSessions.set(username, {
         sessionId,
         joinedAt: new Date(),
-        viewerId: viewer.id
+        viewerId: viewer.id,
+        lastHeartbeatAt: null
       });
 
       // Update viewer stats
@@ -115,13 +117,17 @@ class SessionManager {
         WHERE id = ?
       `).run(durationSeconds, session.sessionId);
 
-      // Update viewer total watchtime
-      this.api.getDatabase().prepare(`
-        UPDATE viewer_profiles
-        SET total_watchtime_seconds = total_watchtime_seconds + ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(durationSeconds, session.viewerId);
+      // Only add the delta since last heartbeat (heartbeat already wrote earlier portions)
+      const lastBeat = session.lastHeartbeatAt || session.joinedAt;
+      const deltaSeconds = Math.floor((now - lastBeat) / 1000);
+      if (deltaSeconds > 0) {
+        this.api.getDatabase().prepare(`
+          UPDATE viewer_profiles
+          SET total_watchtime_seconds = total_watchtime_seconds + ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(deltaSeconds, session.viewerId);
+      }
 
       // Update activity heatmap
       this.db.updateHeatmap(session.viewerId, session.joinedAt);
@@ -148,15 +154,29 @@ class SessionManager {
       const now = new Date();
 
       this.activeSessions.forEach((session, username) => {
-        // Calculate elapsed time
         const elapsedSeconds = Math.floor((now - session.joinedAt) / 1000);
 
-        // Update watchtime in database every minute
+        // Update session duration
         this.api.getDatabase().prepare(`
           UPDATE viewer_sessions
           SET duration_seconds = ?
           WHERE id = ?
         `).run(elapsedSeconds, session.sessionId);
+
+        // Calculate delta since last heartbeat and update viewer_profiles
+        const lastBeat = session.lastHeartbeatAt || session.joinedAt;
+        const deltaSeconds = Math.floor((now - lastBeat) / 1000);
+        if (deltaSeconds > 0) {
+          this.api.getDatabase().prepare(`
+            UPDATE viewer_profiles
+            SET total_watchtime_seconds = total_watchtime_seconds + ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(deltaSeconds, session.viewerId);
+        }
+
+        // Update lastHeartbeatAt
+        session.lastHeartbeatAt = now;
 
         this.api.log(`Heartbeat update for ${username}: ${elapsedSeconds}s`, 'debug');
       });

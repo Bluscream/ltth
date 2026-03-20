@@ -498,9 +498,50 @@
     .tag .remove-tag:hover {
       color: #ffcccc;
     }
+
+    /* Toast Notifications */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast-notification {
+      background: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      animation: toastSlideIn 0.3s ease-out;
+      max-width: 400px;
+      font-size: 0.95em;
+      border-left: 4px solid #667eea;
+    }
+
+    .toast-notification.success {
+      border-left-color: #28a745;
+    }
+
+    .toast-notification.error {
+      border-left-color: #dc3545;
+    }
+
+    @keyframes toastSlideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    @keyframes toastSlideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
   </style>
 </head>
 <body>
+  <div class="toast-container" id="toastContainer"></div>
   <div class="container">
     <h1>🎭 Viewer Profiles Dashboard</h1>
 
@@ -566,13 +607,13 @@
         <thead>
           <tr>
             <th>Avatar</th>
-            <th>Username</th>
-            <th>Display Name</th>
+            <th data-sort="tiktok_username">Username ⇅</th>
+            <th data-sort="display_name">Display Name ⇅</th>
             <th>VIP</th>
-            <th>Last Seen</th>
-            <th>Visits</th>
-            <th>Watchtime</th>
-            <th>Coins Spent</th>
+            <th data-sort="last_seen_at">Last Seen ⇅</th>
+            <th data-sort="total_visits">Visits ⇅</th>
+            <th data-sort="total_watchtime_seconds">Watchtime ⇅</th>
+            <th data-sort="total_coins_spent">Coins Spent ⇅</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -712,6 +753,7 @@
     let currentPage = 1;
     let currentFilter = 'all';
     let currentSort = 'total_coins_spent';
+    let currentOrder = 'DESC';
     let currentSearch = '';
     let currentViewer = null;
     let currentTags = [];
@@ -739,6 +781,28 @@
         currentSort = e.target.value;
         currentPage = 1;
         loadViewers();
+      });
+
+      // Table header sorting
+      document.querySelectorAll('th[data-sort]').forEach(th => {
+        th.addEventListener('click', () => {
+          const sortField = th.dataset.sort;
+          if (currentSort === sortField) {
+            // Toggle order if same field
+            currentOrder = currentOrder === 'DESC' ? 'ASC' : 'DESC';
+          } else {
+            currentSort = sortField;
+            currentOrder = 'DESC';
+          }
+          // Also update the sort select dropdown to match
+          const sortSelect = document.getElementById('sortSelect');
+          if (sortSelect) {
+            const option = sortSelect.querySelector(`option[value="${sortField}"]`);
+            if (option) sortSelect.value = sortField;
+          }
+          currentPage = 1;
+          loadViewers();
+        });
       });
 
       document.getElementById('refreshBtn').addEventListener('click', () => {
@@ -827,7 +891,7 @@
           page: currentPage,
           limit: 50,
           sortBy: currentSort,
-          order: 'DESC',
+          order: currentOrder,
           search: currentSearch,
           filter: currentFilter
         });
@@ -1081,12 +1145,19 @@
       try {
         socket.emit('viewer-profiles:refresh-avatar', { 
           username: currentViewer.tiktok_username 
+        }, (response) => {
+          if (response && response.success) {
+            showNotification('✅ Avatar refresh triggered. Updates on next TikTok event.');
+          } else {
+            showNotification('❌ Error: ' + (response ? response.error : 'No response'));
+          }
         });
-        showNotification('🔄 Profile picture refresh requested');
-        
+
         // Reload viewer data after a short delay
         setTimeout(() => {
-          openViewerModal(currentViewer.tiktok_username);
+          if (currentViewer) {
+            openViewerModal(currentViewer.tiktok_username);
+          }
         }, 1000);
       } catch (error) {
         console.error('Error refreshing avatar:', error);
@@ -1096,7 +1167,32 @@
 
     // Show notification
     function showNotification(message) {
-      alert(message); // Simple implementation, could be improved with toast notifications
+      let container = document.getElementById('toastContainer');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+      }
+
+      const toast = document.createElement('div');
+      toast.className = 'toast-notification';
+      if (message.includes('✅') || message.includes('🏆') || message.includes('🎂')) {
+        toast.classList.add('success');
+      } else if (message.includes('❌')) {
+        toast.classList.add('error');
+      }
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.animation = 'toastSlideOut 0.3s ease-in forwards';
+        setTimeout(() => {
+          if (toast.parentNode) {
+            toast.remove();
+          }
+        }, 300);
+      }, 3000);
     }
 
     // Format date

@@ -219,14 +219,26 @@ class ViewerProfilesPlugin extends EventEmitter {
       });
 
       // Refresh profile picture
-      socket.on('viewer-profiles:refresh-avatar', (data) => {
+      socket.on('viewer-profiles:refresh-avatar', (data, callback) => {
         try {
           const username = data.username;
           this.api.log(`Refresh avatar requested for ${username}`, 'debug');
-          // The next time this viewer sends an event, their avatar will be updated
-          // We could also implement a manual TikTok API call here if needed
+
+          // Get current viewer data and return it so the UI can update
+          const viewer = this.db.getViewerByUsername(username);
+          if (viewer) {
+            // Emit updated profile to all clients so the UI refreshes
+            this.api.emit('viewer:updated', { username });
+          }
+
+          if (callback) {
+            callback({ success: true, message: 'Avatar refresh triggered. Will update on next TikTok event.' });
+          }
         } catch (error) {
           this.api.log(`Error handling refresh-avatar: ${error.message}`, 'error');
+          if (callback) {
+            callback({ success: false, error: error.message });
+          }
         }
       });
     });
@@ -294,7 +306,7 @@ class ViewerProfilesPlugin extends EventEmitter {
         userId: data.userId,
         nickname: data.nickname,
         profilePictureUrl: data.profilePictureUrl,
-        verified: data.isModerator || data.isSubscriber ? 1 : 0
+        verified: data.isVerified ? 1 : 0
       });
 
       // Add interaction
@@ -343,7 +355,7 @@ class ViewerProfilesPlugin extends EventEmitter {
         userId: data.userId,
         nickname: data.nickname,
         profilePictureUrl: data.profilePictureUrl,
-        verified: data.isModerator || data.isSubscriber ? 1 : 0
+        verified: data.isVerified ? 1 : 0
       });
 
       // Add gift to history

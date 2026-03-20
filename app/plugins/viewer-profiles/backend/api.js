@@ -184,9 +184,9 @@ class ViewerProfilesAPI {
         },
         notes: (v) => typeof v === 'string' || v === null || v === '',
         tags: (v) => Array.isArray(v),
-        is_favorite: (v) => typeof v === 'number' && (v === 0 || v === 1),
-        is_blocked: (v) => typeof v === 'number' && (v === 0 || v === 1),
-        is_moderator: (v) => typeof v === 'number' && (v === 0 || v === 1)
+        is_favorite: (v) => (typeof v === 'number' && (v === 0 || v === 1)) || typeof v === 'boolean',
+        is_blocked: (v) => (typeof v === 'number' && (v === 0 || v === 1)) || typeof v === 'boolean',
+        is_moderator: (v) => (typeof v === 'number' && (v === 0 || v === 1)) || typeof v === 'boolean'
       };
 
       const allowedFields = Object.keys(validators);
@@ -199,7 +199,13 @@ class ViewerProfilesAPI {
             errors.push(`Invalid value for field '${field}'`);
             continue;
           }
-          updates[field] = field === 'tags' ? JSON.stringify(value) : value;
+          if (field === 'tags') {
+            updates[field] = JSON.stringify(value);
+          } else if (['is_favorite', 'is_blocked', 'is_moderator'].includes(field)) {
+            updates[field] = value ? 1 : 0;
+          } else {
+            updates[field] = value;
+          }
         }
       }
 
