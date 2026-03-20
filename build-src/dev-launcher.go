@@ -443,6 +443,37 @@ func (l *Launcher) autoFixPort() {
 	}
 }
 
+// autoFixYtDlp checks if yt-dlp is installed and attempts to install it via pip if missing
+func (l *Launcher) autoFixYtDlp() {
+	l.logger.Println("[INFO] Checking yt-dlp availability...")
+
+	// Check if yt-dlp is already available
+	for _, ytdlpCmd := range []string{"yt-dlp", "yt_dlp"} {
+		cmd := exec.Command(ytdlpCmd, "--version")
+		if output, err := cmd.CombinedOutput(); err == nil {
+			l.logger.Printf("[INFO] yt-dlp found: %s\n", strings.TrimSpace(string(output)))
+			return
+		}
+	}
+
+	l.logger.Println("[INFO] yt-dlp not found, attempting installation via pip...")
+	l.updateProgress(88, "🔧 Installiere yt-dlp...")
+
+	for _, pip := range []string{"pip3", "pip"} {
+		cmd := exec.Command(pip, "install", "--upgrade", "yt-dlp")
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			l.logger.Printf("[SUCCESS] yt-dlp installed via %s\n", pip)
+			l.updateProgress(89, "✅ yt-dlp installiert!")
+			time.Sleep(500 * time.Millisecond)
+			return
+		}
+		l.logger.Printf("[DEBUG] yt-dlp install via %s failed: %s\n", pip, strings.TrimSpace(string(output)))
+	}
+
+	l.logger.Println("[WARNING] yt-dlp could not be installed automatically. Please run: pip3 install yt-dlp")
+}
+
 func (l *Launcher) runLauncher() {
 	time.Sleep(1 * time.Second) // Give browser time to load
 
@@ -526,6 +557,9 @@ func (l *Launcher) runLauncher() {
 	
 	// Auto-fix: Check port availability
 	l.autoFixPort()
+	
+	// Auto-fix: Install yt-dlp if missing
+	l.autoFixYtDlp()
 	
 	l.updateProgress(89, "Konfiguration geprüft!")
 	time.Sleep(300 * time.Millisecond)

@@ -1337,6 +1337,34 @@ func (sl *StandaloneLauncher) runPreflightChecks(nodePath string) ([]PreflightCh
 	}
 	results = append(results, portResult)
 	
+	// 6. Check yt-dlp availability (optional, for Music Bot)
+	ytdlpFound := false
+	ytdlpVersion := ""
+	for _, ytdlpCmd := range []string{"yt-dlp", "yt_dlp"} {
+		cmd := exec.Command(ytdlpCmd, "--version")
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			ytdlpVersion = strings.TrimSpace(string(output))
+			ytdlpFound = true
+			break
+		}
+	}
+	ytdlpResult := PreflightCheckResult{
+		Name:        "yt-dlp (Music Bot)",
+		Found:       ytdlpFound,
+		Version:     ytdlpVersion,
+		Required:    false,
+		InstallHint: "Benötigt für den Music Bot (YouTube/SoundCloud). Wird automatisch installiert: pip3 install yt-dlp",
+		AutoFixable: true,
+	}
+	results = append(results, ytdlpResult)
+	
+	// Auto-install yt-dlp if missing (non-blocking)
+	if !ytdlpFound {
+		sl.logger.Println("[INFO] yt-dlp not found, attempting auto-install via pip...")
+		go sl.autoInstallYtDlp()
+	}
+	
 	// Send results to frontend
 	payload := map[string]interface{}{
 		"type":      "preflight-results",
@@ -1367,6 +1395,20 @@ func (sl *StandaloneLauncher) runPreflightChecks(nodePath string) ([]PreflightCh
 	}
 	
 	return results, allPassed
+}
+
+// autoInstallYtDlp attempts to install yt-dlp via pip3 or pip in a background goroutine
+func (sl *StandaloneLauncher) autoInstallYtDlp() {
+	for _, pip := range []string{"pip3", "pip"} {
+		cmd := exec.Command(pip, "install", "--upgrade", "yt-dlp")
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			sl.logger.Printf("[INFO] yt-dlp installed successfully via %s\n", pip)
+			return
+		}
+		sl.logger.Printf("[DEBUG] yt-dlp install via %s failed: %s\n", pip, strings.TrimSpace(string(output)))
+	}
+	sl.logger.Println("[WARN] yt-dlp could not be installed automatically. Please run: pip3 install yt-dlp")
 }
 
 // Install dependencies
