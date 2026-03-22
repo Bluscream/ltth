@@ -2,6 +2,13 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 
+// Maps media type names to their config field names
+const MEDIA_FIELD_MAP = {
+    gif: 'animation_gif_path',
+    video: 'animation_video_path',
+    audio: 'animation_audio_path'
+};
+
 /**
  * Gift Milestone Celebration Plugin
  *
@@ -16,6 +23,7 @@ class GiftMilestonePlugin {
         this.uploadDir = path.join(pluginDataDir, 'uploads');
         this.upload = null;
         this.exclusiveMode = false; // Track if we're in exclusive playback mode
+        this.exclusiveTimeout = null; // Reference for cleanup in destroy()
     }
 
     async init() {
@@ -204,17 +212,9 @@ class GiftMilestonePlugin {
             res.sendFile(overlayPath);
         });
 
-        // Serve uploaded files
-        this.api.registerRoute('get', '/gift-milestone/uploads/:filename', (req, res) => {
-            const filename = req.params.filename;
-            const filePath = path.join(this.uploadDir, filename);
-
-            if (fs.existsSync(filePath)) {
-                res.sendFile(filePath);
-            } else {
-                res.status(404).json({ success: false, error: 'File not found' });
-            }
-        });
+        // Serve uploaded files via static route (path matches stored URLs: /gift-milestone/uploads/...)
+        const express = require('express');
+        this.api.getApp().use('/gift-milestone/uploads', express.static(this.uploadDir));
 
         // Get milestone config
         this.api.registerRoute('get', '/api/gift-milestone/config', (req, res) => {
@@ -367,17 +367,14 @@ class GiftMilestonePlugin {
             try {
                 const db = this.api.getDatabase();
                 const config = db.getMilestoneConfig();
+
+                // Map media type to field name
+                const fieldName = MEDIA_FIELD_MAP[type];
                 let filePath = null;
 
-                if (type === 'gif' && config.animation_gif_path) {
-                    filePath = path.join(__dirname, '..', '..', 'public', config.animation_gif_path);
-                    config.animation_gif_path = null;
-                } else if (type === 'video' && config.animation_video_path) {
-                    filePath = path.join(__dirname, '..', '..', 'public', config.animation_video_path);
-                    config.animation_video_path = null;
-                } else if (type === 'audio' && config.animation_audio_path) {
-                    filePath = path.join(__dirname, '..', '..', 'public', config.animation_audio_path);
-                    config.animation_audio_path = null;
+                if (config[fieldName]) {
+                    filePath = path.join(this.uploadDir, config[fieldName].split('/').pop());
+                    config[fieldName] = null;
                 }
 
                 if (filePath && fs.existsSync(filePath)) {
@@ -435,10 +432,6 @@ class GiftMilestonePlugin {
                 res.status(500).json({ success: false, error: error.message });
             }
         });
-
-        // Serve uploaded files via static route
-        const express = require('express');
-        this.api.getApp().use('/plugins/gift-milestone/uploads', express.static(this.uploadDir));
 
         // Tier Management Routes
         this.api.registerRoute('get', '/api/gift-milestone/tiers', (req, res) => {
@@ -583,13 +576,7 @@ class GiftMilestonePlugin {
                 }
 
                 // Map media type to field name
-                const mediaFields = { 
-                    gif: 'animation_gif_path', 
-                    video: 'animation_video_path', 
-                    audio: 'animation_audio_path' 
-                };
-                
-                const fieldName = mediaFields[type];
+                const fieldName = MEDIA_FIELD_MAP[type];
                 let filePath = null;
 
                 if (tier[fieldName]) {
@@ -784,7 +771,11 @@ class GiftMilestonePlugin {
 
                 // Reset exclusive mode after animation duration
                 const duration = config.animation_duration || 10000; // Default 10 seconds
-                setTimeout(() => {
+                if (this.exclusiveTimeout) {
+                    clearTimeout(this.exclusiveTimeout);
+                }
+                this.exclusiveTimeout = setTimeout(() => {
+                    this.exclusiveTimeout = null;
                     this.exclusiveMode = false;
                     this.api.emit('milestone:exclusive-end', {});
                 }, duration);
@@ -818,6 +809,14 @@ class GiftMilestonePlugin {
     }
 
     async destroy() {
+        if (this.exclusiveTimeout) {
+            clearTimeout(this.exclusiveTimeout);
+            this.exclusiveTimeout = null;
+        }
+        if (this.exclusiveMode) {
+            this.exclusiveMode = false;
+            this.api.emit('milestone:exclusive-end', {});
+        }
         this.api.log('🎯 Gift Milestone Plugin destroyed', 'info');
     }
 }

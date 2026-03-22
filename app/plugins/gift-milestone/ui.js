@@ -588,12 +588,17 @@ document.getElementById('testButton').addEventListener('click', async () => {
 });
 
 // Socket.io listeners for real-time updates
+let statsDebounceTimer = null;
+let usersDebounceTimer = null;
+
 socket.on('milestone:stats-update', (data) => {
-    loadStats();
+    clearTimeout(statsDebounceTimer);
+    statsDebounceTimer = setTimeout(() => loadStats(), 500);
 });
 
 socket.on('milestone:user-stats-update', (data) => {
-    loadUsers();
+    clearTimeout(usersDebounceTimer);
+    usersDebounceTimer = setTimeout(() => loadUsers(), 500);
 });
 
 socket.on('milestone:config-update', (data) => {
@@ -768,4 +773,4 @@ setInterval(() => {
         loadStats();
         loadUsers();
     }
-}, 5000); // Update stats every 5 seconds
+}, 30000); // Fallback poll every 30 seconds (socket events handle real-time updates)

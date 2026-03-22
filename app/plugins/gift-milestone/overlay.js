@@ -12,6 +12,8 @@ const confettiContainer = document.getElementById('confettiContainer');
 
 let currentTimeout = null;
 let isPlaying = false;
+const celebrationQueue = [];
+const MAX_QUEUE_SIZE = 10;
 
 // Listen for milestone celebrations
 socket.on('milestone:celebrate', (data) => {
@@ -21,7 +23,12 @@ socket.on('milestone:celebrate', (data) => {
 
 async function playCelebration(data) {
     if (isPlaying) {
-        console.log('Celebration already playing, skipping...');
+        if (celebrationQueue.length >= MAX_QUEUE_SIZE) {
+            console.log('Celebration queue full, dropping oldest');
+            celebrationQueue.shift();
+        }
+        celebrationQueue.push(data);
+        console.log(`Celebration queued (${celebrationQueue.length}/${MAX_QUEUE_SIZE})`);
         return;
     }
 
@@ -59,6 +66,7 @@ async function playCelebration(data) {
 
     // Load and display media
     let mediaDuration = data.duration || 0;
+    const mediaLoadPromises = [];
 
     // Load GIF
     if (data.gif) {
@@ -71,16 +79,22 @@ async function playCelebration(data) {
 
     // Load Video
     if (data.video) {
+        // Only mute video when a separate audio file is provided to avoid double audio
+        video.muted = !!data.audio;
         video.src = data.video;
         video.style.display = 'block';
         video.load();
 
-        // Get video duration
-        video.addEventListener('loadedmetadata', () => {
-            if (mediaDuration === 0) {
-                mediaDuration = video.duration * 1000;
-            }
-        }, { once: true });
+        mediaLoadPromises.push(new Promise((resolve) => {
+            video.addEventListener('loadedmetadata', () => {
+                if (mediaDuration === 0) {
+                    mediaDuration = video.duration * 1000;
+                }
+                resolve();
+            }, { once: true });
+            // Fallback in case loadedmetadata never fires
+            setTimeout(resolve, 5000);
+        }));
 
         video.play().catch(err => console.error('Error playing video:', err));
     }
@@ -91,12 +105,18 @@ async function playCelebration(data) {
         audio.volume = (data.audioVolume || 80) / 100;
         audio.load();
 
-        // Get audio duration
-        audio.addEventListener('loadedmetadata', () => {
-            if (mediaDuration === 0 && !data.video && !data.gif) {
-                mediaDuration = audio.duration * 1000;
-            }
-        }, { once: true });
+        if (!data.video && !data.gif) {
+            mediaLoadPromises.push(new Promise((resolve) => {
+                audio.addEventListener('loadedmetadata', () => {
+                    if (mediaDuration === 0) {
+                        mediaDuration = audio.duration * 1000;
+                    }
+                    resolve();
+                }, { once: true });
+                // Fallback in case loadedmetadata never fires
+                setTimeout(resolve, 5000);
+            }));
+        }
 
         audio.play().catch(err => console.error('Error playing audio:', err));
     }
@@ -105,15 +125,19 @@ async function playCelebration(data) {
     container.classList.add('active');
     celebrationContent.classList.remove('exiting');
 
+    // Wait for media metadata before scheduling the hide timeout
+    await Promise.all(mediaLoadPromises);
+
     // Trigger visual effects
     createConfetti();
     createFireworks();
-    createSparkles();
 
     // Set default duration if still 0
     if (mediaDuration === 0) {
         mediaDuration = 10000; // Default 10 seconds
     }
+
+    createSparkles(mediaDuration);
 
     // Hide after duration
     currentTimeout = setTimeout(() => {
@@ -139,6 +163,12 @@ function hideCelebration() {
         confettiContainer.innerHTML = '';
 
         isPlaying = false;
+
+        // Play next queued celebration
+        if (celebrationQueue.length > 0) {
+            const next = celebrationQueue.shift();
+            setTimeout(() => playCelebration(next), 300);
+        }
     }, 500);
 }
 
@@ -199,7 +229,7 @@ function createFireworks() {
 }
 
 // Create sparkles effect
-function createSparkles() {
+function createSparkles(duration) {
     const sparkleInterval = setInterval(() => {
         if (!isPlaying) {
             clearInterval(sparkleInterval);
@@ -219,10 +249,10 @@ function createSparkles() {
         }, 2000);
     }, 200);
 
-    // Clear after 10 seconds
+    // Clear after celebration duration
     setTimeout(() => {
         clearInterval(sparkleInterval);
-    }, 10000);
+    }, duration || 10000);
 }
 
 // Handle exclusive mode
