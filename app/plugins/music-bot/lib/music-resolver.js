@@ -1,5 +1,6 @@
 const { spawn } = require('child_process');
 const https = require('https');
+const { YOUTUBE_DL_PATH } = require('youtube-dl-exec').constants;
 
 class MusicResolver {
   constructor(config, api) {
@@ -8,8 +9,13 @@ class MusicResolver {
       rejectAgeRestricted: true,
       blockedKeywords: []
     };
+    // Resolve the effective yt-dlp binary path:
+    // Use a user-configured custom path if set, otherwise fall back to the bundled binary.
+    const configured = config?.ytdlpPath;
+    const resolvedYtdlpPath = (!configured || configured === 'yt-dlp') ? YOUTUBE_DL_PATH : configured;
     this.config = {
       ...config,
+      ytdlpPath: resolvedYtdlpPath,
       moderation: {
         ...defaultModeration,
         ...(config?.moderation || {})

@@ -2,6 +2,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const EventEmitter = require('events');
+const { YOUTUBE_DL_PATH } = require('youtube-dl-exec').constants;
 const CommandParser = require('./lib/command-parser');
 const QueueManager = require('./lib/queue-manager');
 const MusicResolver = require('./lib/music-resolver');
@@ -177,9 +178,12 @@ class MusicBotPlugin extends EventEmitter {
 
   async _ensureYtDlp() {
     const execFileAsync = promisify(execFile);
-    const ytdlpPath = this.config.resolver.ytdlpPath || 'yt-dlp';
+    const configured = this.config.resolver.ytdlpPath;
+    const isDefaultPath = !configured || configured === 'yt-dlp';
+    // Use the bundled binary from youtube-dl-exec when no custom path is configured
+    const ytdlpPath = isDefaultPath ? YOUTUBE_DL_PATH : configured;
 
-    // Check if yt-dlp is already available
+    // Check if yt-dlp is available at the resolved path
     try {
       await execFileAsync(ytdlpPath, ['--version'], { timeout: 5000 });
       this.api.log('[music-bot] yt-dlp found and ready', 'debug');
@@ -192,25 +196,20 @@ class MusicBotPlugin extends EventEmitter {
       }
     }
 
-    this.api.log('[music-bot] yt-dlp not found, attempting automatic installation via pip...', 'warn');
-
-    // Try pip3, then pip
-    for (const pip of ['pip3', 'pip']) {
-      try {
-        await execFileAsync(pip, ['install', '--upgrade', 'yt-dlp'], { timeout: 120000 });
-        this.api.log(`[music-bot] yt-dlp installed successfully via ${pip}`, 'info');
-        return;
-      } catch (installErr) {
-        this.api.log(`[music-bot] yt-dlp installation via ${pip} failed: ${installErr.message}`, 'debug');
-      }
+    if (isDefaultPath) {
+      this.api.log(
+        `[music-bot] yt-dlp bundled binary not found at "${ytdlpPath}". ` +
+        'The youtube-dl-exec postinstall script may not have run correctly. ' +
+        'Try running "npm install" in the app directory, or set a custom yt-dlp path in Music Bot settings.',
+        'error'
+      );
+    } else {
+      this.api.log(
+        `[music-bot] yt-dlp not found at configured path "${ytdlpPath}". ` +
+        'Please verify the path in Music Bot settings.',
+        'error'
+      );
     }
-
-    this.api.log(
-      '[music-bot] yt-dlp could not be installed automatically. ' +
-      'Please install it manually: pip3 install yt-dlp  ' +
-      'or set the path in Music Bot settings.',
-      'warn'
-    );
   }
 
   _mergeDeep(target, source) {
