@@ -406,11 +406,14 @@ class GoalManager extends EventEmitter {
         // Speichern
         this.saveGoalConfig(key, config);
 
-        // Broadcast Style-Update
-        this.io.to(`goal_${key}`).emit('goal:style', {
+        // Broadcast Style-Update to individual goal room (legacy) and the centralized goals room
+        const stylePayload = {
             type: 'style',
+            goalId: key,
             style: config.style
-        });
+        };
+        this.io.to(`goal_${key}`).emit('goal:style', stylePayload);
+        this.io.to('goals').emit('goal:style', stylePayload);
 
         return config.style;
     }
