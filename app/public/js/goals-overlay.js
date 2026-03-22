@@ -1,10 +1,38 @@
 // Goals HUD Overlay - Real-time goals display for OBS
+
+// Default style values – mirrors DEFAULT_STYLE from app/modules/goals.js and serves as
+// a client-side fallback when the server has not yet sent style data.
+const OVERLAY_DEFAULT_STYLE = {
+    bar_height_px: 36,
+    round_px: 18,
+    bg_mode: 'gradient',
+    bg_color: '#002f00',
+    bg_color2: '#004d00',
+    bg_angle: 135,
+    bar_bg: 'rgba(255,255,255,.15)',
+    fill_mode: 'gradient',
+    fill_color1: '#4ade80',
+    fill_color2: '#22c55e',
+    fill_angle: 90,
+    border_enabled: false,
+    border_color: 'rgba(255,255,255,.35)',
+    border_width: 2,
+    shadow_enabled: true,
+    shadow_css: '0 10px 30px rgba(0,0,0,.25)',
+    font_family: "Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
+    text_color: '#ffffff',
+    text_size_px: 20,
+    label_pos: 'inside',
+    label_template: '{total} / {goal}',
+    anim_duration_ms: 900
+};
+
 const goalsState = {
-    coins: { value: 0, goal: 1000, labelKey: 'hud.coins', show: true },
-    followers: { value: 0, goal: 10, labelKey: 'hud.followers', show: true },
-    likes: { value: 0, goal: 500, labelKey: 'hud.likes', show: true },
-    subs: { value: 0, goal: 50, labelKey: 'dashboard.stats.followers', show: true },
-    custom: { value: 0, goal: 100, labelKey: 'hud.goals', show: false }
+    coins:     { value: 0, goal: 1000, labelKey: 'hud.coins',                  show: true,  style: null },
+    followers: { value: 0, goal: 10,   labelKey: 'hud.followers',              show: true,  style: null },
+    likes:     { value: 0, goal: 500,  labelKey: 'hud.likes',                  show: true,  style: null },
+    subs:      { value: 0, goal: 50,   labelKey: 'dashboard.stats.followers',  show: true,  style: null },
+    custom:    { value: 0, goal: 100,  labelKey: 'hud.goals',                  show: false, style: null }
 };
 
 let socket = null;
@@ -48,8 +76,16 @@ function initSocket() {
 
     socket.on('goals:update', (data) => {
         debugLog('Goal updated', { goalId: data.goalId, value: data.total });
-        updateSingleGoal(data.goalId, data.total, data.goal);
+        updateSingleGoal(data.goalId, data.total, data.goal, data.style);
         renderGoals();
+    });
+
+    socket.on('goal:style', (data) => {
+        debugLog('Goal style updated', { goalId: data.goalId });
+        if (data.goalId && goalsState[data.goalId]) {
+            goalsState[data.goalId].style = data.style;
+            renderGoals();
+        }
     });
 
     socket.on('goals:reset', (data) => {
@@ -90,6 +126,9 @@ function updateAllGoals(goals) {
             goalsState[goal.id].value = goal.current || 0;
             goalsState[goal.id].goal = goal.target || goalsState[goal.id].goal;
             goalsState[goal.id].show = goal.show !== false;
+            if (goal.config && goal.config.style) {
+                goalsState[goal.id].style = goal.config.style;
+            }
         }
     });
 
@@ -97,12 +136,15 @@ function updateAllGoals(goals) {
 }
 
 // Update single goal
-function updateSingleGoal(id, value, target) {
+function updateSingleGoal(id, value, target, style) {
     if (goalsState[id]) {
         const oldValue = goalsState[id].value;
         goalsState[id].value = value || 0;
         if (target !== undefined) {
             goalsState[id].goal = target;
+        }
+        if (style !== undefined) {
+            goalsState[id].style = style;
         }
 
         // Trigger pulse animation if value increased
@@ -114,6 +156,65 @@ function updateSingleGoal(id, value, target) {
             }
         }
     }
+}
+
+// Build an inline CSS string for a style object + property set
+function styleStr(props) {
+    return Object.entries(props)
+        .filter(([, v]) => v !== '' && v !== null && v !== undefined)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(';');
+}
+
+// Derive concrete CSS values from a goal style object
+function buildInlineStyles(style) {
+    const s = Object.assign({}, OVERLAY_DEFAULT_STYLE, style || {});
+
+    // Background for .goal-item
+    const itemBg = s.bg_mode === 'gradient'
+        ? `linear-gradient(${s.bg_angle}deg,${s.bg_color},${s.bg_color2})`
+        : s.bg_color;
+
+    const itemStyles = {
+        'background': itemBg,
+        'box-shadow': s.shadow_enabled ? s.shadow_css : 'none',
+        'border': s.border_enabled ? `${s.border_width}px solid ${s.border_color}` : 'none',
+        'font-family': s.font_family,
+        'border-radius': `${s.round_px}px`
+    };
+
+    // Background for .goal-bar
+    const barStyles = {
+        'background': s.bar_bg,
+        'height': `${s.bar_height_px}px`,
+        'border-radius': `${s.round_px}px`
+    };
+
+    // Background for .goal-fill
+    let fillBg;
+    if (s.fill_mode === 'solid') {
+        fillBg = s.fill_color1;
+    } else {
+        fillBg = `linear-gradient(${s.fill_angle}deg,${s.fill_color1},${s.fill_color2})`;
+    }
+    const fillStyles = {
+        'background': fillBg,
+        'border-radius': `${s.round_px}px`,
+        'transition': `width ${s.anim_duration_ms / 1000}s ease`
+    };
+
+    // Text styles for .goal-text
+    const textStyles = {
+        'color': s.text_color,
+        'font-size': `${s.text_size_px}px`
+    };
+
+    // Label styles for .goal-label
+    const labelStyles = {
+        'color': s.text_color
+    };
+
+    return { s, itemStyles, barStyles, fillStyles, textStyles, labelStyles };
 }
 
 // Render goals to DOM
@@ -136,20 +237,54 @@ function renderGoals() {
 
         visibleCount++;
         const percent = Math.min(100, Math.max(0, (goal.value / goal.goal) * 100));
-        
+
         // Get translated label
         const label = window.i18n ? window.i18n.t(goal.labelKey) : goal.labelKey;
+
+        // Build style data
+        const { s, itemStyles, barStyles, fillStyles, textStyles, labelStyles } = buildInlineStyles(goal.style);
+
+        // Build progress text from template
+        const progressText = (s.label_template || '{total} / {goal}')
+            .replace('{total}', goal.value)
+            .replace('{goal}', goal.goal)
+            .replace('{percent}', Math.round(percent));
 
         const goalItem = document.createElement('div');
         goalItem.className = 'goal-item';
         goalItem.setAttribute('data-goal-id', id);
+        goalItem.setAttribute('style', styleStr(itemStyles));
+
+        const fillWidthStyle = `width:${percent}%;${styleStr(fillStyles)}`;
+
+        let progressHtml;
+        if (s.label_pos === 'inside') {
+            // Progress text overlaid inside the bar
+            progressHtml = `
+                <div class="goal-bar" style="${styleStr(barStyles)}">
+                    <div class="goal-fill" style="${fillWidthStyle}"></div>
+                    <div class="goal-text" style="${styleStr(textStyles)}">${progressText}</div>
+                </div>`;
+        } else {
+            // Progress text displayed below the bar
+            const textBelowStyles = Object.assign({}, textStyles, {
+                'position': 'relative',
+                'top': 'auto',
+                'left': 'auto',
+                'transform': 'none',
+                'text-align': 'center',
+                'padding-top': '4px'
+            });
+            progressHtml = `
+                <div class="goal-bar" style="${styleStr(barStyles)}">
+                    <div class="goal-fill" style="${fillWidthStyle}"></div>
+                </div>
+                <div class="goal-text" style="${styleStr(textBelowStyles)}">${progressText}</div>`;
+        }
 
         goalItem.innerHTML = `
-            <div class="goal-label">${label}</div>
-            <div class="goal-bar">
-                <div class="goal-fill" style="width: ${percent}%"></div>
-                <div class="goal-text">${goal.value} / ${goal.goal}</div>
-            </div>
+            <div class="goal-label" style="${styleStr(labelStyles)}">${label}</div>
+            ${progressHtml}
         `;
 
         container.appendChild(goalItem);
