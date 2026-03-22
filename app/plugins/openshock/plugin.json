@@ -1,8 +1,8 @@
 {
   "id": "openshock",
-  "name": "OpenShock Integration",
-  "version": "1.0.0",
-  "description": "Vollständige OpenShock API-Integration für TikTok Live Events mit Event-Mapping, Pattern-System, Safety-Layer, Queue-Management und professionellem Overlay",
+  "name": "OpenShock & PiShock Integration",
+  "version": "1.1.0",
+  "description": "Vollständige Shock-Device-Integration für TikTok Live Events – unterstützt OpenShock und PiShock. Mit Event-Mapping, Pattern-System, Safety-Layer, Queue-Management und professionellem Overlay",
   "author": "pupcidslittletiktokhelper Team",
   "entry": "main.js",
   "enabled": true,
@@ -18,18 +18,23 @@
   "features": [
     {
       "id": "api-integration",
-      "name": "OpenShock API-Integration",
-      "description": "Vollständige Integration mit OpenShock API für Shock-, Vibrate- und Sound-Befehle"
+      "name": "OpenShock & PiShock API-Integration",
+      "description": "Vollständige Integration mit OpenShock und PiShock API für Shock-, Vibrate- und Sound-Befehle. Provider per Dropdown wählbar."
+    },
+    {
+      "id": "pishock-support",
+      "name": "PiShock Provider Support",
+      "description": "Native PiShock-Integration mit ShareCode-Management, Op-Code-Mapping und automatischer Duration-Konvertierung (ms → Sekunden)"
     },
     {
       "id": "device-management",
       "name": "Device Management & Status Monitoring",
-      "description": "Verwaltung von OpenShock-Geräten mit Echtzeit-Status-Überwachung und Konfiguration"
+      "description": "Verwaltung von OpenShock-Geräten und PiShock-ShareCodes mit Echtzeit-Status-Überwachung und Konfiguration"
     },
     {
       "id": "event-mapping",
       "name": "Event-Mapping-System",
-      "description": "Abbildung von TikTok-Events auf OpenShock-Aktionen mit erweiterbarem System"
+      "description": "Abbildung von TikTok-Events auf Shock-Aktionen mit erweiterbarem System"
     },
     {
       "id": "pattern-engine",
@@ -59,7 +64,7 @@
     {
       "id": "emergency-stop",
       "name": "Emergency Stop Funktion",
-      "description": "Sofortige Deaktivierung aller OpenShock-Geräte im Notfall"
+      "description": "Sofortige Deaktivierung aller Shock-Geräte im Notfall"
     },
     {
       "id": "whitelist-blacklist",
@@ -108,8 +113,14 @@
     }
   ],
   "config": {
+    "apiProvider": "openshock",
     "apiKey": "",
     "baseUrl": "https://api.openshock.app",
+    "pishock": {
+      "username": "",
+      "apiKey": "",
+      "shareCodes": []
+    },
     "globalLimits": {
       "maxIntensity": 80,
       "maxDuration": 5000,
@@ -140,9 +151,9 @@
     }
   },
   "descriptions": {
-    "en": "Complete OpenShock API integration for TikTok Live events with event mapping, pattern system, safety layer, queue management, and professional overlay support.",
-    "de": "Vollständige OpenShock-API-Integration für TikTok-Live-Events mit Event-Mapping, Pattern-System, Safety-Layer, Queue-Management und professioneller Overlay-Unterstützung.",
-    "es": "Integración completa de API de OpenShock para eventos en vivo de TikTok con mapeo de eventos, sistema de patrones, capa de seguridad, gestión de colas y soporte de overlay profesional.",
-    "fr": "Intégration API OpenShock complète pour événements TikTok Live avec mappage d'événements, système de patterns, couche de sécurité, gestion de file d'attente et support d'overlay professionnel."
+    "en": "Complete Shock Device integration for TikTok Live events – supports OpenShock and PiShock. With event mapping, pattern system, safety layer, queue management, and professional overlay support.",
+    "de": "Vollständige Shock-Device-Integration für TikTok-Live-Events – unterstützt OpenShock und PiShock. Mit Event-Mapping, Pattern-System, Safety-Layer, Queue-Management und professioneller Overlay-Unterstützung.",
+    "es": "Integración completa de dispositivos Shock para eventos en vivo de TikTok – compatible con OpenShock y PiShock. Con mapeo de eventos, sistema de patrones, capa de seguridad, gestión de colas y soporte de overlay profesional.",
+    "fr": "Intégration complète de dispositifs Shock pour événements TikTok Live – compatible OpenShock et PiShock. Avec mappage d'événements, système de patterns, couche de sécurité, gestion de file d'attente et support d'overlay professionnel."
   }
 }

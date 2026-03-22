@@ -296,11 +296,17 @@ async function loadConfig() {
         config = data.config || {};
         console.log('[OpenShock] Config loaded:', config);
 
-        // Update UI with config
+        // ---- Provider selector ----
+        const apiProviderEl = document.getElementById('apiProvider');
+        if (apiProviderEl) {
+            apiProviderEl.value = config.apiProvider || 'openshock';
+            switchProviderUI(config.apiProvider || 'openshock');
+        }
+
+        // ---- OpenShock Fields ----
         const apiKeyInput = document.getElementById('apiKey');
         if (apiKeyInput) {
             if (config.apiKey) {
-                // Mask the API key to show it's saved
                 apiKeyInput.value = '***SAVED***';
                 apiKeyInput.placeholder = 'API Key gespeichert (verborgen)';
             } else {
@@ -308,8 +314,35 @@ async function loadConfig() {
                 apiKeyInput.placeholder = 'Enter your OpenShock API key';
             }
         }
-        
-        // Update safety settings UI
+
+        const baseUrlInput = document.getElementById('baseUrl');
+        if (baseUrlInput && config.baseUrl) {
+            baseUrlInput.value = config.baseUrl;
+        }
+
+        // ---- PiShock Fields ----
+        const pishockCfg = config.pishock || {};
+
+        const pishockUsernameEl = document.getElementById('pishockUsername');
+        if (pishockUsernameEl) {
+            pishockUsernameEl.value = pishockCfg.username || '';
+        }
+
+        const pishockApiKeyEl = document.getElementById('pishockApiKey');
+        if (pishockApiKeyEl) {
+            if (pishockCfg.apiKey) {
+                pishockApiKeyEl.value = '***SAVED***';
+                pishockApiKeyEl.placeholder = 'API Key gespeichert (verborgen)';
+            } else {
+                pishockApiKeyEl.value = '';
+                pishockApiKeyEl.placeholder = 'Enter your PiShock API key';
+            }
+        }
+
+        // Render ShareCode list
+        renderShareCodeList(pishockCfg.shareCodes || []);
+
+        // ---- Safety Settings ----
         if (config.globalLimits) {
             const maxIntEl = document.getElementById('globalMaxIntensity');
             const maxIntValEl = document.getElementById('globalMaxIntensityValue');
@@ -2438,34 +2471,215 @@ async function clearEmergencyStop() {
 }
 
 // ====================================================================
-// ADVANCED FUNCTIONS
+// PROVIDER SWITCH FUNCTIONS
 // ====================================================================
 
-async function saveApiSettings() {
-    const apiKey = document.getElementById('apiKey').value;
-    const baseUrl = document.getElementById('baseUrl').value;
+/**
+ * Blendet die richtigen Credential-Felder ein/aus je nach gewähltem Provider.
+ *
+ * @param {string} provider - 'openshock' oder 'pishock'
+ */
+function switchProviderUI(provider) {
+    const openshockFields = document.getElementById('openshockFields');
+    const pishockFields = document.getElementById('pishockFields');
 
-    // Check if user is trying to save without changing the masked key
-    if (!apiKey || apiKey === '***SAVED***') {
-        showNotification('API key ist bereits gespeichert. Gib einen neuen Key ein, um ihn zu ändern.', 'info');
+    if (!openshockFields || !pishockFields) return;
+
+    if (provider === 'pishock') {
+        openshockFields.style.display = 'none';
+        pishockFields.style.display = 'block';
+    } else {
+        openshockFields.style.display = 'block';
+        pishockFields.style.display = 'none';
+    }
+}
+
+/**
+ * Rendert die ShareCode-Liste im PiShock-Bereich.
+ *
+ * @param {Array<{code: string, name: string}>} shareCodes - Liste der ShareCodes
+ */
+function renderShareCodeList(shareCodes) {
+    const listEl = document.getElementById('shareCodeList');
+    const emptyEl = document.getElementById('shareCodeEmpty');
+    if (!listEl) return;
+
+    // Vorhandene Zeilen entfernen (aber Empty-Placeholder behalten)
+    Array.from(listEl.children).forEach((child) => {
+        if (child.id !== 'shareCodeEmpty') child.remove();
+    });
+
+    if (!shareCodes || shareCodes.length === 0) {
+        if (emptyEl) emptyEl.style.display = '';
+        return;
+    }
+
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    shareCodes.forEach((sc) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.08);';
+        row.dataset.code = sc.code;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.style.flex = '1';
+        nameSpan.style.fontWeight = '500';
+        nameSpan.textContent = sc.name || sc.code;
+
+        const codeSpan = document.createElement('span');
+        codeSpan.style.cssText = 'font-family:monospace; font-size:0.85em; color:var(--text-muted, #aaa); flex:1;';
+        codeSpan.textContent = sc.code;
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-danger btn-sm';
+        deleteBtn.style.padding = '3px 8px';
+        deleteBtn.textContent = '🗑️';
+        deleteBtn.title = `Delete ShareCode ${sc.code}`;
+        deleteBtn.setAttribute('aria-label', `Delete ShareCode ${sc.code}`);
+        deleteBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            deleteShareCode(sc.code);
+        });
+
+        row.appendChild(nameSpan);
+        row.appendChild(codeSpan);
+        row.appendChild(deleteBtn);
+        listEl.appendChild(row);
+    });
+}
+
+/**
+ * Fügt einen neuen ShareCode zur PiShock-Konfiguration hinzu.
+ */
+async function addShareCode() {
+    const codeEl = document.getElementById('newShareCode');
+    const nameEl = document.getElementById('newShareCodeName');
+
+    if (!codeEl) return;
+
+    const code = (codeEl.value || '').trim();
+    const name = (nameEl ? nameEl.value : '').trim();
+
+    if (!code) {
+        showNotification('Please enter a ShareCode', 'warning');
         return;
     }
 
     try {
+        const response = await fetch('/api/openshock/pishock/sharecodes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, name: name || code })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to add ShareCode');
+        }
+
+        // UI zurücksetzen
+        codeEl.value = '';
+        if (nameEl) nameEl.value = '';
+
+        // Liste aktualisieren
+        renderShareCodeList(result.shareCodes || []);
+
+        // Devices neu laden (ShareCodes = Devices bei PiShock)
+        await loadDevices().catch(() => {});
+        renderDeviceList();
+
+        showNotification(`✅ ShareCode "${code}" added`, 'success');
+
+    } catch (error) {
+        console.error('[OpenShock] Failed to add ShareCode:', error);
+        showNotification(`Error adding ShareCode: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Löscht einen ShareCode aus der PiShock-Konfiguration.
+ *
+ * @param {string} code - ShareCode der gelöscht werden soll
+ */
+async function deleteShareCode(code) {
+    if (!confirm(`Delete ShareCode "${code}"?`)) return;
+
+    try {
+        const response = await fetch(`/api/openshock/pishock/sharecodes/${encodeURIComponent(code)}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to delete ShareCode');
+        }
+
+        renderShareCodeList(result.shareCodes || []);
+
+        // Devices aktualisieren
+        await loadDevices().catch(() => {});
+        renderDeviceList();
+
+        showNotification(`✅ ShareCode "${code}" deleted`, 'success');
+
+    } catch (error) {
+        console.error('[OpenShock] Failed to delete ShareCode:', error);
+        showNotification(`Error deleting ShareCode: ${error.message}`, 'error');
+    }
+}
+
+// ====================================================================
+// ADVANCED FUNCTIONS
+// ====================================================================
+
+async function saveApiSettings() {
+    const provider = (document.getElementById('apiProvider') || {}).value || 'openshock';
+
+    try {
+        let configPayload = { apiProvider: provider };
+
+        if (provider === 'openshock') {
+            const apiKey = document.getElementById('apiKey').value;
+            const baseUrl = document.getElementById('baseUrl').value;
+
+            if (!apiKey || apiKey === '***SAVED***') {
+                showNotification('API key ist bereits gespeichert. Gib einen neuen Key ein, um ihn zu ändern.', 'info');
+                // Still allow saving provider switch / base URL change
+                configPayload.baseUrl = baseUrl;
+            } else {
+                configPayload.apiKey = apiKey;
+                configPayload.baseUrl = baseUrl;
+            }
+        } else if (provider === 'pishock') {
+            const pishockApiKey = document.getElementById('pishockApiKey').value;
+            const pishockUsername = (document.getElementById('pishockUsername') || {}).value || '';
+
+            const pishockPayload = {};
+
+            if (pishockUsername) pishockPayload.username = pishockUsername;
+
+            if (pishockApiKey && pishockApiKey !== '***SAVED***') {
+                pishockPayload.apiKey = pishockApiKey;
+            }
+
+            configPayload.pishock = pishockPayload;
+        }
+
         const response = await fetch('/api/openshock/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ apiKey, baseUrl })
+            body: JSON.stringify(configPayload)
         });
 
         if (!response.ok) {
-            // Try to get error message from response
             let errorMessage = 'Failed to save API settings';
             try {
                 const errorData = await response.json();
                 errorMessage = errorData.error || errorMessage;
             } catch (e) {
-                // Response was not JSON, use default message
+                // Response was not JSON
             }
             throw new Error(errorMessage);
         }
@@ -2474,7 +2688,7 @@ async function saveApiSettings() {
         
         await loadConfig();
         
-        // After saving API settings, refresh devices and update API status
+        // Nach dem Speichern Devices neu laden und Status aktualisieren
         try {
             await loadDevices();
             renderDeviceList();
@@ -2484,20 +2698,20 @@ async function saveApiSettings() {
             updateApiStatus(deviceCount > 0, deviceCount);
             
             if (deviceCount > 0) {
-                showNotification(`✅ API settings saved and ${deviceCount} device(s) loaded successfully`, 'success');
+                showNotification(`✅ Settings saved and ${deviceCount} device(s) loaded`, 'success');
             } else if (result.deviceLoadSuccess === false) {
-                showNotification('⚠️ API settings saved but could not load devices', 'warning');
+                showNotification('⚠️ Settings saved but could not load devices', 'warning');
             } else {
-                showNotification('⚠️ API settings saved but no devices found', 'warning');
+                showNotification('⚠️ Settings saved but no devices found', 'warning');
             }
         } catch (loadError) {
             console.error('[OpenShock] Could not load devices after saving settings:', loadError);
             updateApiStatus(false, 0);
-            showNotification(`❌ API settings saved but failed to load devices: ${loadError.message || 'Unknown error'}`, 'error');
+            showNotification(`❌ Settings saved but failed to load devices: ${loadError.message || 'Unknown error'}`, 'error');
         }
     } catch (error) {
         console.error('[OpenShock] Error saving API settings:', error);
-        showNotification('Error saving API settings', 'error');
+        showNotification('Error saving API settings: ' + error.message, 'error');
         updateApiStatus(false, 0);
     }
 }
@@ -2572,6 +2786,20 @@ function updateApiStatus(connected, deviceCount) {
     const deviceCountEl = document.getElementById('deviceCount');
     if (deviceCountEl) {
         deviceCountEl.textContent = deviceCount;
+    }
+
+    // Update Provider Status Badge
+    const providerStatusText = document.getElementById('providerStatusText');
+    if (providerStatusText) {
+        const provider = (config && config.apiProvider) || 'openshock';
+        const providerLabel = provider === 'pishock' ? 'PiShock' : 'OpenShock';
+        if (connected) {
+            providerStatusText.className = 'status-badge status-connected';
+            providerStatusText.innerHTML = `<span class="status-dot"></span><span>${providerLabel} – Connected (${deviceCount} device${deviceCount !== 1 ? 's' : ''})</span>`;
+        } else {
+            providerStatusText.className = 'status-badge status-disconnected';
+            providerStatusText.innerHTML = `<span class="status-dot"></span><span>${providerLabel} – Not connected</span>`;
+        }
     }
 }
 
@@ -3205,6 +3433,32 @@ function initializeEventDelegation() {
     }
 
     // Advanced tab buttons
+    const apiProviderEl = document.getElementById('apiProvider');
+    if (apiProviderEl) {
+        apiProviderEl.addEventListener('change', (e) => {
+            switchProviderUI(e.target.value);
+        });
+    }
+
+    const addShareCodeBtn = document.getElementById('addShareCodeBtn');
+    if (addShareCodeBtn) {
+        addShareCodeBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            addShareCode();
+        });
+    }
+
+    // Allow pressing Enter in ShareCode input to add
+    const newShareCodeEl = document.getElementById('newShareCode');
+    if (newShareCodeEl) {
+        newShareCodeEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addShareCode();
+            }
+        });
+    }
+
     const saveApiSettingsBtn = document.getElementById('saveApiSettings');
     if (saveApiSettingsBtn) {
         saveApiSettingsBtn.addEventListener('click', (e) => {

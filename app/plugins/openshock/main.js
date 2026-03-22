@@ -21,6 +21,7 @@ const fs = require('fs').promises;
 
 // Helper-Klassen
 const OpenShockClient = require('./helpers/openShockClient');
+const ShockClientFactory = require('./helpers/shockClientFactory');
 const MappingEngine = require('./helpers/mappingEngine');
 const PatternEngine = require('./helpers/patternEngine');
 const SafetyManager = require('./helpers/safetyManager');
@@ -35,8 +36,14 @@ class OpenShockPlugin {
 
         // Configuration (wird in init() geladen)
         this.config = {
+            apiProvider: 'openshock',
             apiKey: '',
             baseUrl: 'https://api.openshock.app',
+            pishock: {
+                username: '',
+                apiKey: '',
+                shareCodes: []
+            },
             globalLimits: {
                 maxIntensity: 80,
                 maxDuration: 5000,
@@ -133,8 +140,8 @@ class OpenShockPlugin {
             // 6.5. IFTTT Flow Actions registrieren
             this._registerIFTTTActions();
 
-            // 7. Devices laden (wenn API Key vorhanden)
-            if (this.config.apiKey && this.config.apiKey.trim() !== '') {
+            // 7. Devices laden (wenn Provider konfiguriert)
+            if (this._isProviderConfigured()) {
                 try {
                     await this.loadDevices();
                 } catch (error) {
@@ -367,18 +374,54 @@ class OpenShockPlugin {
     }
 
     /**
+     * Prüft ob der aktive Provider vollständig konfiguriert ist.
+     *
+     * @returns {boolean} True wenn Provider einsatzbereit
+     */
+    _isProviderConfigured() {
+        const provider = this.config.apiProvider || 'openshock';
+        if (provider === 'pishock') {
+            const ps = this.config.pishock || {};
+            return !!(ps.username && ps.username.trim() && ps.apiKey && ps.apiKey.trim());
+        }
+        // OpenShock: apiKey erforderlich
+        return !!(this.config.apiKey && this.config.apiKey.trim() !== '');
+    }
+
+    /**
+     * Erstellt den Shock-Client neu (z.B. nach Provider-Wechsel oder Credential-Änderung).
+     * Aktualisiert auch die QueueManager- und ZappieHellManager-Referenzen.
+     */
+    _reinitializeShockClient() {
+        const logger = this._createLoggerAdapter();
+        const newClient = ShockClientFactory.create(this.config, logger);
+
+        this.openShockClient = newClient;
+
+        // QueueManager-Referenz aktualisieren
+        if (this.queueManager) {
+            this.queueManager.openShockClient = newClient;
+        }
+
+        // ZappieHellManager-Referenz aktualisieren
+        if (this.zappieHellManager) {
+            this.zappieHellManager.openShockClient = newClient;
+        }
+
+        this.api.log(
+            `Shock client reinitialized for provider: ${this.config.apiProvider || 'openshock'}`,
+            'info'
+        );
+    }
+
+    /**
      * Helper-Klassen initialisieren
      */
     _initializeHelpers() {
         const logger = this._createLoggerAdapter();
 
-        // OpenShock API Client
-        this.openShockClient = new OpenShockClient(
-            this.config.apiKey,
-            this.config.baseUrl,
-            logger
-        );
-
+        // Shock API Client (OpenShock oder PiShock je nach config.apiProvider)
+        this.openShockClient = ShockClientFactory.create(this.config, logger);
         // Safety Manager
         this.safetyManager = new SafetyManager(
             {
@@ -565,9 +608,15 @@ class OpenShockPlugin {
 
         // Get Config (WITHOUT API-KEY for security!)
         this.api.registerRoute('get', '/api/openshock/config', (req, res) => {
+            const pishockConfig = this.config.pishock || {};
             const safeConfig = {
                 ...this.config,
-                apiKey: this.config.apiKey ? '***' + this.config.apiKey.slice(-4) : '' // Mask API key
+                apiKey: this.config.apiKey ? '***' + this.config.apiKey.slice(-4) : '', // Mask OpenShock API key
+                pishock: {
+                    ...pishockConfig,
+                    apiKey: pishockConfig.apiKey ? '***' + pishockConfig.apiKey.slice(-4) : '', // Mask PiShock API key
+                    shareCodes: pishockConfig.shareCodes || []
+                }
             };
             res.json({
                 success: true,
@@ -580,36 +629,17 @@ class OpenShockPlugin {
             try {
                 const newConfig = req.body;
 
-                // Merge config
+                // Merge config (pishock sub-object separat mergen um Felder nicht zu verlieren)
+                if (newConfig.pishock) {
+                    newConfig.pishock = { ...this.config.pishock, ...newConfig.pishock };
+                }
                 this.config = { ...this.config, ...newConfig };
 
                 // Save to database
                 await this.saveData();
 
-                // Update OpenShockClient with new credentials
-                if (this.openShockClient) {
-                    this.openShockClient.updateConfig({
-                        apiKey: this.config.apiKey,
-                        baseUrl: this.config.baseUrl || 'https://api.openshock.app'
-                    });
-                    
-                    this.api.log('OpenShock client updated with new configuration', 'info');
-                } else if (this.config.apiKey) {
-                    // If client doesn't exist yet, create it
-                    const logger = this._createLoggerAdapter();
-                    this.openShockClient = new OpenShockClient(
-                        this.config.apiKey,
-                        this.config.baseUrl || 'https://api.openshock.app',
-                        logger
-                    );
-                    
-                    // Update queue manager's client reference
-                    if (this.queueManager) {
-                        this.queueManager.openShockClient = this.openShockClient;
-                    }
-                    
-                    this.api.log('OpenShock client created with new configuration', 'info');
-                }
+                // Shock-Client mit neuem Provider / Credentials neu erstellen oder aktualisieren
+                this._reinitializeShockClient();
 
                 if (this.safetyManager) {
                     this.safetyManager.updateConfig({
@@ -620,10 +650,10 @@ class OpenShockPlugin {
                     });
                 }
 
-                // Automatically load devices when API key is configured
+                // Devices automatisch laden wenn Provider konfiguriert
                 let deviceLoadSuccess = false;
                 let deviceCount = 0;
-                if (this.openShockClient && this.config.apiKey) {
+                if (this._isProviderConfigured()) {
                     try {
                         await this.loadDevices();
                         deviceLoadSuccess = true;
@@ -631,7 +661,7 @@ class OpenShockPlugin {
                         this.api.log(`Automatically loaded ${deviceCount} device(s) after config update`, 'info');
                     } catch (loadError) {
                         this.api.log(`Could not auto-load devices after config update: ${loadError.message}`, 'warning');
-                        // Don't fail the config save if device loading fails
+                        // Config-Speicherung nicht fehlschlagen lassen, wenn Device-Laden fehlschlägt
                     }
                 }
 
@@ -800,6 +830,124 @@ class OpenShockPlugin {
                     success: false,
                     error: userMessage
                 });
+            }
+        });
+
+        // ============ API ROUTES - PISHOCK SHARECODES ============
+
+        // ShareCodes auflisten
+        this.api.registerRoute('get', '/api/openshock/pishock/sharecodes', (req, res) => {
+            res.json({
+                success: true,
+                shareCodes: (this.config.pishock && this.config.pishock.shareCodes) || []
+            });
+        });
+
+        // ShareCode hinzufügen
+        this.api.registerRoute('post', '/api/openshock/pishock/sharecodes', async (req, res) => {
+            try {
+                const { code, name } = req.body;
+
+                if (!code || typeof code !== 'string' || code.trim() === '') {
+                    return res.status(400).json({ success: false, error: 'ShareCode is required' });
+                }
+
+                if (!this.config.pishock) {
+                    this.config.pishock = { username: '', apiKey: '', shareCodes: [] };
+                }
+                if (!Array.isArray(this.config.pishock.shareCodes)) {
+                    this.config.pishock.shareCodes = [];
+                }
+
+                const trimmedCode = code.trim();
+
+                // Doppelten Code verhindern
+                if (this.config.pishock.shareCodes.some((sc) => sc.code === trimmedCode)) {
+                    return res.status(409).json({ success: false, error: 'ShareCode already exists' });
+                }
+
+                const newShareCode = { code: trimmedCode, name: (name || trimmedCode).trim() };
+                this.config.pishock.shareCodes.push(newShareCode);
+
+                await this.saveData();
+
+                // Client und Devices aktualisieren
+                this._reinitializeShockClient();
+                if (this._isProviderConfigured()) {
+                    await this.loadDevices().catch(() => {});
+                }
+
+                res.json({ success: true, shareCode: newShareCode, shareCodes: this.config.pishock.shareCodes });
+
+            } catch (error) {
+                this.api.log(`Failed to add ShareCode: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // ShareCode aktualisieren
+        this.api.registerRoute('put', '/api/openshock/pishock/sharecodes/:code', async (req, res) => {
+            try {
+                const { code } = req.params;
+                const { name, newCode } = req.body;
+
+                if (!this.config.pishock || !Array.isArray(this.config.pishock.shareCodes)) {
+                    return res.status(404).json({ success: false, error: 'No ShareCodes configured' });
+                }
+
+                const idx = this.config.pishock.shareCodes.findIndex((sc) => sc.code === code);
+                if (idx === -1) {
+                    return res.status(404).json({ success: false, error: `ShareCode "${code}" not found` });
+                }
+
+                if (newCode && typeof newCode === 'string' && newCode.trim() !== '') {
+                    this.config.pishock.shareCodes[idx].code = newCode.trim();
+                }
+                if (name !== undefined) {
+                    this.config.pishock.shareCodes[idx].name = String(name).trim();
+                }
+
+                await this.saveData();
+                this._reinitializeShockClient();
+                if (this._isProviderConfigured()) {
+                    await this.loadDevices().catch(() => {});
+                }
+
+                res.json({ success: true, shareCodes: this.config.pishock.shareCodes });
+
+            } catch (error) {
+                this.api.log(`Failed to update ShareCode: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // ShareCode löschen
+        this.api.registerRoute('delete', '/api/openshock/pishock/sharecodes/:code', async (req, res) => {
+            try {
+                const { code } = req.params;
+
+                if (!this.config.pishock || !Array.isArray(this.config.pishock.shareCodes)) {
+                    return res.status(404).json({ success: false, error: 'No ShareCodes configured' });
+                }
+
+                const before = this.config.pishock.shareCodes.length;
+                this.config.pishock.shareCodes = this.config.pishock.shareCodes.filter((sc) => sc.code !== code);
+
+                if (this.config.pishock.shareCodes.length === before) {
+                    return res.status(404).json({ success: false, error: `ShareCode "${code}" not found` });
+                }
+
+                await this.saveData();
+                this._reinitializeShockClient();
+                if (this._isProviderConfigured()) {
+                    await this.loadDevices().catch(() => {});
+                }
+
+                res.json({ success: true, shareCodes: this.config.pishock.shareCodes });
+
+            } catch (error) {
+                this.api.log(`Failed to delete ShareCode: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
             }
         });
 
@@ -2299,15 +2447,20 @@ class OpenShockPlugin {
     }
 
     /**
-     * Devices von OpenShock API laden
+     * Devices vom aktiven Provider laden
      */
     async loadDevices() {
         try {
-            if (!this.config.apiKey || this.config.apiKey.trim() === '') {
-                throw new Error('API Key not configured');
+            const provider = this.config.apiProvider || 'openshock';
+
+            if (!this._isProviderConfigured()) {
+                const hint = provider === 'pishock'
+                    ? 'PiShock configuration incomplete: username, API key, and at least one ShareCode are required for device access'
+                    : 'API Key not configured';
+                throw new Error(hint);
             }
 
-            this.api.log('Loading devices from OpenShock API...', 'info');
+            this.api.log(`Loading devices via ${provider} provider...`, 'info');
 
             const devices = await this.openShockClient.getDevices();
             this.devices = devices;
@@ -2633,7 +2786,9 @@ class OpenShockPlugin {
             isPaused: this.isPaused,
             emergencyStop: this.config.emergencyStop.enabled,
             devicesCount: this.devices.length,
-            hasApiKey: !!(this.config.apiKey && this.config.apiKey.trim() !== '')
+            hasApiKey: !!(this.config.apiKey && this.config.apiKey.trim() !== ''),
+            apiProvider: this.config.apiProvider || 'openshock',
+            isProviderConfigured: this._isProviderConfigured()
         });
     }
 
