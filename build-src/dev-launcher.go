@@ -443,35 +443,35 @@ func (l *Launcher) autoFixPort() {
 	}
 }
 
-// autoFixYtDlp checks if yt-dlp is installed and attempts to install it via pip if missing
+// autoFixYtDlp checks if yt-dlp is available and logs a warning if it is missing
 func (l *Launcher) autoFixYtDlp() {
 	l.logger.Println("[INFO] Checking yt-dlp availability...")
 
-	// Check if yt-dlp is already available
+	// Check if the npm-bundled binary from youtube-dl-exec exists.
+	// The youtube-dl-exec package (added as an npm dependency) downloads the yt-dlp binary
+	// into its own bin/ directory during postinstall. Path: node_modules/youtube-dl-exec/bin/yt-dlp(.exe)
+	npmBinaryName := "yt-dlp"
+	if runtime.GOOS == "windows" {
+		npmBinaryName = "yt-dlp.exe"
+	}
+	npmBinaryPath := filepath.Join(l.appDir, "node_modules", "youtube-dl-exec", "bin", npmBinaryName)
+	if _, err := os.Stat(npmBinaryPath); err == nil {
+		l.logger.Printf("[INFO] yt-dlp npm-bundled binary found: %s\n", npmBinaryPath)
+		return
+	}
+
+	// Check if yt-dlp is already available in system PATH
 	for _, ytdlpCmd := range []string{"yt-dlp", "yt_dlp"} {
 		cmd := exec.Command(ytdlpCmd, "--version")
 		if output, err := cmd.CombinedOutput(); err == nil {
-			l.logger.Printf("[INFO] yt-dlp found: %s\n", strings.TrimSpace(string(output)))
+			l.logger.Printf("[INFO] yt-dlp found in PATH: %s\n", strings.TrimSpace(string(output)))
 			return
 		}
 	}
 
-	l.logger.Println("[INFO] yt-dlp not found, attempting installation via pip...")
-	l.updateProgress(88, "🔧 Installiere yt-dlp...")
-
-	for _, pip := range []string{"pip3", "pip"} {
-		cmd := exec.Command(pip, "install", "--upgrade", "yt-dlp")
-		output, err := cmd.CombinedOutput()
-		if err == nil {
-			l.logger.Printf("[SUCCESS] yt-dlp installed via %s\n", pip)
-			l.updateProgress(89, "✅ yt-dlp installiert!")
-			time.Sleep(500 * time.Millisecond)
-			return
-		}
-		l.logger.Printf("[DEBUG] yt-dlp install via %s failed: %s\n", pip, strings.TrimSpace(string(output)))
-	}
-
-	l.logger.Println("[WARNING] yt-dlp could not be installed automatically. Please run: pip3 install yt-dlp")
+	l.logger.Println("[WARNING] yt-dlp not found. The Music Bot requires yt-dlp to function. " +
+		"Run 'npm install' in the app directory to restore the bundled binary, " +
+		"or set a custom path in Music Bot settings.")
 }
 
 func (l *Launcher) runLauncher() {

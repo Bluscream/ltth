@@ -1340,13 +1340,28 @@ func (sl *StandaloneLauncher) runPreflightChecks(nodePath string) ([]PreflightCh
 	// 6. Check yt-dlp availability (optional, for Music Bot)
 	ytdlpFound := false
 	ytdlpVersion := ""
-	for _, ytdlpCmd := range []string{"yt-dlp", "yt_dlp"} {
-		cmd := exec.Command(ytdlpCmd, "--version")
-		output, err := cmd.CombinedOutput()
-		if err == nil {
-			ytdlpVersion = strings.TrimSpace(string(output))
-			ytdlpFound = true
-			break
+	// Check if the npm-bundled binary from youtube-dl-exec exists.
+	// The youtube-dl-exec package (added as an npm dependency) downloads the yt-dlp binary
+	// into its own bin/ directory during postinstall. Path: node_modules/youtube-dl-exec/bin/yt-dlp(.exe)
+	npmBinaryName := "yt-dlp"
+	if runtime.GOOS == "windows" {
+		npmBinaryName = "yt-dlp.exe"
+	}
+	npmBinaryPath := filepath.Join(sl.baseDir, "app", "node_modules", "youtube-dl-exec", "bin", npmBinaryName)
+	if _, err := os.Stat(npmBinaryPath); err == nil {
+		ytdlpFound = true
+		ytdlpVersion = "bundled (youtube-dl-exec)"
+	}
+	// Also accept yt-dlp in system PATH as a valid installation
+	if !ytdlpFound {
+		for _, ytdlpCmd := range []string{"yt-dlp", "yt_dlp"} {
+			cmd := exec.Command(ytdlpCmd, "--version")
+			output, err := cmd.CombinedOutput()
+			if err == nil {
+				ytdlpVersion = strings.TrimSpace(string(output))
+				ytdlpFound = true
+				break
+			}
 		}
 	}
 	ytdlpResult := PreflightCheckResult{
@@ -1354,15 +1369,14 @@ func (sl *StandaloneLauncher) runPreflightChecks(nodePath string) ([]PreflightCh
 		Found:       ytdlpFound,
 		Version:     ytdlpVersion,
 		Required:    false,
-		InstallHint: "Benötigt für den Music Bot (YouTube/SoundCloud). Wird automatisch installiert: pip3 install yt-dlp",
-		AutoFixable: true,
+		InstallHint: "Benötigt für den Music Bot (YouTube/SoundCloud). Wird automatisch beim npm install mitgeliefert (youtube-dl-exec).",
+		AutoFixable: false,
 	}
 	results = append(results, ytdlpResult)
 	
-	// Auto-install yt-dlp if missing (non-blocking)
+	// Log a warning if the bundled binary is missing – no pip install needed
 	if !ytdlpFound {
-		sl.logger.Println("[INFO] yt-dlp not found, attempting auto-install via pip...")
-		go sl.autoInstallYtDlp()
+		sl.logger.Println("[WARN] yt-dlp not found. The Music Bot will not work until npm install runs and the youtube-dl-exec binary is downloaded.")
 	}
 	
 	// Send results to frontend
@@ -1397,18 +1411,10 @@ func (sl *StandaloneLauncher) runPreflightChecks(nodePath string) ([]PreflightCh
 	return results, allPassed
 }
 
-// autoInstallYtDlp attempts to install yt-dlp via pip3 or pip in a background goroutine
+// autoInstallYtDlp is kept for compatibility but is no longer used.
+// yt-dlp is now bundled automatically via the youtube-dl-exec npm package.
 func (sl *StandaloneLauncher) autoInstallYtDlp() {
-	for _, pip := range []string{"pip3", "pip"} {
-		cmd := exec.Command(pip, "install", "--upgrade", "yt-dlp")
-		output, err := cmd.CombinedOutput()
-		if err == nil {
-			sl.logger.Printf("[INFO] yt-dlp installed successfully via %s\n", pip)
-			return
-		}
-		sl.logger.Printf("[DEBUG] yt-dlp install via %s failed: %s\n", pip, strings.TrimSpace(string(output)))
-	}
-	sl.logger.Println("[WARN] yt-dlp could not be installed automatically. Please run: pip3 install yt-dlp")
+	sl.logger.Println("[INFO] autoInstallYtDlp: yt-dlp is now bundled via youtube-dl-exec npm package. No manual installation needed.")
 }
 
 // Install dependencies
