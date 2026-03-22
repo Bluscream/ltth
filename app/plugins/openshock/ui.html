@@ -418,20 +418,86 @@
 
         <!-- Tab 7: Advanced -->
         <div id="advanced" class="tab-content">
-            <!-- API Settings -->
+            <!-- Provider Selection + API Settings -->
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">OpenShock API Settings</h2>
+                    <h2 class="card-title">⚡ Shock Device Provider</h2>
                 </div>
+
+                <!-- Provider Dropdown -->
                 <div class="form-group">
-                    <label class="form-label">API Key</label>
-                    <input type="password" class="form-input" id="apiKey" placeholder="Enter your OpenShock API key">
+                    <label class="form-label">API Provider</label>
+                    <select class="form-input" id="apiProvider">
+                        <option value="openshock">🔴 OpenShock</option>
+                        <option value="pishock">🟡 PiShock</option>
+                    </select>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">Base URL</label>
-                    <input type="text" class="form-input" id="baseUrl" value="https://api.openshock.app" placeholder="https://api.openshock.app">
+
+                <!-- Provider Status Badge -->
+                <div id="providerStatusBadge" style="margin-bottom: 12px;">
+                    <span class="status-badge status-disconnected" id="providerStatusText">
+                        <span class="status-dot"></span>
+                        <span>Not configured</span>
+                    </span>
                 </div>
-                <div class="btn-group">
+
+                <!-- ---- OpenShock Fields ---- -->
+                <div id="openshockFields">
+                    <div class="form-group">
+                        <label class="form-label">API Key</label>
+                        <input type="password" class="form-input" id="apiKey" placeholder="Enter your OpenShock API key">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Base URL</label>
+                        <input type="text" class="form-input" id="baseUrl" value="https://api.openshock.app" placeholder="https://api.openshock.app">
+                    </div>
+                </div>
+
+                <!-- ---- PiShock Fields ---- -->
+                <div id="pishockFields" style="display:none;">
+                    <div class="form-group">
+                        <label class="form-label">PiShock Username</label>
+                        <input type="text" class="form-input" id="pishockUsername" placeholder="Your PiShock account username">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">PiShock API Key</label>
+                        <input type="password" class="form-input" id="pishockApiKey" placeholder="Enter your PiShock API key">
+                    </div>
+
+                    <!-- ShareCode Management -->
+                    <div class="form-group">
+                        <label class="form-label" style="margin-bottom:8px;">
+                            ShareCodes
+                            <span class="text-muted" style="font-size:0.8em; margin-left:6px;">
+                                (ShareCodes act as device IDs)
+                            </span>
+                        </label>
+
+                        <!-- ShareCode List -->
+                        <div id="shareCodeList" style="margin-bottom:10px;">
+                            <p class="text-muted text-center" id="shareCodeEmpty">No ShareCodes configured yet.</p>
+                        </div>
+
+                        <!-- Add ShareCode Inline Form -->
+                        <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:140px;">
+                                <label class="form-label" style="font-size:0.8em;">Code</label>
+                                <input type="text" class="form-input" id="newShareCode" placeholder="e.g. 17519CD8GAP">
+                            </div>
+                            <div style="flex:1; min-width:120px;">
+                                <label class="form-label" style="font-size:0.8em;">Display Name</label>
+                                <input type="text" class="form-input" id="newShareCodeName" placeholder="e.g. Collar 1">
+                            </div>
+                            <div>
+                                <button class="btn btn-success btn-sm" id="addShareCodeBtn" style="white-space:nowrap;">
+                                    ➕ Add Code
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="btn-group" style="margin-top:12px;">
                     <button class="btn btn-primary" id="saveApiSettings">💾 Save Settings</button>
                     <button class="btn btn-secondary" id="testConnection">🔌 Test Connection</button>
                 </div>

@@ -1,15 +1,20 @@
 {
   "openshock": {
-    "title": "OpenShock Integration",
+    "title": "OpenShock & PiShock Integration",
     "subtitle": "Hardware-Shock-Steuerung",
     "config": {
       "title": "Konfiguration",
-      "enabled": "OpenShock aktivieren",
+      "enabled": "Shock-Integration aktivieren",
+      "api_provider": "API-Provider",
       "api_url": "API-URL",
       "api_token": "API-Token",
       "shocker_id": "Shocker-ID",
       "test_connection": "Verbindung testen",
-      "save": "Einstellungen speichern"
+      "save": "Einstellungen speichern",
+      "pishock_username": "PiShock-Benutzername",
+      "pishock_api_key": "PiShock API-Key",
+      "pishock_sharecodes": "ShareCodes",
+      "add_sharecode": "ShareCode hinzufügen"
     },
     "triggers": {
       "title": "Event-Trigger",
