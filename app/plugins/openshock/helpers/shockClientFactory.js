@@ -48,7 +48,7 @@ class ShockClientFactory {
             case 'pishock': {
                 const pishockConfig = config.pishock || {};
                 logger.info('ShockClientFactory: Creating PiShockClient', {
-                    username: pishockConfig.username ? '***' : '(not set)',
+                    username: pishockConfig.username || '(not set)',
                     shareCodes: (pishockConfig.shareCodes || []).length
                 });
                 return new PiShockClient(pishockConfig, logger);

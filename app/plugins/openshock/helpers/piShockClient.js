@@ -500,9 +500,12 @@ class PiShockClient {
     /**
      * Konvertiert Millisekunden in PiShock-Sekunden (1-15).
      *
+     * PiShock akzeptiert Dauern nur als ganze Sekunden im Bereich 1-15.
+     * Rundungsbeispiele: 499ms → 1s, 500ms → 1s, 1499ms → 1s, 1500ms → 2s, 15999ms → 16s → clamped to 15s.
+     *
      * @private
-     * @param {number} durationMs - Dauer in Millisekunden
-     * @returns {number} Dauer in Sekunden (1-15)
+     * @param {number} durationMs - Dauer in Millisekunden (z.B. 5000 für 5 Sekunden)
+     * @returns {number} Dauer in ganzen Sekunden, geklemmt auf 1-15
      */
     _convertDuration(durationMs) {
         return Math.max(1, Math.min(15, Math.round(durationMs / 1000)));

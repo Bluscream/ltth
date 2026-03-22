@@ -422,7 +422,6 @@ class OpenShockPlugin {
 
         // Shock API Client (OpenShock oder PiShock je nach config.apiProvider)
         this.openShockClient = ShockClientFactory.create(this.config, logger);
-
         // Safety Manager
         this.safetyManager = new SafetyManager(
             {
@@ -2456,7 +2455,7 @@ class OpenShockPlugin {
 
             if (!this._isProviderConfigured()) {
                 const hint = provider === 'pishock'
-                    ? 'PiShock username, API key, and at least one ShareCode required'
+                    ? 'PiShock configuration incomplete: username, API key, and at least one ShareCode are required for device access'
                     : 'API Key not configured';
                 throw new Error(hint);
             }

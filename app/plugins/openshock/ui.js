@@ -2535,6 +2535,7 @@ function renderShareCodeList(shareCodes) {
         deleteBtn.style.padding = '3px 8px';
         deleteBtn.textContent = '🗑️';
         deleteBtn.title = `Delete ShareCode ${sc.code}`;
+        deleteBtn.setAttribute('aria-label', `Delete ShareCode ${sc.code}`);
         deleteBtn.addEventListener('click', (e) => {
             e.preventDefault();
             deleteShareCode(sc.code);
