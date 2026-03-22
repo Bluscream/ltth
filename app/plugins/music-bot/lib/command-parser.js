@@ -25,7 +25,7 @@ class CommandParser {
     if (!commandType) return;
 
     const required = this._getPermissionForCommand(commandType);
-    const allowed = await this._hasPermission(username, required);
+    const allowed = await this._hasPermission(username, required, chatData);
     if (!allowed) {
       this._respond(`Keine Berechtigung für ${commandType}.`, username);
       return;
@@ -77,6 +77,8 @@ class CommandParser {
       case 'pause':
       case 'resume':
       case 'clear':
+      case 'mysong':
+      case 'help':
         return { type };
       default:
         return null;
@@ -85,9 +87,9 @@ class CommandParser {
 
   /**
    * Normalizes a song query from chat args.
-   * Detects separator patterns (" - ", " von ", " by ", " from ") to split
-   * the input into artist and title, then reorders as "{artist} {title}" so
-   * YouTube search returns more reliable results.
+   * Detects separator patterns to split the input into artist and title.
+   * For "by/von/from" separators, the order is "Title by Artist" → reorders to "Artist Title".
+   * For dash separators (" - "), the order is already "Artist - Title" → keeps as "Artist Title".
    * Falls back to the raw joined args when no separator is found.
    * @param {string[]} args - Tokenised words following the command keyword
    * @returns {string} Normalized query string
@@ -96,27 +98,57 @@ class CommandParser {
     const raw = args.join(' ').trim();
     if (!raw) return raw;
 
-    const separatorPattern = /\s+(?:-|von|by|from)\s+/i;
-    const match = raw.match(separatorPattern);
-    if (!match) return raw;
+    // For "by/von/from" separators: "Title by Artist" → swap to "Artist Title"
+    const swapPattern = /\s+(?:von|by|from)\s+/i;
+    const swapMatch = raw.match(swapPattern);
+    if (swapMatch) {
+      const sepIndex = raw.indexOf(swapMatch[0]);
+      const before = raw.slice(0, sepIndex).trim();
+      const after = raw.slice(sepIndex + swapMatch[0].length).trim();
+      if (before && after) {
+        return `${after} ${before}`;
+      }
+    }
 
-    const sepIndex = raw.indexOf(match[0]);
-    const before = raw.slice(0, sepIndex).trim();
-    const after = raw.slice(sepIndex + match[0].length).trim();
-    if (!before || !after) return raw;
+    // For dash separators: "Artist - Title" → keep order as "Artist Title"
+    const dashPattern = /\s+-\s+/;
+    const dashMatch = raw.match(dashPattern);
+    if (dashMatch) {
+      const sepIndex = raw.indexOf(dashMatch[0]);
+      const before = raw.slice(0, sepIndex).trim();
+      const after = raw.slice(sepIndex + dashMatch[0].length).trim();
+      if (before && after) {
+        return `${before} ${after}`;
+      }
+    }
 
-    // Reorder as "artist title" – YouTube search is more reliable that way
-    return `${after} ${before}`;
+    return raw;
   }
 
-  async _hasPermission(username, requiredLevel) {
+  async _hasPermission(username, requiredLevel, chatData) {
     if (requiredLevel === 'viewer') return true;
-    if (requiredLevel === 'streamer') {
-      const targetName = await this._getStreamerUsername();
-      return targetName ? targetName.toLowerCase() === username.toLowerCase() : false;
+
+    const isStreamer = await this._isBypassRole(username);
+    if (isStreamer) return true;
+
+    if (requiredLevel === 'streamer') return false;
+
+    if (requiredLevel === 'mod') {
+      return chatData?.isModerator === true
+        || (chatData?.teamMemberLevel >= 1);
     }
-    // follower/subscriber/mod: fallback to viewer until richer role data is available
-    return true;
+
+    if (requiredLevel === 'subscriber') {
+      return chatData?.isSubscriber === true
+        || (chatData?.teamMemberLevel >= 1);
+    }
+
+    if (requiredLevel === 'follower') {
+      return chatData?.isFollower === true;
+    }
+
+    // Unknown level – deny by default
+    return false;
   }
 
   /**
