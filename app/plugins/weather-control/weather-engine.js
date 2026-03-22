@@ -16,6 +16,11 @@
   const DIGITAL_NOISE_FREQUENCY = 0.25; // 25% chance of digital noise per frame
   const FIXED_TIMESTEP = 1000 / 60;     // 60 physics updates per second
   const MAX_ACCUMULATED = 200;          // Cap to prevent spiral of death
+  const SCREEN_SHAKE_X_MAGNITUDE = 4;   // Max horizontal screen shake for storm
+  const SCREEN_SHAKE_Y_MAGNITUDE = 2;   // Max vertical screen shake for storm
+  const WIND_BASE_AMPLITUDE = 2;        // Base sine wind amplitude
+  const WIND_GUST_AMPLITUDE = 4;        // Perlin gust amplitude
+  const WIND_MICRO_AMPLITUDE = 1;       // Perlin micro-turbulence amplitude
 
   // Quality presets for adaptive rendering
   const QUALITY_PRESETS = {
@@ -416,6 +421,7 @@
           this.turbulence = 0;
           this.splashing = false;
           this.splashParticles = [];
+          this.ripple = null;
           break;
         
         case 'snow':
@@ -502,6 +508,14 @@
             this.splashParticles.length = writeIdx;
           }
           
+          if (this.ripple) {
+            this.ripple.radius += 0.6 * speed;
+            this.ripple.alpha -= 0.015 * speed;
+            if (this.ripple.alpha <= 0 || this.ripple.radius >= this.ripple.maxRadius) {
+              this.ripple = null;
+            }
+          }
+          
           if (this.y > h + 20) {
             this.reset({ startFromTop: true, width: w, height: h });
           }
@@ -564,6 +578,14 @@
           size: 1 + Math.random()
         });
       }
+      this.ripple = {
+        x: this.x,
+        y: this.y,
+        radius: 0,
+        maxRadius: 8 + Math.random() * 12,
+        alpha: 0.5,
+        width: 1.2
+      };
     }
 
     draw(ctx, alpha = 1.0, noise = null, currentTime = 0) {
@@ -578,12 +600,36 @@
           {
             // Depth-based rendering
             const depthFactor = 0.5 + this.z * 0.5; // z: 0-1 → depth: 0.5-1.0
+            const isNearCamera = this.z > 0.75;
+            const motionBlurFactor = isNearCamera ? 1.4 : 1.0;
+            const motionBlurWidth = isNearCamera ? 1.3 : 1.0;
+            const renderLength = this.length * motionBlurFactor;
             const glowIntensity = this.type === 'storm' ? 0.3 : 0.15;
+            
+            const baseR = this.type === 'storm' ? 107 : 160;
+            const baseG = this.type === 'storm' ? 163 : 196;
+            const baseB = this.type === 'storm' ? 214 : 232;
+            
+            // Extra motion blur pass for near-camera particles (before glow pass)
+            if (isNearCamera) {
+              const blurGradient = ctx.createLinearGradient(
+                this.x, this.y,
+                this.x - this.speedX * 2, this.y - renderLength
+              );
+              blurGradient.addColorStop(0, `rgba(${baseR}, ${baseG}, ${baseB}, ${this.alpha * 0.06})`);
+              blurGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+              ctx.strokeStyle = blurGradient;
+              ctx.lineWidth = (this.width + 5) * depthFactor;
+              ctx.beginPath();
+              ctx.moveTo(this.x, this.y);
+              ctx.lineTo(this.x - this.speedX * 2, this.y - renderLength);
+              ctx.stroke();
+            }
             
             // Outer glow layer
             const glowGradient = ctx.createLinearGradient(
               this.x, this.y,
-              this.x - this.speedX * 2, this.y - this.length
+              this.x - this.speedX * 2, this.y - renderLength
             );
             const glowColor = this.type === 'storm' 
               ? `rgba(107, 163, 214, ${this.alpha * glowIntensity})` 
@@ -592,22 +638,18 @@
             glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
             
             ctx.strokeStyle = glowGradient;
-            ctx.lineWidth = (this.width + 2) * depthFactor;
+            ctx.lineWidth = (this.width + 2) * depthFactor * motionBlurWidth;
             ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
-            ctx.lineTo(this.x - this.speedX * 2, this.y - this.length);
+            ctx.lineTo(this.x - this.speedX * 2, this.y - renderLength);
             ctx.stroke();
             
             // Main raindrop with depth-based color
             const mainGradient = ctx.createLinearGradient(
               this.x, this.y,
-              this.x - this.speedX * 2, this.y - this.length
+              this.x - this.speedX * 2, this.y - renderLength
             );
-            
-            const baseR = this.type === 'storm' ? 107 : 160;
-            const baseG = this.type === 'storm' ? 163 : 196;
-            const baseB = this.type === 'storm' ? 214 : 232;
             
             const depthR = Math.round(baseR * depthFactor);
             const depthG = Math.round(baseG * depthFactor);
@@ -618,10 +660,10 @@
             mainGradient.addColorStop(1, `rgba(${baseR}, ${baseG}, ${baseB}, 0)`);
             
             ctx.strokeStyle = mainGradient;
-            ctx.lineWidth = this.width * depthFactor;
+            ctx.lineWidth = this.width * depthFactor * motionBlurWidth;
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
-            ctx.lineTo(this.x - this.speedX * 2, this.y - this.length);
+            ctx.lineTo(this.x - this.speedX * 2, this.y - renderLength);
             ctx.stroke();
             
             // Enhanced splash rendering
@@ -645,6 +687,24 @@
                 
                 ctx.globalAlpha = this.alpha;
               });
+            }
+            
+            // Puddle ripple rendering
+            if (this.type === 'rain' && this.ripple) {
+              ctx.globalAlpha = this.ripple.alpha;
+              ctx.strokeStyle = `rgba(180, 210, 240, ${this.ripple.alpha})`;
+              ctx.lineWidth = this.ripple.width;
+              ctx.beginPath();
+              ctx.ellipse(this.ripple.x, this.ripple.y, this.ripple.radius, this.ripple.radius * 0.35, 0, 0, Math.PI * 2);
+              ctx.stroke();
+              // Inner ring
+              if (this.ripple.radius > 3) {
+                ctx.globalAlpha = this.ripple.alpha * 0.4;
+                ctx.beginPath();
+                ctx.ellipse(this.ripple.x, this.ripple.y, this.ripple.radius * 0.5, this.ripple.radius * 0.5 * 0.35, 0, 0, Math.PI * 2);
+                ctx.stroke();
+              }
+              ctx.globalAlpha = this.alpha;
             }
           }
           break;
@@ -897,6 +957,9 @@
       this.glitchCanvas = null;
       this.glitchCtx = null;
       
+      // Screen shake state for storm effect
+      this.screenShake = { x: 0, y: 0 };
+      
       this.updateDimensions();
     }
 
@@ -1138,6 +1201,18 @@
       // Clear canvas
       this.ctx.clearRect(0, 0, this.dimensions.width, this.dimensions.height);
       
+      // Screen shake for storm
+      const activeStorm = this.state.activeEffects.find(e => e.type === 'storm');
+      if (activeStorm) {
+        this.screenShake.x = (Math.random() - 0.5) * SCREEN_SHAKE_X_MAGNITUDE * activeStorm.intensity;
+        this.screenShake.y = (Math.random() - 0.5) * SCREEN_SHAKE_Y_MAGNITUDE * activeStorm.intensity;
+        this.ctx.save();
+        this.ctx.translate(this.screenShake.x, this.screenShake.y);
+      } else {
+        this.screenShake.x = 0;
+        this.screenShake.y = 0;
+      }
+      
       // Calculate FPS
       if (deltaTime > 0) {
         this.state.fps = Math.round(1000 / deltaTime);
@@ -1178,6 +1253,13 @@
         if (effect.type === 'thunder') {
           this.handleThunder(effect);
         }
+        if (effect.type === 'rain') {
+          this.drawGroundMist(effect);
+        }
+        if (effect.type === 'storm') {
+          this.drawStormDarkness(effect);
+          this.drawWindStreaks(effect);
+        }
       }
       
       // Adaptive quality: check FPS every qualityCheckInterval frames
@@ -1201,6 +1283,9 @@
       }
       
       // Continue animation
+      if (activeStorm) {
+        this.ctx.restore();
+      }
       if (this.state.running) {
         this.state.animationId = requestAnimationFrame(this._boundRender);
       }
@@ -1210,8 +1295,11 @@
      * Update physics with fixed timestep
      */
     updatePhysics(deltaTime, currentTime) {
-      // Update global wind (slow sine wave)
-      this.globalWind = Math.sin(currentTime * 0.0005) * 3;
+      // Update global wind (Perlin-based for natural gusts)
+      const windBase = Math.sin(currentTime * 0.0005) * WIND_BASE_AMPLITUDE;
+      const windGust = this.noise.noise2D(currentTime * 0.0008, 0) * WIND_GUST_AMPLITUDE;
+      const windMicro = this.noise.noise2D(currentTime * 0.003, 100) * WIND_MICRO_AMPLITUDE;
+      this.globalWind = windBase + windGust + windMicro;
       
       // Update particles - use Set iteration to avoid splice in hot path
       for (const particle of this.state.particles) {
@@ -1779,6 +1867,96 @@
      */
     getActiveEffects() {
       return this.state.activeEffects;
+    }
+
+    /**
+     * Draw ground mist sub-effect for rain
+     */
+    drawGroundMist(effect) {
+      if (!effect || effect.type !== 'rain') return;
+      const w = this.dimensions.width;
+      const h = this.dimensions.height;
+      const mistHeight = h * 0.12;
+      const mistY = h - mistHeight;
+      const time = Date.now() * 0.0003;
+      
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'screen';
+      
+      const layerCount = 3;
+      for (let layer = 0; layer < layerCount; layer++) {
+        const layerOffset = this.noise.noise2D(layer * 10, time) * 30;
+        const layerAlpha = (0.06 + layer * 0.02) * effect.intensity;
+        
+        const gradient = this.ctx.createLinearGradient(0, h, 0, mistY - layer * 15);
+        gradient.addColorStop(0, `rgba(180, 200, 220, ${layerAlpha})`);
+        gradient.addColorStop(0.4, `rgba(180, 200, 220, ${layerAlpha * 0.6})`);
+        gradient.addColorStop(1, 'rgba(180, 200, 220, 0)');
+        
+        this.ctx.fillStyle = gradient;
+        this.ctx.beginPath();
+        this.ctx.moveTo(-20, h + 10);
+        
+        const segments = 20;
+        for (let i = 0; i <= segments; i++) {
+          const segX = (w + 40) * (i / segments) - 20;
+          const noiseVal = this.noise.noise2D(segX * 0.005 + layerOffset, time + layer * 5);
+          const segY = mistY - layer * 15 + noiseVal * 20;
+          this.ctx.lineTo(segX, segY);
+        }
+        
+        this.ctx.lineTo(w + 20, h + 10);
+        this.ctx.closePath();
+        this.ctx.fill();
+      }
+      
+      this.ctx.restore();
+    }
+
+    /**
+     * Draw dark overlay for storm effect
+     */
+    drawStormDarkness(effect) {
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'multiply';
+      const darkness = 0.15 * effect.intensity;
+      this.ctx.fillStyle = `rgba(40, 45, 60, ${darkness})`;
+      this.ctx.fillRect(0, 0, this.dimensions.width, this.dimensions.height);
+      this.ctx.restore();
+    }
+
+    /**
+     * Draw wind streaks for storm effect
+     */
+    drawWindStreaks(effect) {
+      this.ctx.save();
+      const w = this.dimensions.width;
+      const h = this.dimensions.height;
+      const time = Date.now() * 0.001;
+      const streakCount = Math.floor(8 * effect.intensity);
+      
+      for (let i = 0; i < streakCount; i++) {
+        const seed = i * 137.5;
+        const y = ((seed * 7 + time * 60) % (h + 100)) - 50;
+        const x = ((seed * 13 + time * 200) % (w + 400)) - 200;
+        const streakLength = 80 + (seed % 160);
+        const streakAlpha = (0.03 + (seed * 0.1 % 5) * 0.01) * effect.intensity;
+        
+        const gradient = this.ctx.createLinearGradient(x, y, x + streakLength, y + streakLength * 0.15);
+        gradient.addColorStop(0, 'rgba(150, 170, 200, 0)');
+        gradient.addColorStop(0.3, `rgba(150, 170, 200, ${streakAlpha})`);
+        gradient.addColorStop(0.7, `rgba(150, 170, 200, ${streakAlpha})`);
+        gradient.addColorStop(1, 'rgba(150, 170, 200, 0)');
+        
+        this.ctx.strokeStyle = gradient;
+        this.ctx.lineWidth = 1 + (seed * 0.1 % 1);
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, y);
+        this.ctx.lineTo(x + streakLength, y + streakLength * 0.15);
+        this.ctx.stroke();
+      }
+      
+      this.ctx.restore();
     }
 
     /**
