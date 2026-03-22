@@ -17,6 +17,14 @@
   const FIXED_TIMESTEP = 1000 / 60;     // 60 physics updates per second
   const MAX_ACCUMULATED = 200;          // Cap to prevent spiral of death
 
+  // Quality presets for adaptive rendering
+  const QUALITY_PRESETS = {
+    low:    { maxParticles: 100, fogLayers: 1, bloomPasses: 1, lightningGenerations: 3, dustMotes: 5 },
+    medium: { maxParticles: 300, fogLayers: 2, bloomPasses: 2, lightningGenerations: 5, dustMotes: 10 },
+    high:   { maxParticles: 500, fogLayers: 3, bloomPasses: 3, lightningGenerations: 6, dustMotes: 15 },
+    ultra:  { maxParticles: 800, fogLayers: 4, bloomPasses: 4, lightningGenerations: 7, dustMotes: 20 }
+  };
+
   /**
    * SimplexNoise - Lightweight Simplex noise implementation for fog effects
    * Based on Stefan Gustavson's implementation
@@ -389,6 +397,7 @@
       this.y = config.startFromTop ? -20 : (config.y !== undefined ? config.y : Math.random() * h);
       this.z = Math.random(); // Depth for parallax (0-1)
       this.active = true;
+      this.parentEffect = config.parentEffect || null;
       
       // Store previous position for interpolation
       this.prevX = this.x;
@@ -418,8 +427,9 @@
           this.wobbleSpeed = 0.02 + Math.random() * 0.04;
           this.rotation = Math.random() * Math.PI * 2;
           this.rotationSpeed = (Math.random() - 0.5) * 0.1;
-          // Snowflake variant (0-4 for different Koch snowflake patterns)
-          this.variant = Math.floor(Math.random() * 5);
+          // Snowflake variant – use all available variants
+          const variantCount = config.snowflakeVariants ? config.snowflakeVariants.length : 5;
+          this.variant = Math.floor(Math.random() * variantCount);
           // Cache snowflake points if not already cached
           if (!config.snowflakeVariants) {
             this.snowflakePoints = null;
@@ -473,7 +483,7 @@
             this.triggerSplash();
           }
           
-          // Update splash particles
+          // Update splash particles (in-place compaction to avoid GC pressure)
           if (this.splashParticles.length > 0) {
             for (let i = 0, len = this.splashParticles.length; i < len; i++) {
               const splash = this.splashParticles[i];
@@ -482,7 +492,14 @@
               splash.vy += 0.2 * speed; // gravity
               splash.life -= 0.05 * speed;
             }
-            this.splashParticles = this.splashParticles.filter(s => s.life > 0);
+            let writeIdx = 0;
+            for (let i = 0; i < this.splashParticles.length; i++) {
+              if (this.splashParticles[i].life > 0) {
+                if (i !== writeIdx) this.splashParticles[writeIdx] = this.splashParticles[i];
+                writeIdx++;
+              }
+            }
+            this.splashParticles.length = writeIdx;
           }
           
           if (this.y > h + 20) {
@@ -549,7 +566,7 @@
       }
     }
 
-    draw(ctx, alpha = 1.0, noise = null) {
+    draw(ctx, alpha = 1.0, noise = null, currentTime = 0) {
       if (!this.active || !ctx) return;
       
       ctx.save();
@@ -732,7 +749,7 @@
             // Perlin noise displacement for organic edges
             if (noise) {
               const noiseScale = 0.003;
-              const noiseTime = Date.now() * 0.0001;
+              const noiseTime = currentTime * 0.0001;
               const noiseOffsetX = noise.noise2D(baseX * noiseScale, noiseTime) * 30;
               const noiseOffsetY = noise.noise2D(baseY * noiseScale, noiseTime + 100) * 30;
               
@@ -865,6 +882,21 @@
       this.lightningSegments = [];
       this.lightningFadeTime = 0;
       
+      // Cache bound render function to avoid per-frame allocation
+      this._boundRender = this.render.bind(this);
+      
+      // Quality preset driven by renderQuality option
+      this.qualityPreset = QUALITY_PRESETS[this.options.renderQuality] || QUALITY_PRESETS.high;
+      
+      // Adaptive quality settings
+      this.adaptiveQualityEnabled = this.options.adaptiveQuality !== false;
+      this.qualityCheckInterval = 120; // Check every 120 frames
+      this.framesSinceQualityCheck = 0;
+      
+      // Off-screen canvas for GlitchClouds pixel operations
+      this.glitchCanvas = null;
+      this.glitchCtx = null;
+      
       this.updateDimensions();
     }
 
@@ -916,39 +948,43 @@
       
       // Create particles based on effect type using pools
       if (type === 'rain') {
-        const particleCount = Math.floor(250 * intensity);
+        const particleCount = Math.min(Math.floor(250 * intensity), this.qualityPreset.maxParticles);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.rain.acquire({
             width: this.dimensions.width,
-            height: this.dimensions.height
+            height: this.dimensions.height,
+            parentEffect: effect
           });
           effect.particles.push(particle);
         }
       } else if (type === 'snow') {
-        const particleCount = Math.floor(180 * intensity);
+        const particleCount = Math.min(Math.floor(180 * intensity), this.qualityPreset.maxParticles);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.snow.acquire({
             width: this.dimensions.width,
             height: this.dimensions.height,
-            snowflakeVariants: this.snowflakeVariants
+            snowflakeVariants: this.snowflakeVariants,
+            parentEffect: effect
           });
           effect.particles.push(particle);
         }
       } else if (type === 'storm') {
-        const particleCount = Math.floor(300 * intensity);
+        const particleCount = Math.min(Math.floor(300 * intensity), this.qualityPreset.maxParticles);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.storm.acquire({
             width: this.dimensions.width,
-            height: this.dimensions.height
+            height: this.dimensions.height,
+            parentEffect: effect
           });
           effect.particles.push(particle);
         }
       } else if (type === 'fog') {
-        const particleCount = Math.floor(30 * intensity);
+        const particleCount = Math.min(Math.floor(30 * intensity), this.qualityPreset.maxParticles);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.fog.acquire({
             width: this.dimensions.width,
-            height: this.dimensions.height
+            height: this.dimensions.height,
+            parentEffect: effect
           });
           effect.particles.push(particle);
         }
@@ -987,6 +1023,7 @@
         // Safety check: sunbeam/thunder/glitchclouds don't use particles
         if (specificEffect.particles && specificEffect.particles.length > 0) {
           specificEffect.particles.forEach(p => {
+            if (p) p.parentEffect = null;
             if (p && p.type && this.pools[p.type]) {
               this.pools[p.type].release(p);
             } else if (p && typeof p.destroy === 'function') {
@@ -1014,6 +1051,7 @@
           // Release particles back to pool with safety checks
           if (e.particles && e.particles.length > 0) {
             e.particles.forEach(p => {
+              if (p) p.parentEffect = null;
               if (p && p.type && this.pools[p.type]) {
                 this.pools[p.type].release(p);
               } else if (p && typeof p.destroy === 'function') {
@@ -1046,6 +1084,7 @@
         // Release particles back to pools with safety checks
         if (e.particles && e.particles.length > 0) {
           e.particles.forEach(p => {
+            if (p) p.parentEffect = null;
             if (p && p.type && this.pools[p.type]) {
               this.pools[p.type].release(p);
             } else if (p && typeof p.destroy === 'function') {
@@ -1141,9 +1180,29 @@
         }
       }
       
+      // Adaptive quality: check FPS every qualityCheckInterval frames
+      if (this.adaptiveQualityEnabled) {
+        this.framesSinceQualityCheck++;
+        if (this.framesSinceQualityCheck >= this.qualityCheckInterval) {
+          this.framesSinceQualityCheck = 0;
+          const avgFps = this.getAverageFPS();
+          const currentLevel = this.options.renderQuality;
+          const levels = ['low', 'medium', 'high', 'ultra'];
+          const currentIdx = levels.indexOf(currentLevel);
+          if (currentIdx === -1) return; // unknown quality level – skip
+          if (avgFps < 30 && currentIdx > 0) {
+            this.options.renderQuality = levels[currentIdx - 1];
+            this.qualityPreset = QUALITY_PRESETS[this.options.renderQuality];
+          } else if (avgFps > 55 && currentIdx < levels.length - 1) {
+            this.options.renderQuality = levels[currentIdx + 1];
+            this.qualityPreset = QUALITY_PRESETS[this.options.renderQuality];
+          }
+        }
+      }
+      
       // Continue animation
       if (this.state.running) {
-        this.state.animationId = requestAnimationFrame(this.render.bind(this));
+        this.state.animationId = requestAnimationFrame(this._boundRender);
       }
     }
 
@@ -1158,10 +1217,7 @@
       for (const particle of this.state.particles) {
         if (!particle.active) continue;
         
-        const effect = this.state.activeEffects.find(e =>
-          e.particles && e.particles.includes(particle)
-        );
-        const intensity = effect ? effect.intensity : 1.0;
+        const intensity = particle.parentEffect ? particle.parentEffect.intensity : 1.0;
         
         particle.update(deltaTime, intensity, this.dimensions, this.globalWind, currentTime);
       }
@@ -1174,6 +1230,7 @@
      * Render with interpolation for smooth visuals
      */
     renderInterpolated(alpha) {
+      const currentTime = Date.now();
       for (const particle of this.state.particles) {
         if (!particle.active) continue;
         
@@ -1187,7 +1244,7 @@
         particle.x = renderX;
         particle.y = renderY;
         
-        particle.draw(this.ctx, alpha, this.noise);
+        particle.draw(this.ctx, alpha, this.noise, currentTime);
         
         // Restore actual position
         particle.x = origX;
@@ -1215,7 +1272,7 @@
           { scale: 2.5, alpha: 0.03 },
           { scale: 1.8, alpha: 0.06 },
           { scale: 1.3, alpha: 0.10 }
-        ];
+        ].slice(0, this.qualityPreset.bloomPasses);
         
         bloomPasses.forEach(pass => {
           this.ctx.save();
@@ -1275,7 +1332,7 @@
      * Draw floating dust particles in sunbeam with depth and glow
      */
     drawDustMotes(beam, effect) {
-      const moteCount = Math.floor(15 * effect.intensity);
+      const moteCount = Math.floor(this.qualityPreset.dustMotes * effect.intensity);
       const time = Date.now() * 0.001;
       
       this.ctx.save();
@@ -1328,7 +1385,7 @@
         const alphaModulation = 0.7 + noiseValue * 0.3;
         
         // Multiple gradient layers for depth
-        const layers = 3;
+        const layers = this.qualityPreset.fogLayers;
         for (let i = 0; i < layers; i++) {
           const layerSize = particle.size * (1 - i * 0.2);
           const layerAlpha = particle.alpha * alphaModulation * (1 - i * 0.3);
@@ -1398,7 +1455,7 @@
       const endY = h;
       
       this.lightningSegments = this.subdivideLightning(
-        startX, startY, endX, endY, 6, 1.0
+        startX, startY, endX, endY, this.qualityPreset.lightningGenerations, 1.0
       );
       this.lightningFadeTime = Date.now() + 150;
     }
@@ -1492,12 +1549,29 @@
 
     /**
      * Draw advanced glitch clouds with RGB shift, displacement, and VHS artifacts
+     * Uses a separate off-screen canvas with willReadFrequently:true to avoid
+     * GPU→CPU readback penalties on the main canvas.
      */
     drawGlitchClouds(effect) {
-      this.ctx.save();
       const w = this.dimensions.width;
       const h = this.dimensions.height;
-      const time = Date.now();
+
+      // Lazy-init off-screen glitch canvas
+      if (!this.glitchCanvas) {
+        this.glitchCanvas = document.createElement('canvas');
+        this.glitchCanvas.width = w;
+        this.glitchCanvas.height = h;
+        this.glitchCtx = this.glitchCanvas.getContext('2d', { willReadFrequently: true });
+      }
+      if (this.glitchCanvas.width !== w || this.glitchCanvas.height !== h) {
+        this.glitchCanvas.width = w;
+        this.glitchCanvas.height = h;
+      }
+
+      // Copy current main canvas content onto the glitch canvas
+      this.glitchCtx.drawImage(this.canvas, 0, 0, w, h);
+
+      this.glitchCtx.save();
       
       // === RGB Channel Shift (classic glitch effect) ===
       if (Math.random() < GLITCH_LINE_FREQUENCY * 1.5) {
@@ -1506,8 +1580,8 @@
         const shiftHeight = Math.floor(10 + Math.random() * 40);
         
         try {
-          // Get image data for this strip
-          const imageData = this.ctx.getImageData(0, shiftY, w, Math.min(shiftHeight, h - shiftY));
+          // Get image data for this strip from the glitch canvas
+          const imageData = this.glitchCtx.getImageData(0, shiftY, w, Math.min(shiftHeight, h - shiftY));
           const data = imageData.data;
           
           // Shift RGB channels
@@ -1526,7 +1600,7 @@
             }
           }
           
-          this.ctx.putImageData(imageData, 0, shiftY);
+          this.glitchCtx.putImageData(imageData, 0, shiftY);
         } catch (e) {
           // Fail silently if out of bounds
         }
@@ -1540,16 +1614,16 @@
           const barHeight = 5 + Math.random() * 30;
           const displacement = (Math.random() - 0.5) * 50 * effect.intensity;
           
-          // Copy and shift section
+          // Copy and shift section on the glitch canvas
           try {
-            const imageData = this.ctx.getImageData(0, barY, w, Math.min(barHeight, h - barY));
-            this.ctx.putImageData(imageData, displacement, barY);
+            const imageData = this.glitchCtx.getImageData(0, barY, w, Math.min(barHeight, h - barY));
+            this.glitchCtx.putImageData(imageData, displacement, barY);
           } catch (e) {
             // Fail silently if out of bounds
           }
           
           // Add colored overlay
-          this.ctx.globalAlpha = 0.2 + Math.random() * 0.3;
+          this.glitchCtx.globalAlpha = 0.2 + Math.random() * 0.3;
           const glitchColors = [
             '#ff00ff', // Magenta
             '#00ffff', // Cyan
@@ -1558,17 +1632,17 @@
             '#ffff00', // Yellow
             '#0000ff'  // Blue
           ];
-          this.ctx.fillStyle = glitchColors[Math.floor(Math.random() * glitchColors.length)];
-          this.ctx.fillRect(0, barY, w, barHeight);
+          this.glitchCtx.fillStyle = glitchColors[Math.floor(Math.random() * glitchColors.length)];
+          this.glitchCtx.fillRect(0, barY, w, barHeight);
         }
       }
       
       // === Scanline/VHS Effect ===
       if (Math.random() < 0.3) {
-        this.ctx.globalAlpha = 0.15 * effect.intensity;
-        this.ctx.fillStyle = '#000000';
+        this.glitchCtx.globalAlpha = 0.15 * effect.intensity;
+        this.glitchCtx.fillStyle = '#000000';
         for (let y = 0; y < h; y += 4) {
-          this.ctx.fillRect(0, y, w, 2);
+          this.glitchCtx.fillRect(0, y, w, 2);
         }
       }
       
@@ -1581,39 +1655,39 @@
           const blockW = 10 + Math.random() * 40;
           const blockH = 10 + Math.random() * 40;
           
-          this.ctx.globalAlpha = 0.4 + Math.random() * 0.5;
+          this.glitchCtx.globalAlpha = 0.4 + Math.random() * 0.5;
           const brightness = Math.random() * 255;
           const colorStyle = Math.random();
           
           if (colorStyle < 0.33) {
             // Grayscale noise
-            this.ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness})`;
+            this.glitchCtx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness})`;
           } else if (colorStyle < 0.66) {
             // Magenta/Cyan
-            this.ctx.fillStyle = Math.random() > 0.5 ? '#ff00ff' : '#00ffff';
+            this.glitchCtx.fillStyle = Math.random() > 0.5 ? '#ff00ff' : '#00ffff';
           } else {
             // Random RGB
-            this.ctx.fillStyle = `rgb(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255})`;
+            this.glitchCtx.fillStyle = `rgb(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255})`;
           }
           
-          this.ctx.fillRect(blockX, blockY, blockW, blockH);
+          this.glitchCtx.fillRect(blockX, blockY, blockW, blockH);
         }
       }
       
       // === Chromatic Aberration (edges) ===
       if (Math.random() < 0.2) {
-        this.ctx.globalAlpha = 0.3 * effect.intensity;
-        this.ctx.strokeStyle = '#ff00ff';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(0, 0, w, h);
+        this.glitchCtx.globalAlpha = 0.3 * effect.intensity;
+        this.glitchCtx.strokeStyle = '#ff00ff';
+        this.glitchCtx.lineWidth = 2;
+        this.glitchCtx.strokeRect(0, 0, w, h);
         
-        this.ctx.strokeStyle = '#00ffff';
-        this.ctx.strokeRect(3, 3, w - 6, h - 6);
+        this.glitchCtx.strokeStyle = '#00ffff';
+        this.glitchCtx.strokeRect(3, 3, w - 6, h - 6);
       }
       
       // === Static Noise (improved) ===
       const noiseIntensity = effect.intensity * 0.15; // Increased from 0.05
-      this.ctx.globalAlpha = noiseIntensity;
+      this.glitchCtx.globalAlpha = noiseIntensity;
       
       for (let i = 0; i < 150; i++) { // Increased from 50
         const x = Math.random() * w;
@@ -1621,11 +1695,14 @@
         const size = 1 + Math.random() * 4;
         const brightness = Math.random() * 255;
         
-        this.ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness})`;
-        this.ctx.fillRect(x, y, size, size);
+        this.glitchCtx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness})`;
+        this.glitchCtx.fillRect(x, y, size, size);
       }
       
-      this.ctx.restore();
+      this.glitchCtx.restore();
+
+      // Composite glitch result back onto the main canvas
+      this.ctx.drawImage(this.glitchCanvas, 0, 0);
     }
 
     /**
@@ -1646,7 +1723,7 @@
       if (!this.state.running) {
         this.state.running = true;
         this.state.lastFrameTime = performance.now();
-        this.state.animationId = requestAnimationFrame(this.render.bind(this));
+        this.state.animationId = requestAnimationFrame(this._boundRender);
       }
     }
 
@@ -1714,6 +1791,9 @@
       Object.values(this.pools).forEach(pool => pool.releaseAll());
       this.state.particles = [];
       this.state.activeEffects = [];
+      // Clean up off-screen glitch canvas
+      this.glitchCanvas = null;
+      this.glitchCtx = null;
     }
   }
 
@@ -1725,7 +1805,8 @@
       ParticlePool, 
       SimplexNoise,
       generateKochSnowflake,
-      generateSnowflakeVariants
+      generateSnowflakeVariants,
+      QUALITY_PRESETS
     };
   } else {
     global.WeatherEngine = WeatherEngine;
@@ -1734,6 +1815,7 @@
     global.SimplexNoise = SimplexNoise;
     global.generateKochSnowflake = generateKochSnowflake;
     global.generateSnowflakeVariants = generateSnowflakeVariants;
+    global.QUALITY_PRESETS = QUALITY_PRESETS;
   }
 
 })(typeof window !== 'undefined' ? window : global);
