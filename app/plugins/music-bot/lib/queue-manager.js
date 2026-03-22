@@ -12,7 +12,7 @@ class QueueManager {
     this.userLastRequest = new Map();
     this.voteSkipVoters = new Set();
     this.skipImmuneUsers = new Set();
-    this._ensureHistoryTable();
+    this._ensureTables();
   }
 
   getQueue() {
@@ -46,8 +46,8 @@ class QueueManager {
     return this.skipImmuneUsers.has(username.toLowerCase());
   }
 
-  addVoteSkip(username) {
-    const required = this._computeRequiredVotes();
+  addVoteSkip(username, viewerCount) {
+    const required = this._computeRequiredVotes(viewerCount);
     if (!this.current) {
       return { skipped: false, votes: this.voteSkipVoters.size, required };
     }
@@ -114,6 +114,8 @@ class QueueManager {
       this.userLastRequest.set(songEntry.requestedBy, Date.now());
     }
 
+    this.persistQueue();
+
     return {
       success: true,
       song: songEntry,
@@ -123,6 +125,7 @@ class QueueManager {
 
   shiftNext() {
     this.current = this.queue.shift() || null;
+    this.persistQueue();
     return this.current;
   }
 
@@ -132,6 +135,29 @@ class QueueManager {
     this.userLastRequest.clear();
     this.resetVoteSkips();
     this.clearSkipImmunity();
+    this.persistQueue();
+  }
+
+  removeSong(index) {
+    if (index < 0 || index >= this.queue.length) {
+      return { success: false, error: 'Invalid queue position' };
+    }
+    const [removed] = this.queue.splice(index, 1);
+    this.persistQueue();
+    return { success: true, song: removed };
+  }
+
+  reorderSong(fromIndex, toIndex) {
+    if (fromIndex < 0 || fromIndex >= this.queue.length) {
+      return { success: false, error: 'Invalid source position' };
+    }
+    if (toIndex < 0 || toIndex >= this.queue.length) {
+      return { success: false, error: 'Invalid target position' };
+    }
+    const [song] = this.queue.splice(fromIndex, 1);
+    this.queue.splice(toIndex, 0, song);
+    this.persistQueue();
+    return { success: true, queue: this.queue };
   }
 
   markPlaying(track) {
@@ -202,10 +228,11 @@ class QueueManager {
     return matches;
   }
 
-  _computeRequiredVotes() {
+  _computeRequiredVotes(viewerCount) {
     const minVotes = Math.max(Number(this.config.voteSkip?.minVotes) || 0, 1);
     const thresholdPercent = Math.max(Number(this.config.voteSkip?.thresholdPercent) || 0, 0);
-    const thresholdCount = Math.ceil((thresholdPercent / 100) * minVotes);
+    const base = (typeof viewerCount === 'number' && viewerCount > 0) ? viewerCount : minVotes;
+    const thresholdCount = Math.ceil((thresholdPercent / 100) * base);
     return Math.max(minVotes, thresholdCount);
   }
 
@@ -298,6 +325,64 @@ class QueueManager {
     return match ? match[1] : null;
   }
 
+  persistQueue() {
+    try {
+      const stmt = this.db.prepare(
+        `INSERT INTO plugin_music_bot_queue
+          (id, position, title, artist, duration, thumbnail, url, youtubeId, source, requestedBy, isGiftRequest, addedAt)
+          VALUES (@id, @position, @title, @artist, @duration, @thumbnail, @url, @youtubeId, @source, @requestedBy, @isGiftRequest, @addedAt)`
+      );
+      const persist = this.db.transaction((songs) => {
+        this.db.prepare('DELETE FROM plugin_music_bot_queue').run();
+        songs.forEach((song, idx) => {
+          stmt.run({
+            id: song.id,
+            position: idx,
+            title: song.title || '',
+            artist: song.artist || '',
+            duration: song.duration || null,
+            thumbnail: song.thumbnail || null,
+            url: song.url || '',
+            youtubeId: song.youtubeId || null,
+            source: song.source || 'youtube',
+            requestedBy: song.requestedBy || 'viewer',
+            isGiftRequest: song.isGiftRequest ? 1 : 0,
+            addedAt: song.addedAt || Date.now()
+          });
+        });
+      });
+      persist(this.queue);
+    } catch (error) {
+      this.api.log?.(`[music-bot] Failed to persist queue: ${error.message}`, 'error');
+    }
+  }
+
+  restoreQueue() {
+    try {
+      const rows = this.db
+        .prepare('SELECT * FROM plugin_music_bot_queue ORDER BY position ASC')
+        .all();
+      this.queue = rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        artist: row.artist || '',
+        duration: row.duration || null,
+        thumbnail: row.thumbnail || null,
+        url: row.url,
+        youtubeId: row.youtubeId || null,
+        source: row.source || 'youtube',
+        requestedBy: row.requestedBy || 'viewer',
+        isGiftRequest: Boolean(row.isGiftRequest),
+        addedAt: row.addedAt || Date.now()
+      }));
+      this.api.log?.(`[music-bot] Restored ${this.queue.length} songs from persistent queue`, 'info');
+      return this.queue.length;
+    } catch (error) {
+      this.api.log?.(`[music-bot] Failed to restore queue: ${error.message}`, 'error');
+      return 0;
+    }
+  }
+
   _persistHistory(track) {
     try {
       const stmt = this.db.prepare(
@@ -323,7 +408,7 @@ class QueueManager {
     }
   }
 
-  _ensureHistoryTable() {
+  _ensureTables() {
     try {
       this.db
         .prepare(
@@ -344,6 +429,29 @@ class QueueManager {
         .run();
     } catch (error) {
       this.api.log?.(`[music-bot] Failed to ensure history table: ${error.message}`, 'error');
+    }
+
+    try {
+      this.db
+        .prepare(
+          `CREATE TABLE IF NOT EXISTS plugin_music_bot_queue (
+            id TEXT PRIMARY KEY,
+            position INTEGER NOT NULL,
+            title TEXT,
+            artist TEXT,
+            duration INTEGER,
+            thumbnail TEXT,
+            url TEXT,
+            youtubeId TEXT,
+            source TEXT,
+            requestedBy TEXT,
+            isGiftRequest INTEGER DEFAULT 0,
+            addedAt INTEGER
+          )`
+        )
+        .run();
+    } catch (error) {
+      this.api.log?.(`[music-bot] Failed to ensure queue table: ${error.message}`, 'error');
     }
   }
 }

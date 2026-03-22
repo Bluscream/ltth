@@ -21,7 +21,9 @@ const DEFAULT_CONFIG = {
     volume: 'vol',
     pause: 'pause',
     resume: 'resume',
-    clear: 'clear'
+    clear: 'clear',
+    mysong: 'mysong',
+    help: 'help'
   },
   commandAliases: {
     request: ['play', 'song', 'request'],
@@ -31,7 +33,9 @@ const DEFAULT_CONFIG = {
     volume: ['v', 'volume'],
     pause: ['stop'],
     resume: ['unpause', 'continue'],
-    clear: []
+    clear: [],
+    mysong: ['mypos', 'myposition', 'wheremysong'],
+    help: ['commands', 'cmds', 'hilfe']
   },
   queue: {
     maxLength: 50,
@@ -56,6 +60,8 @@ const DEFAULT_CONFIG = {
     pause: 'mod',
     resume: 'mod',
     clear: 'streamer',
+    mysong: 'viewer',
+    help: 'viewer',
     requireSuperfanForRequest: false
   },
   voteSkip: {
@@ -105,6 +111,7 @@ class MusicBotPlugin extends EventEmitter {
     this.playbackEngine = null;
     this.commandParser = null;
     this.autoDJ = null;
+    this._pendingRequests = new Set();
   }
 
   async init() {
@@ -136,7 +143,6 @@ class MusicBotPlugin extends EventEmitter {
     this._registerRoutes();
     this._registerSocketEvents();
     this._registerTikTokEvents();
-    this._startPlaybackSync();
 
     await this._restoreState();
     this.api.log('[music-bot] Plugin initialized', 'info');
@@ -150,11 +156,9 @@ class MusicBotPlugin extends EventEmitter {
     }
 
     this.queueManager.clear();
+    this._pendingRequests.clear();
     this.removeAllListeners();
-    if (this.playbackSyncTimer) {
-      clearInterval(this.playbackSyncTimer);
-      this.playbackSyncTimer = null;
-    }
+    this._stopPlaybackSync();
     this.api.log('[music-bot] Plugin destroyed', 'info');
   }
 
@@ -270,7 +274,7 @@ class MusicBotPlugin extends EventEmitter {
   }
 
   async _restoreState() {
-    // Future: restore queue/history from persistent store. For now, broadcast empty state.
+    this.queueManager.restoreQueue();
     this._emitStatus();
     this._emitQueue();
   }
@@ -281,6 +285,7 @@ class MusicBotPlugin extends EventEmitter {
       this.queueManager.resetVoteSkips();
       this._emitNowPlaying(track);
       this._mpvRestartAttempts = 0;
+      this._startPlaybackSync();
     });
 
     this.playbackEngine.on('track-end', (info) => {
@@ -289,6 +294,7 @@ class MusicBotPlugin extends EventEmitter {
         this.queueManager.removeSkipImmunity(info.track.requestedBy);
       }
       this.queueManager.resetVoteSkips();
+      this._stopPlaybackSync();
       this._playNextFromQueue();
     });
 
@@ -448,7 +454,46 @@ class MusicBotPlugin extends EventEmitter {
     });
 
     this.api.registerRoute('get', '/api/plugins/music-bot/history', async (req, res) => {
-      res.json({ success: true, history: this.queueManager.getHistory() });
+      const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+      const offset = Math.max(Number(req.query.offset) || 0, 0);
+      try {
+        const rows = this.db
+          .prepare('SELECT * FROM plugin_music_bot_history ORDER BY finishedAt DESC LIMIT ? OFFSET ?')
+          .all(limit, offset);
+        const total = this.db
+          .prepare('SELECT COUNT(*) as count FROM plugin_music_bot_history')
+          .get().count;
+        res.json({ success: true, history: rows, total, limit, offset });
+      } catch (error) {
+        this.api.log(`[music-bot] Failed to load history: ${error.message}`, 'error');
+        res.json({ success: true, history: this.queueManager.getHistory() });
+      }
+    });
+
+    this.api.registerRoute('delete', '/api/plugins/music-bot/queue/:index', async (req, res) => {
+      const index = Number(req.params.index);
+      if (!Number.isFinite(index) || index < 0) {
+        res.status(400).json({ success: false, error: 'Invalid index' });
+        return;
+      }
+      const result = this.queueManager.removeSong(index);
+      if (result.success) {
+        this._emitQueue();
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    });
+
+    this.api.registerRoute('post', '/api/plugins/music-bot/queue/reorder', async (req, res) => {
+      const { fromIndex, toIndex } = req.body || {};
+      if (typeof fromIndex !== 'number' || typeof toIndex !== 'number') {
+        res.status(400).json({ success: false, error: 'fromIndex and toIndex are required' });
+        return;
+      }
+      const result = this.queueManager.reorderSong(fromIndex, toIndex);
+      if (result.success) {
+        this._emitQueue();
+      }
+      res.status(result.success ? 200 : 400).json(result);
     });
 
     this.api.registerRoute('get', '/api/plugins/music-bot/bans', async (req, res) => {
@@ -588,6 +633,33 @@ class MusicBotPlugin extends EventEmitter {
         this.autoDJ?.reset();
         this._emitQueue();
         return;
+      case 'mysong': {
+        const queue = this.queueManager.getQueue();
+        const lowerUser = (chatData.username || '').toLowerCase();
+        const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
+        if (idx === -1) {
+          this._emitChatResponse('Du hast keinen Song in der Queue.', chatData.username);
+        } else {
+          const song = queue[idx];
+          this._emitChatResponse(
+            `Dein Song "${song.title}" ist auf Position #${idx + 1}.`,
+            chatData.username
+          );
+        }
+        return;
+      }
+      case 'help': {
+        const prefix = this.config.commandPrefix;
+        const cmds = this.config.commands;
+        const parts = [];
+        if (cmds.request) parts.push(`${prefix}${cmds.request} <song>`);
+        if (cmds.skip) parts.push(`${prefix}${cmds.skip}`);
+        if (cmds.queue) parts.push(`${prefix}${cmds.queue}`);
+        if (cmds.nowPlaying) parts.push(`${prefix}${cmds.nowPlaying}`);
+        if (cmds.mysong) parts.push(`${prefix}${cmds.mysong}`);
+        this._emitChatResponse(`Commands: ${parts.join(' | ')}`, chatData.username);
+        return;
+      }
       default:
         break;
     }
@@ -626,12 +698,20 @@ class MusicBotPlugin extends EventEmitter {
       this._emitChatResponse('Bitte gib einen Song an.', username);
       return;
     }
+
+    const lowerUser = username.toLowerCase();
+    if (this._pendingRequests.has(lowerUser)) {
+      this._emitChatResponse('Dein vorheriger Request wird noch verarbeitet.', username);
+      return;
+    }
+
     const userBan = this.banList?.isUserBanned(username);
     if (userBan?.banned) {
       this._emitChatResponse('Dieser Nutzer darf keine Songs anfragen.', username);
       return;
     }
 
+    this._pendingRequests.add(lowerUser);
     try {
       const resolved = await this.musicResolver.resolve(query);
       if (!resolved?.success) {
@@ -662,6 +742,8 @@ class MusicBotPlugin extends EventEmitter {
     } catch (error) {
       this.api.log(`[music-bot] request failed: ${error.message}`, 'error');
       this._emitChatResponse('Song konnte nicht geladen werden.', username);
+    } finally {
+      this._pendingRequests.delete(lowerUser);
     }
   }
 
@@ -735,7 +817,14 @@ class MusicBotPlugin extends EventEmitter {
     return { success: true };
   }
 
-  async _playNextFromQueue() {
+  async _playNextFromQueue(retries = 0) {
+    if (retries > 5) {
+      this.api.log('[music-bot] Too many consecutive playback failures, stopping', 'error');
+      this.playbackEngine.clearNowPlaying();
+      this._emitPlaybackStopped();
+      this._emitQueue();
+      return;
+    }
     const next = this.queueManager.shiftNext();
     if (!next) {
       const autoDJTrack = await this._maybePlayAutoDJ();
@@ -752,7 +841,7 @@ class MusicBotPlugin extends EventEmitter {
     } catch (error) {
       this.api.log(`[music-bot] Playback failed: ${error.message}`, 'error');
       this._emitError(error.message);
-      this._playNextFromQueue();
+      setImmediate(() => this._playNextFromQueue(retries + 1));
     }
   }
 
@@ -765,9 +854,10 @@ class MusicBotPlugin extends EventEmitter {
   }
 
   _emitQueue() {
+    const queue = this.queueManager.getQueue();
     this.api.emit('musicbot:queue-update', {
-      queue: this.queueManager.getQueue(),
-      length: this.queueManager.getQueue().length
+      queue,
+      length: queue.length
     });
   }
 
@@ -935,6 +1025,13 @@ class MusicBotPlugin extends EventEmitter {
         state: this.playbackEngine.getState()
       });
     }, 5000);
+  }
+
+  _stopPlaybackSync() {
+    if (this.playbackSyncTimer) {
+      clearInterval(this.playbackSyncTimer);
+      this.playbackSyncTimer = null;
+    }
   }
 }
 
