@@ -433,6 +433,7 @@
           this.wobbleSpeed = 0.02 + Math.random() * 0.04;
           this.rotation = Math.random() * Math.PI * 2;
           this.rotationSpeed = (Math.random() - 0.5) * 0.1;
+          this.onGroundHit = null;
           // Snowflake variant – use all available variants
           const variantCount = config.snowflakeVariants ? config.snowflakeVariants.length : 5;
           this.variant = Math.floor(Math.random() * variantCount);
@@ -461,6 +462,28 @@
           this.life = 0;
           this.maxLife = 250 + Math.random() * 400;
           this.hue = 200 + Math.random() * 20; // Slight color variation
+          // Fog color presets (rückwärtskompatibel, default: 'default')
+          {
+            const fogColors = {
+              default: { hue: 200, saturation: 15, lightness: 75 },
+              green:   { hue: 120, saturation: 25, lightness: 65 },
+              red:     { hue: 0,   saturation: 30, lightness: 55 },
+              blue:    { hue: 220, saturation: 30, lightness: 70 },
+              golden:  { hue: 45,  saturation: 40, lightness: 70 }
+            };
+            const colorPreset = fogColors[config.fogColor || 'default'] || fogColors.default;
+            this.hue = colorPreset.hue + Math.random() * 20 - 10;
+            this.fogSaturation = colorPreset.saturation;
+            this.fogLightness = colorPreset.lightness;
+          }
+          // Ground fog mode (rückwärtskompatibel, default: false)
+          this.isGroundFog = config.groundFog || false;
+          if (this.isGroundFog) {
+            this.y = config.height ? config.height * (0.7 + Math.random() * 0.3) : window.innerHeight * 0.8;
+            this.speedY = (Math.random() - 0.5) * 0.15;
+            this.speedX = 0.3 + Math.random() * 0.6;
+            this.size = 120 + Math.random() * 250;
+          }
           break;
       }
     }
@@ -527,9 +550,15 @@
         case 'snow':
           this.y += this.speedY * speed * intensity;
           this.wobble += this.wobbleSpeed * speed;
-          this.x += Math.sin(this.wobble) * 0.8 * speed + this.speedX * speed;
+          {
+            const windDrift = globalWind * 0.3 * (0.5 + this.z * 0.5); // Depth-dependent wind
+            this.x += Math.sin(this.wobble) * 0.8 * speed + this.speedX * speed + windDrift * speed;
+          }
           this.rotation += this.rotationSpeed * speed;
           if (this.y > h + 20) {
+            if (this.onGroundHit) {
+              this.onGroundHit(this.x);
+            }
             this.reset({ startFromTop: true, width: w, height: h });
           }
           if (this.x < -20) this.x = w + 20;
@@ -552,6 +581,11 @@
           this.y += this.speedY * speed;
           this.x += this.speedX * speed;
           this.life += speed;
+          // Ground fog: clamp y above ground line
+          if (this.isGroundFog) {
+            const groundLine = (dimensions?.height || window.innerHeight) * 0.65;
+            if (this.y < groundLine) this.y = groundLine + Math.random() * 20;
+          }
           // Smooth fade in/out using sine wave
           const lifePercent = this.life / this.maxLife;
           this.alpha = Math.sin(lifePercent * Math.PI) * FOG_MAX_ALPHA;
@@ -821,8 +855,8 @@
                 finalX, finalY, 0,
                 finalX, finalY, this.size * 1.2
               );
-              baseGradient.addColorStop(0, `hsla(${this.hue}, 15%, 80%, ${this.alpha * 0.8})`);
-              baseGradient.addColorStop(0.5, `hsla(${this.hue}, 15%, 75%, ${this.alpha * 0.4})`);
+              baseGradient.addColorStop(0, `hsla(${this.hue}, ${this.fogSaturation || 15}%, ${(this.fogLightness || 75) + 5}%, ${this.alpha * 0.8})`);
+              baseGradient.addColorStop(0.5, `hsla(${this.hue}, ${this.fogSaturation || 15}%, ${this.fogLightness || 75}%, ${this.alpha * 0.4})`);
               baseGradient.addColorStop(1, 'rgba(200, 200, 220, 0)');
               ctx.fillStyle = baseGradient;
               ctx.beginPath();
@@ -834,8 +868,8 @@
                 finalX, finalY, 0,
                 finalX, finalY, this.size * 0.7
               );
-              coreGradient.addColorStop(0, `hsla(${this.hue + 5}, 18%, 78%, ${this.alpha})`);
-              coreGradient.addColorStop(0.6, `hsla(${this.hue}, 15%, 73%, ${this.alpha * 0.6})`);
+              coreGradient.addColorStop(0, `hsla(${this.hue + 5}, ${(this.fogSaturation || 15) + 3}%, ${(this.fogLightness || 75) + 3}%, ${this.alpha})`);
+              coreGradient.addColorStop(0.6, `hsla(${this.hue}, ${this.fogSaturation || 15}%, ${(this.fogLightness || 75) - 2}%, ${this.alpha * 0.6})`);
               coreGradient.addColorStop(1, 'rgba(190, 190, 210, 0)');
               ctx.fillStyle = coreGradient;
               ctx.beginPath();
@@ -847,8 +881,8 @@
                 finalX - this.size * 0.15, finalY - this.size * 0.15, 0,
                 finalX - this.size * 0.15, finalY - this.size * 0.15, this.size * 0.4
               );
-              highlightGradient.addColorStop(0, `hsla(${this.hue - 10}, 20%, 85%, ${this.alpha * 0.5})`);
-              highlightGradient.addColorStop(0.5, `hsla(${this.hue - 5}, 18%, 82%, ${this.alpha * 0.25})`);
+              highlightGradient.addColorStop(0, `hsla(${this.hue - 10}, ${(this.fogSaturation || 15) + 5}%, ${(this.fogLightness || 75) + 10}%, ${this.alpha * 0.5})`);
+              highlightGradient.addColorStop(0.5, `hsla(${this.hue - 5}, ${(this.fogSaturation || 15) + 3}%, ${(this.fogLightness || 75) + 7}%, ${this.alpha * 0.25})`);
               highlightGradient.addColorStop(1, 'rgba(220, 220, 240, 0)');
               ctx.fillStyle = highlightGradient;
               ctx.beginPath();
@@ -860,8 +894,8 @@
                 this.x, this.y, 0,
                 this.x, this.y, this.size
               );
-              gradient.addColorStop(0, `hsla(${this.hue}, 15%, 75%, ${this.alpha})`);
-              gradient.addColorStop(0.5, `hsla(${this.hue}, 15%, 70%, ${this.alpha * 0.5})`);
+              gradient.addColorStop(0, `hsla(${this.hue}, ${this.fogSaturation || 15}%, ${this.fogLightness || 75}%, ${this.alpha})`);
+              gradient.addColorStop(0.5, `hsla(${this.hue}, ${this.fogSaturation || 15}%, ${(this.fogLightness || 75) - 5}%, ${this.alpha * 0.5})`);
               gradient.addColorStop(1, 'rgba(180, 180, 200, 0)');
               ctx.fillStyle = gradient;
               ctx.beginPath();
@@ -921,6 +955,10 @@
       
       // Global wind value for rain effects
       this.globalWind = 0;
+      
+      // Snow accumulation layer
+      this.snowAccumulation = null;
+      this.snowAccumulationDecay = 0.001; // Slow melt
       
       this.state = {
         activeEffects: [],
@@ -1029,6 +1067,19 @@
             snowflakeVariants: this.snowflakeVariants,
             parentEffect: effect
           });
+          particle.onGroundHit = (x) => {
+            if (!this.snowAccumulation) this.initSnowAccumulation();
+            const seg = Math.floor(x / this.snowAccumulation.segmentWidth);
+            if (seg >= 0 && seg < this.snowAccumulation.heights.length) {
+              this.snowAccumulation.heights[seg] = Math.min(
+                this.snowAccumulation.heights[seg] + 0.15 * effect.intensity,
+                this.snowAccumulation.maxHeight
+              );
+              // Spread to neighbors for smooth look
+              if (seg > 0) this.snowAccumulation.heights[seg - 1] = Math.min(this.snowAccumulation.heights[seg - 1] + 0.05, this.snowAccumulation.maxHeight);
+              if (seg < this.snowAccumulation.heights.length - 1) this.snowAccumulation.heights[seg + 1] = Math.min(this.snowAccumulation.heights[seg + 1] + 0.05, this.snowAccumulation.maxHeight);
+            }
+          };
           effect.particles.push(particle);
         }
       } else if (type === 'storm') {
@@ -1042,12 +1093,16 @@
           effect.particles.push(particle);
         }
       } else if (type === 'fog') {
+        effect.fogColor = options.fogColor || 'default';
         const particleCount = Math.min(Math.floor(30 * intensity), this.qualityPreset.maxParticles);
+        const groundFogCount = Math.floor(particleCount * 0.4);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.fog.acquire({
             width: this.dimensions.width,
             height: this.dimensions.height,
-            parentEffect: effect
+            parentEffect: effect,
+            groundFog: i < groundFogCount,
+            fogColor: options.fogColor || 'default'
           });
           effect.particles.push(particle);
         }
@@ -1055,7 +1110,8 @@
         effect.nextFlash = Date.now() + 500;
         effect.flashCount = 0;
       } else if (type === 'sunbeam') {
-        effect.beams = this.createSunbeams(intensity);
+        effect.colorTemperature = options.colorTemperature || 'golden';
+        effect.beams = this.createSunbeams(intensity, options);
       } else if (type === 'glitchclouds') {
         effect.glitchLines = [];
       }
@@ -1170,11 +1226,19 @@
     /**
      * Create sunbeams for sunbeam effect
      */
-    createSunbeams(intensity) {
+    createSunbeams(intensity, options = {}) {
       const beamCount = Math.floor(3 + intensity * 7);
       const beams = [];
       const w = this.dimensions.width;
       const h = this.dimensions.height;
+      
+      const temperatures = {
+        golden:  { r: 255, g: 245, b: 200 },
+        midday:  { r: 255, g: 252, b: 245 },
+        sunset:  { r: 255, g: 180, b: 100 },
+        cool:    { r: 200, g: 220, b: 255 }
+      };
+      const temp = temperatures[options.colorTemperature || 'golden'] || temperatures.golden;
       
       for (let i = 0; i < beamCount; i++) {
         beams.push({
@@ -1184,7 +1248,8 @@
           height: h * 1.2,
           angle: 5 + Math.random() * 10,
           opacity: 0.1 + Math.random() * 0.2,
-          speed: 0.05 + Math.random() * 0.15
+          speed: 0.05 + Math.random() * 0.15,
+          colorTemp: temp
         });
       }
       
@@ -1243,6 +1308,7 @@
       for (const effect of this.state.activeEffects) {
         if (effect.type === 'sunbeam' && effect.beams && Array.isArray(effect.beams)) {
           this.drawSunbeams(effect);
+          this.drawLensFlare(effect);
         }
         if (effect.type === 'fog') {
           this.drawVolumetricFog(effect);
@@ -1259,6 +1325,9 @@
         if (effect.type === 'storm') {
           this.drawStormDarkness(effect);
           this.drawWindStreaks(effect);
+        }
+        if (effect.type === 'snow') {
+          this.drawSnowAccumulation();
         }
       }
       
@@ -1355,6 +1424,8 @@
           beam.x = -150;
         }
         
+        const ct = beam.colorTemp || { r: 255, g: 250, b: 220 };
+        
         // Multi-pass bloom for volumetric effect
         const bloomPasses = [
           { scale: 2.5, alpha: 0.03 },
@@ -1370,9 +1441,9 @@
           
           const bloomAlpha = beam.opacity * pass.alpha * effect.intensity;
           const bloomGradient = this.ctx.createLinearGradient(0, 0, 0, beam.height);
-          bloomGradient.addColorStop(0, `rgba(255, 250, 220, ${bloomAlpha})`);
-          bloomGradient.addColorStop(0.4, `rgba(255, 240, 180, ${bloomAlpha * 0.7})`);
-          bloomGradient.addColorStop(1, 'rgba(255, 235, 160, 0)');
+          bloomGradient.addColorStop(0, `rgba(${ct.r}, ${ct.g}, ${Math.round(ct.b * 0.9)}, ${bloomAlpha})`);
+          bloomGradient.addColorStop(0.4, `rgba(${ct.r}, ${Math.round(ct.g * 0.96)}, ${Math.round(ct.b * 0.8)}, ${bloomAlpha * 0.7})`);
+          bloomGradient.addColorStop(1, `rgba(${ct.r}, ${Math.round(ct.g * 0.94)}, ${Math.round(ct.b * 0.73)}, 0)`);
           
           this.ctx.fillStyle = bloomGradient;
           this.ctx.beginPath();
@@ -1393,10 +1464,10 @@
         
         const beamGradient = this.ctx.createLinearGradient(0, 0, 0, beam.height);
         const beamAlpha = beam.opacity * effect.intensity;
-        beamGradient.addColorStop(0, `rgba(255, 252, 230, ${beamAlpha * 0.5})`);
-        beamGradient.addColorStop(0.3, `rgba(255, 245, 200, ${beamAlpha * 0.35})`);
-        beamGradient.addColorStop(0.7, `rgba(255, 240, 180, ${beamAlpha * 0.15})`);
-        beamGradient.addColorStop(1, 'rgba(255, 235, 160, 0)');
+        beamGradient.addColorStop(0, `rgba(${ct.r}, ${ct.g}, ${Math.round(ct.b * 0.9)}, ${beamAlpha * 0.5})`);
+        beamGradient.addColorStop(0.3, `rgba(${ct.r}, ${Math.round(ct.g * 0.98)}, ${Math.round(ct.b * 0.82)}, ${beamAlpha * 0.35})`);
+        beamGradient.addColorStop(0.7, `rgba(${ct.r}, ${Math.round(ct.g * 0.96)}, ${Math.round(ct.b * 0.73)}, ${beamAlpha * 0.15})`);
+        beamGradient.addColorStop(1, `rgba(${ct.r}, ${Math.round(ct.g * 0.94)}, ${Math.round(ct.b * 0.65)}, 0)`);
         
         this.ctx.fillStyle = beamGradient;
         this.ctx.beginPath();
@@ -1422,6 +1493,7 @@
     drawDustMotes(beam, effect) {
       const moteCount = Math.floor(this.qualityPreset.dustMotes * effect.intensity);
       const time = Date.now() * 0.001;
+      const ct = beam.colorTemp || { r: 255, g: 250, b: 220 };
       
       this.ctx.save();
       for (let i = 0; i < moteCount; i++) {
@@ -1438,9 +1510,9 @@
           moteX, beam.y + moteY, 0,
           moteX, beam.y + moteY, 3 * depthScale
         );
-        moteGradient.addColorStop(0, `rgba(255, 250, 220, ${moteAlpha * 0.8})`);
-        moteGradient.addColorStop(0.5, `rgba(255, 245, 200, ${moteAlpha * 0.4})`);
-        moteGradient.addColorStop(1, 'rgba(255, 240, 180, 0)');
+        moteGradient.addColorStop(0, `rgba(${ct.r}, ${ct.g}, ${Math.round(ct.b * 0.9)}, ${moteAlpha * 0.8})`);
+        moteGradient.addColorStop(0.5, `rgba(${ct.r}, ${Math.round(ct.g * 0.98)}, ${Math.round(ct.b * 0.82)}, ${moteAlpha * 0.4})`);
+        moteGradient.addColorStop(1, `rgba(${ct.r}, ${Math.round(ct.g * 0.96)}, ${Math.round(ct.b * 0.73)}, 0)`);
         
         this.ctx.fillStyle = moteGradient;
         this.ctx.beginPath();
@@ -1449,7 +1521,7 @@
         
         // Bright core
         this.ctx.globalAlpha = moteAlpha;
-        this.ctx.fillStyle = '#ffffdd';
+        this.ctx.fillStyle = `rgb(${ct.r}, ${ct.g}, ${ct.b})`;
         this.ctx.beginPath();
         this.ctx.arc(moteX, beam.y + moteY, 1 * depthScale, 0, Math.PI * 2);
         this.ctx.fill();
@@ -1472,6 +1544,9 @@
         const noiseValue = this.noise.noise2D(particle.x * 0.005, time);
         const alphaModulation = 0.7 + noiseValue * 0.3;
         
+        const sat = particle.fogSaturation || 15;
+        const lit = particle.fogLightness || 75;
+        
         // Multiple gradient layers for depth
         const layers = this.qualityPreset.fogLayers;
         for (let i = 0; i < layers; i++) {
@@ -1489,8 +1564,8 @@
           
           // Subtle hue shift between layers
           const hue = particle.hue + i * 5;
-          gradient.addColorStop(0, `hsla(${hue}, 15%, 75%, ${layerAlpha})`);
-          gradient.addColorStop(0.5, `hsla(${hue}, 15%, 70%, ${layerAlpha * 0.5})`);
+          gradient.addColorStop(0, `hsla(${hue}, ${sat}%, ${lit}%, ${layerAlpha})`);
+          gradient.addColorStop(0.5, `hsla(${hue}, ${sat}%, ${lit - 5}%, ${layerAlpha * 0.5})`);
           gradient.addColorStop(1, 'rgba(180, 180, 200, 0)');
           
           this.ctx.fillStyle = gradient;
@@ -1631,6 +1706,156 @@
         this.ctx.lineTo(seg.x2, seg.y2);
       });
       this.ctx.stroke();
+      
+      this.ctx.restore();
+    }
+
+    /**
+     * Initialize snow accumulation data structure
+     */
+    initSnowAccumulation() {
+      const segmentWidth = 4;
+      const segmentCount = Math.ceil(this.dimensions.width / segmentWidth) + 1;
+      this.snowAccumulation = {
+        heights: new Float32Array(segmentCount),
+        segmentWidth: segmentWidth,
+        maxHeight: 80,
+        meltRate: this.snowAccumulationDecay
+      };
+    }
+
+    /**
+     * Draw snow accumulation layer at the bottom of the screen
+     */
+    drawSnowAccumulation() {
+      if (!this.snowAccumulation) return;
+      const acc = this.snowAccumulation;
+      const w = this.dimensions.width;
+      const h = this.dimensions.height;
+      const time = Date.now() * 0.0003;
+      
+      this.ctx.save();
+      
+      // Main snow layer
+      const snowGradient = this.ctx.createLinearGradient(0, h, 0, h - acc.maxHeight);
+      snowGradient.addColorStop(0, 'rgba(235, 240, 248, 0.95)');
+      snowGradient.addColorStop(0.3, 'rgba(240, 245, 255, 0.9)');
+      snowGradient.addColorStop(0.7, 'rgba(245, 248, 255, 0.7)');
+      snowGradient.addColorStop(1, 'rgba(248, 250, 255, 0)');
+      
+      this.ctx.fillStyle = snowGradient;
+      this.ctx.beginPath();
+      this.ctx.moveTo(-5, h + 5);
+      
+      for (let i = 0; i < acc.heights.length; i++) {
+        const x = i * acc.segmentWidth;
+        const noiseOffset = this.noise.noise2D(x * 0.01, time) * 3;
+        const segHeight = acc.heights[i] + noiseOffset;
+        this.ctx.lineTo(x, h - Math.max(0, segHeight));
+      }
+      
+      this.ctx.lineTo(w + 5, h + 5);
+      this.ctx.closePath();
+      this.ctx.fill();
+      
+      // Sparkle layer on top of snow
+      this.ctx.globalCompositeOperation = 'screen';
+      const sparkleCount = Math.floor(acc.heights.length * 0.1);
+      for (let i = 0; i < sparkleCount; i++) {
+        const seg = Math.floor(Math.random() * acc.heights.length);
+        if (acc.heights[seg] < 5) continue;
+        const sx = seg * acc.segmentWidth + Math.random() * acc.segmentWidth;
+        const sy = h - acc.heights[seg] + Math.random() * 3;
+        if (Math.random() < 0.3) {
+          this.ctx.globalAlpha = 0.4 + Math.random() * 0.4;
+          this.ctx.fillStyle = '#ffffff';
+          this.ctx.beginPath();
+          this.ctx.arc(sx, sy, 0.5 + Math.random(), 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+      }
+      
+      // Slow melt
+      for (let i = 0; i < acc.heights.length; i++) {
+        acc.heights[i] = Math.max(0, acc.heights[i] - acc.meltRate);
+      }
+      
+      this.ctx.restore();
+    }
+
+    /**
+     * Draw lens flare effect for sunbeam
+     */
+    drawLensFlare(effect) {
+      if (!effect.beams || effect.beams.length === 0) return;
+      
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'screen';
+      
+      // Use first beam as light source
+      const source = effect.beams[0];
+      const sourceX = source.x;
+      const sourceY = source.y;
+      const w = this.dimensions.width;
+      const h = this.dimensions.height;
+      const centerX = w / 2;
+      const centerY = h / 2;
+      
+      // Direction from source to center
+      const dx = centerX - sourceX;
+      const dy = centerY - sourceY;
+      const dist = Math.hypot(dx, dy);
+      if (dist === 0) {
+        this.ctx.restore();
+        return;
+      }
+      const nx = dx / dist;
+      const ny = dy / dist;
+      
+      const flareElements = [
+        { pos: 0.2,  size: 15, alpha: 0.15, color: '255, 200, 100' },
+        { pos: 0.35, size: 8,  alpha: 0.1,  color: '200, 255, 200' },
+        { pos: 0.5,  size: 25, alpha: 0.08, color: '100, 200, 255' },
+        { pos: 0.65, size: 12, alpha: 0.12, color: '255, 150, 100' },
+        { pos: 0.8,  size: 35, alpha: 0.06, color: '200, 200, 255' },
+        { pos: 1.0,  size: 20, alpha: 0.1,  color: '255, 255, 200' }
+      ];
+      
+      flareElements.forEach(flare => {
+        const fx = sourceX + nx * dist * flare.pos;
+        const fy = sourceY + ny * dist * flare.pos;
+        const fAlpha = flare.alpha * effect.intensity;
+        
+        // Hexagonal flare shape
+        const gradient = this.ctx.createRadialGradient(fx, fy, 0, fx, fy, flare.size);
+        gradient.addColorStop(0, `rgba(${flare.color}, ${fAlpha})`);
+        gradient.addColorStop(0.5, `rgba(${flare.color}, ${fAlpha * 0.3})`);
+        gradient.addColorStop(1, `rgba(${flare.color}, 0)`);
+        
+        this.ctx.fillStyle = gradient;
+        this.ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (i * Math.PI * 2) / 6;
+          const px = fx + Math.cos(angle) * flare.size;
+          const py = fy + Math.sin(angle) * flare.size;
+          if (i === 0) this.ctx.moveTo(px, py);
+          else this.ctx.lineTo(px, py);
+        }
+        this.ctx.closePath();
+        this.ctx.fill();
+      });
+      
+      // Anamorphic streak (horizontal light streak through source)
+      const streakAlpha = 0.04 * effect.intensity;
+      const streakGradient = this.ctx.createLinearGradient(sourceX - w * 0.4, sourceY, sourceX + w * 0.4, sourceY);
+      streakGradient.addColorStop(0, 'rgba(255, 240, 200, 0)');
+      streakGradient.addColorStop(0.3, `rgba(255, 240, 200, ${streakAlpha})`);
+      streakGradient.addColorStop(0.5, `rgba(255, 250, 230, ${streakAlpha * 1.5})`);
+      streakGradient.addColorStop(0.7, `rgba(255, 240, 200, ${streakAlpha})`);
+      streakGradient.addColorStop(1, 'rgba(255, 240, 200, 0)');
+      
+      this.ctx.fillStyle = streakGradient;
+      this.ctx.fillRect(sourceX - w * 0.4, sourceY - 3, w * 0.8, 6);
       
       this.ctx.restore();
     }
@@ -1972,6 +2197,8 @@
       // Clean up off-screen glitch canvas
       this.glitchCanvas = null;
       this.glitchCtx = null;
+      // Clean up snow accumulation
+      this.snowAccumulation = null;
     }
   }
 
