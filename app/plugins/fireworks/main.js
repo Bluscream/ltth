@@ -97,6 +97,11 @@ class FireworksPlugin {
         // Load default configuration
         this.loadConfig();
 
+        // Start random firework timer if enabled
+        if (this.config.randomEnabled) {
+            this.startRandomTimer();
+        }
+
         // Register routes
         this.registerRoutes();
 
@@ -380,12 +385,6 @@ class FireworksPlugin {
             res.sendFile(overlayPath);
         });
 
-        // Serve OBS-optimized overlay
-        this.api.registerRoute('get', '/fireworks/obs-overlay', (req, res) => {
-            const overlayPath = path.join(__dirname, 'overlay.html');
-            res.sendFile(overlayPath);
-        });
-
         // Get configuration
         this.api.registerRoute('get', '/api/fireworks/config', (req, res) => {
             try {
@@ -402,6 +401,14 @@ class FireworksPlugin {
                 const updates = req.body;
                 this.config = { ...this.config, ...updates };
                 this.saveConfig();
+                
+                // Restart random timer if relevant settings changed
+                if (updates.randomEnabled !== undefined || updates.randomInterval !== undefined) {
+                    this.stopRandomTimer();
+                    if (this.config.randomEnabled) {
+                        this.startRandomTimer();
+                    }
+                }
                 
                 // Notify overlays about config change
                 this.api.emit('fireworks:config-update', { config: this.config });
@@ -579,7 +586,13 @@ class FireworksPlugin {
         // Delete uploaded file
         this.api.registerRoute('delete', '/api/fireworks/uploads/:filename', (req, res) => {
             try {
-                const filePath = path.join(this.uploadDir, req.params.filename);
+                const sanitizedFilename = path.basename(req.params.filename);
+                const filePath = path.join(this.uploadDir, sanitizedFilename);
+
+                // Verify path is within upload directory
+                if (!filePath.startsWith(this.uploadDir + path.sep)) {
+                    return res.status(403).json({ success: false, error: 'Access denied' });
+                }
                 
                 if (!fs.existsSync(filePath)) {
                     return res.status(404).json({ success: false, error: 'File not found' });
@@ -655,6 +668,24 @@ class FireworksPlugin {
                 res.json({ success: true, message: 'Original config restored' });
             } catch (error) {
                 this.api.log(`❌ [FIREWORKS] Error restoring config: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Reset configuration to defaults
+        this.api.registerRoute('post', '/api/fireworks/config/reset', (req, res) => {
+            try {
+                this.api.setConfig('settings', null);
+                this.loadConfig();
+                this.api.emit('fireworks:config-update', { config: this.config });
+                // Restart random timer with new config
+                this.stopRandomTimer();
+                if (this.config.randomEnabled) {
+                    this.startRandomTimer();
+                }
+                res.json({ success: true, message: 'Configuration reset to defaults', config: this.config });
+            } catch (error) {
+                this.api.log(`❌ [FIREWORKS] Error resetting config: ${error.message}`, 'error');
                 res.status(500).json({ success: false, error: error.message });
             }
         });
@@ -756,6 +787,8 @@ class FireworksPlugin {
             colors = this.generateRandomColors(3);
         } else if (!colors && this.config.colorMode === 'theme') {
             colors = this.config.themeColors;
+        } else if (!colors && this.config.colorMode === 'rainbow') {
+            colors = this.generateRainbowColors(5);
         }
 
         // User avatar integration
@@ -883,6 +916,39 @@ class FireworksPlugin {
             colors.push(`hsl(${hue}, 100%, 60%)`);
         }
         return colors;
+    }
+
+    /**
+     * Generate evenly distributed rainbow colors
+     */
+    generateRainbowColors(count) {
+        const colors = [];
+        for (let i = 0; i < count; i++) {
+            const hue = (i / count) * 360;
+            colors.push(`hsl(${hue}, 100%, 55%)`);
+        }
+        return colors;
+    }
+
+    /**
+     * Start the random firework interval timer
+     */
+    startRandomTimer() {
+        this.stopRandomTimer();
+        const interval = Math.max(1000, Math.min(3600000, this.config.randomInterval || 30000));
+        this.randomTimer = setInterval(() => this.triggerRandomFirework(), interval);
+        this.api.log(`⏱️ [FIREWORKS] Random timer started (interval: ${interval}ms)`, 'debug');
+    }
+
+    /**
+     * Stop the random firework interval timer
+     */
+    stopRandomTimer() {
+        if (this.randomTimer) {
+            clearInterval(this.randomTimer);
+            this.randomTimer = null;
+            this.api.log('⏱️ [FIREWORKS] Random timer stopped', 'debug');
+        }
     }
 
     /**
@@ -1230,17 +1296,25 @@ class FireworksPlugin {
      */
     logRoutes() {
         this.api.log('📍 [FIREWORKS] Routes registered:', 'info');
-        this.api.log('   - GET  /fireworks/ui', 'info');
-        this.api.log('   - GET  /fireworks/overlay', 'info');
-        this.api.log('   - GET  /api/fireworks/config', 'info');
-        this.api.log('   - POST /api/fireworks/config', 'info');
-        this.api.log('   - GET  /api/fireworks/status', 'info');
-        this.api.log('   - POST /api/fireworks/toggle', 'info');
-        this.api.log('   - POST /api/fireworks/trigger', 'info');
-        this.api.log('   - POST /api/fireworks/finale', 'info');
-        this.api.log('   - POST /api/fireworks/random', 'info');
-        this.api.log('   - GET  /api/fireworks/gift-mappings', 'info');
-        this.api.log('   - POST /api/fireworks/gift-mappings', 'info');
+        this.api.log('   - GET    /fireworks/ui', 'info');
+        this.api.log('   - GET    /fireworks/overlay', 'info');
+        this.api.log('   - GET    /api/fireworks/config', 'info');
+        this.api.log('   - POST   /api/fireworks/config', 'info');
+        this.api.log('   - GET    /api/fireworks/status', 'info');
+        this.api.log('   - POST   /api/fireworks/toggle', 'info');
+        this.api.log('   - POST   /api/fireworks/trigger', 'info');
+        this.api.log('   - POST   /api/fireworks/finale', 'info');
+        this.api.log('   - POST   /api/fireworks/test-follower', 'info');
+        this.api.log('   - POST   /api/fireworks/random', 'info');
+        this.api.log('   - GET    /api/fireworks/gift-mappings', 'info');
+        this.api.log('   - POST   /api/fireworks/gift-mappings', 'info');
+        this.api.log('   - POST   /api/fireworks/upload', 'info');
+        this.api.log('   - GET    /api/fireworks/uploads', 'info');
+        this.api.log('   - DELETE /api/fireworks/uploads/:filename', 'info');
+        this.api.log('   - POST   /api/fireworks/benchmark/set-preset', 'info');
+        this.api.log('   - GET    /api/fireworks/benchmark/fps', 'info');
+        this.api.log('   - POST   /api/fireworks/benchmark/restore', 'info');
+        this.api.log('   - POST   /api/fireworks/config/reset', 'info');
     }
 
     /**
@@ -1291,6 +1365,9 @@ class FireworksPlugin {
      * Cleanup on plugin destroy
      */
     async destroy() {
+        // Stop random timer
+        this.stopRandomTimer();
+
         // Clear combo states
         this.comboState.clear();
         this.lastGiftTime.clear();
