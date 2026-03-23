@@ -390,6 +390,89 @@ describe('Queue Size Limits and Gift Deduplication', () => {
     });
   });
 
+  describe('repeatCount handling', () => {
+    test('should trigger wheel spin once when repeatCount is 1 (default)', () => {
+      const giftData = {
+        uniqueId: 'user1',
+        giftName: 'Rose',
+        giftId: '5655',
+        nickname: 'User 1',
+        repeatEnd: true,
+        repeatCount: 1
+      };
+
+      gameEnginePlugin.handleGiftTrigger(giftData);
+
+      expect(gameEnginePlugin.wheelGame.triggerSpin.mock.calls.length).toBe(1);
+    });
+
+    test('should trigger wheel spin N times when repeatCount is N', () => {
+      const giftData = {
+        uniqueId: 'user1',
+        giftName: 'Rose',
+        giftId: '5655',
+        nickname: 'User 1',
+        repeatEnd: true,
+        repeatCount: 5
+      };
+
+      gameEnginePlugin.handleGiftTrigger(giftData);
+
+      expect(gameEnginePlugin.wheelGame.triggerSpin.mock.calls.length).toBe(5);
+    });
+
+    test('should cap repeatCount at MAX_REPEAT_TRIGGERS (50)', () => {
+      const giftData = {
+        uniqueId: 'user1',
+        giftName: 'Rose',
+        giftId: '5655',
+        nickname: 'User 1',
+        repeatEnd: true,
+        repeatCount: 999
+      };
+
+      gameEnginePlugin.handleGiftTrigger(giftData);
+
+      expect(gameEnginePlugin.wheelGame.triggerSpin.mock.calls.length).toBe(gameEnginePlugin.MAX_REPEAT_TRIGGERS);
+    });
+
+    test('should treat missing repeatCount as 1', () => {
+      const giftData = {
+        uniqueId: 'user1',
+        giftName: 'Rose',
+        giftId: '5655',
+        nickname: 'User 1',
+        repeatEnd: true
+        // no repeatCount
+      };
+
+      gameEnginePlugin.handleGiftTrigger(giftData);
+
+      expect(gameEnginePlugin.wheelGame.triggerSpin.mock.calls.length).toBe(1);
+    });
+
+    test('should only record one dedup entry even with repeatCount > 1', () => {
+      const giftData = {
+        uniqueId: 'user1',
+        giftName: 'Rose',
+        giftId: '5655',
+        nickname: 'User 1',
+        repeatEnd: true,
+        repeatCount: 10
+      };
+
+      gameEnginePlugin.handleGiftTrigger(giftData);
+
+      // dedup map should have exactly one entry for this gift
+      const dedupKey = 'user1_Rose_5655';
+      expect(gameEnginePlugin.recentGiftEvents.has(dedupKey)).toBe(true);
+      expect(gameEnginePlugin.recentGiftEvents.size).toBe(1);
+      // wheel was triggered 10 times
+      expect(gameEnginePlugin.wheelGame.triggerSpin.mock.calls.length).toBe(10);
+    });
+  });
+
+
   describe('Integration: Queue Limits + Deduplication', () => {
     test('should handle rapid duplicate gifts with full queue gracefully', () => {
       // Fill queue to max

@@ -73,6 +73,7 @@ class GameEnginePlugin {
     this.recentGiftEvents = new Map(); // key: `${username}_${giftName}_${giftId}` -> timestamp
     this.GIFT_DEDUP_WINDOW_MS = 1000; // 1 second deduplication window
     this.giftDedupCleanupInterval = null;
+    this.MAX_REPEAT_TRIGGERS = 50; // Cap for gift repeat count to prevent abuse
     
     // Default configurations
     this.defaultConfigs = {
@@ -2820,6 +2821,9 @@ class GameEnginePlugin {
     // Normalize gift ID for consistent comparisons (Bug #4 fix)
     const giftIdStr = this.normalizeGiftId(giftId);
     const giftNameLower = (giftName || '').toLowerCase().trim();
+
+    // Cap repeatCount to prevent abuse from extremely high values
+    const effectiveCount = Math.min(Math.max(repeatCount || 1, 1), this.MAX_REPEAT_TRIGGERS);
     
     // Check for Wheel (Glücksrad) gift triggers across ALL wheels
     const matchingWheel = this.wheelGame.findWheelByGiftTrigger(giftIdStr || giftName);
@@ -2827,9 +2831,12 @@ class GameEnginePlugin {
       // Record this gift event AFTER verifying it matches a trigger
       this.recentGiftEvents.set(dedupKey, now);
       
-      this.logger.info(`[WHEEL TRIGGER] Gift ${giftName} (ID: ${giftId}) matched Wheel "${matchingWheel.name}" (ID: ${matchingWheel.id}) - triggering spin`);
-      this.handleWheelGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, matchingWheel.id);
-      // CRITICAL: Return immediately to prevent double triggers - wheel has its own queue system
+      this.logger.info(`[WHEEL TRIGGER] Gift ${giftName} (ID: ${giftId}) matched Wheel "${matchingWheel.name}" (ID: ${matchingWheel.id}) - triggering ${effectiveCount}x spin(s)`);
+      // Each handleWheelGiftTrigger call enqueues into the wheel's own queue system (triggerSpin),
+      // so rapid calls are safe - the queue absorbs the load.
+      for (let i = 0; i < effectiveCount; i++) {
+        this.handleWheelGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, matchingWheel.id);
+      }
       return;
     }
 
@@ -2840,8 +2847,10 @@ class GameEnginePlugin {
                                 this.plinkoGame.findBoardByGiftTrigger(giftName);
     if (matchingPlinkoBoard) {
       this.recentGiftEvents.set(dedupKey, now);
-      this.logger.info(`[PLINKO TRIGGER] Gift ${giftName} (ID: ${giftId}) matched Plinko board "${matchingPlinkoBoard.name}" (ID: ${matchingPlinkoBoard.id}) - triggering`);
-      this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, giftIdStr);
+      this.logger.info(`[PLINKO TRIGGER] Gift ${giftName} (ID: ${giftId}) matched Plinko board "${matchingPlinkoBoard.name}" (ID: ${matchingPlinkoBoard.id}) - triggering ${effectiveCount}x`);
+      for (let i = 0; i < effectiveCount; i++) {
+        this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, giftIdStr);
+      }
       return;
     }
 
@@ -2855,8 +2864,10 @@ class GameEnginePlugin {
                             (matchingSlotMachine.giftMappings || {})[giftName] ||
                             {};
         const oddsProfile = giftMapping.oddsProfile || 'gift_common';
-        this.logger.info(`[SLOT TRIGGER] Gift ${giftName} (ID: ${giftId}) matched Slot "${matchingSlotMachine.name}" (ID: ${matchingSlotMachine.id}, odds: ${oddsProfile})`);
-        this.handleSlotGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, oddsProfile, matchingSlotMachine.id);
+        this.logger.info(`[SLOT TRIGGER] Gift ${giftName} (ID: ${giftId}) matched Slot "${matchingSlotMachine.name}" (ID: ${matchingSlotMachine.id}, odds: ${oddsProfile}) - triggering ${effectiveCount}x`);
+        for (let i = 0; i < effectiveCount; i++) {
+          this.handleSlotGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, oddsProfile, matchingSlotMachine.id);
+        }
         return;
       }
     }
@@ -2893,28 +2904,33 @@ class GameEnginePlugin {
 
     // Handle Plinko differently - it doesn't need queuing
     if (matchingTrigger.game_type === 'plinko') {
-      this.logger.info(`[GIFT TRIGGER] Plinko trigger matched for gift "${giftName}"`);
-      this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName);
+      this.logger.info(`[GIFT TRIGGER] Plinko trigger matched for gift "${giftName}" - triggering ${effectiveCount}x`);
+      for (let i = 0; i < effectiveCount; i++) {
+        this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName);
+      }
       return;
     }
     
     // Handle Wheel (Glücksrad) from legacy triggers - has its own queue system
     if (matchingTrigger.game_type === 'wheel') {
-      this.logger.info(`[LEGACY WHEEL TRIGGER] Gift ${giftName} (ID: ${giftId}) matched legacy trigger - triggering spin`);
-      this.handleWheelGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, null);
-      // CRITICAL: Return immediately to prevent double triggers - wheel has its own queue system
+      this.logger.info(`[LEGACY WHEEL TRIGGER] Gift ${giftName} (ID: ${giftId}) matched legacy trigger - triggering ${effectiveCount}x spin(s)`);
+      for (let i = 0; i < effectiveCount; i++) {
+        this.handleWheelGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, null);
+      }
       return;
     }
 
     // Use handleGameStart to handle queueing for other games
-    this.handleGameStart(
-      matchingTrigger.game_type, 
-      uniqueId, 
-      nickname, 
-      'gift', 
-      giftName,
-      giftPictureUrl
-    );
+    for (let i = 0; i < effectiveCount; i++) {
+      this.handleGameStart(
+        matchingTrigger.game_type, 
+        uniqueId, 
+        nickname, 
+        'gift', 
+        giftName,
+        giftPictureUrl
+      );
+    }
   }
 
   /**

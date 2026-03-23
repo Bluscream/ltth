@@ -20,6 +20,8 @@ class SoundboardManager extends EventEmitter {
         this.logger = logger;
         this.likeHistory = []; // Deque for like threshold tracking
         this.MAX_LIKE_HISTORY_SIZE = 100;
+        this.MAX_REPEAT_TRIGGERS = 50; // Cap for gift repeat count to prevent abuse
+        this._repeatTimers = []; // Tracks staggered repeat timers so they can be cancelled on destroy
 
         console.log('✅ Soundboard Manager initialized (Queue managed in frontend)');
     }
@@ -90,42 +92,50 @@ class SoundboardManager extends EventEmitter {
 
     /**
      * Play sound for gift event
+     * Respects repeatCount: plays once immediately, queues remaining plays staggered by 500ms.
+     * Capped at MAX_REPEAT_TRIGGERS to prevent abuse.
      */
     async playGiftSound(giftData) {
-        console.log(`🎁 [Soundboard] Gift event received:`, {
-            giftId: giftData.giftId,
-            giftName: giftData.giftName,
-            username: giftData.username,
-            repeatCount: giftData.repeatCount || 1
-        });
+        const repeatCount = Math.min(Math.max(giftData.repeatCount || 1, 1), this.MAX_REPEAT_TRIGGERS);
 
+        this.logger.info(`[Soundboard] Gift event: ${giftData.giftName} (ID: ${giftData.giftId}) from ${giftData.username || 'unknown'}, repeatCount: ${repeatCount}`);
+
+        // Resolve sound config once (avoids repeated DB lookups in the repeat loop)
         const giftSound = this.getGiftSound(giftData.giftId);
 
-        if (giftSound) {
-            // Use specific gift sound
-            console.log(`🎵 [Soundboard] Playing gift-specific sound: ${giftSound.label}`);
-            await this.playSound(giftSound.mp3Url, giftSound.volume, giftSound.label, {
-                giftId: giftData.giftId,
-                eventType: 'gift'
-            });
-
-            // Play animation if configured
-            if (giftSound.animationType && giftSound.animationType !== 'none') {
-                this.playGiftAnimation(giftData, giftSound);
-            }
-        } else {
-            // Use default gift sound if configured
-            const defaultUrl = this.db.getSetting('soundboard_default_gift_sound');
-            const defaultVolume = parseFloat(this.db.getSetting('soundboard_gift_volume')) || 1.0;
-
-            if (defaultUrl) {
-                console.log(`🎵 [Soundboard] Playing default gift sound (no specific sound found for giftId ${giftData.giftId})`);
-                await this.playSound(defaultUrl, defaultVolume, 'Default Gift', {
+        const playOnce = async () => {
+            if (giftSound) {
+                await this.playSound(giftSound.mp3Url, giftSound.volume, giftSound.label, {
                     giftId: giftData.giftId,
                     eventType: 'gift'
                 });
+                if (giftSound.animationType && giftSound.animationType !== 'none') {
+                    this.playGiftAnimation(giftData, giftSound);
+                }
             } else {
-                console.log(`ℹ️ [Soundboard] No sound configured for gift: ${giftData.giftName} (ID: ${giftData.giftId})`);
+                // Only fetch default sound settings when no specific gift sound is configured
+                const defaultUrl = this.db.getSetting('soundboard_default_gift_sound');
+                if (defaultUrl) {
+                    const defaultVolume = parseFloat(this.db.getSetting('soundboard_gift_volume')) || 1.0;
+                    await this.playSound(defaultUrl, defaultVolume, 'Default Gift', {
+                        giftId: giftData.giftId,
+                        eventType: 'gift'
+                    });
+                } else {
+                    this.logger.debug(`[Soundboard] No sound configured for gift: ${giftData.giftName} (ID: ${giftData.giftId})`);
+                }
+            }
+        };
+
+        // Play first occurrence immediately
+        await playOnce();
+
+        // Queue remaining occurrences with staggered timing to prevent overlap
+        if (repeatCount > 1) {
+            const STAGGER_INTERVAL_MS = 500;
+            for (let i = 1; i < repeatCount; i++) {
+                const timerId = setTimeout(() => playOnce(), i * STAGGER_INTERVAL_MS);
+                this._repeatTimers.push(timerId);
             }
         }
     }
@@ -490,6 +500,16 @@ class SoundboardManager extends EventEmitter {
             items: [],
             note: 'Queue management is now handled in the frontend'
         };
+    }
+
+    /**
+     * Cancel all pending staggered repeat timers (called on plugin destroy)
+     */
+    destroy() {
+        for (const timerId of this._repeatTimers) {
+            clearTimeout(timerId);
+        }
+        this._repeatTimers = [];
     }
 }
 
@@ -1081,7 +1101,9 @@ class SoundboardPlugin {
     }
 
     async destroy() {
-        // Cleanup job runs only on startup, nothing to stop
+        if (this.soundboard) {
+            this.soundboard.destroy();
+        }
         this.api.log('🎵 Soundboard Plugin destroyed', 'info');
     }
 }
