@@ -433,6 +433,68 @@
       --accent: #38bdf8;
       --shadow: 0 14px 48px rgba(56, 189, 248, 0.3);
     }
+
+    /* ===== Vote-Skip Progress Bar ===== */
+    .vote-skip-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      opacity: 0;
+      transition: opacity 300ms ease;
+      z-index: 100;
+      pointer-events: none;
+    }
+    .vote-skip-bar.active {
+      opacity: 1;
+    }
+    .vote-skip-bar .fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #f59e0b, #ef4444);
+      transition: width 400ms ease;
+      border-radius: 0 2px 2px 0;
+    }
+    .vote-skip-label {
+      position: fixed;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: var(--muted);
+      opacity: 0;
+      transition: opacity 300ms ease;
+      z-index: 101;
+      pointer-events: none;
+      white-space: nowrap;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 2px 10px;
+      border-radius: 999px;
+    }
+    .vote-skip-label.active {
+      opacity: 1;
+    }
+
+    /* ===== Idle State ===== */
+    .idle-message {
+      font-size: 14px;
+      color: var(--muted);
+      text-align: center;
+      padding: 12px 20px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      backdrop-filter: blur(14px);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 300ms ease, transform 300ms ease;
+    }
+    .idle-message.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
   </style>
 </head>
 <body>
@@ -498,7 +560,14 @@
       </div>
     </div>
 
+    <div class="idle-message" id="idle-message">🎵 Queue ist leer – !sr um einen Song zu requesten</div>
+
   </div>
+
+  <div class="vote-skip-bar" id="vote-skip-bar">
+    <div class="fill" id="vote-skip-fill"></div>
+  </div>
+  <div class="vote-skip-label" id="vote-skip-label"></div>
 
   <script>
     (() => {
@@ -570,6 +639,44 @@
       let progressTimer = null;
       let pausedProgress = 0;
       let currentQueue = [];
+      let idleHideTimer = null;
+
+      function handleVoteSkipUpdate(data) {
+        const bar = document.getElementById('vote-skip-bar');
+        const fill = document.getElementById('vote-skip-fill');
+        const label = document.getElementById('vote-skip-label');
+        if (!bar || !fill || !label) return;
+
+        const votes = data.votes || 0;
+        const required = data.required || 1;
+        const percent = Math.min((votes / required) * 100, 100);
+
+        fill.style.width = `${percent}%`;
+        label.textContent = `Vote Skip: ${votes}/${required}`;
+
+        if (votes > 0 && !data.skipped) {
+          bar.classList.add('active');
+          label.classList.add('active');
+        } else {
+          bar.classList.remove('active');
+          label.classList.remove('active');
+        }
+      }
+
+      function handlePlaybackStopped() {
+        clearTrack();
+        // Show idle message
+        const idle = document.getElementById('idle-message');
+        if (idle) {
+          idle.classList.add('visible');
+          // Clear any existing timer before setting a new one
+          if (idleHideTimer) { clearTimeout(idleHideTimer); }
+          idleHideTimer = setTimeout(() => {
+            idle.classList.remove('visible');
+            idleHideTimer = null;
+          }, 10000);
+        }
+      }
 
       function connect() {
         if (typeof io !== 'function') {
@@ -581,10 +688,11 @@
         socket.on('musicbot:now-playing', handleNowPlaying);
         socket.on('musicbot:paused', () => setState('paused'));
         socket.on('musicbot:resumed', () => setState('playing'));
-        socket.on('musicbot:playback-stopped', clearTrack);
+        socket.on('musicbot:playback-stopped', handlePlaybackStopped);
         socket.on('musicbot:queue-update', handleQueueUpdate);
         socket.on('musicbot:volume-changed', () => {});
         socket.on('musicbot:playback-sync', handleNowPlaying);
+        socket.on('musicbot:vote-skip-update', handleVoteSkipUpdate);
       }
 
       function handleQueueUpdate(payload) {
@@ -615,6 +723,20 @@
         };
         state = currentTrack.state || 'playing';
         pausedProgress = 0;
+
+        // Hide idle message when a track starts
+        const idleMsg = document.getElementById('idle-message');
+        if (idleMsg) {
+          idleMsg.classList.remove('visible');
+          if (idleHideTimer) { clearTimeout(idleHideTimer); idleHideTimer = null; }
+        }
+
+        // Reset vote-skip bar when a new track starts
+        const voteBar = document.getElementById('vote-skip-bar');
+        const voteLabel = document.getElementById('vote-skip-label');
+        if (voteBar) voteBar.classList.remove('active');
+        if (voteLabel) voteLabel.classList.remove('active');
+
         renderTrack();
       }
 

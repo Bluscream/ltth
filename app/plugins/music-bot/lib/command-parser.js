@@ -79,6 +79,7 @@ class CommandParser {
       case 'clear':
       case 'mysong':
       case 'help':
+      case 'remove':
         return { type };
       default:
         return null;

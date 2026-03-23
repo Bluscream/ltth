@@ -44,6 +44,16 @@ class MusicResolver {
     }
 
     const isUrl = /^https?:\/\//i.test(trimmed);
+
+    if (isUrl && this._isSpotifyUrl(trimmed)) {
+      try {
+        return await this._resolveSpotifyToYouTube(trimmed);
+      } catch (spotifyError) {
+        this.api.log(`[music-bot] Spotify resolve failed: ${spotifyError.message}`, 'warn');
+        throw new Error(`Spotify-Link konnte nicht aufgelöst werden: ${spotifyError.message}`);
+      }
+    }
+
     const target = isUrl ? trimmed : `ytsearch1:${trimmed}`;
 
     const args = [
@@ -74,6 +84,18 @@ class MusicResolver {
           return oembedResult;
         } catch (oembedError) {
           this.api.log(`[music-bot] oEmbed fallback failed: ${oembedError.message}`, 'warn');
+        }
+      }
+      if (error.ytdlpNotFound && isUrl && this._isSoundCloudUrl(trimmed)) {
+        this.api.log('[music-bot] yt-dlp not found; using SoundCloud oEmbed fallback', 'warn');
+        try {
+          const scResult = await this._resolveSoundCloudOEmbed(trimmed);
+          const modResult = this._applyModeration(scResult.song);
+          if (modResult) return modResult;
+          this._addToCache(trimmed, scResult);
+          return scResult;
+        } catch (scError) {
+          this.api.log(`[music-bot] SoundCloud oEmbed fallback failed: ${scError.message}`, 'warn');
         }
       }
       throw error;
@@ -307,6 +329,103 @@ class MusicResolver {
       req.setTimeout(8000, () => {
         req.destroy();
         reject(new Error('oEmbed request timed out'));
+      });
+    });
+  }
+
+  _isSpotifyUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname === 'open.spotify.com' || parsed.hostname === 'spotify.link';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async _resolveSpotifyToYouTube(url) {
+    const oembedUrl = `https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`;
+    const oembedData = await new Promise((resolve, reject) => {
+      const req = https.get(oembedUrl, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            reject(new Error(`Spotify oEmbed HTTP ${res.statusCode}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(new Error(`Spotify oEmbed parse error: ${e.message}`));
+          }
+        });
+      });
+      req.on('error', (e) => reject(new Error(`Spotify oEmbed request failed: ${e.message}`)));
+      req.setTimeout(8000, () => {
+        req.destroy();
+        reject(new Error('Spotify oEmbed request timed out'));
+      });
+    });
+
+    // Extract track title from oEmbed title (format: "Track Name - Artist Name")
+    const title = oembedData.title || '';
+    if (!title) {
+      throw new Error('Could not extract track info from Spotify');
+    }
+
+    this.api.log(`[music-bot] Spotify link detected, searching YouTube for: ${title}`, 'info');
+    // Re-resolve via YouTube search
+    return this.resolve(title);
+  }
+
+  _isSoundCloudUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname === 'soundcloud.com' || parsed.hostname === 'on.soundcloud.com';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async _resolveSoundCloudOEmbed(url) {
+    const oembedUrl = `https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(url)}`;
+    return new Promise((resolve, reject) => {
+      const req = https.get(oembedUrl, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            reject(new Error(`SoundCloud oEmbed HTTP ${res.statusCode}`));
+            return;
+          }
+          try {
+            const json = JSON.parse(data);
+            resolve({
+              success: true,
+              song: {
+                title: json.title || url,
+                artist: json.author_name || '',
+                duration: null,
+                thumbnail: json.thumbnail_url || null,
+                url,
+                localPath: null,
+                source: 'soundcloud',
+                youtubeId: null,
+                channelId: null,
+                channelName: json.author_name || '',
+                ageLimit: null,
+                categories: []
+              }
+            });
+          } catch (e) {
+            reject(new Error(`SoundCloud oEmbed parse error: ${e.message}`));
+          }
+        });
+      });
+      req.on('error', (e) => reject(new Error(`SoundCloud oEmbed request failed: ${e.message}`)));
+      req.setTimeout(8000, () => {
+        req.destroy();
+        reject(new Error('SoundCloud oEmbed request timed out'));
       });
     });
   }
