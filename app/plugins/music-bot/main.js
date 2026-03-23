@@ -23,7 +23,8 @@ const DEFAULT_CONFIG = {
     resume: 'resume',
     clear: 'clear',
     mysong: 'mysong',
-    help: 'help'
+    help: 'help',
+    remove: 'remove'
   },
   commandAliases: {
     request: ['play', 'song', 'request'],
@@ -35,7 +36,8 @@ const DEFAULT_CONFIG = {
     resume: ['unpause', 'continue'],
     clear: [],
     mysong: ['mypos', 'myposition', 'wheremysong'],
-    help: ['commands', 'cmds', 'hilfe']
+    help: ['commands', 'cmds', 'hilfe'],
+    remove: ['removesong', 'removemy', 'delsong']
   },
   queue: {
     maxLength: 50,
@@ -62,6 +64,7 @@ const DEFAULT_CONFIG = {
     clear: 'streamer',
     mysong: 'viewer',
     help: 'viewer',
+    remove: 'viewer',
     requireSuperfanForRequest: false
   },
   voteSkip: {
@@ -657,7 +660,28 @@ class MusicBotPlugin extends EventEmitter {
         if (cmds.queue) parts.push(`${prefix}${cmds.queue}`);
         if (cmds.nowPlaying) parts.push(`${prefix}${cmds.nowPlaying}`);
         if (cmds.mysong) parts.push(`${prefix}${cmds.mysong}`);
+        if (cmds.remove) parts.push(`${prefix}${cmds.remove}`);
         this._emitChatResponse(`Commands: ${parts.join(' | ')}`, chatData.username);
+        return;
+      }
+      case 'remove': {
+        const queue = this.queueManager.getQueue();
+        const lowerUser = (chatData.username || '').toLowerCase();
+        const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
+        if (idx === -1) {
+          this._emitChatResponse('Du hast keinen Song in der Queue.', chatData.username);
+        } else {
+          const result = this.queueManager.removeSong(idx);
+          if (result.success) {
+            this._emitChatResponse(
+              `"${result.song.title}" wurde aus der Queue entfernt.`,
+              chatData.username
+            );
+            this._emitQueue();
+          } else {
+            this._emitChatResponse('Fehler beim Entfernen.', chatData.username);
+          }
+        }
         return;
       }
       default:
