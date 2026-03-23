@@ -485,6 +485,56 @@
             this.size = 120 + Math.random() * 250;
           }
           break;
+        
+        case 'fireflies':
+          this.speedY = (Math.random() - 0.5) * 0.8;
+          this.speedX = (Math.random() - 0.5) * 0.8;
+          this.size = 2 + Math.random() * 3;
+          this.alpha = 0;
+          this.targetAlpha = 0.6 + Math.random() * 0.4;
+          this.glowPhase = Math.random() * Math.PI * 2;
+          this.glowSpeed = 0.02 + Math.random() * 0.04;
+          this.wanderAngle = Math.random() * Math.PI * 2;
+          this.wanderSpeed = 0.01 + Math.random() * 0.02;
+          this.hue = 50 + Math.random() * 30;
+          this.pulseTimer = 0;
+          this.pulseInterval = 120 + Math.random() * 200;
+          this.isPulsing = false;
+          break;
+        
+        case 'sakura':
+          this.speedY = 0.8 + Math.random() * 1.5;
+          this.speedX = (Math.random() - 0.3) * 1.5;
+          this.size = 4 + Math.random() * 6;
+          this.alpha = 0.6 + Math.random() * 0.4;
+          this.rotation = Math.random() * Math.PI * 2;
+          this.rotationSpeed = (Math.random() - 0.5) * 0.08;
+          this.wobble = Math.random() * Math.PI * 2;
+          this.wobbleSpeed = 0.015 + Math.random() * 0.03;
+          this.wobbleAmplitude = 1.5 + Math.random() * 2;
+          this.hue = 330 + Math.random() * 20; // Pink range
+          this.saturation = 60 + Math.random() * 30;
+          this.lightness = 75 + Math.random() * 15;
+          this.petalShape = Math.floor(Math.random() * 3); // 0=round, 1=elongated, 2=heart
+          this.flutter = Math.random() * Math.PI * 2;
+          this.flutterSpeed = 0.03 + Math.random() * 0.05;
+          break;
+        
+        case 'embers':
+          this.x = config.x !== undefined ? config.x : Math.random() * w;
+          this.y = config.y !== undefined ? config.y : h + 20;
+          this.speedY = -(1.5 + Math.random() * 2.5); // Rise upward
+          this.speedX = (Math.random() - 0.5) * 2;
+          this.size = 1.5 + Math.random() * 3;
+          this.alpha = 0.7 + Math.random() * 0.3;
+          this.life = 1.0;
+          this.decay = 0.002 + Math.random() * 0.004;
+          this.hue = 15 + Math.random() * 25; // Orange-red
+          this.wobble = Math.random() * Math.PI * 2;
+          this.wobbleSpeed = 0.03 + Math.random() * 0.05;
+          this.flickerPhase = Math.random() * Math.PI * 2;
+          this.flickerSpeed = 0.1 + Math.random() * 0.2;
+          break;
       }
     }
 
@@ -594,6 +644,71 @@
           }
           if (this.x < -this.size) this.x = w + this.size;
           if (this.x > w + this.size) this.x = -this.size;
+          break;
+        
+        case 'fireflies':
+          this.wanderAngle += (Math.random() - 0.5) * this.wanderSpeed * speed;
+          this.speedX += Math.cos(this.wanderAngle) * 0.05 * speed;
+          this.speedY += Math.sin(this.wanderAngle) * 0.05 * speed;
+          this.speedX *= 0.98;
+          this.speedY *= 0.98;
+          this.x += this.speedX * speed;
+          this.y += this.speedY * speed;
+          
+          this.pulseTimer += speed;
+          if (this.pulseTimer > this.pulseInterval) {
+            this.isPulsing = true;
+            this.pulseTimer = 0;
+            this.pulseInterval = 120 + Math.random() * 200;
+          }
+          
+          if (this.isPulsing) {
+            this.glowPhase += this.glowSpeed * speed * 3;
+            this.alpha = this.targetAlpha * Math.sin(this.glowPhase);
+            if (this.glowPhase > Math.PI) {
+              this.isPulsing = false;
+              this.glowPhase = 0;
+              this.alpha = 0;
+            }
+          }
+          
+          if (this.x < -30) this.x = w + 30;
+          if (this.x > w + 30) this.x = -30;
+          if (this.y < -30) this.y = h + 30;
+          if (this.y > h + 30) this.y = -30;
+          break;
+        
+        case 'sakura':
+          this.y += this.speedY * speed * intensity;
+          this.wobble += this.wobbleSpeed * speed;
+          this.flutter += this.flutterSpeed * speed;
+          this.x += Math.sin(this.wobble) * this.wobbleAmplitude * speed + this.speedX * speed;
+          this.rotation += this.rotationSpeed * speed * (1 + Math.sin(this.flutter) * 0.5);
+          // 3D tumbling effect via alpha modulation
+          this.alpha = (0.5 + Math.abs(Math.sin(this.flutter)) * 0.5) * (0.6 + Math.random() * 0.05);
+          
+          if (this.y > h + 20) {
+            this.reset({ startFromTop: true, width: w, height: h });
+          }
+          if (this.x < -30) this.x = w + 30;
+          if (this.x > w + 30) this.x = -30;
+          break;
+        
+        case 'embers':
+          this.y += this.speedY * speed * intensity;
+          this.wobble += this.wobbleSpeed * speed;
+          this.x += Math.sin(this.wobble) * 0.5 * speed + this.speedX * speed * 0.3;
+          this.speedY *= 0.999; // Slow deceleration
+          this.life -= this.decay * speed;
+          this.flickerPhase += this.flickerSpeed * speed;
+          this.alpha = this.life * (0.6 + Math.sin(this.flickerPhase) * 0.4);
+          
+          if (this.life <= 0 || this.y < -50) {
+            this.reset({ width: w, height: h, y: h + 20 });
+            this.life = 1.0;
+          }
+          if (this.x < -30) this.x = w + 30;
+          if (this.x > w + 30) this.x = -30;
           break;
       }
     }
@@ -904,6 +1019,128 @@
             }
           }
           break;
+        
+        case 'fireflies':
+          {
+            if (this.alpha <= 0.01) break;
+            
+            ctx.save();
+            
+            const outerGlow = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 6);
+            outerGlow.addColorStop(0, `hsla(${this.hue}, 90%, 70%, ${this.alpha * 0.15})`);
+            outerGlow.addColorStop(0.5, `hsla(${this.hue}, 90%, 60%, ${this.alpha * 0.05})`);
+            outerGlow.addColorStop(1, `hsla(${this.hue}, 90%, 50%, 0)`);
+            ctx.fillStyle = outerGlow;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            const innerGlow = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 2);
+            innerGlow.addColorStop(0, `hsla(${this.hue}, 95%, 80%, ${this.alpha * 0.6})`);
+            innerGlow.addColorStop(0.5, `hsla(${this.hue}, 95%, 70%, ${this.alpha * 0.3})`);
+            innerGlow.addColorStop(1, `hsla(${this.hue}, 90%, 60%, 0)`);
+            ctx.fillStyle = innerGlow;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.globalAlpha = this.alpha;
+            ctx.fillStyle = `hsl(${this.hue}, 100%, 90%)`;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+          }
+          break;
+        
+        case 'sakura':
+          {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+            ctx.globalAlpha = this.alpha;
+            
+            const s = this.size;
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, s);
+            gradient.addColorStop(0, `hsla(${this.hue}, ${this.saturation}%, ${this.lightness + 10}%, 1)`);
+            gradient.addColorStop(0.5, `hsla(${this.hue}, ${this.saturation}%, ${this.lightness}%, 0.9)`);
+            gradient.addColorStop(1, `hsla(${this.hue - 10}, ${this.saturation - 10}%, ${this.lightness - 5}%, 0.6)`);
+            ctx.fillStyle = gradient;
+            
+            if (this.petalShape === 0) {
+              // Round petal
+              ctx.beginPath();
+              ctx.ellipse(0, 0, s * 0.6, s, 0, 0, Math.PI * 2);
+              ctx.fill();
+            } else if (this.petalShape === 1) {
+              // Elongated petal
+              ctx.beginPath();
+              ctx.ellipse(0, 0, s * 0.35, s * 1.1, 0, 0, Math.PI * 2);
+              ctx.fill();
+            } else {
+              // Heart-shaped petal (two overlapping circles)
+              ctx.beginPath();
+              ctx.arc(-s * 0.25, -s * 0.1, s * 0.45, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.beginPath();
+              ctx.arc(s * 0.25, -s * 0.1, s * 0.45, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.beginPath();
+              ctx.moveTo(-s * 0.55, 0);
+              ctx.quadraticCurveTo(0, s * 1.1, s * 0.55, 0);
+              ctx.fill();
+            }
+            
+            // Petal vein line
+            ctx.strokeStyle = `hsla(${this.hue + 10}, ${this.saturation}%, ${this.lightness - 15}%, 0.3)`;
+            ctx.lineWidth = 0.3;
+            ctx.beginPath();
+            ctx.moveTo(0, -s * 0.6);
+            ctx.quadraticCurveTo(s * 0.1, 0, 0, s * 0.7);
+            ctx.stroke();
+            
+            ctx.restore();
+          }
+          break;
+        
+        case 'embers':
+          {
+            if (this.alpha <= 0.01) break;
+            ctx.save();
+            
+            // Outer glow
+            const outerSize = this.size * 4 * this.life;
+            const outerGlow = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, outerSize);
+            outerGlow.addColorStop(0, `hsla(${this.hue}, 100%, 60%, ${this.alpha * 0.2})`);
+            outerGlow.addColorStop(0.5, `hsla(${this.hue + 10}, 90%, 50%, ${this.alpha * 0.08})`);
+            outerGlow.addColorStop(1, `hsla(${this.hue}, 80%, 40%, 0)`);
+            ctx.fillStyle = outerGlow;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, outerSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner glow
+            const innerSize = this.size * 1.5 * this.life;
+            const innerGlow = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, innerSize);
+            innerGlow.addColorStop(0, `hsla(${this.hue - 5}, 100%, 75%, ${this.alpha * 0.8})`);
+            innerGlow.addColorStop(0.6, `hsla(${this.hue}, 100%, 60%, ${this.alpha * 0.4})`);
+            innerGlow.addColorStop(1, `hsla(${this.hue + 10}, 90%, 45%, 0)`);
+            ctx.fillStyle = innerGlow;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, innerSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Hot core
+            ctx.globalAlpha = this.alpha * this.life;
+            ctx.fillStyle = `hsl(${this.hue - 10}, 100%, 90%)`;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 0.3 * this.life, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+          }
+          break;
       }
       
       ctx.restore();
@@ -944,7 +1181,10 @@
         rain: new ParticlePool(Particle, 'rain', 500),
         snow: new ParticlePool(Particle, 'snow', 500),
         storm: new ParticlePool(Particle, 'storm', 500),
-        fog: new ParticlePool(Particle, 'fog', 100)
+        fog: new ParticlePool(Particle, 'fog', 100),
+        fireflies: new ParticlePool(Particle, 'fireflies', 200),
+        sakura: new ParticlePool(Particle, 'sakura', 300),
+        embers: new ParticlePool(Particle, 'embers', 300)
       };
       
       // Generate snowflake variants for better visuals
@@ -979,6 +1219,10 @@
       // Lightning segments (for procedural lightning)
       this.lightningSegments = [];
       this.lightningFadeTime = 0;
+      
+      // Thunder flash and impact glow state
+      this.thunderFlash = null;
+      this.lightningImpact = null;
       
       // Cache bound render function to avoid per-frame allocation
       this._boundRender = this.render.bind(this);
@@ -1114,6 +1358,54 @@
         effect.beams = this.createSunbeams(intensity, options);
       } else if (type === 'glitchclouds') {
         effect.glitchLines = [];
+      } else if (type === 'aurora') {
+        effect.auroraWaves = [];
+        const waveCount = 3 + Math.floor(intensity * 4);
+        for (let i = 0; i < waveCount; i++) {
+          effect.auroraWaves.push({
+            y: this.dimensions.height * (0.05 + Math.random() * 0.25),
+            amplitude: 30 + Math.random() * 60,
+            frequency: 0.002 + Math.random() * 0.004,
+            speed: 0.0003 + Math.random() * 0.0005,
+            phase: Math.random() * Math.PI * 2,
+            hue: 100 + Math.random() * 80,
+            width: 40 + Math.random() * 80,
+            alpha: 0.12 + Math.random() * 0.15
+          });
+        }
+      } else if (type === 'fireflies') {
+        const particleCount = Math.floor(40 * intensity);
+        for (let i = 0; i < particleCount; i++) {
+          const particle = this.pools.fireflies.acquire({
+            width: this.dimensions.width,
+            height: this.dimensions.height,
+            y: this.dimensions.height * (0.4 + Math.random() * 0.6)
+          });
+          effect.particles.push(particle);
+        }
+      } else if (type === 'meteors') {
+        effect.meteors = [];
+        effect.nextMeteor = Date.now() + Math.random() * 1000;
+        effect.maxMeteors = Math.floor(3 + intensity * 5);
+      } else if (type === 'sakura') {
+        const particleCount = Math.floor(60 * intensity);
+        for (let i = 0; i < particleCount; i++) {
+          const particle = this.pools.sakura.acquire({
+            width: this.dimensions.width,
+            height: this.dimensions.height
+          });
+          effect.particles.push(particle);
+        }
+      } else if (type === 'embers') {
+        const particleCount = Math.floor(50 * intensity);
+        for (let i = 0; i < particleCount; i++) {
+          const particle = this.pools.embers.acquire({
+            width: this.dimensions.width,
+            height: this.dimensions.height,
+            y: this.dimensions.height + Math.random() * 50
+          });
+          effect.particles.push(particle);
+        }
       }
       
       this.state.particles.push(...effect.particles);
@@ -1154,6 +1446,8 @@
         // Clean up effect-specific data structures
         specificEffect.beams = null;
         specificEffect.glitchLines = null;
+        specificEffect.auroraWaves = null;
+        specificEffect.meteors = null;
         
         this.state.particles = this.state.particles.filter(p => p && p.active);
         this.state.activeEffects = this.state.activeEffects.filter(e => e !== specificEffect);
@@ -1182,6 +1476,8 @@
           // Clean up effect-specific data
           e.beams = null;
           e.glitchLines = null;
+          e.auroraWaves = null;
+          e.meteors = null;
         });
         
         // Filter out stopped particles and effects
@@ -1215,6 +1511,8 @@
         // Clean up effect-specific data
         e.beams = null;
         e.glitchLines = null;
+        e.auroraWaves = null;
+        e.meteors = null;
       });
       
       this.state.particles = [];
@@ -1318,6 +1616,7 @@
         }
         if (effect.type === 'thunder') {
           this.handleThunder(effect);
+          this.drawThunderFlash();
         }
         if (effect.type === 'rain') {
           this.drawGroundMist(effect);
@@ -1328,6 +1627,12 @@
         }
         if (effect.type === 'snow') {
           this.drawSnowAccumulation();
+        }
+        if (effect.type === 'aurora') {
+          this.drawAurora(effect);
+        }
+        if (effect.type === 'meteors') {
+          this.drawMeteors(effect);
         }
       }
       
@@ -1590,6 +1895,12 @@
         effect.flashCount = (effect.flashCount || 0) + 1;
         effect.nextFlash = now + 400 + Math.random() * 2500;
         
+        // Screen flash
+        this.thunderFlash = {
+          alpha: 0.7 * effect.intensity,
+          decay: 0.04
+        };
+        
         // Trigger external callback
         if (this.options.onLightning) {
           this.options.onLightning(effect.intensity);
@@ -1612,15 +1923,38 @@
       const w = this.dimensions.width;
       const h = this.dimensions.height;
       
-      const startX = Math.random() * w;
-      const startY = 0;
-      const endX = startX + (Math.random() - 0.5) * w * 0.3;
-      const endY = h;
+      let startX, startY, endX, endY;
       
-      this.lightningSegments = this.subdivideLightning(
-        startX, startY, endX, endY, this.qualityPreset.lightningGenerations, 1.0
-      );
+      if (Math.random() < 0.3) {
+        // Cloud-to-cloud (horizontal)
+        startX = Math.random() * w * 0.3;
+        startY = Math.random() * h * 0.2;
+        endX = w * 0.7 + Math.random() * w * 0.3;
+        endY = Math.random() * h * 0.25;
+      } else {
+        // Cloud-to-ground (existing behavior)
+        startX = Math.random() * w;
+        startY = 0;
+        endX = startX + (Math.random() - 0.5) * w * 0.3;
+        endY = h;
+      }
+      
+      const generations = this.qualityPreset?.lightningGenerations ?? 6;
+      this.lightningSegments = this.subdivideLightning(startX, startY, endX, endY, generations, 1.0);
       this.lightningFadeTime = Date.now() + 150;
+      
+      // Impact glow only for cloud-to-ground
+      if (endY >= h * 0.8) {
+        const lastSeg = this.lightningSegments[this.lightningSegments.length - 1];
+        this.lightningImpact = {
+          x: lastSeg ? lastSeg.x2 : w / 2,
+          y: h,
+          radius: 40 + Math.random() * 30,
+          alpha: 0.6
+        };
+      } else {
+        this.lightningImpact = null;
+      }
     }
 
     /**
@@ -1706,6 +2040,21 @@
         this.ctx.lineTo(seg.x2, seg.y2);
       });
       this.ctx.stroke();
+      
+      // Lightning impact glow at ground strike point
+      if (this.lightningImpact && this.lightningImpact.alpha > 0) {
+        const imp = this.lightningImpact;
+        const impGrad = this.ctx.createRadialGradient(imp.x, imp.y, 0, imp.x, imp.y, imp.radius);
+        impGrad.addColorStop(0, `rgba(200, 220, 255, ${imp.alpha * brightness})`);
+        impGrad.addColorStop(0.3, `rgba(150, 190, 255, ${imp.alpha * brightness * 0.5})`);
+        impGrad.addColorStop(0.7, `rgba(100, 150, 255, ${imp.alpha * brightness * 0.2})`);
+        impGrad.addColorStop(1, 'rgba(80, 120, 255, 0)');
+        this.ctx.fillStyle = impGrad;
+        this.ctx.beginPath();
+        this.ctx.arc(imp.x, imp.y, imp.radius, 0, Math.PI * 2);
+        this.ctx.fill();
+        imp.alpha -= 0.02;
+      }
       
       this.ctx.restore();
     }
@@ -2079,12 +2428,16 @@
      * Get pool statistics for debugging
      */
     getPoolStats() {
-      return {
+      const stats = {
         rain: this.pools.rain.getStats(),
         snow: this.pools.snow.getStats(),
         storm: this.pools.storm.getStats(),
         fog: this.pools.fog.getStats()
       };
+      if (this.pools.fireflies) stats.fireflies = this.pools.fireflies.getStats();
+      if (this.pools.sakura) stats.sakura = this.pools.sakura.getStats();
+      if (this.pools.embers) stats.embers = this.pools.embers.getStats();
+      return stats;
     }
 
     /**
@@ -2185,6 +2538,203 @@
     }
 
     /**
+     * Draw screen flash for thunder effect
+     */
+    drawThunderFlash() {
+      if (!this.thunderFlash || this.thunderFlash.alpha <= 0) return;
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'screen';
+      this.ctx.fillStyle = `rgba(220, 230, 255, ${this.thunderFlash.alpha})`;
+      this.ctx.fillRect(0, 0, this.dimensions.width, this.dimensions.height);
+      this.thunderFlash.alpha -= this.thunderFlash.decay;
+      if (this.thunderFlash.alpha <= 0) this.thunderFlash = null;
+      this.ctx.restore();
+    }
+
+    /**
+     * Draw aurora borealis effect
+     */
+    drawAurora(effect) {
+      if (!effect.auroraWaves) return;
+      
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'screen';
+      const w = this.dimensions.width;
+      const time = Date.now();
+      
+      effect.auroraWaves.forEach(wave => {
+        const phase = wave.phase + time * wave.speed;
+        const segmentCount = 60;
+        const segmentWidth = (w + 100) / segmentCount;
+        
+        for (let layer = 0; layer < 3; layer++) {
+          const layerAlpha = wave.alpha * (1 - layer * 0.25) * effect.intensity;
+          const layerWidth = wave.width * (1 + layer * 0.5);
+          const layerOffset = layer * 8;
+          
+          this.ctx.beginPath();
+          
+          const noiseCache = new Float32Array(segmentCount + 1);
+          for (let i = 0; i <= segmentCount; i++) {
+            const x = -50 + i * segmentWidth;
+            noiseCache[i] = this.noise.noise2D(x * wave.frequency + phase, layer * 10 + wave.phase);
+            const y = wave.y + layerOffset + noiseCache[i] * wave.amplitude;
+            
+            if (i === 0) this.ctx.moveTo(x, y - layerWidth / 2);
+            else this.ctx.lineTo(x, y - layerWidth / 2);
+          }
+          
+          for (let i = segmentCount; i >= 0; i--) {
+            const x = -50 + i * segmentWidth;
+            const y = wave.y + layerOffset + noiseCache[i] * wave.amplitude;
+            this.ctx.lineTo(x, y + layerWidth / 2);
+          }
+          
+          this.ctx.closePath();
+          
+          const hueShift = Math.sin(time * 0.0002 + wave.phase) * 20;
+          const gradient = this.ctx.createLinearGradient(0, wave.y - wave.amplitude, 0, wave.y + wave.amplitude);
+          gradient.addColorStop(0, `hsla(${wave.hue + hueShift}, 80%, 60%, 0)`);
+          gradient.addColorStop(0.3, `hsla(${wave.hue + hueShift}, 80%, 55%, ${layerAlpha})`);
+          gradient.addColorStop(0.5, `hsla(${wave.hue + hueShift + 20}, 85%, 65%, ${layerAlpha * 1.2})`);
+          gradient.addColorStop(0.7, `hsla(${wave.hue + hueShift + 40}, 80%, 55%, ${layerAlpha})`);
+          gradient.addColorStop(1, `hsla(${wave.hue + hueShift + 60}, 80%, 60%, 0)`);
+          
+          this.ctx.fillStyle = gradient;
+          this.ctx.fill();
+        }
+      });
+      
+      this.ctx.restore();
+    }
+
+    /**
+     * Draw meteor shower effect
+     */
+    drawMeteors(effect) {
+      if (!effect.meteors) return;
+      const now = Date.now();
+      const w = this.dimensions.width;
+      const h = this.dimensions.height;
+      
+      // Spawn new meteor
+      if (now >= effect.nextMeteor && effect.meteors.length < effect.maxMeteors) {
+        const angle = (Math.PI / 6) + Math.random() * (Math.PI / 4);
+        const speed = 8 + Math.random() * 12;
+        effect.meteors.push({
+          x: Math.random() * w * 1.2 - w * 0.1,
+          y: -20,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          length: 40 + Math.random() * 80,
+          alpha: 0.8 + Math.random() * 0.2,
+          life: 1.0,
+          decay: 0.008 + Math.random() * 0.01,
+          hue: (() => {
+            const r = Math.random();
+            if (r > 0.7) return 30;   // Orange (30%)
+            if (r > 0.35) return 200; // Blue (35%)
+            return 60;                 // Yellow (35%)
+          })(),
+          trailParticles: []
+        });
+        effect.nextMeteor = now + 300 + Math.random() * (2000 / Math.max(0.1, effect.intensity));
+      }
+      
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'screen';
+      
+      for (let m = effect.meteors.length - 1; m >= 0; m--) {
+        const meteor = effect.meteors[m];
+        meteor.x += meteor.vx;
+        meteor.y += meteor.vy;
+        meteor.life -= meteor.decay;
+        
+        // Trail particles
+        if (meteor.life > 0.2) {
+          meteor.trailParticles.push({
+            x: meteor.x + (Math.random() - 0.5) * 4,
+            y: meteor.y + (Math.random() - 0.5) * 4,
+            alpha: 0.5,
+            size: 1 + Math.random() * 2
+          });
+        }
+        
+        // Update trail
+        for (let t = meteor.trailParticles.length - 1; t >= 0; t--) {
+          meteor.trailParticles[t].alpha -= 0.02;
+          if (meteor.trailParticles[t].alpha <= 0) {
+            meteor.trailParticles.splice(t, 1);
+          }
+        }
+        
+        if (meteor.life <= 0 && meteor.trailParticles.length === 0) {
+          effect.meteors.splice(m, 1);
+          continue;
+        }
+        
+        // Draw trail particles
+        for (let t = 0; t < meteor.trailParticles.length; t++) {
+          const tp = meteor.trailParticles[t];
+          const tpGrad = this.ctx.createRadialGradient(tp.x, tp.y, 0, tp.x, tp.y, tp.size * 2);
+          tpGrad.addColorStop(0, `hsla(${meteor.hue}, 80%, 70%, ${tp.alpha * 0.4})`);
+          tpGrad.addColorStop(1, `hsla(${meteor.hue}, 80%, 50%, 0)`);
+          this.ctx.fillStyle = tpGrad;
+          this.ctx.beginPath();
+          this.ctx.arc(tp.x, tp.y, tp.size * 2, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+        
+        if (meteor.life <= 0) continue;
+        
+        // Draw meteor head glow
+        const headSize = 6 + meteor.life * 4;
+        const headGrad = this.ctx.createRadialGradient(meteor.x, meteor.y, 0, meteor.x, meteor.y, headSize);
+        headGrad.addColorStop(0, `hsla(${meteor.hue}, 100%, 95%, ${meteor.life * meteor.alpha})`);
+        headGrad.addColorStop(0.3, `hsla(${meteor.hue}, 90%, 80%, ${meteor.life * meteor.alpha * 0.6})`);
+        headGrad.addColorStop(0.6, `hsla(${meteor.hue}, 80%, 60%, ${meteor.life * meteor.alpha * 0.2})`);
+        headGrad.addColorStop(1, `hsla(${meteor.hue}, 80%, 50%, 0)`);
+        this.ctx.fillStyle = headGrad;
+        this.ctx.beginPath();
+        this.ctx.arc(meteor.x, meteor.y, headSize, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // Draw meteor tail streak
+        const tailLength = meteor.length * meteor.life;
+        const meteorSpeed = Math.hypot(meteor.vx, meteor.vy);
+        const tailGrad = this.ctx.createLinearGradient(
+          meteor.x, meteor.y,
+          meteor.x - meteor.vx * (tailLength / meteorSpeed),
+          meteor.y - meteor.vy * (tailLength / meteorSpeed)
+        );
+        tailGrad.addColorStop(0, `hsla(${meteor.hue}, 90%, 85%, ${meteor.life * meteor.alpha * 0.8})`);
+        tailGrad.addColorStop(0.3, `hsla(${meteor.hue}, 85%, 70%, ${meteor.life * meteor.alpha * 0.4})`);
+        tailGrad.addColorStop(1, `hsla(${meteor.hue}, 80%, 60%, 0)`);
+        
+        this.ctx.strokeStyle = tailGrad;
+        this.ctx.lineWidth = 2 + meteor.life * 2;
+        this.ctx.lineCap = 'round';
+        this.ctx.beginPath();
+        this.ctx.moveTo(meteor.x, meteor.y);
+        this.ctx.lineTo(
+          meteor.x - meteor.vx * (tailLength / meteorSpeed),
+          meteor.y - meteor.vy * (tailLength / meteorSpeed)
+        );
+        this.ctx.stroke();
+        
+        // Bright core
+        this.ctx.globalAlpha = meteor.life * meteor.alpha;
+        this.ctx.fillStyle = `hsl(${meteor.hue}, 100%, 97%)`;
+        this.ctx.beginPath();
+        this.ctx.arc(meteor.x, meteor.y, 2, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.globalAlpha = 1.0;
+      }
+      
+      this.ctx.restore();
+    }
+
+    /**
      * Destroy engine
      */
     destroy() {
@@ -2199,6 +2749,9 @@
       this.glitchCtx = null;
       // Clean up snow accumulation
       this.snowAccumulation = null;
+      // Clean up thunder flash and impact glow state
+      this.thunderFlash = null;
+      this.lightningImpact = null;
     }
   }
 
