@@ -575,7 +575,17 @@
       jackpot:    '🏆 JACKPOT!'
     };
 
-    const REEL_SYMBOL_HEIGHT = 88; // px – matches CSS (72 + 16)
+    const REEL_SYMBOL_HEIGHT = 88; // px – legacy fallback (72 + 16); use getReelSymbolHeight() instead
+
+    // Returns the actual rendered height of a .reel-symbol element.
+    // Reads from the DOM so it works in all overlay modes and icon presets.
+    function getReelSymbolHeight() {
+      const sample = document.querySelector('.reel-symbol');
+      if (sample) return sample.getBoundingClientRect().height;
+      // Fallback: derive from --symbol-size CSS custom property
+      const symbolSize = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--symbol-size')) || 72;
+      return symbolSize + 16;
+    }
     const REEL_STOP_DELAY    = 400; // ms between reel stops (default, overridden by settings)
     const TRACK_SYMBOL_COUNT = 10;  // symbols to pre-fill per track (longer = smoother blur)
 
@@ -704,14 +714,15 @@
       let spinning = true;
       let offset   = 0;
       const speed  = 14 + Math.random() * 4; // px per frame
+      const symbolHeight = getReelSymbolHeight(); // cache once per spin
 
       function step() {
         if (!spinning) return;
         offset += speed;
-        const totalH = track.children.length * REEL_SYMBOL_HEIGHT;
+        const totalH = track.children.length * symbolHeight;
         if (offset >= totalH) offset -= totalH;
         track.style.transform = `translateY(-${offset}px)`;
-        requestAnimationFrame(step);
+        if (spinning) requestAnimationFrame(step); // double-guard against race condition
       }
 
       // Expose a stop function so stopReel() can halt this closure
@@ -741,7 +752,16 @@
       }
 
       // Snap to show the last symbol (= result) in the reel viewport
-      const snapTo = (track.children.length - 1) * REEL_SYMBOL_HEIGHT;
+      const symbolHeight = getReelSymbolHeight();
+      const snapTo = (track.children.length - 1) * symbolHeight;
+
+      // Disable transition, pre-snap one symbol above the target, force reflow,
+      // then enable the CSS transition so it animates in from the correct position.
+      // This prevents the last queued RAF frame from overwriting the snap position.
+      track.style.transition = 'none';
+      track.style.transform = `translateY(-${snapTo + symbolHeight}px)`;
+      track.offsetHeight; // force reflow so transition:none is applied before re-enabling transitions
+      track.style.transition = '';
       track.classList.add('stopping');
       track.style.transform = `translateY(-${snapTo}px)`;
 
