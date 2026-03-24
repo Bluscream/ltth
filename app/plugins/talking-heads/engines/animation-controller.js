@@ -326,15 +326,17 @@ class AnimationController {
    */
   _getRelativePaths(sprites) {
     const relativeSprites = {};
-    
+
     for (const [key, value] of Object.entries(sprites)) {
       if (value) {
-        // Convert to API endpoint URL
-        const filename = value.split('/').pop();
-        relativeSprites[key] = `/api/talkingheads/sprite/${filename}`;
+        // Handle both forward and backslashes (Windows/Linux)
+        const filename = value.split(/[\\/]/).pop();
+        // Sanitize filename: only allow alphanumeric, underscore, dash, and dot
+        const safeFilename = filename.replace(/[^a-zA-Z0-9_.-]/g, '_');
+        relativeSprites[key] = `/api/talkingheads/sprite/${encodeURIComponent(safeFilename)}`;
       }
     }
-    
+
     return relativeSprites;
   }
 
@@ -404,6 +406,12 @@ class AnimationController {
    */
   _trackTimeout(timeoutId) {
     this.animationTimeouts.push(timeoutId);
+    // Prevent unbounded growth during long streaming sessions.
+    // Keep only the 20 most recent IDs: earlier timeouts have already fired
+    // (typical animation uses ~5 timeouts; 100 covers ~20 queued animations).
+    if (this.animationTimeouts.length > 100) {
+      this.animationTimeouts = this.animationTimeouts.slice(-20);
+    }
   }
   
   /**
