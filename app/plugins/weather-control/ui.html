@@ -593,7 +593,7 @@
         <!-- Stats -->
         <div class="stats-grid fade-in">
             <div class="stat-card">
-                <div class="stat-value">7</div>
+                <div class="stat-value">12</div>
                 <div class="stat-label" data-i18n-key="stats.effects">Weather Effects</div>
             </div>
             <div class="stat-card">
@@ -715,6 +715,16 @@
                                 Copy
                             </button>
                         </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" data-i18n-key="settings.quality_preset">Quality Preset</label>
+                        <select class="form-select" id="qualityPreset">
+                            <option value="low">Low – 100 max particles</option>
+                            <option value="medium" selected>Medium – 300</option>
+                            <option value="high">High – 500</option>
+                            <option value="ultra">Ultra – 800</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -1086,6 +1096,16 @@
                             <input type="number" class="form-control" id="effect-fog-duration" value="15000" min="1000" max="60000">
                         </div>
                         <div class="form-group">
+                            <label class="form-label" data-i18n-key="effects.fog_color">Fog Color Preset</label>
+                            <select class="form-select" id="effect-fog-color">
+                                <option value="default">Default White</option>
+                                <option value="toxic">Toxic Green</option>
+                                <option value="blood">Blood Red</option>
+                                <option value="ice">Ice Blue</option>
+                                <option value="golden">Golden Mist</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label">
                                 <span style="display: flex; justify-content: space-between; align-items: center;">
                                     <span data-i18n-key="effects.permanent_label">Permanent</span>
@@ -1168,6 +1188,15 @@
                             <input type="number" class="form-control" id="effect-sunbeam-duration" value="12000" min="1000" max="60000">
                         </div>
                         <div class="form-group">
+                            <label class="form-label" data-i18n-key="effects.sunbeam_colortemp">Color Temperature</label>
+                            <select class="form-select" id="effect-sunbeam-colortemp">
+                                <option value="golden">Golden Hour</option>
+                                <option value="midday">Midday</option>
+                                <option value="sunset">Sunset</option>
+                                <option value="cool">Cool Moonlight</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label">
                                 <span style="display: flex; justify-content: space-between; align-items: center;">
                                     <span data-i18n-key="effects.permanent_label">Permanent</span>
@@ -1221,6 +1250,211 @@
                             <small class="form-text" data-i18n-key="effects.permanent_help">Keep this effect running until manually stopped.</small>
                         </div>
                         <button class="btn btn-primary btn-sm w-100" data-test-effect="glitchclouds">
+                            <span>▶️</span>
+                            <span data-i18n-key="effects.test_button">Test Effect</span>
+                        </button>
+                    </div>
+
+                    <!-- Aurora Effect -->
+                    <div class="effect-card">
+                        <div class="effect-header">
+                            <div class="effect-title">
+                                <span style="color: #818cf8; font-size: 1.5rem;">🌌</span>
+                                <span data-i18n-key="effects.names.aurora">Aurora Borealis</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="effect-aurora-enabled" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span data-i18n-key="effects.intensity">Intensity</span>
+                                <span class="range-value" id="effect-aurora-intensity-val">0.6</span>
+                            </label>
+                            <input type="range" class="range-slider" id="effect-aurora-intensity" min="0" max="1" step="0.1" value="0.6">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" data-i18n-key="effects.duration_ms">Duration (ms)</label>
+                            <input type="number" class="form-control" id="effect-aurora-duration" value="15000" min="1000" max="60000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span data-i18n-key="effects.permanent_label">Permanent</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="effect-aurora-permanent">
+                                        <span class="slider"></span>
+                                    </label>
+                                </span>
+                            </label>
+                            <small class="form-text" data-i18n-key="effects.permanent_help">Keep this effect running until manually stopped.</small>
+                        </div>
+                        <button class="btn btn-primary btn-sm w-100" data-test-effect="aurora">
+                            <span>▶️</span>
+                            <span data-i18n-key="effects.test_button">Test Effect</span>
+                        </button>
+                    </div>
+
+                    <!-- Fireflies Effect -->
+                    <div class="effect-card">
+                        <div class="effect-header">
+                            <div class="effect-title">
+                                <span style="color: #fbbf24; font-size: 1.5rem;">✨</span>
+                                <span data-i18n-key="effects.names.fireflies">Fireflies</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="effect-fireflies-enabled" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span data-i18n-key="effects.intensity">Intensity</span>
+                                <span class="range-value" id="effect-fireflies-intensity-val">0.5</span>
+                            </label>
+                            <input type="range" class="range-slider" id="effect-fireflies-intensity" min="0" max="1" step="0.1" value="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" data-i18n-key="effects.duration_ms">Duration (ms)</label>
+                            <input type="number" class="form-control" id="effect-fireflies-duration" value="12000" min="1000" max="60000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span data-i18n-key="effects.permanent_label">Permanent</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="effect-fireflies-permanent">
+                                        <span class="slider"></span>
+                                    </label>
+                                </span>
+                            </label>
+                            <small class="form-text" data-i18n-key="effects.permanent_help">Keep this effect running until manually stopped.</small>
+                        </div>
+                        <button class="btn btn-primary btn-sm w-100" data-test-effect="fireflies">
+                            <span>▶️</span>
+                            <span data-i18n-key="effects.test_button">Test Effect</span>
+                        </button>
+                    </div>
+
+                    <!-- Meteors Effect -->
+                    <div class="effect-card">
+                        <div class="effect-header">
+                            <div class="effect-title">
+                                <span style="color: #f97316; font-size: 1.5rem;">☄️</span>
+                                <span data-i18n-key="effects.names.meteors">Meteor Shower</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="effect-meteors-enabled" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span data-i18n-key="effects.intensity">Intensity</span>
+                                <span class="range-value" id="effect-meteors-intensity-val">0.4</span>
+                            </label>
+                            <input type="range" class="range-slider" id="effect-meteors-intensity" min="0" max="1" step="0.1" value="0.4">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" data-i18n-key="effects.duration_ms">Duration (ms)</label>
+                            <input type="number" class="form-control" id="effect-meteors-duration" value="8000" min="1000" max="60000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span data-i18n-key="effects.permanent_label">Permanent</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="effect-meteors-permanent">
+                                        <span class="slider"></span>
+                                    </label>
+                                </span>
+                            </label>
+                            <small class="form-text" data-i18n-key="effects.permanent_help">Keep this effect running until manually stopped.</small>
+                        </div>
+                        <button class="btn btn-primary btn-sm w-100" data-test-effect="meteors">
+                            <span>▶️</span>
+                            <span data-i18n-key="effects.test_button">Test Effect</span>
+                        </button>
+                    </div>
+
+                    <!-- Sakura Effect -->
+                    <div class="effect-card">
+                        <div class="effect-header">
+                            <div class="effect-title">
+                                <span style="color: #f9a8d4; font-size: 1.5rem;">🌸</span>
+                                <span data-i18n-key="effects.names.sakura">Sakura Petals</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="effect-sakura-enabled" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span data-i18n-key="effects.intensity">Intensity</span>
+                                <span class="range-value" id="effect-sakura-intensity-val">0.6</span>
+                            </label>
+                            <input type="range" class="range-slider" id="effect-sakura-intensity" min="0" max="1" step="0.1" value="0.6">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" data-i18n-key="effects.duration_ms">Duration (ms)</label>
+                            <input type="number" class="form-control" id="effect-sakura-duration" value="12000" min="1000" max="60000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span data-i18n-key="effects.permanent_label">Permanent</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="effect-sakura-permanent">
+                                        <span class="slider"></span>
+                                    </label>
+                                </span>
+                            </label>
+                            <small class="form-text" data-i18n-key="effects.permanent_help">Keep this effect running until manually stopped.</small>
+                        </div>
+                        <button class="btn btn-primary btn-sm w-100" data-test-effect="sakura">
+                            <span>▶️</span>
+                            <span data-i18n-key="effects.test_button">Test Effect</span>
+                        </button>
+                    </div>
+
+                    <!-- Embers Effect -->
+                    <div class="effect-card">
+                        <div class="effect-header">
+                            <div class="effect-title">
+                                <span style="color: #ef4444; font-size: 1.5rem;">🔥</span>
+                                <span data-i18n-key="effects.names.embers">Rising Embers</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="effect-embers-enabled" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span data-i18n-key="effects.intensity">Intensity</span>
+                                <span class="range-value" id="effect-embers-intensity-val">0.5</span>
+                            </label>
+                            <input type="range" class="range-slider" id="effect-embers-intensity" min="0" max="1" step="0.1" value="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" data-i18n-key="effects.duration_ms">Duration (ms)</label>
+                            <input type="number" class="form-control" id="effect-embers-duration" value="10000" min="1000" max="60000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span data-i18n-key="effects.permanent_label">Permanent</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="effect-embers-permanent">
+                                        <span class="slider"></span>
+                                    </label>
+                                </span>
+                            </label>
+                            <small class="form-text" data-i18n-key="effects.permanent_help">Keep this effect running until manually stopped.</small>
+                        </div>
+                        <button class="btn btn-primary btn-sm w-100" data-test-effect="embers">
                             <span>▶️</span>
                             <span data-i18n-key="effects.test_button">Test Effect</span>
                         </button>
@@ -1280,7 +1514,7 @@
     
     <!-- Main Script -->
     <script>
-        const effects = ['rain', 'snow', 'storm', 'fog', 'thunder', 'sunbeam', 'glitchclouds'];
+        const effects = ['rain', 'snow', 'storm', 'fog', 'thunder', 'sunbeam', 'glitchclouds', 'aurora', 'fireflies', 'meteors', 'sakura', 'embers'];
         let socket;
         let eventsTriggered = 0;
         
@@ -1359,6 +1593,14 @@
                 'effects.names.thunder': 'Thunder',
                 'effects.names.sunbeam': 'Sunbeam',
                 'effects.names.glitchclouds': 'Glitch Clouds',
+                'effects.names.aurora': 'Aurora Borealis',
+                'effects.names.fireflies': 'Fireflies',
+                'effects.names.meteors': 'Meteor Shower',
+                'effects.names.sakura': 'Sakura Petals',
+                'effects.names.embers': 'Rising Embers',
+                'effects.fog_color': 'Fog Color Preset',
+                'effects.sunbeam_colortemp': 'Color Temperature',
+                'settings.quality_preset': 'Quality Preset',
                 'effects.intensity': 'Intensity',
                 'effects.duration_ms': 'Duration (ms)',
                 'effects.permanent_label': 'Permanent',
@@ -1463,6 +1705,14 @@
                 'effects.names.thunder': 'Donner',
                 'effects.names.sunbeam': 'Sonnenstrahlen',
                 'effects.names.glitchclouds': 'Glitch-Wolken',
+                'effects.names.aurora': 'Nordlichter',
+                'effects.names.fireflies': 'Glühwürmchen',
+                'effects.names.meteors': 'Sternschnuppen',
+                'effects.names.sakura': 'Kirschblüten',
+                'effects.names.embers': 'Glutfunken',
+                'effects.fog_color': 'Nebel-Farbvorlage',
+                'effects.sunbeam_colortemp': 'Farbtemperatur',
+                'settings.quality_preset': 'Qualitätsstufe',
                 'effects.intensity': 'Intensität',
                 'effects.duration_ms': 'Dauer (ms)',
                 'effects.permanent_label': 'Permanent',
@@ -1652,6 +1902,7 @@
                     // Effects
                     effects.forEach(effect => {
                         const effectConfig = config.effects[effect];
+                        if (!effectConfig) return;
                         document.getElementById(`effect-${effect}-enabled`).checked = effectConfig.enabled;
                         document.getElementById(`effect-${effect}-intensity`).value = effectConfig.defaultIntensity;
                         document.getElementById(`effect-${effect}-intensity-val`).textContent = effectConfig.defaultIntensity.toFixed(1);
@@ -1661,6 +1912,21 @@
                             permanentToggle.checked = effectConfig.permanent === true;
                         }
                     });
+
+                    // Fog color preset
+                    if (config.effects?.fog?.fogColor) {
+                        document.getElementById('effect-fog-color').value = config.effects.fog.fogColor;
+                    }
+
+                    // Sunbeam color temperature
+                    if (config.effects?.sunbeam?.colorTemperature) {
+                        document.getElementById('effect-sunbeam-colortemp').value = config.effects.sunbeam.colorTemperature;
+                    }
+
+                    // Quality preset
+                    if (config.qualityPreset) {
+                        document.getElementById('qualityPreset').value = config.qualityPreset;
+                    }
 
                     showStatus('status.config_loaded', 'success');
                 }
@@ -1716,6 +1982,15 @@
                         permanent: document.getElementById(`effect-${effect}-permanent`).checked
                     };
                 });
+
+                // Fog color preset
+                config.effects.fog.fogColor = document.getElementById('effect-fog-color').value;
+
+                // Sunbeam color temperature
+                config.effects.sunbeam.colorTemperature = document.getElementById('effect-sunbeam-colortemp').value;
+
+                // Quality preset
+                config.qualityPreset = document.getElementById('qualityPreset').value;
 
                 const response = await fetch('/api/weather/config', {
                     method: 'POST',
