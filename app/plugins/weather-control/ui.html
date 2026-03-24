@@ -1902,7 +1902,10 @@
                     // Effects
                     effects.forEach(effect => {
                         const effectConfig = config.effects[effect];
-                        if (!effectConfig) return;
+                        if (!effectConfig) {
+                            console.warn(`[Weather Control] Missing config for effect: ${effect}`);
+                            return;
+                        }
                         document.getElementById(`effect-${effect}-enabled`).checked = effectConfig.enabled;
                         document.getElementById(`effect-${effect}-intensity`).value = effectConfig.defaultIntensity;
                         document.getElementById(`effect-${effect}-intensity-val`).textContent = effectConfig.defaultIntensity.toFixed(1);
@@ -1984,10 +1987,14 @@
                 });
 
                 // Fog color preset
-                config.effects.fog.fogColor = document.getElementById('effect-fog-color').value;
+                if (config.effects.fog) {
+                    config.effects.fog.fogColor = document.getElementById('effect-fog-color').value;
+                }
 
                 // Sunbeam color temperature
-                config.effects.sunbeam.colorTemperature = document.getElementById('effect-sunbeam-colortemp').value;
+                if (config.effects.sunbeam) {
+                    config.effects.sunbeam.colorTemperature = document.getElementById('effect-sunbeam-colortemp').value;
+                }
 
                 // Quality preset
                 config.qualityPreset = document.getElementById('qualityPreset').value;
