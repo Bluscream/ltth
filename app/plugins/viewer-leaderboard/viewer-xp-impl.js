@@ -1051,6 +1051,11 @@ class ViewerXPPlugin extends EventEmitter {
       this.handleJoin(data);
     });
 
+    // Disconnected - stop awarding watch time XP and clear watch timers
+    this.api.registerTikTokEvent('disconnected', () => {
+      this.handleStreamDisconnect();
+    });
+
     this.api.log('TikTok event handlers registered', 'debug');
   }
 
@@ -3127,12 +3132,31 @@ class ViewerXPPlugin extends EventEmitter {
   }
 
   /**
+   * Handle stream disconnect - clear watch timers to stop offline XP accumulation
+   */
+  handleStreamDisconnect() {
+    const activeTimerCount = this.watchTimers.size;
+    this.watchTimers.clear();
+    this.api.log(`🔴 Stream disconnected: cleared ${activeTimerCount} active watch timers. No more watch-time XP until next stream.`, 'info');
+  }
+
+  /**
    * Start watch time tracking interval
    */
   startWatchTimeTracking() {
     const intervalMinutes = this.db.getSetting('watchTimeInterval', 1);
     
     this.watchTimeInterval = setInterval(() => {
+      // Do NOT award watch time XP when the stream is offline
+      try {
+        const tiktok = this.api.tiktok;
+        if (tiktok && typeof tiktok.isActive === 'function' && !tiktok.isActive()) {
+          return; // Stream offline, skip XP award cycle entirely
+        }
+      } catch (error) {
+        this.api.log(`Error checking TikTok connection status: ${error.message}`, 'debug');
+      }
+
       const now = Date.now();
       
       for (const [username, timer] of this.watchTimers.entries()) {
