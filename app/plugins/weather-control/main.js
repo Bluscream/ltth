@@ -4,7 +4,7 @@ const path = require('path');
  * Weather Control Plugin
  *
  * Professional weather effects system for TikTok Live overlays
- * Supports: rain, snow, storm, fog, thunder, sunbeam, glitchclouds
+ * Supports: rain, snow, storm, fog, thunder, sunbeam, glitchclouds, aurora, fireflies, meteors, sakura, embers, heatwave
  * 
  * Features:
  * - Modern GPU-accelerated animations (Canvas 2D, WebGL, CSS)
@@ -24,7 +24,13 @@ class WeatherControlPlugin {
             'fog',
             'thunder',
             'sunbeam',
-            'glitchclouds'
+            'glitchclouds',
+            'aurora',
+            'fireflies',
+            'meteors',
+            'sakura',
+            'embers',
+            'heatwave'
         ];
         
         // Rate limiting state (in-memory, per user)
@@ -154,7 +160,13 @@ class WeatherControlPlugin {
                     fog: { enabled: true, defaultIntensity: 0.4, defaultDuration: 15000, permanent: false },
                     thunder: { enabled: true, defaultIntensity: 0.8, defaultDuration: 5000, permanent: false },
                     sunbeam: { enabled: true, defaultIntensity: 0.6, defaultDuration: 12000, permanent: false },
-                    glitchclouds: { enabled: true, defaultIntensity: 0.7, defaultDuration: 8000, permanent: false }
+                    glitchclouds: { enabled: true, defaultIntensity: 0.7, defaultDuration: 8000, permanent: false },
+                    aurora: { enabled: true, defaultIntensity: 0.5, defaultDuration: 15000, permanent: false },
+                    fireflies: { enabled: true, defaultIntensity: 0.5, defaultDuration: 12000, permanent: false },
+                    meteors: { enabled: true, defaultIntensity: 0.4, defaultDuration: 10000, permanent: false },
+                    sakura: { enabled: true, defaultIntensity: 0.5, defaultDuration: 12000, permanent: false },
+                    embers: { enabled: true, defaultIntensity: 0.5, defaultDuration: 10000, permanent: false },
+                    heatwave: { enabled: true, defaultIntensity: 0.4, defaultDuration: 8000, permanent: false }
                 }
             };
 
