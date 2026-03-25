@@ -1230,29 +1230,65 @@ class TalkingHeadsPlugin {
         const testUsername = username || 'Test Animation User';
         const animationDuration = duration || 5000;
 
-        // Check if avatar exists in cache
-        let avatarData = this.cacheManager.getAvatar(testUserId, this.config.defaultStyle);
-        
+        // Resolve sprites based on spriteMode, mirroring _handleTTSEvent logic
+        const spriteMode = this.config.spriteMode || 'auto';
+        let avatarData = null;
+
+        if (spriteMode === 'manual' || spriteMode === 'hybrid') {
+          // Check for default manual set first
+          if (this.config.defaultManualSetId) {
+            const defaultSet = this.cacheManager.getManualSet(this.config.defaultManualSetId);
+            if (defaultSet) {
+              avatarData = { userId: testUserId, username: testUsername, styleKey: `manual:${this.config.defaultManualSetId}`, sprites: defaultSet.sprites };
+              this._log(`Using default manual set "${this.config.defaultManualSetId}" for test animation`, 'debug');
+            }
+          }
+
+          if (!avatarData && spriteMode === 'manual') {
+            if (!this.config.manualFallback) {
+              return res.status(404).json({
+                success: false,
+                error: 'No manual sprite set configured and AI fallback is disabled. Please configure a manual set in settings.'
+              });
+            }
+            this._log('No manual sprites for test animation, falling back to AI', 'warn');
+          }
+        }
+
+        if (!avatarData) {
+          // Auto mode or hybrid/manual fallback: check AI cache
+          avatarData = this.cacheManager.getAvatar(testUserId, this.config.defaultStyle);
+        }
+
         if (!avatarData) {
           // Generate test avatar if not exists
-          this._log(`Generating test avatar for animation test...`, 'info');
-          
+          this._log('Generating test avatar for animation test...', 'info');
+
           if (!this.avatarGenerator || !this.spriteGenerator) {
             const initialized = this._initializeGenerators();
             if (!initialized) {
-              return res.status(503).json({ 
-                success: false, 
-                error: 'Avatar generators not available. Please configure API keys.' 
+              return res.status(503).json({
+                success: false,
+                error: 'Avatar generators not available. Please configure API keys.'
               });
             }
           }
-          
-          avatarData = await this._generateAvatarAndSprites(
+
+          await this._generateAvatarAndSprites(
             testUserId,
             testUsername,
             '',
             this.config.defaultStyle
           );
+          // Re-fetch from cache to get consistent data format
+          avatarData = this.cacheManager.getAvatar(testUserId, this.config.defaultStyle);
+
+          if (!avatarData) {
+            return res.status(500).json({
+              success: false,
+              error: 'Avatar generation completed but cache entry not found.'
+            });
+          }
         }
 
         // Start animation directly
@@ -1264,8 +1300,8 @@ class TalkingHeadsPlugin {
           animationDuration
         );
 
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           message: 'Test animation started',
           userId: testUserId,
           duration: animationDuration
