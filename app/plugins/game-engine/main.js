@@ -2405,6 +2405,27 @@ class GameEnginePlugin {
         }
       });
 
+      // Unified overlay requests current game state (e.g. on load or reconnect)
+      socket.on('game-engine:request-state', () => {
+        if (this.activeSessions.size > 0) {
+          const [sessionId] = [...this.activeSessions.entries()][0];
+          const session = this.db.getSession(sessionId);
+          if (session) {
+            const useUnified = this.unifiedQueue ? this.unifiedQueue.shouldUseUnifiedOverlay(session.game_type) : false;
+            socket.emit('game-engine:current-state', {
+              hasActiveGame: true,
+              gameType: session.game_type,
+              sessionId,
+              useUnified
+            });
+          } else {
+            socket.emit('game-engine:current-state', { hasActiveGame: false });
+          }
+        } else {
+          socket.emit('game-engine:current-state', { hasActiveGame: false });
+        }
+      });
+
       // Spin completed (sent from overlay)
       socket.on('wheel:spin-complete', async (data) => {
         const { spinId, segmentIndex, reportedSegmentIndex } = data;
