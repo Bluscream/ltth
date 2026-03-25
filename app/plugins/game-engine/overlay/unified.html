@@ -113,11 +113,12 @@
 </head>
 <body>
   <div id="unified-container">
-    <!-- Game iframes -->
-    <iframe id="frame-connect4" class="game-frame" src="/overlay/game-engine/connect4"></iframe>
-    <iframe id="frame-chess" class="game-frame" src="/overlay/game-engine/chess"></iframe>
-    <iframe id="frame-plinko" class="game-frame" src="/overlay/game-engine/plinko"></iframe>
-    <iframe id="frame-wheel" class="game-frame" src="/overlay/game-engine/wheel"></iframe>
+    <!-- Game iframes (lazy-loaded: src is set only when the game first becomes active) -->
+    <iframe id="frame-connect4" class="game-frame" data-src="/overlay/game-engine/connect4"></iframe>
+    <iframe id="frame-chess" class="game-frame" data-src="/overlay/game-engine/chess"></iframe>
+    <iframe id="frame-plinko" class="game-frame" data-src="/overlay/game-engine/plinko"></iframe>
+    <iframe id="frame-wheel" class="game-frame" data-src="/overlay/game-engine/wheel"></iframe>
+    <iframe id="frame-slot" class="game-frame" data-src="/overlay/game-engine/slot"></iframe>
     
     <!-- Idle state -->
     <div id="idle-state" class="visible">
@@ -152,9 +153,10 @@
     });
 
     // Game ended event
+    // Bug 1 fix: reset currentGame to null before the timeout so showIdleState() can fire
     socket.on('game-engine:game-ended', (data) => {
       console.log('Game ended:', data);
-      // Wait for next game or go idle
+      currentGame = null;
       setTimeout(() => {
         if (!currentGame) {
           showIdleState();
@@ -162,7 +164,16 @@
       }, 2000);
     });
 
-    // Queue update events
+    // Bug 2 fix: receive current state from backend when overlay loads/reconnects
+    socket.on('game-engine:current-state', (data) => {
+      if (data.hasActiveGame && data.useUnified) {
+        switchToGame(data.gameType);
+      } else {
+        showIdleState();
+      }
+    });
+
+    // Queue update events (individual game-type queued events)
     socket.on('unified-queue:connect4-queued', (data) => {
       console.log('Connect4 queued:', data);
       updateQueueFromEvent(data);
@@ -183,11 +194,21 @@
       updateQueueFromEvent(data);
     });
 
+    // Bug 4 fix: listen to authoritative queue status and cleared events
+    socket.on('unified-queue:status', (data) => {
+      updateQueueIndicator(data.queueLength || 0);
+    });
+
+    socket.on('unified-queue:cleared', () => {
+      updateQueueIndicator(0);
+    });
+
     // Idle event
     socket.on('game-engine:idle', () => {
       showIdleState();
     });
 
+    // Bug 5 fix: lazy-load iframe src only when the game first becomes active
     function switchToGame(gameType) {
       // Hide all frames
       document.querySelectorAll('.game-frame').forEach(frame => {
@@ -200,6 +221,11 @@
       // Show active game frame
       const frame = document.getElementById(`frame-${gameType}`);
       if (frame) {
+        // Load iframe content only on first activation to save resources
+        if (!frame.dataset.loaded) {
+          frame.src = frame.dataset.src;
+          frame.dataset.loaded = 'true';
+        }
         frame.classList.add('active');
         currentGame = gameType;
       } else {
@@ -219,27 +245,26 @@
       currentGame = null;
     }
 
-    function updateQueueFromEvent(data) {
-      // Simple queue display from individual events
-      // Note: This is a simplified version - a full implementation would track the entire queue
-      if (data.queueLength > 0) {
-        const indicator = document.getElementById('queue-indicator');
-        const list = document.getElementById('queue-list');
-        
+    // Bug 4 fix: driven by authoritative backend events (unified-queue:status / unified-queue:cleared)
+    function updateQueueIndicator(queueLength) {
+      const indicator = document.getElementById('queue-indicator');
+      const list = document.getElementById('queue-list');
+
+      if (queueLength > 0) {
         indicator.classList.add('visible');
-        list.innerHTML = `<div class="queue-item">${data.queueLength} game(s) in queue</div>`;
-        
-        // Hide after 5 seconds if queue becomes empty
-        setTimeout(() => {
-          // Note: We hide after timeout regardless - in production, listen to queue-cleared events
-          indicator.classList.remove('visible');
-        }, 5000);
+        list.innerHTML = `<div class="queue-item">${queueLength} game(s) in queue</div>`;
+      } else {
+        indicator.classList.remove('visible');
       }
     }
 
-    // Request initial state
+    function updateQueueFromEvent(data) {
+      updateQueueIndicator(data.queueLength || 0);
+    }
+
+    // Request initial state so the overlay shows correctly on load/refresh (Bug 2)
     socket.emit('game-engine:request-state');
-    
+
     console.log('Unified Game Engine Overlay loaded');
   </script>
 </body>
