@@ -1765,6 +1765,7 @@
         </div>
 
         <button id="addWheelSegmentBtn" class="secondary">➕ Neues Segment hinzufügen</button>
+        <button id="reloadWheelDevicesBtn" class="secondary" title="OpenShock Geräteliste aktualisieren" style="margin-left: 8px;">🔄 Geräte neu laden</button>
 
         <h3 style="margin-top: 30px;">⚙️ Allgemeine Einstellungen</h3>
 
@@ -6966,6 +6967,8 @@
 
     async function loadAllWheels() {
       try {
+        // Pre-load OpenShock devices so the segment editor can show device selectors
+        await loadOpenShockDevices();
         const res = await fetch('/api/game-engine/wheels');
         allWheels = await res.json();
         
@@ -7182,8 +7185,6 @@
             <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 3px;">Dauer (ms):</label>
             <input type="number" class="wheel-segment-shock-duration" data-index="${index}" value="${segment.shockDuration || 1000}" min="300" max="30000" step="100" style="width: 100%;" placeholder="1000" title="Shock-Dauer in Millisekunden (300-30000)" aria-label="Shock-Dauer für Segment ${index + 1}" ${!segment.isShock ? 'disabled' : ''}>
           </div>
-          <input type="hidden" class="wheel-segment-shock-type" data-index="${index}">
-          <input type="hidden" class="wheel-segment-shock-devices" data-index="${index}">
           <div style="width: 80px; height: 40px; border-radius: 5px; background: ${segment.color || '#4CAF50'}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; text-shadow: 0 0 3px rgba(0,0,0,0.5); font-size: 10px; text-align: center; padding: 2px; overflow: hidden; ${segment.isNiete ? 'opacity: 0.6;' : ''}">
             ${segment.isShock ? '⚡' : (segment.isNiete ? '😢' : (segment.xpReward > 0 ? `⭐${segment.xpReward}` : ''))}${segment.isShock ? (segment.shockIntensity || 50) : (segment.xpReward > 0 ? '' : (segment.text || 'Preis').substring(0, 8))}
           </div>
@@ -7195,12 +7196,28 @@
               🗑️
             </button>
           </div>
+          <div class="wheel-seg-shock-cfg" style="display:${segment.isShock ? 'grid' : 'none'};width:100%;grid-template-columns:1fr 2fr;gap:8px;margin-top:6px;padding-top:8px;border-top:1px solid #333;">
+            <div>
+              <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;">Shock-Typ:</label>
+              <select class="wheel-segment-shock-type" data-index="${index}" style="width:100%;padding:4px;background:#0d0d1a;border:1px solid #444;color:#eee;border-radius:4px;">
+                <option value="shock" ${(segment.shockType || 'shock') === 'shock' ? 'selected' : ''}>Shock</option>
+                <option value="vibrate" ${segment.shockType === 'vibrate' ? 'selected' : ''}>Vibration</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#aaa;margin-bottom:2px;">Geräte (Strg+Klick für mehrere):</label>
+              <select multiple class="wheel-segment-shock-devices" data-index="${index}" style="width:100%;min-height:56px;padding:3px;background:#0d0d1a;border:1px solid #444;color:#eee;border-radius:4px;" aria-label="OpenShock Geräte für Segment ${index + 1}">
+                ${(() => {
+                  const selectedIds = Array.isArray(segment.shockDevices) ? segment.shockDevices : [];
+                  const opts = openshockDevices.map(device =>
+                    `<option value="${escapeHtml(device.id)}" ${selectedIds.includes(device.id) ? 'selected' : ''}>${escapeHtml(device.name)} (${escapeHtml(device.model || 'Unknown')})</option>`
+                  ).join('');
+                  return opts || '<option disabled>Keine Geräte verfügbar</option>';
+                })()}
+              </select>
+            </div>
+          </div>
         `;
-        // Set hidden input values using DOM properties (safer than inline attributes)
-        const shockTypeInput = segmentDiv.querySelector('.wheel-segment-shock-type');
-        const shockDevicesInput = segmentDiv.querySelector('.wheel-segment-shock-devices');
-        if (shockTypeInput) shockTypeInput.value = segment.shockType || 'shock';
-        if (shockDevicesInput) shockDevicesInput.value = JSON.stringify(segment.shockDevices || []);
         
         // Add drag and drop event listeners
         segmentDiv.addEventListener('dragstart', handleDragStart);
@@ -7232,9 +7249,11 @@
         const isChecked = e.target.checked;
         const intensityInput = document.querySelector(`.wheel-segment-shock-intensity[data-index="${index}"]`);
         const durationInput = document.querySelector(`.wheel-segment-shock-duration[data-index="${index}"]`);
+        const shockCfg = e.target.closest('.wheel-segment-item')?.querySelector('.wheel-seg-shock-cfg');
         
         if (intensityInput) intensityInput.disabled = !isChecked;
         if (durationInput) durationInput.disabled = !isChecked;
+        if (shockCfg) shockCfg.style.display = isChecked ? 'grid' : 'none';
       }
     });
     
@@ -7421,29 +7440,11 @@
           const shockIntensity = parseInt(document.querySelector(`.wheel-segment-shock-intensity[data-index="${index}"]`)?.value) || 50;
           const shockDuration = parseInt(document.querySelector(`.wheel-segment-shock-duration[data-index="${index}"]`)?.value) || 1000;
           
-          // Read shockType and shockDevices from hidden inputs, or fall back to current segment values
-          let shockType = 'shock';
-          let shockDevices = [];
-          
-          const shockTypeInput = document.querySelector(`.wheel-segment-shock-type[data-index="${index}"]`);
-          const shockDevicesInput = document.querySelector(`.wheel-segment-shock-devices[data-index="${index}"]`);
-          
-          if (shockTypeInput) {
-            shockType = shockTypeInput.value || 'shock';
-          } else if (wheelConfig.segments && wheelConfig.segments[index]) {
-            shockType = wheelConfig.segments[index].shockType || 'shock';
-          }
-          
-          if (shockDevicesInput) {
-            try {
-              shockDevices = JSON.parse(shockDevicesInput.value);
-            } catch (e) {
-              console.warn(`Failed to parse shockDevices for segment ${index}:`, shockDevicesInput.value, e);
-              shockDevices = [];
-            }
-          } else if (wheelConfig.segments && wheelConfig.segments[index]) {
-            shockDevices = wheelConfig.segments[index].shockDevices || [];
-          }
+          // Read shockType and shockDevices from visible select elements
+          const shockTypeEl = document.querySelector(`.wheel-segment-shock-type[data-index="${index}"]`);
+          const shockDevicesEl = document.querySelector(`.wheel-segment-shock-devices[data-index="${index}"]`);
+          const shockType = shockTypeEl ? (shockTypeEl.value || 'shock') : 'shock';
+          const shockDevices = shockDevicesEl ? Array.from(shockDevicesEl.selectedOptions).map(o => o.value) : [];
           
           segments.push({ text, color, weight, isNiete, xpReward, prizeAudio, isShock, shockIntensity, shockDuration, shockType, shockDevices });
         });
@@ -7723,8 +7724,17 @@
     if (addWheelSegmentBtn) {
       addWheelSegmentBtn.addEventListener('click', () => {
         if (!wheelConfig.segments) wheelConfig.segments = [];
-        wheelConfig.segments.push({ text: 'Neuer Preis', color: '#4CAF50', weight: 5, isNiete: false, xpReward: 0, prizeAudio: 1, isShock: false, shockIntensity: 50, shockDuration: 1000 });
+        wheelConfig.segments.push({ text: 'Neuer Preis', color: '#4CAF50', weight: 5, isNiete: false, xpReward: 0, prizeAudio: 1, isShock: false, shockIntensity: 50, shockDuration: 1000, shockType: 'shock', shockDevices: [] });
         renderWheelSegments();
+      });
+    }
+
+    const reloadWheelDevicesBtn = document.getElementById('reloadWheelDevicesBtn');
+    if (reloadWheelDevicesBtn) {
+      reloadWheelDevicesBtn.addEventListener('click', async () => {
+        await loadOpenShockDevices();
+        renderWheelSegments();
+        showMessage('OpenShock-Geräte neu geladen');
       });
     }
     
