@@ -51,7 +51,7 @@ class I18n {
   }
 
   /**
-   * Load translations from all plugins
+   * Load translations from all plugins, skipping disabled ones.
    */
   loadPluginTranslations() {
     const pluginsDir = path.join(__dirname, '..', 'plugins');
@@ -60,10 +60,41 @@ class I18n {
       return;
     }
 
+    // Load legacy plugins_state.json as a best-effort runtime override check
+    let pluginsState = {};
+    const legacyStateFile = path.join(pluginsDir, 'plugins_state.json');
+    if (fs.existsSync(legacyStateFile)) {
+      try {
+        pluginsState = JSON.parse(fs.readFileSync(legacyStateFile, 'utf8'));
+      } catch (error) {
+        console.error('Failed to read plugins_state.json:', error.message);
+      }
+    }
+
     try {
       const plugins = fs.readdirSync(pluginsDir);
 
       for (const plugin of plugins) {
+        // Read plugin.json to determine enabled status
+        const pluginManifestPath = path.join(pluginsDir, plugin, 'plugin.json');
+        let manifest = null;
+        if (fs.existsSync(pluginManifestPath)) {
+          try {
+            manifest = JSON.parse(fs.readFileSync(pluginManifestPath, 'utf8'));
+          } catch (error) {
+            console.error(`Failed to read plugin.json for plugin ${plugin}:`, error.message);
+          }
+        }
+
+        if (manifest) {
+          const pluginState = pluginsState[manifest.id] || {};
+          const isEnabled = pluginState.enabled !== undefined ? pluginState.enabled : manifest.enabled !== false;
+          if (!isEnabled) {
+            console.debug(`⏭️ Skipped translations for disabled plugin: ${manifest.id}`);
+            continue;
+          }
+        }
+
         const pluginLocalesDir = path.join(pluginsDir, plugin, 'locales');
 
         if (fs.existsSync(pluginLocalesDir)) {
