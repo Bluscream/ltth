@@ -34,6 +34,8 @@ REM Check if node_modules exists, install if needed
 if not exist "node_modules" (
     echo Installing dependencies...
     echo This may take a few minutes...
+    set YOUTUBE_DL_SKIP_PYTHON_CHECK=1
+    set PUPPETEER_SKIP_DOWNLOAD=true
     call npm install
     if %errorlevel% neq 0 (
         echo ERROR: Failed to install dependencies!

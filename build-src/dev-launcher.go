@@ -173,6 +173,12 @@ func (l *Launcher) installDependencies() error {
 	}
 	
 	cmd.Dir = l.appDir
+
+	// Set environment variables to skip problematic preinstall checks
+	cmd.Env = append(os.Environ(),
+		"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
+		"PUPPETEER_SKIP_DOWNLOAD=true",
+	)
 	
 	// Capture output for logging and progress updates
 	stdout, err := cmd.StdoutPipe()

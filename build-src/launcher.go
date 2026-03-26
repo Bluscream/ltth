@@ -601,6 +601,11 @@ func installDependencies(appDir, nodePath string) error {
 	}
 	
 	cmd.Dir = appDir
+	// Set environment variables to skip problematic preinstall checks
+	cmd.Env = append(os.Environ(),
+		"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
+		"PUPPETEER_SKIP_DOWNLOAD=true",
+	)
 	// Don't show npm install output in the console
 	// The installation will run silently in the background
 	
