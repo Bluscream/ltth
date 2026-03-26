@@ -170,8 +170,8 @@ const io = socketIO(server, {
 // Middleware
 app.use(express.json());
 
-// CORS-Header mit Whitelist
-const ALLOWED_ORIGINS = [
+// CORS-Header mit Whitelist (let so dynamic ports can be added at startup)
+let ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:8080',
@@ -1203,6 +1203,22 @@ app.patch('/api/profiles/aliases/:username/primary', apiLimiter, (req, res) => {
         logger.error('Error setting primary alias:', error);
         res.status(500).json({ success: false, error: error.message });
     }
+});
+
+/**
+ * GET /api/health - Health check endpoint
+ * Used by PortManager to identify running LTTH instances
+ */
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        success: true,
+        name: 'LTTH - Pup Cids little TikTok Helper',
+        pid: process.pid,
+        port: PORT,
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
 });
 
 app.get('/api/status', apiLimiter, (req, res) => {
@@ -3208,7 +3224,15 @@ tiktok.on('streamChanged', async (data) => {
 
 // ========== SERVER STARTEN ==========
 
-const PORT = process.env.PORT || 3000;
+// ========== PORT RESOLUTION ==========
+const PortManager = require('./modules/port-manager');
+const portManager = new PortManager({
+    preferredPort: parseInt(process.env.PORT, 10) || 3000,
+    fallbackPorts: [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009],
+    appIdentifier: 'ltth'
+});
+
+let PORT; // resolved at startup in the async IIFE below
 
 // Conservative cache control middleware for plugin overlays (OBS compatibility)
 // Prevents freezing when many gifts come in rapidly by ensuring fresh content
@@ -3228,6 +3252,36 @@ const pluginCacheControl = (req, res, next) => {
 
 // Async Initialisierung vor Server-Start
 (async () => {
+    // ========== PORT RESOLUTION (VOR Plugin-Loading) ==========
+    try {
+        const portResult = await portManager.resolvePort();
+        PORT = portResult.port;
+
+        if (portResult.action === 'killed_old_instance') {
+            logger.info(`♻️  Replaced old LTTH instance, using port ${PORT}`);
+        } else if (portResult.action === 'fallback') {
+            logger.warn(`⚠️  Primary port unavailable, using fallback port ${PORT}`);
+        }
+
+        // Extend CORS whitelist for dynamic port
+        if (PORT !== 3000) {
+            const dynamicOrigins = [
+                `http://localhost:${PORT}`,
+                `http://127.0.0.1:${PORT}`
+            ];
+            dynamicOrigins.forEach(origin => {
+                if (!ALLOWED_ORIGINS.includes(origin)) {
+                    ALLOWED_ORIGINS.push(origin);
+                }
+            });
+            logger.info(`📋 CORS whitelist extended for port ${PORT}`);
+        }
+    } catch (portError) {
+        logger.error(`❌ Port resolution failed: ${portError.message}`);
+        logger.error('   All configured ports are in use. Exiting.');
+        process.exit(1);
+    }
+
     // Plugins laden VOR Server-Start, damit alle Routen verfügbar sind
     logger.info('🔌 Loading plugins...');
     try {
@@ -3326,6 +3380,10 @@ const pluginCacheControl = (req, res, next) => {
         logger.info(`🎬 Overlay:       http://localhost:${PORT}/overlay.html`);
         logger.info(`📚 API Docs:      http://localhost:${PORT}/api-docs`);
         logger.info(`🐾 Pup Cid:       https://www.tiktok.com/@pupcid`);
+        if (PORT !== 3000) {
+            logger.info(`\n⚠️  ACHTUNG: Server läuft auf Port ${PORT} statt 3000!`);
+            logger.info(`   Overlay-URLs in OBS müssen ggf. angepasst werden.`);
+        }
         logger.info('\n' + '='.repeat(50));
         logger.info('\n💡 HINWEIS: Öffne das Overlay im OBS Browser-Source');
         logger.info('   und klicke "✅ Audio aktivieren" für vollständige Funktionalität.');
@@ -3712,6 +3770,17 @@ const pluginCacheControl = (req, res, next) => {
                 logger.info(`   Öffne manuell: http://localhost:${PORT}/dashboard.html\n`);
             }
         }
+    });
+
+    // CRITICAL: Error handler for the HTTP server (e.g. race condition after port resolution)
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            logger.error(`❌ Port ${PORT} is unexpectedly in use (race condition after port resolution). Exiting.`);
+            logger.error('   This should not happen after port resolution. Check for concurrent starts.');
+        } else {
+            logger.error(`❌ Server error: ${err.message}`);
+        }
+        process.exit(1);
     });
 })(); // Schließe async IIFE
 
