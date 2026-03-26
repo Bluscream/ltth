@@ -7,110 +7,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-03-26
+
 ### Added
-- **Game Engine – Token System für alle Spiele** – Alle fest codierten Overlay-Texte für
-  Wheel (Glücksrad), Plinko, Connect4 und Schach sind jetzt als konfigurierbare Tokens
-  über die Admin-GUI anpassbar. Neuer Abschnitt „📝 Anzeigetexte" in jedem Spiel-Tab.
-  Tokens werden backward-compatible mit Defaults gespeichert.
+
+#### 🎵 **Music Bot Plugin** (PR #184, #185, #186, #188, #190, #195, #198)
+- YouTube-Suche und Streaming via yt-dlp (gebündelt via youtube-dl-exec, kein Python nötig) (#190)
+- Auto-Installation von yt-dlp beim ersten Start (#186)
+- YouTube Player UI mit Suchvorschau (#185)
+- Multi-Design OBS Overlay (3 Designs), Smart Query Normalization, Superfan-only Song Requests (#188)
+- Queue Persistence, neue Chat-Commands (`!skip`, `!queue`, `!nowplaying`, `!remove`) (#195)
+- Spotify/SoundCloud oEmbed-Integration, Vote-Skip-Bar und Idle State im Overlay (#198)
+- REST API Endpoints für Queue-Management (#195)
+- Plugin-Grundgerüst, Crossfade, Device-Helper, Queue-Intelligence, Skip-Immunity, Auto-DJ, Moderation/Ban-Management, Resolver-Safeguards, Dashboard-Sidebar-Integration (#184)
+
+#### 🌦️ **Weather Engine – Massiver Ausbau** (PR #191, #193, #194, #197, #199, #203, #207)
+- Neue Effekte: Aurora, Fireflies, Meteors, Sakura, Embers, Heatwave (#199)
+- Rain: Puddle Ripples, Motion Blur, Ground Mist (#194)
+- Snow: Accumulation System (#197)
+- Wind: Perlin Noise basiert, Wind Streaks (#194)
+- Storm: Screen Shake, Dark Overlay (#194)
+- Thunder: Upgrades mit prozeduralen Blitz-Effekten (#199)
+- Fog: Ground-Mode + Color Presets (#197)
+- Sunbeam: Lens Flare + Color Temperature (#197)
+- Weather Control UI: Alle 12 Engine-Effekte exponiert, Fog/Sunbeam Property Guard, Missing Effect Config Warning (#203)
+- 9 Performance & Architektur-Fixes: O(n²) Lookup eliminiert, GC-Pressure reduziert, Quality Presets, Adaptive FPS (#193)
+
+#### ⚡ **OpenShock – PiShock Provider** (PR #192)
+- PiShock als auswählbarer API-Provider (Provider Pattern), aria-label, JSDoc (#192)
+
+#### 🎆 **Fireworks – Erweiterungen** (PR #201)
+- Random Timer, Rainbow Color Mode (#201)
+- Config Reset API (#201)
+- Path Traversal Security Fix (#201)
+- Deduplizierte Overlay-Route (#201)
+
+#### 🎮 **Game Engine – Slot Machine**
+- **Token System für alle Spiele** – Alle fest codierten Overlay-Texte für Wheel, Plinko,
+  Connect4 und Schach sind jetzt als konfigurierbare Tokens über die Admin-GUI anpassbar.
+  Neuer Abschnitt „📝 Anzeigetexte" in jedem Spiel-Tab. Tokens werden backward-compatible
+  mit Defaults gespeichert.
   - Wheel: `titleText`, `labelSpin`, `labelResult`, `labelNiete`, `labelWin`, `labelQueued`
   - Plinko: `titleText`, `labelDrop`, `labelWin`, `labelMultiplierPrefix`, `labelQueued`
   - Connect4: `titleText`, `labelPlayer1`, `labelPlayer2`, `labelYourTurn`, `labelWaiting`, `labelWin`, `labelDraw`
   - Chess: `titleText`, `labelWhite`, `labelBlack`, `labelYourTurn`, `labelCheck`, `labelCheckmate`, `labelDraw`, `labelWin`
   Overlays lesen die Tokens via `applyDisplayTexts()` aus dem Config-Socket-Event.
   Lokalisierungs-JSONs (`locales/de.json`, `locales/en.json`) um `display_texts`-Sektion erweitert.
-- **Game Engine – Slot Machine: Superfan recognition** – TikTok superfan status
-  (`isSuperFan` / `isSuperfan` / `topGifter`) is now extracted from GCCE context and
-  passed as `isSuperfan` in `userRoles`.  Superfans receive the VIP cooldown
-  (same as moderators/team-members).  New `requireSuperfan` setting restricts
-  chat-command access to superfans/mods only.  GUI option added to the
-  "Cooldowns & Zugriff" card.
-- **Game Engine – Slot Machine: Sound management** – New per-machine custom sound
-  upload API (`POST /api/game-engine/slot/audio/upload`, `POST reset`, `GET settings`).
-  Custom sounds are served from `/game-engine/sounds/slot/custom/:machineId/:type.mp3`
-  with automatic fallback to built-in defaults.  Seven configurable sounds:
-  `spin`, `small_win`, `medium_win`, `big_win`, `jackpot`, `near_miss`, `reel_stop`.
-  Sound management UI added both in the Slot Machine tab and in the Media/Sounds tab
-  (new "🎰 Slot Machine" option in the game selector).
+- **Slot Machine: Superfan recognition** – TikTok superfan status (`isSuperFan` /
+  `isSuperfan` / `topGifter`) is now extracted from GCCE context and passed as `isSuperfan`
+  in `userRoles`. Superfans receive the VIP cooldown. New `requireSuperfan` setting restricts
+  chat-command access to superfans/mods only. GUI option added to the "Cooldowns & Zugriff" card.
+- **Slot Machine: Sound management** – New per-machine custom sound upload API
+  (`POST /api/game-engine/slot/audio/upload`, `POST reset`, `GET settings`). Seven
+  configurable sounds: `spin`, `small_win`, `medium_win`, `big_win`, `jackpot`,
+  `near_miss`, `reel_stop`. Sound management UI added in Slot Machine tab and Media/Sounds tab.
   Database table `game_slot_audio` stores per-machine custom audio settings.
-- **Game Engine – Slot Machine: Spin-to-sound synchronisation** – New `syncSpinToSound`
-  setting.  When enabled, uploading a custom `spin` sound automatically updates the
-  machine's `spinDuration` to match the audio file's duration (measured client-side via
-  `HTMLAudioElement.duration`).  UI checkbox and sync indicator added to the
-  Animations-Einstellungen card.
-- **Game Engine – Slot Machine: Design settings** – New `designSettings` object in
-  machine config (`bgColor`, `borderColor`, `reelBgColor`, `textColor`, `winColor`,
-  `titleText`).  Settings are sent with every `slot:spin-started` event and applied as
-  CSS custom properties in the overlay.  "Design-Einstellungen" card added to the UI
-  with color pickers (color + hex text inputs) and a title text field.
-- **Game Engine – Slot Machine: Customisable result labels** – All six result-category
-  texts (`labelLoss`, `labelNearMiss`, `labelSmallWin`, `labelMediumWin`, `labelBigWin`,
-  `labelJackpot`) are now stored in `designSettings` and editable in the UI.  Defaults
-  use the previous hard-coded German strings.  The overlay reads these labels on every
-  `slot:spin-started` event.
-- **Game Engine – Slot Machine: Design theme presets** – Six colour presets (Classic,
-  Ocean, Fire, Neon, Monochrome, Retro) selectable via a dropdown in the Design card.
-  Clicking "Anwenden" fills all colour pickers; saving persists the preset.
-- **Game Engine – Slot Machine: Symbol image upload** – Each symbol can now have a
-  user-uploaded image instead of (or in addition to) an emoji.  Images are uploaded via
-  `POST /api/game-engine/slot/symbol-image/upload` (PNG/JPEG/GIF/WebP/SVG, max 2 MB)
-  and served from `/game-engine/slot-images/:machineId/:filename`.  The overlay renders
-  `<img>` elements when `imageUrl` is set on a symbol, falling back to the emoji otherwise.
-  The symbol editor shows a preview thumbnail and upload/clear controls per symbol.
-- **Game Engine – Slot Machine: Media tab integration** – Slot Machine added to the
-  media-game selector in the Media/Sounds tab for centralized sound management.
+- **Slot Machine: Spin-to-sound synchronisation** – New `syncSpinToSound` setting.
+  When enabled, uploading a custom `spin` sound automatically updates the machine's
+  `spinDuration` to match the audio file's duration. UI checkbox and sync indicator added.
+- **Slot Machine: Design settings** – New `designSettings` object in machine config
+  (`bgColor`, `borderColor`, `reelBgColor`, `textColor`, `winColor`, `titleText`).
+  Settings applied as CSS custom properties in the overlay. "Design-Einstellungen" card
+  added to the UI with color pickers and a title text field.
+- **Slot Machine: Customisable result labels** – All six result-category texts
+  (`labelLoss`, `labelNearMiss`, `labelSmallWin`, `labelMediumWin`, `labelBigWin`,
+  `labelJackpot`) are now stored in `designSettings` and editable in the UI.
+- **Slot Machine: Design theme presets** – Six colour presets (Classic, Ocean, Fire,
+  Neon, Monochrome, Retro) selectable via a dropdown in the Design card.
+- **Slot Machine: Symbol image upload** – Each symbol can now have a user-uploaded image.
+  Images uploaded via `POST /api/game-engine/slot/symbol-image/upload` (PNG/JPEG/GIF/WebP/SVG,
+  max 2 MB) and served from `/game-engine/slot-images/:machineId/:filename`.
+- **Slot Machine: Media tab integration** – Slot Machine added to the media-game selector
+  in the Media/Sounds tab for centralized sound management.
+- **Slot Machine core**: 3-reel slot engine with configurable symbol sets (12 default emoji
+  symbols), six outcome categories, configurable odds profiles, chat command triggers, gift
+  trigger mapping, reward dispatcher, animated overlay, multi-machine support, REST API,
+  persistent SQLite storage (`game_slot_config`, `game_slot_sessions`, `game_slot_stats`).
+
+#### 🛡️ **Intelligent Port Management** (PR #211)
+- EADDRINUSE Crash Prevention mit automatischer Port-Erkennung (#211)
 
 ### Changed
+- **yt-dlp Bundling** – Python/pip-Dependency vollständig entfernt, via youtube-dl-exec gebündelt (#190)
+- **`YOUTUBE_DL_SKIP_PYTHON_CHECK=1`** in allen npm install Execution Paths (JS, Go, Batch) (#208)
+- **npm audit** – eslint ^9, uuid Override, deprecated transitive deps behoben (#209, #210)
+- **i18n** – Skip für disabled Plugins beim Laden von Lokalisierungs-Dateien (#209)
+- **Repository Cleanup** – Alle `*_SUMMARY.md` in `docs_archive/` verschoben
+- **Version Sync** – Alle Versionsnummern auf 1.3.3 synchronisiert
 - **Game Engine – Slot Machine: Cooldowns card** renamed to "Cooldowns & Zugriff" to
   reflect the new superfan access-control option.
 - **Game Engine – Slot Machine: Animations card** – Sound settings remain in this card
   alongside the new `syncSpinToSound` checkbox; a dedicated "Sound-Einstellungen" card
   now provides per-sound upload controls directly in the Slot tab.
 
-
-  - 3-reel slot engine with configurable symbol sets (12 default emoji symbols) and
-    per-symbol weights.
-  - Six outcome categories: `loss`, `near_miss`, `small_win`, `medium_win`, `big_win`,
-    `jackpot`.
-  - Configurable odds profiles per trigger context (`chat`, `gift_common`, `gift_rare`)
-    with independent probability weights.
-  - Chat command trigger (`!spin` by default) with per-user cooldown, global cooldown,
-    and VIP/Sub cooldown settings.
-  - Gift trigger mapping: each gift maps to a specific machine and odds profile.
-  - Reward dispatcher supporting: `audio`, `overlay`, `openshock`, `xp`, `chat`,
-    `free_spin` actions – fully decoupled from the slot engine core.
-  - OpenShock integration mirrors the WheelGame pattern: clamped intensity/duration,
-    batch deduplication window, delayed fire after result display.
-  - Animated overlay (`/overlay/game-engine/slot`) with staggered reel-stop animation,
-    win glow, jackpot confetti, and socket.io event binding.
-  - Dashboard/Settings UI tab with symbol editor, odds-profile editor, gift mappings,
-    reward rules, cooldown settings, statistics panel, and test-spin button.
-  - REST API: `GET/POST /api/game-engine/slots/*` (CRUD, config, stats, test-spin,
-    cooldown query).
-  - Multi-machine support: multiple independent slot machines, each with their own
-    symbols, odds, gift mappings, and chat commands.
-  - Persistent storage via three new SQLite tables (`game_slot_config`,
-    `game_slot_sessions`, `game_slot_stats`) initialised automatically on first start.
-  - Slot overlay URL added to OBS Overlays tab.
-
 ### Fixed
-- **Game Engine – Wheel Queue / Spin-Hanger** - Resolved a bug where the unified queue
-  would permanently hang (stop processing further spins) when many gifts arrived in rapid
-  succession.
+- **TikTok Connector – Null-Packet Filter** – Null-Packet Filter vor Dedup verschoben,
+  Protocol-Packets blockierten echte Gifts im Dedup-Cache (#181)
+- **TikTok Connector – Streakable Gift Recognition** – Dedup auf repeatEnd beschränkt,
+  `repeatEnd` in Dedup-Key aufgenommen (#182)
+- **TikTok Connector – Eulerstream** – `giftDetails` Schema-Mismatch behoben, Catalog
+  Lookup vor Protocol-Packet Filter (#183)
+- **Viewer Profiles** – 8 Bugs in Validatoren, Session Tracking, WebSocket Handlers, UI (#187)
+- **Viewer XP** – Watch-Time XP Akkumulation stoppt bei Offline-Stream (#206)
+- **Goals HUD** – Overlay ignoriert gespeicherte Styles nach Browser-Refresh nicht mehr;
+  vollständige Style-Pipeline (Gradient, BG, Bar Height, Border, Shadow, Font, Label) (#189)
+- **Gift Milestone** – File Deletion, Celebration Queue, Race Condition, Exclusive
+  Timeout Cleanup (#196)
+- **Soundboard & Game Engine** – `repeatCount` auf Gift Streaks wird jetzt beachtet (Cap @50) (#200)
+- **Slot Overlay** – Dynamische Reel Symbol Height statt Hardcoded + RAF Race Condition Fix (#202)
+- **Unified Game Engine Overlay** – 5 kritische Bugs: currentGame Reset, Request-State
+  Handler, Missing Slot iFrame, Queue Indicator Race Condition, Lazy iFrame Loading (#205)
+- **Weather Control** – Sunbeam Crash: fehlende `height`/`y` auf Beam-Objekten vergiftete
+  Canvas Context (#191)
+- **Weather Effects Sync** – 6 fehlende Effekte zwischen Backend (main.js) und OBS Overlay
+  (overlay.html) synchronisiert (#207)
+- **Talking Heads** – Windows Paths, spriteMode in Test-Animation, Cache Re-Fetch,
+  Timeout Memory Leak behoben (#204)
+- **Game Engine – Wheel Queue / Spin-Hanger** – Resolved a bug where the unified queue
+  would permanently hang when many gifts arrived in rapid succession.
   - Introduced `_cleanupSpinState(spinId, reason)` as a single, centralised cleanup method
     that atomically resets `isSpinning`, `currentSpin`, `activeSpins`, and cancels the
     spin safety timeout.
-  - `startSpin()` now calls `_cleanupSpinState()` on all validation-failure paths (missing
-    config, invalid/empty segments, segment-count change, invalid segment index, winning
-    segment without text), removing zombie entries from `activeSpins` that previously
-    accumulated under burst load.
+  - `startSpin()` now calls `_cleanupSpinState()` on all validation-failure paths.
   - `handleSpinComplete()` now calls `_cleanupSpinState()` and
-    `unifiedQueue.completeProcessing()` on every early-return error path (missing spinData,
-    invalid config at completion time, invalid final segment index), preventing the queue
-    from blocking indefinitely on those error conditions.
+    `unifiedQueue.completeProcessing()` on every early-return error path.
   - `forceCompleteSpin()` consolidated to use `_cleanupSpinState()`.
-  - `cleanupOldSpins()` now calls `unifiedQueue.completeProcessing()` instead of the
-    no-op `processNextSpin()` when the unified queue is active, so the periodic cleanup
-    timer correctly unblocks the queue after removing a stuck spin.
+  - `cleanupOldSpins()` now calls `unifiedQueue.completeProcessing()` to correctly
+    unblock the queue after removing a stuck spin.
 
 ## [1.3.2] - 2026-02-07
 

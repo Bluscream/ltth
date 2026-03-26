@@ -7,15 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.3] - 2026-03-11
+## [1.3.3] - 2026-03-26
+
+### Added
+
+#### 🎵 **Music Bot Plugin** (Neues Plugin v1.0 → v1.2.0)
+- YouTube-Suche und Streaming via yt-dlp (gebündelt via youtube-dl-exec, kein Python nötig)
+- Auto-Installation von yt-dlp beim ersten Start
+- YouTube Player UI mit Suchvorschau
+- Multi-Design OBS Overlay (3 Designs)
+- Smart Query Normalization, Superfan-only Song Requests
+- Queue Persistence, neue Chat-Commands (`!skip`, `!queue`, `!nowplaying`, `!remove`)
+- Spotify/SoundCloud oEmbed-Integration
+- Vote-Skip-Bar und Idle State im Overlay
+- REST API Endpoints für Queue-Management
+
+#### 🌦️ **Weather Engine – Massiver Ausbau** (7 → 13 Effekte)
+- Neue Effekte: Aurora, Fireflies, Meteors, Sakura, Embers, Heatwave
+- Rain: Puddle Ripples, Motion Blur, Ground Mist
+- Snow: Accumulation System
+- Wind: Perlin Noise basiert, Wind Streaks
+- Storm: Screen Shake, Dark Overlay
+- Thunder: Upgrades mit prozeduralen Blitz-Effekten
+- Fog: Ground-Mode + Color Presets
+- Sunbeam: Lens Flare + Color Temperature
+- Weather Control UI: Alle 12 Engine-Effekte exponiert
+- 9 Performance & Architektur-Fixes (O(n²) Lookup, GC Pressure, Quality Presets, Adaptive FPS)
+
+#### ⚡ **OpenShock – PiShock Provider**
+- PiShock als auswählbarer API-Provider (Provider Pattern)
+
+#### 🎆 **Fireworks – Erweiterungen**
+- Random Timer, Rainbow Color Mode
+- Config Reset API
+- Path Traversal Security Fix
+- Deduplizierte Overlay-Route
+
+#### 🎮 **Game Engine – Slot Machine (Unreleased → 1.3.3)**
+- Token System für alle Spiele (Wheel, Plinko, Connect4, Schach): Konfigurierbare Overlay-Texte
+- Slot Machine: Superfan Recognition, Sound Management (7 Sounds), Spin-to-Sound Sync
+- Slot Machine: Design Settings (Farben, Presets: Classic/Ocean/Fire/Neon/Monochrome/Retro)
+- Slot Machine: Customisable Result Labels, Symbol Image Upload
+- Slot Machine: Media Tab Integration
+- Wheel Queue / Spin-Hanger Fix: `_cleanupSpinState()` verhindert permanentes Queue-Hängen
+
+#### 🛡️ **Intelligent Port Management**
+- EADDRINUSE Crash Prevention mit automatischer Port-Erkennung
 
 ### Changed
-- **Repository Cleanup** - Maintenance release: documentation organization
-  - Moved all temporary `*_SUMMARY.md` and `*_FIX_SUMMARY.md` files from root to `docs_archive/`
-  - Removed outdated `-Old.md` duplicate files from `app/wiki/`
-  - Moved `infos/FINAL_SUMMARY.md` to `docs_archive/`
-  - Root directory now contains only: `README.md`, `CHANGELOG.md`, `LICENSE`, `DOCUMENTATION_INDEX.md`
-  - Synchronized version numbers to 1.3.3 across all package files
+- **Repository Cleanup** – Alle `*_SUMMARY.md` in `docs_archive/` verschoben
+- **Version Sync** – Alle Versionsnummern auf 1.3.3 synchronisiert
+- **yt-dlp Bundling** – Python/pip-Dependency vollständig entfernt, via youtube-dl-exec gebündelt
+- **`YOUTUBE_DL_SKIP_PYTHON_CHECK=1`** in allen npm install Execution Paths (JS, Go, Batch)
+- **npm audit** – eslint ^9, uuid Override, deprecated transitive deps behoben
+- **i18n** – Skip für disabled Plugins beim Laden von Lokalisierungs-Dateien
+
+### Fixed
+- **TikTok Connector / Eulerstream** – 3 Gift-Recognition-Fixes:
+  - Null-Packet Filter vor Dedup verschoben
+  - Streakable Gift Recognition: Dedup auf repeatEnd beschränkt
+  - Eulerstream giftDetails Schema Mismatch behoben
+- **Viewer Profiles** – 8 Bugs in Validatoren, Session Tracking, WebSocket Handlers, UI
+- **Viewer XP** – Watch-Time XP Akkumulation stoppt bei Offline-Stream
+- **Goals HUD** – Overlay ignoriert gespeicherte Styles nach Browser-Refresh nicht mehr
+- **Gift Milestone** – File Deletion, Celebration Queue, Race Condition, Exclusive Timeout Cleanup
+- **Soundboard & Game Engine** – repeatCount auf Gift Streaks wird jetzt beachtet (Cap @50)
+- **Slot Overlay** – Dynamic Reel Symbol Height + RAF Race Condition Fix
+- **Unified Game Engine Overlay** – 5 kritische Bugs (currentGame Reset, Request-State Handler, Slot iframe, Queue Indicator, Lazy-Load iframes)
+- **Weather Control** – Sunbeam Crash (fehlende `height`/`y` auf Beam-Objekten)
+- **Weather Effects Sync** – 6 fehlende Effekte zwischen Backend und OBS Overlay synchronisiert
+- **Talking Heads** – Windows Paths, spriteMode in Test-Animation, Timeout Memory Leak
 
 ## [1.3.2] - 2026-02-07
 

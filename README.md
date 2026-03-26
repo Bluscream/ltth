@@ -381,4 +381,4 @@ Dieses Tool nutzt öffentliche APIs und ist nicht offiziell von TikTok unterstü
 
 **Made with ❤️ by PupCid & Claude AI**
 
-**Version 1.3.2** - Maintenance Release & Version Consistency
+**Version 1.3.3** - Feature Release
