@@ -493,7 +493,11 @@ class UpdateManager {
 
             execSync(command, {
                 cwd: this.projectRoot,
-                stdio: 'inherit'
+                stdio: 'inherit',
+                env: Object.assign({}, process.env, {
+                    PUPPETEER_SKIP_DOWNLOAD: 'true',
+                    YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
+                })
             });
 
             this.logger?.info('Dependencies erfolgreich aktualisiert!');

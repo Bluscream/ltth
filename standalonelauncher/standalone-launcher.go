@@ -1456,10 +1456,11 @@ func (sl *StandaloneLauncher) installDependencies(appDir string) error {
 		cmd = exec.Command(npmCmd, "install", "--omit=dev", "--no-optional", "--no-audit", "--no-fund", "--loglevel=info")
 	}
 	cmd.Dir = appDir
-	
-	// Add portable node to PATH so node-gyp and other tools can find node
+
+	// Build environment: start from os.Environ, then add portable node PATH if needed,
+	// and always set flags to skip problematic preinstall checks.
+	env := os.Environ()
 	if nodeDir != "" {
-		env := os.Environ()
 		pathFound := false
 		for i, e := range env {
 			// Check for PATH= in a way that works on both Windows (case-insensitive) and Unix (case-sensitive)
@@ -1490,8 +1491,13 @@ func (sl *StandaloneLauncher) installDependencies(appDir string) error {
 		if !pathFound {
 			env = append(env, "PATH="+nodeDir)
 		}
-		cmd.Env = env
 	}
+	// Set environment variables to skip problematic preinstall checks
+	env = append(env,
+		"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
+		"PUPPETEER_SKIP_DOWNLOAD=true",
+	)
+	cmd.Env = env
 	
 	// Capture stdout and stderr
 	stdout, err := cmd.StdoutPipe()

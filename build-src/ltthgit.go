@@ -259,7 +259,13 @@ func (cl *CloudLauncher) installDependencies(appDir string) error {
 	cmd.Dir = appDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
+	// Set environment variables to skip problematic preinstall checks
+	cmd.Env = append(os.Environ(),
+		"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
+		"PUPPETEER_SKIP_DOWNLOAD=true",
+	)
+
 	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("Installation fehlgeschlagen: %v", err)

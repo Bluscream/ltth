@@ -288,7 +288,8 @@ class Launcher {
             // Umgebungsvariablen setzen, um Puppeteer-Downloads zu überspringen
             // Dies verhindert Netzwerkfehler bei der Installation
             const env = Object.assign({}, process.env, {
-                PUPPETEER_SKIP_DOWNLOAD: 'true'
+                PUPPETEER_SKIP_DOWNLOAD: 'true',
+                YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
             });
 
             execSync(command, {
