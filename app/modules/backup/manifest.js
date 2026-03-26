@@ -14,7 +14,7 @@ const APP_NAME = 'pupcids-little-tiktool-helper';
  * Creates a new backup manifest object.
  *
  * @param {object} opts
- * @param {string} [opts.appVersion] - App version string (e.g. '1.3.2')
+ * @param {string} [opts.appVersion] - App version string (e.g. '1.3.3')
  * @param {string} [opts.profile] - Active profile name at export time
  * @param {object} [opts.options] - Export options chosen by the user
  * @param {Array}  [opts.plugins] - Plugin metadata entries included in the backup
