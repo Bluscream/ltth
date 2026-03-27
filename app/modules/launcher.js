@@ -400,9 +400,14 @@ class Launcher {
         const spawnServer = () => {
             const { spawn } = require('child_process');
 
+            // Forward PORT env var explicitly so any alternative port set by the
+            // Go launcher (or the caller) is reliably passed to the server process.
+            const env = Object.assign({}, process.env);
+
             const serverProcess = spawn('node', [serverPath], {
                 cwd: this.projectRoot,
-                stdio: 'inherit'
+                stdio: 'inherit',
+                env
             });
 
             serverProcess.on('exit', (code) => {

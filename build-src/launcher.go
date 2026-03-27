@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -606,12 +607,49 @@ func installDependencies(appDir, nodePath string) error {
 		"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
 		"PUPPETEER_SKIP_DOWNLOAD=true",
 	)
-	// Don't show npm install output in the console
-	// The installation will run silently in the background
-	
+	// Capture stderr for error reporting; stdout is discarded (silent install)
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("Installation fehlgeschlagen: %v", err)
+		stderrOutput := stderrBuf.String()
+		fmt.Printf("Fehler beim ersten npm install Versuch: %v\n", err)
+		if stderrOutput != "" {
+			fmt.Printf("npm Fehlerausgabe:\n%s\n", stderrOutput)
+		}
+
+		// Fallback: retry without --cache flag
+		fmt.Println("Wiederhole Installation ohne --cache Flag...")
+
+		var retryCmd *exec.Cmd
+		if npmPath != "" && runtime.GOOS == "windows" {
+			retryCmd = exec.Command("cmd", "/C", npmPath, "install")
+		} else if npmPath != "" {
+			retryCmd = exec.Command(npmPath, "install")
+		} else if runtime.GOOS == "windows" {
+			retryCmd = exec.Command("cmd", "/C", "npm", "install")
+		} else {
+			retryCmd = exec.Command("npm", "install")
+		}
+		retryCmd.Dir = appDir
+		retryCmd.Env = append(os.Environ(),
+			"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
+			"PUPPETEER_SKIP_DOWNLOAD=true",
+		)
+		var retryStderr bytes.Buffer
+		retryCmd.Stderr = &retryStderr
+
+		if retryErr := retryCmd.Run(); retryErr != nil {
+			if retryStderr.Len() > 0 {
+				fmt.Printf("Fallback-Fehlerausgabe:\n%s\n", retryStderr.String())
+			}
+			return fmt.Errorf("Installation fehlgeschlagen: %v", retryErr)
+		}
+
+		fmt.Println("Installation erfolgreich mit Fallback-Methode (ohne --cache)!")
+		fmt.Println()
+		return nil
 	}
 	
 	fmt.Println()
