@@ -2927,7 +2927,10 @@ class GameEnginePlugin {
     if (matchingTrigger.game_type === 'plinko') {
       this.logger.info(`[GIFT TRIGGER] Plinko trigger matched for gift "${giftName}" - triggering ${effectiveCount}x`);
       for (let i = 0; i < effectiveCount; i++) {
-        this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName);
+        // Pass giftIdStr so ID-keyed board mappings are resolved correctly, and
+        // useDefaults=true so the Trigger-Tab-only case spawns with default parameters
+        // when no board-specific mapping exists.
+        this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, giftIdStr, true);
       }
       return;
     }
@@ -3019,7 +3022,7 @@ class GameEnginePlugin {
   /**
    * Handle Plinko gift trigger
    */
-  async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName, giftId = null) {
+  async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName, giftId = null, useDefaults = false) {
     try {
       // Normalize gift name and ID for consistent comparisons
       const normalizedGiftName = (giftName || '').trim();
@@ -3096,11 +3099,19 @@ class GameEnginePlugin {
           }
         }
         
-        // If still no mapping found, log comprehensive error
+        // If still no mapping found, decide based on useDefaults flag
         if (!giftMapping) {
-          const boardNames = boards.filter(b => b.enabled).map(b => b.name).join(', ') || 'none';
-          this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
-          return;
+          const enabledBoards = boards.filter(b => b.enabled);
+          if (useDefaults && enabledBoards.length > 0 && normalizedGiftName) {
+            // Trigger-Tab-only configuration: no board-specific mapping, but the gift IS
+            // configured as a Plinko trigger. Spawn with safe defaults so the user sees balls.
+            giftMapping = { betAmount: 100, ballType: 'standard' };
+            this.logger.info(`[PLINKO] Gift "${normalizedGiftName}" has no board-specific mapping - using defaults (betAmount=100, ballType=standard)`);
+          } else {
+            const boardNames = enabledBoards.map(b => b.name).join(', ') || 'none';
+            this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
+            return;
+          }
         }
       }
 

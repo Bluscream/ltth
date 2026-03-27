@@ -58,7 +58,7 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
       normalizeGiftId: (giftId) => String(giftId || '').trim(),
       
       // Inline copy of handlePlinkoGiftTrigger kept in sync with main.js
-      async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName, giftId = null) {
+      async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName, giftId = null, useDefaults = false) {
         try {
           // Normalize gift name and ID for consistent comparisons
           const normalizedGiftName = (giftName || '').trim();
@@ -135,11 +135,18 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
               }
             }
             
-            // If still no mapping found, log comprehensive error
+            // If still no mapping found, decide based on useDefaults flag
             if (!giftMapping) {
-              const boardNames = boards.filter(b => b.enabled).map(b => b.name).join(', ') || 'none';
-              this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
-              return { success: false, error: 'No gift mapping found' };
+              const enabledBoards = boards.filter(b => b.enabled);
+              if (useDefaults && enabledBoards.length > 0 && normalizedGiftName) {
+                // Trigger-Tab-only configuration: spawn with safe defaults
+                giftMapping = { betAmount: 100, ballType: 'standard' };
+                this.logger.info(`[PLINKO] Gift "${normalizedGiftName}" has no board-specific mapping - using defaults (betAmount=100, ballType=standard)`);
+              } else {
+                const boardNames = enabledBoards.map(b => b.name).join(', ') || 'none';
+                this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
+                return { success: false, error: 'No gift mapping found' };
+              }
             }
           }
 
@@ -550,7 +557,9 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
 
         this.recentGiftEvents.set(dedupKey, now);
         if (matchingTrigger.game_type === 'plinko') {
-          this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName);
+          // Pass giftIdStr for ID-keyed mapping resolution and useDefaults=true so
+          // a Trigger-Tab-only configuration spawns balls with default parameters.
+          this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, giftIdStr, true);
           return;
         }
         this.handleGameStart(
@@ -653,6 +662,130 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
 
       expect(gameEnginePlugin.handleWheelGiftTrigger).toHaveBeenCalled();
       expect(gameEnginePlugin.handlePlinkoGiftTrigger).not.toHaveBeenCalled();
+    });
+
+    test('should route to plinko via general trigger and forward giftId + useDefaults=true', () => {
+      // Simulate Trigger Tab configuration: gift in game_triggers, NOT in any board mapping
+      db.addTrigger('plinko', 'gift', 'Rose');
+
+      gameEnginePlugin.handleGiftTrigger({
+        uniqueId: 'user7', giftName: 'Rose', giftId: 5655,
+        nickname: 'User7', giftPictureUrl: '', repeatEnd: true, repeatCount: 1
+      });
+
+      // Verify handlePlinkoGiftTrigger receives giftIdStr AND useDefaults=true
+      expect(gameEnginePlugin.handlePlinkoGiftTrigger).toHaveBeenCalledWith(
+        'user7', 'User7', '', 'Rose', '5655', true
+      );
+      expect(gameEnginePlugin.handleGameStart).not.toHaveBeenCalled();
+    });
+
+    test('should route via general trigger using name match (no giftId)', () => {
+      // Trigger Tab configured with gift name only
+      db.addTrigger('plinko', 'gift', 'Lion');
+
+      gameEnginePlugin.handleGiftTrigger({
+        uniqueId: 'user8', giftName: 'Lion', giftId: null,
+        nickname: 'User8', giftPictureUrl: '', repeatEnd: undefined, repeatCount: 1
+      });
+
+      expect(gameEnginePlugin.handlePlinkoGiftTrigger).toHaveBeenCalledWith(
+        'user8', 'User8', '', 'Lion', '', true
+      );
+    });
+  });
+
+  describe('Trigger Tab (useDefaults) fallback', () => {
+    let originalSpawnBall;
+
+    beforeEach(() => {
+      // Mock spawnBall to succeed (XP system not available in unit-test env)
+      originalSpawnBall = gameEnginePlugin.plinkoGame.spawnBall.bind(gameEnginePlugin.plinkoGame);
+      gameEnginePlugin.plinkoGame.spawnBall = jest.fn().mockResolvedValue({ success: true, ballId: 'ball_test' });
+    });
+
+    afterEach(() => {
+      gameEnginePlugin.plinkoGame.spawnBall = originalSpawnBall;
+    });
+
+    test('should spawn ball with defaults when no board mapping and useDefaults=true', async () => {
+      // No board-specific mapping - simulates Trigger Tab only configuration
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', 'Rose', null, true
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('using defaults (betAmount=100, ballType=standard)')
+      );
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Spawning ball for testuser')
+      );
+      expect(gameEnginePlugin.plinkoGame.spawnBall).toHaveBeenCalledWith(
+        'testuser', 'Test User', '', 100, 'standard'
+      );
+    });
+
+    test('should spawn with defaults for catalog-style gift ID via Trigger Tab', async () => {
+      // Gift identified by ID only, Trigger Tab path (no name-keyed or ID-keyed board mapping)
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', 'Dragon', '9999', true
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('using defaults')
+      );
+    });
+
+    test('should not use defaults when no enabled boards are available', async () => {
+      // Disable all boards
+      const boards = db.getAllPlinkoBoards();
+      boards.forEach(b => db.updatePlinkoEnabled(b.id, false));
+
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', 'Rose', null, true
+      );
+
+      expect(result).toEqual({ success: false, error: 'No gift mapping found' });
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('triggered Plinko but no mapping found')
+      );
+    });
+
+    test('should not use defaults when gift name is empty even with useDefaults=true', async () => {
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', '', null, true
+      );
+
+      expect(result).toEqual({ success: false, error: 'No gift mapping found' });
+    });
+
+    test('board-specific mapping still takes precedence over defaults', async () => {
+      // Add a board-specific mapping with custom values
+      const boards = db.getAllPlinkoBoards();
+      db.updatePlinkoGiftMappings(boards[0].id, {
+        'Rose': { betAmount: 500, ballType: 'golden' }
+      });
+
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', 'Rose', null, true
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      // Should NOT fall through to defaults - mapped values should be used
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('using defaults')
+      );
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('betAmount=500')
+      );
+      expect(gameEnginePlugin.plinkoGame.spawnBall).toHaveBeenCalledWith(
+        'testuser', 'Test User', '', 500, 'golden'
+      );
     });
   });
 });
