@@ -276,7 +276,27 @@ class Launcher {
      */
     async installDependencies() {
         const packageLockPath = path.join(this.projectRoot, 'package-lock.json');
-        const useCI = fs.existsSync(packageLockPath);
+        let useCI = false;
+
+        // Prüfe ob package-lock.json existiert UND valide ist (lockfileVersion >= 1)
+        if (fs.existsSync(packageLockPath)) {
+            try {
+                const lockContent = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
+                useCI = lockContent.lockfileVersion >= 1;
+                if (!useCI) {
+                    this.log.warn('package-lock.json hat veraltetes Format (lockfileVersion < 1). Nutze npm install statt npm ci.');
+                }
+            } catch (parseError) {
+                this.log.warn(`package-lock.json ist korrupt oder nicht lesbar: ${parseError.message}`);
+                this.log.info('Lösche korrupte package-lock.json und nutze npm install...');
+                try {
+                    fs.unlinkSync(packageLockPath);
+                } catch (unlinkError) {
+                    this.log.warn(`Konnte package-lock.json nicht löschen: ${unlinkError.message}`);
+                }
+                useCI = false;
+            }
+        }
 
         const command = useCI ? 'npm ci' : 'npm install';
         this.log.info(`Führe "${command}" aus...`);
@@ -302,10 +322,30 @@ class Launcher {
             spinner.stop();
             this.log.success('Installation erfolgreich!');
         } catch (error) {
+            // Fallback: Wenn npm ci fehlschlägt, versuche npm install
+            if (useCI) {
+                this.log.warn('npm ci fehlgeschlagen. Versuche Fallback mit npm install...');
+                try {
+                    execSync('npm install', {
+                        cwd: this.projectRoot,
+                        stdio: ['pipe', 'pipe', 'pipe'],
+                        encoding: 'utf8',
+                        env: Object.assign({}, process.env, {
+                            PUPPETEER_SKIP_DOWNLOAD: 'true',
+                            YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
+                        })
+                    });
+                    this.log.success('Fallback-Installation mit npm install erfolgreich!');
+                    return;
+                } catch (fallbackError) {
+                    this.log.error('Auch npm install fehlgeschlagen!');
+                    this.log.error(`Fehler: ${fallbackError.message}`);
+                }
+            }
             this.log.error('Installation fehlgeschlagen!');
             this.log.error(`Fehler: ${error.message}`);
             this.log.newLine();
-            this.log.info(`Versuche es manuell mit: ${command}`);
+            this.log.info('Versuche es manuell mit: npm install');
             throw new Error('Dependency-Installation fehlgeschlagen');
         }
     }

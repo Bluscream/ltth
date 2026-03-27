@@ -487,20 +487,58 @@ class UpdateManager {
     async updateDependencies() {
         try {
             const packageLockPath = path.join(this.projectRoot, 'package-lock.json');
-            const command = fs.existsSync(packageLockPath) ? 'npm ci' : 'npm install';
+            let useCI = false;
 
+            // Prüfe ob package-lock.json existiert UND valide ist (lockfileVersion >= 1)
+            if (fs.existsSync(packageLockPath)) {
+                try {
+                    const lockContent = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
+                    useCI = lockContent.lockfileVersion >= 1;
+                    if (!useCI) {
+                        this.logger?.warn('package-lock.json hat veraltetes Format (lockfileVersion < 1). Nutze npm install statt npm ci.');
+                    }
+                } catch (parseError) {
+                    this.logger?.warn(`package-lock.json ist korrupt oder nicht lesbar: ${parseError.message}`);
+                    this.logger?.info('Lösche korrupte package-lock.json und nutze npm install...');
+                    try {
+                        fs.unlinkSync(packageLockPath);
+                    } catch (unlinkError) {
+                        this.logger?.warn(`Konnte package-lock.json nicht löschen: ${unlinkError.message}`);
+                    }
+                    useCI = false;
+                }
+            }
+
+            const command = useCI ? 'npm ci' : 'npm install';
             this.logger?.info(`Führe "${command}" aus...`);
 
-            execSync(command, {
-                cwd: this.projectRoot,
-                stdio: 'inherit',
-                env: Object.assign({}, process.env, {
-                    PUPPETEER_SKIP_DOWNLOAD: 'true',
-                    YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
-                })
-            });
-
-            this.logger?.info('Dependencies erfolgreich aktualisiert!');
+            try {
+                execSync(command, {
+                    cwd: this.projectRoot,
+                    stdio: 'inherit',
+                    env: Object.assign({}, process.env, {
+                        PUPPETEER_SKIP_DOWNLOAD: 'true',
+                        YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
+                    })
+                });
+                this.logger?.info('Dependencies erfolgreich aktualisiert!');
+            } catch (error) {
+                // Fallback: Wenn npm ci fehlschlägt, versuche npm install
+                if (useCI) {
+                    this.logger?.warn('npm ci fehlgeschlagen. Versuche Fallback mit npm install...');
+                    execSync('npm install', {
+                        cwd: this.projectRoot,
+                        stdio: 'inherit',
+                        env: Object.assign({}, process.env, {
+                            PUPPETEER_SKIP_DOWNLOAD: 'true',
+                            YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
+                        })
+                    });
+                    this.logger?.info('Fallback-Installation mit npm install erfolgreich!');
+                } else {
+                    throw error;
+                }
+            }
         } catch (error) {
             throw new Error(`Dependency-Update fehlgeschlagen: ${error.message}`);
         }
