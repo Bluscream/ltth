@@ -748,6 +748,15 @@ async function loadGiftSounds() {
             editBtn.dataset.giftId = gift.giftId;
             editBtn.textContent = '✏️ Edit';
             
+            // Create preview button
+            const previewBtn = document.createElement('button');
+            previewBtn.className = 'bg-purple-600 px-2 py-1 rounded text-xs hover:bg-purple-700 mr-1';
+            previewBtn.dataset.action = 'preview-animation';
+            previewBtn.dataset.animationUrl = gift.animationUrl || '';
+            previewBtn.dataset.animationType = gift.animationType || 'none';
+            previewBtn.dataset.animationVolume = gift.animationVolume || 1.0;
+            previewBtn.textContent = '👁️ Preview';
+            
             // Create delete button
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'bg-red-600 px-2 py-1 rounded text-xs hover:bg-red-700';
@@ -775,6 +784,7 @@ async function loadGiftSounds() {
             // Append controls to the last cell
             const actionsCell = row.querySelector('td:last-child');
             actionsCell.appendChild(testContainer);
+            actionsCell.appendChild(previewBtn);
             actionsCell.appendChild(editBtn);
             actionsCell.appendChild(deleteBtn);
             
@@ -929,21 +939,21 @@ async function openEditGiftModal(giftId) {
         modal.style.display = 'flex';
         modal.style.alignItems = 'center';
         modal.style.justifyContent = 'center';
-        modal.style.zIndex = '10000';
+        modal.style.zIndex = '10001';
         modal.style.padding = '20px';
         
         modal.innerHTML = `
-            <div class="modal-content" style="background: var(--color-bg-primary); border: 2px solid var(--color-accent-primary); border-radius: 12px; max-width: 600px; width: 100%; padding: 24px; max-height: 80vh; overflow-y: auto;">
-                <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+            <div class="edit-gift-modal-content" style="background: var(--color-bg-primary); border: 2px solid var(--color-accent-primary); border-radius: 12px; max-width: 600px; width: 100%; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);">
+                <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 20px 24px 16px; border-bottom: 1px solid var(--color-border); flex-shrink: 0;">
                     <h3 style="color: var(--color-accent-primary); font-size: 1.3rem; font-weight: 600; margin: 0;">
                         ✏️ Edit Gift Sound: ${escapeHtml(gift.label)}
                     </h3>
-                    <button onclick="closeEditGiftModal()" style="background: transparent; border: none; color: var(--color-text-primary); cursor: pointer; padding: 8px; border-radius: 6px; font-size: 1.5rem;">
+                    <button onclick="closeEditGiftModal()" style="background: transparent; border: none; color: var(--color-text-primary); cursor: pointer; padding: 8px; border-radius: 6px; font-size: 1.5rem; position: relative; z-index: 1; pointer-events: auto;">
                         ✕
                     </button>
                 </div>
                 
-                <div class="modal-body">
+                <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 20px 24px;">
                     <div class="form-grid" style="display: grid; gap: 16px;">
                         <div class="form-group">
                             <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--color-text-primary);">Gift ID</label>
@@ -967,7 +977,12 @@ async function openEditGiftModal(giftId) {
                         
                         <div class="form-group">
                             <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--color-text-primary);">Animation URL (optional)</label>
-                            <input type="text" id="edit-gift-animation-url" value="${escapeHtml(gift.animationUrl || '')}" class="form-input" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-primary); color: var(--color-text-primary);">
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <input type="text" id="edit-gift-animation-url" value="${escapeHtml(gift.animationUrl || '')}" class="form-input" style="flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-primary); color: var(--color-text-primary);">
+                                <button onclick="previewEditModalAnimation()" style="padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-accent-primary); background: transparent; color: var(--color-accent-primary); cursor: pointer; white-space: nowrap; position: relative; z-index: 1; pointer-events: auto;">
+                                    👁️ Preview
+                                </button>
+                            </div>
                         </div>
                         
                         <div class="form-group">
@@ -986,15 +1001,15 @@ async function openEditGiftModal(giftId) {
                             <small style="color: var(--color-text-secondary); font-size: 0.85rem;">Controls the volume of the animation's audio (if the animation is a video with sound)</small>
                         </div>
                     </div>
-                    
-                    <div class="form-actions" style="display: flex; gap: 12px; margin-top: 24px;">
-                        <button onclick="saveEditedGiftSound()" class="btn btn-primary" style="flex: 1; padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; background: var(--color-accent-primary); color: white;">
-                            💾 Save Changes
-                        </button>
-                        <button onclick="closeEditGiftModal()" class="btn btn-secondary" style="flex: 1; padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; background: var(--color-btn-secondary-bg); color: var(--color-btn-secondary-text);">
-                            Cancel
-                        </button>
-                    </div>
+                </div>
+                
+                <div class="form-actions" style="display: flex; gap: 12px; padding: 16px 24px 20px; border-top: 1px solid var(--color-border); flex-shrink: 0; position: relative; z-index: 1;">
+                    <button onclick="saveEditedGiftSound()" class="btn btn-primary" style="flex: 1; padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; background: var(--color-accent-primary); color: white; position: relative; z-index: 1; pointer-events: auto;">
+                        💾 Save Changes
+                    </button>
+                    <button onclick="closeEditGiftModal()" class="btn btn-secondary" style="flex: 1; padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; background: var(--color-btn-secondary-bg); color: var(--color-btn-secondary-text); position: relative; z-index: 1; pointer-events: auto;">
+                        Cancel
+                    </button>
                 </div>
             </div>
         `;
@@ -1073,6 +1088,89 @@ function closeEditGiftModal() {
     const modal = document.getElementById('edit-gift-modal');
     if (modal) {
         modal.remove();
+    }
+}
+
+/**
+ * Reads animation settings from the open edit modal and calls previewAnimation().
+ */
+function previewEditModalAnimation() {
+    const url = document.getElementById('edit-gift-animation-url').value;
+    const type = document.getElementById('edit-gift-animation-type').value;
+    const volume = parseFloat(document.getElementById('edit-gift-animation-volume').value);
+    previewAnimation(url, type, volume);
+}
+
+/**
+ * Opens a lightweight preview modal for an animation (video/gif/image).
+ * @param {string} url - URL of the animation to preview
+ * @param {string} type - Animation type: 'video', 'gif', 'image', or 'none'
+ * @param {number} volume - Volume for video animations (0.0 - 1.0)
+ */
+function previewAnimation(url, type, volume) {
+    if (!url || url.trim() === '') {
+        alert('No animation URL configured');
+        return;
+    }
+
+    log.info('Opening animation preview', { url, type, volume });
+
+    // Remove any existing preview modal
+    closeAnimationPreview();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'animation-preview-modal';
+    overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 10002; padding: 20px;';
+
+    let mediaHtml = '';
+    const escapedUrl = escapeHtml(url);
+    const normalizedVolume = (isNaN(volume) || volume < 0 || volume > 1) ? 1.0 : volume;
+
+    if (type === 'video') {
+        mediaHtml = `<video src="${escapedUrl}" autoplay controls style="max-width: 80vw; max-height: 80vh; border-radius: 8px; display: block;"></video>`;
+    } else {
+        // gif and image types, plus fallback for unknown
+        mediaHtml = `<img src="${escapedUrl}" alt="Animation preview" style="max-width: 80vw; max-height: 80vh; border-radius: 8px; display: block; object-fit: contain;">`;
+    }
+
+    overlay.innerHTML = `
+        <div style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+            <button onclick="closeAnimationPreview()" style="position: absolute; top: -36px; right: -8px; background: rgba(255,255,255,0.15); border: none; color: #fff; cursor: pointer; padding: 6px 10px; border-radius: 6px; font-size: 1.2rem; line-height: 1; z-index: 1; pointer-events: auto;">✕</button>
+            ${mediaHtml}
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Set video volume after DOM insertion
+    if (type === 'video') {
+        const videoEl = overlay.querySelector('video');
+        if (videoEl) {
+            videoEl.volume = normalizedVolume;
+        }
+    }
+
+    // Close when clicking outside the media
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) {
+            closeAnimationPreview();
+        }
+    });
+}
+
+/**
+ * Closes the animation preview modal.
+ */
+function closeAnimationPreview() {
+    const modal = document.getElementById('animation-preview-modal');
+    if (modal) {
+        // Pause video to stop audio before removing
+        const video = modal.querySelector('video');
+        if (video) {
+            video.pause();
+        }
+        modal.remove();
+        log.info('Animation preview closed');
     }
 }
 
@@ -2192,6 +2290,11 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (action === 'edit-gift') {
                 const giftId = parseInt(actionBtn.dataset.giftId);
                 openEditGiftModal(giftId);
+            } else if (action === 'preview-animation') {
+                const animUrl = actionBtn.dataset.animationUrl;
+                const animType = actionBtn.dataset.animationType;
+                const animVolume = parseFloat(actionBtn.dataset.animationVolume) || 1.0;
+                previewAnimation(animUrl, animType, animVolume);
             } else if (action === 'delete-gift') {
                 const giftId = parseInt(actionBtn.dataset.giftId);
                 deleteGiftSound(giftId);
