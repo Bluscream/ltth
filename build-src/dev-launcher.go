@@ -6,6 +6,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"html/template"
 	"io"
@@ -23,14 +24,16 @@ import (
 )
 
 type Launcher struct {
-	nodePath     string
-	appDir       string
-	progress     int
-	status       string
-	clients      map[chan string]bool
-	logFile      *os.File
-	logger       *log.Logger
-	envFileFixed bool // Track if we auto-created .env file
+	nodePath        string
+	appDir          string
+	progress        int
+	status          string
+	clients         map[chan string]bool
+	logFile         *os.File
+	logger          *log.Logger
+	envFileFixed    bool // Track if we auto-created .env file
+	alternativePort int  // Alternative port when 3000 is in use
+	serverPort      int  // Actual port the server responded on
 }
 
 func NewLauncher() *Launcher {
@@ -120,7 +123,11 @@ func (l *Launcher) updateProgress(value int, status string) {
 }
 
 func (l *Launcher) sendRedirect() {
-	msg := `{"redirect": "http://localhost:3000/dashboard.html"}`
+	port := l.serverPort
+	if port == 0 {
+		port = 3000
+	}
+	msg := fmt.Sprintf(`{"redirect": "http://localhost:%d/dashboard.html"}`, port)
 	for client := range l.clients {
 		select {
 		case client <- msg:
@@ -235,12 +242,14 @@ func (l *Launcher) installDependencies() error {
 		stdoutDone <- true
 	}()
 	
-	// Log errors
+	// Log errors and collect stderr output for fallback error reporting
+	var stderrBuf bytes.Buffer
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
 			l.logger.Printf("[npm stderr] %s\n", line)
+			stderrBuf.WriteString(line + "\n")
 		}
 	}()
 	
@@ -273,8 +282,40 @@ func (l *Launcher) installDependencies() error {
 	<-stdoutDone
 	
 	if err != nil {
-		l.logger.Printf("[ERROR] npm install failed: %v\n", err)
-		return fmt.Errorf("Installation fehlgeschlagen: %v", err)
+		stderrOutput := stderrBuf.String()
+		l.logger.Printf("[ERROR] npm install (with --cache false) failed: %v\n", err)
+		if stderrOutput != "" {
+			l.logger.Printf("[ERROR] npm stderr output: %s\n", stderrOutput)
+		}
+
+		// Fallback: retry without --cache flag
+		l.logger.Println("[INFO] Retrying npm install without --cache flag...")
+		l.updateProgress(50, "Wiederhole npm install (Fallback ohne --cache)...")
+		time.Sleep(1 * time.Second)
+
+		var retryCmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			retryCmd = exec.Command("cmd", "/C", "npm", "install")
+		} else {
+			retryCmd = exec.Command("npm", "install")
+		}
+		retryCmd.Dir = l.appDir
+		retryCmd.Env = append(os.Environ(),
+			"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
+			"PUPPETEER_SKIP_DOWNLOAD=true",
+		)
+		var retryStderr bytes.Buffer
+		retryCmd.Stderr = &retryStderr
+
+		if retryErr := retryCmd.Run(); retryErr != nil {
+			if retryStderr.Len() > 0 {
+				l.logger.Printf("[ERROR] npm install retry stderr: %s\n", retryStderr.String())
+			}
+			l.logger.Printf("[ERROR] npm install retry also failed: %v\n", retryErr)
+			return fmt.Errorf("Installation fehlgeschlagen: %v", retryErr)
+		}
+
+		l.logger.Println("[SUCCESS] npm install retry (without --cache) succeeded")
 	}
 	
 	l.logger.Println("[SUCCESS] npm install completed successfully")
@@ -295,12 +336,21 @@ func (l *Launcher) startTool() (*exec.Cmd, error) {
 		if strings.HasPrefix(e, "OPEN_BROWSER=") {
 			continue
 		}
+		// Strip existing PORT to avoid conflicts when we set our own
+		if l.alternativePort > 0 && strings.HasPrefix(e, "PORT=") {
+			continue
+		}
 		env = append(env, e)
 	}
 	env = append(env, "OPEN_BROWSER=false")
-	
+	// Pass alternative port via PORT env var so the server binds to the right port
+	if l.alternativePort > 0 {
+		env = append(env, fmt.Sprintf("PORT=%d", l.alternativePort))
+		l.logAndSync("PORT environment variable set to: %d", l.alternativePort)
+	}
+
 	// DEV MODE: Force unbuffered output from Node.js
-	env = append(env, "NODE_NO_WARNINGS=1")  // Reduce noise
+	env = append(env, "NODE_NO_WARNINGS=1") // Reduce noise
 	// Force output to be unbuffered - critical for catching crash logs
 	if runtime.GOOS == "windows" {
 		// On Windows, ensure console output is not buffered
@@ -431,22 +481,37 @@ func (l *Launcher) checkPortAvailable(port int) bool {
 // autoFixPort checks if port 3000 is available and logs status
 func (l *Launcher) autoFixPort() {
 	l.logger.Println("[INFO] Checking if port 3000 is available...")
-	
+
 	if l.checkPortAvailable(3000) {
 		l.logger.Println("[SUCCESS] Port 3000 is available")
 		return
 	}
-	
+
 	l.logger.Println("[WARNING] Port 3000 is already in use")
 	l.updateProgress(87, "⚠️ Port 3000 belegt - Server wird alternativen Port nutzen")
 	time.Sleep(2 * time.Second)
-	
+
 	// Check if server is already running on 3000
 	if l.checkServerHealthOnPort(3000) {
 		l.logger.Println("[INFO] Server is already running on port 3000")
 		l.updateProgress(88, "ℹ️ Server läuft bereits auf Port 3000")
 		time.Sleep(2 * time.Second)
+		return
 	}
+
+	// Find first available alternative port (3001-3009) and store it so
+	// startTool() can pass it via the PORT environment variable.
+	for _, altPort := range []int{3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009} {
+		if l.checkPortAvailable(altPort) {
+			l.alternativePort = altPort
+			l.logger.Printf("[INFO] Alternative port %d selected for server\n", altPort)
+			l.updateProgress(88, fmt.Sprintf("ℹ️ Alternativer Port %d wird genutzt", altPort))
+			time.Sleep(1 * time.Second)
+			return
+		}
+	}
+
+	l.logger.Println("[WARNING] No alternative port found in range 3001-3009")
 }
 
 // autoFixYtDlp checks if yt-dlp is available and logs a warning if it is missing
@@ -705,6 +770,7 @@ func (l *Launcher) runLauncher() {
 					if port != 3000 {
 						l.logger.Printf("[INFO] Note: Server is running on port %d instead of 3000\n", port)
 					}
+					l.serverPort = port
 					serverReady = true
 					break
 				}
