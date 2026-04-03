@@ -419,7 +419,7 @@ class Launcher {
                     this.log.separator();
                     this.log.newLine();
                     // Kurze Verzögerung damit Datei-Handles sauber geschlossen werden
-                    setTimeout(() => spawnServer(), 500);
+                    setTimeout(() => spawnServer(), 1500);
                     return;
                 }
 
