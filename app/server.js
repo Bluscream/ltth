@@ -1815,14 +1815,29 @@ app.post('/api/server/restart', authLimiter, (req, res) => {
     // Antwort senden bevor der Prozess beendet wird
     res.json({ success: true, message: 'Server is restarting...' });
 
-    // Nach dem Senden der Antwort den Prozess beenden
+    // Nach dem Senden der Antwort sauber herunterfahren
     res.on('finish', () => {
         // DB-Batch-Queue leeren falls vorhanden
         try { db.flushEventBatch(); } catch (err) { logger.debug(`flushEventBatch skipped: ${err.message}`); }
 
-        logger.info('♻️  Exiting with restart code 75...');
-        // Kurze Verzögerung damit Logger flushen kann
-        setTimeout(() => process.exit(75), 300);
+        // Socket.io-Verbindungen sofort trennen, damit Port schnell freigegeben wird
+        io.disconnectSockets(true);
+
+        // DB schließen
+        db.close();
+
+        // Server schließen, dann Exit
+        server.close(() => {
+            logger.info('♻️  Exiting with restart code 75...');
+            process.exit(75);
+        });
+
+        // Fallback: Force-Exit nach 3 Sekunden
+        const forceTimer = setTimeout(() => {
+            logger.warn('♻️  Force exiting with restart code 75...');
+            process.exit(75);
+        }, 3000);
+        forceTimer.unref();
     });
 });
 
@@ -3788,6 +3803,13 @@ const pluginCacheControl = (req, res, next) => {
 process.on('SIGINT', async () => {
     logger.info('\n\n🛑 Shutting down gracefully...');
 
+    // Force-Exit nach 5 Sekunden falls server.close() hängt
+    const forceExitTimer = setTimeout(() => {
+        logger.warn('⚠️  Graceful shutdown timed out after 5s, forcing exit...');
+        process.exit(0);
+    }, 5000);
+    forceExitTimer.unref();
+
     // TikTok-Verbindung trennen
     if (tiktok.isActive()) {
         tiktok.disconnect();
@@ -3795,7 +3817,7 @@ process.on('SIGINT', async () => {
 
     // OBS-Verbindung trennen
     if (obs.isConnected()) {
-        await obs.disconnect();
+        try { await obs.disconnect(); } catch (e) { logger.debug('OBS disconnect error:', e.message); }
     }
 
     // Cloud Sync beenden
@@ -3805,11 +3827,15 @@ process.on('SIGINT', async () => {
         logger.error('Error shutting down cloud sync:', error);
     }
 
+    // Alle Socket.io-Verbindungen sofort trennen damit server.close() nicht endlos wartet
+    io.disconnectSockets(true);
+
     // Datenbank schließen
     db.close();
 
     // Server schließen
     server.close(() => {
+        clearTimeout(forceExitTimer);
         logger.info('✅ Server closed');
         process.exit(0);
     });
