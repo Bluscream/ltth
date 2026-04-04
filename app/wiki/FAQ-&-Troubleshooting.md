@@ -461,8 +461,8 @@ Dashboard → Test Events → Send Gift/Chat/Follow
 #### Get Help
 
 - **📧 Email:** [loggableim@gmail.com](mailto:loggableim@gmail.com)
-- **🐛 Bug Reports:** [GitHub Issues](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop/issues)
-- **💬 Discussions:** [GitHub Discussions](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop/discussions)
+- **🐛 Bug Reports:** [GitHub Issues](https://github.com/Loggableim/ltth_desktop2/issues)
+- **💬 Discussions:** [GitHub Discussions](https://github.com/Loggableim/ltth_desktop2/discussions)
 - **📖 Documentation:** This Wiki
 
 #### Feature Requests

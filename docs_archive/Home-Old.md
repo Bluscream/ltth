@@ -2,8 +2,8 @@
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop)
-[![Status](https://img.shields.io/badge/status-active-success)](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/Loggableim/ltth_desktop2)
+[![Status](https://img.shields.io/badge/status-active-success)](https://github.com/Loggableim/ltth_desktop2)
 
 ---
 
@@ -20,23 +20,23 @@
 
 ### 📑 Navigation
 
-**[[Wiki-Index#english|Wiki Index]]** - Complete wiki overview with all pages
+**[Wiki Index](Wiki-Index.md#english|Wiki Index)** - Complete wiki overview with all pages
 
 #### Getting Started
-- **[[Getting-Started#english|Getting Started]]** - Quick start in 5 minutes
-- **[[Installation-&-Setup#english|Installation & Setup]]** - System requirements, installation and first steps
-- **[[Konfiguration#english|Configuration]]** - Settings, config files and environment variables
-- **[[FAQ-&-Troubleshooting#english|FAQ & Troubleshooting]]** - Common problems, solutions and debug tips
+- **[Getting Started](Getting-Started.md#english|Getting Started)** - Quick start in 5 minutes
+- **[Installation & Setup](Installation-&-Setup.md#english|Installation & Setup)** - System requirements, installation and first steps
+- **[Konfiguration](Konfiguration.md#english|Configuration)** - Settings, config files and environment variables
+- **[FAQ & Troubleshooting](FAQ-&-Troubleshooting.md#english|FAQ & Troubleshooting)** - Common problems, solutions and debug tips
 
 #### Developer Resources
-- **[[Architektur#english|Architecture]]** - Technical architecture, modules and data flows
-- **[[Entwickler-Leitfaden#english|Developer Guide]]** - Coding standards, workflow and contribution guidelines
-- **[[API-Reference#english|API Reference]]** - REST API endpoints and WebSocket events
+- **[Architektur](Architektur.md#english|Architecture)** - Technical architecture, modules and data flows
+- **[Entwickler-Leitfaden](Entwickler-Leitfaden.md#english|Developer Guide)** - Coding standards, workflow and contribution guidelines
+- **[API-Reference](API-Reference.md#english|API Reference)** - REST API endpoints and WebSocket events
 
 #### Plugins & Features
-- **[[Plugin-Dokumentation#english|Plugin Documentation]]** - Plugin system, available plugins and creating your own plugins
-- **[[Plugin-Liste#english|Plugin List]]** - Complete list of all 31 plugins with status and features
-- **[[Overlays-&-Alerts#english|Overlays & Alerts]]** - 25+ OBS overlays for alerts, goals, leaderboards, effects
+- **[Plugin-Dokumentation](Plugin-Dokumentation.md#english|Plugin Documentation)** - Plugin system, available plugins and creating your own plugins
+- **[Plugin-Liste](Plugin-Liste.md#english|Plugin List)** - Complete list of all 31 plugins with status and features
+- **[Overlays & Alerts](Overlays-&-Alerts.md#english|Overlays & Alerts)** - 25+ OBS overlays for alerts, goals, leaderboards, effects
 
 ### 📖 Table of Contents
 
@@ -254,8 +254,8 @@ npm --version
 ### 2. Repository klonen
 
 ```bash
-git clone https://github.com/yourusername/pupcidslittletiktokhelper.git
-cd pupcidslittletiktokhelper
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 ```
 
 ### 3. Dependencies installieren
@@ -297,7 +297,7 @@ http://localhost:3000
 
 **Fertig!** 🎉 Alle Events werden jetzt live angezeigt.
 
-Weitere Details findest du unter **[[Installation & Setup]]**.
+Weitere Details findest du unter **[Installation & Setup](Installation & Setup.md)**.
 
 ---
 
@@ -350,8 +350,8 @@ Automatisches Update-Management:
 ### Hilfe bekommen
 
 - **📧 E-Mail:** [loggableim@gmail.com](mailto:loggableim@gmail.com)
-- **🐛 Bug-Reports:** [GitHub Issues](https://github.com/yourusername/pupcidslittletiktokhelper/issues)
-- **💬 Diskussionen:** [GitHub Discussions](https://github.com/yourusername/pupcidslittletiktokhelper/discussions)
+- **🐛 Bug-Reports:** [GitHub Issues](https://github.com/Loggableim/ltth_desktop2/issues)
+- **💬 Diskussionen:** [GitHub Discussions](https://github.com/Loggableim/ltth_desktop2/discussions)
 - **📖 Dokumentation:** Dieses Wiki
 
 ### Feature-Requests
@@ -383,8 +383,8 @@ Wir freuen uns über Contributions! So kannst du beitragen:
 ```bash
 # Repository forken auf GitHub
 # Dann klonen:
-git clone https://github.com/dein-username/pupcidslittletiktokhelper.git
-cd pupcidslittletiktokhelper
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 ```
 
 ### 2. Feature-Branch erstellen
@@ -395,7 +395,7 @@ git checkout -b feature/dein-feature-name
 
 ### 3. Änderungen vornehmen
 
-- **Code-Style beachten** - Siehe [[Entwickler-Leitfaden]]
+- **Code-Style beachten** - Siehe [Entwickler-Leitfaden](Entwickler-Leitfaden.md)
 - **Tests durchführen** - Manuelle Tests vor Commit
 - **Dokumentation aktualisieren** - README, Wiki, CHANGELOG
 
@@ -440,7 +440,7 @@ Dann auf GitHub einen Pull Request öffnen.
 - Hardcoded Secrets committen
 - Unnötige Dependencies hinzufügen
 
-Mehr Details: **[[Entwickler-Leitfaden]]**
+Mehr Details: **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)**
 
 ---
 
@@ -486,13 +486,13 @@ Siehe [LICENSE](../LICENSE) für vollständige Details.
 
 Abhängig von deinem Ziel, wähle die passende Seite:
 
-- **Neueinsteiger?** → **[[Installation & Setup]]**
-- **Konfiguration ändern?** → **[[Konfiguration]]**
-- **Architektur verstehen?** → **[[Architektur]]**
-- **Entwickeln?** → **[[Entwickler-Leitfaden]]**
-- **Plugin erstellen?** → **[[Plugin-Dokumentation]]**
-- **API nutzen?** → **[[API-Reference]]**
-- **Probleme?** → **[[FAQ & Troubleshooting]]**
+- **Neueinsteiger?** → **[Installation & Setup](Installation & Setup.md)**
+- **Konfiguration ändern?** → **[Konfiguration](Konfiguration.md)**
+- **Architektur verstehen?** → **[Architektur](Architektur.md)**
+- **Entwickeln?** → **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)**
+- **Plugin erstellen?** → **[Plugin-Dokumentation](Plugin-Dokumentation.md)**
+- **API nutzen?** → **[API-Reference](API-Reference.md)**
+- **Probleme?** → **[FAQ & Troubleshooting](FAQ & Troubleshooting.md)**
 
 ---
 

@@ -2,8 +2,8 @@
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop)
-[![Status](https://img.shields.io/badge/status-active-success)](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/Loggableim/ltth_desktop2)
+[![Status](https://img.shields.io/badge/status-active-success)](https://github.com/Loggableim/ltth_desktop2)
 
 ---
 
@@ -142,7 +142,7 @@ Actions:
 ### ⚡ Quick Start
 
 1. Install Node.js 18-23
-2. Clone repository: `git clone https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop.git`
+2. Clone repository: `git clone https://github.com/Loggableim/ltth_desktop2.git`
 3. Install dependencies: `npm install`
 4. Start server: `npm start` or `npm run start:electron`
 5. Open dashboard: `http://localhost:3000`
@@ -287,7 +287,7 @@ Actions:
 ### ⚡ Quick Start
 
 1. Node.js 18-23 installieren
-2. Repository klonen: `git clone https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop.git`
+2. Repository klonen: `git clone https://github.com/Loggableim/ltth_desktop2.git`
 3. Dependencies installieren: `npm install`
 4. Server starten: `npm start` oder `npm run start:electron`
 5. Dashboard öffnen: `http://localhost:3000`
@@ -432,7 +432,7 @@ Acciones:
 ### ⚡ Inicio Rápido
 
 1. Instalar Node.js 18-23
-2. Clonar repositorio: `git clone https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop.git`
+2. Clonar repositorio: `git clone https://github.com/Loggableim/ltth_desktop2.git`
 3. Instalar dependencias: `npm install`
 4. Iniciar servidor: `npm start` o `npm run start:electron`
 5. Abrir dashboard: `http://localhost:3000`
@@ -577,7 +577,7 @@ Actions :
 ### ⚡ Démarrage Rapide
 
 1. Installer Node.js 18-23
-2. Cloner le dépôt : `git clone https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop.git`
+2. Cloner le dépôt : `git clone https://github.com/Loggableim/ltth_desktop2.git`
 3. Installer les dépendances : `npm install`
 4. Démarrer le serveur : `npm start` ou `npm run start:electron`
 5. Ouvrir le dashboard : `http://localhost:3000`

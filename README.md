@@ -124,8 +124,8 @@ Die Desktop-Version mit Electron bietet eine vollständige, eigenständige Insta
 
 ```bash
 # Repository klonen
-git clone https://github.com/Loggableim/ltth_dev.git
-cd ltth_dev
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 
 # Dependencies installieren
 npm install
@@ -170,7 +170,7 @@ Die App enthält einen Euler Backup Key für Notfälle. Wenn dieser verwendet wi
 ## 📦 Projekt-Struktur
 
 ```
-pupcidslittletiktokhelper/
+ltth_desktop2/
 ├── main.js                        # Electron main process
 ├── package.json                   # Electron app configuration
 ├── launcher.exe                   # Windows launcher
@@ -374,7 +374,7 @@ Dieses Tool nutzt öffentliche APIs und ist nicht offiziell von TikTok unterstü
 - 📖 [Vollständige Dokumentation](app/README.md)
 - 📋 [Changelog](CHANGELOG.md) - Was ist neu?
 - 🗂️ [Archivierte Dokumentation](docs_archive/) - Ältere technische Details
-- 🐛 [GitHub Issues](https://github.com/Loggableim/ltth_dev/issues)
+- 🐛 [GitHub Issues](https://github.com/Loggableim/ltth_desktop2/issues)
 - 📧 [loggableim@gmail.com](mailto:loggableim@gmail.com)
 
 ---

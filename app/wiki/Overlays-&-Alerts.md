@@ -618,14 +618,14 @@ Dashboard → Plugins → [Plugin] → Configure → Styling
 ## 🔗 Weiterführende Ressourcen
 
 ### Plugin-Dokumentation
-- **[[Plugin-Liste]]** - Alle Plugins mit Overlay-URLs
-- **[[Features/WebGPU-Engine]]** - GPU-Effekte im Detail
-- **[[Features/GCCE]]** - Chat-Commands für HUD
+- **[Plugin-Liste](Plugin-Liste.md)** - Alle Plugins mit Overlay-URLs
+- **[WebGPU Engine](Features/WebGPU-Engine.md)** - GPU-Effekte im Detail
+- **[GCCE](Features/GCCE.md)** - Chat-Commands für HUD
 
 ### Guides
-- **[[Getting-Started]]** - OBS-Setup für Anfänger
-- **[[Advanced-Features]]** - Performance-Optimierungen
-- **[[FAQ-&-Troubleshooting]]** - Weitere Lösungen
+- **[Getting Started](Getting-Started.md)** - OBS-Setup für Anfänger
+- **[Advanced Features](Advanced-Features.md)** - Performance-Optimierungen
+- **[FAQ & Troubleshooting](FAQ-&-Troubleshooting.md)** - Weitere Lösungen
 
 ---
 

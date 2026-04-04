@@ -201,7 +201,7 @@
 ## 📁 Verzeichnisstruktur
 
 ```
-pupcidslittletiktokhelper/
+ltth_desktop2/
 │
 ├── server.js                     # Haupt-Server (1500+ Zeilen)
 │                                 # Express-App, Socket.io, Event-Bus
@@ -584,7 +584,7 @@ class PluginAPI {
 }
 ```
 
-Weitere Details: [[Plugin-Dokumentation]]
+Weitere Details: [Plugin-Dokumentation](Plugin-Dokumentation.md)
 
 ---
 
@@ -698,7 +698,7 @@ socket.on('alert:new', (data) => {
 
 ## 🔌 Plugin-System
 
-Siehe [[Plugin-Dokumentation]] für vollständige Details.
+Siehe [Plugin-Dokumentation](Plugin-Dokumentation.md) für vollständige Details.
 
 **Kurz-Übersicht:**
 
@@ -1003,9 +1003,9 @@ io.to('goal:likes').emit('goal:update', data);
 
 ## 🔗 Weitere Informationen
 
-- **[[Plugin-Dokumentation]]** - Plugin-System im Detail
-- **[[API-Reference]]** - REST-API und WebSocket-Events
-- **[[Entwickler-Leitfaden]]** - Code-Standards und Contribution
+- **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Plugin-System im Detail
+- **[API-Reference](API-Reference.md)** - REST-API und WebSocket-Events
+- **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)** - Code-Standards und Contribution
 
 ---
 

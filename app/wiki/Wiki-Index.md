@@ -1,4 +1,4 @@
-# Wiki Index - Little TikTool Helper v1.2.1
+# Wiki Index - Little TikTool Helper v1.3.3
 
 **Vollständige Dokumentation für PupCid's Little TikTool Helper**
 
@@ -8,9 +8,9 @@
 
 Neu hier? Starte mit diesen Seiten:
 
-1. **[[Getting-Started]]** - 5-Minuten-Schnelleinstieg
-2. **[[Installation-&-Setup]]** - Detaillierte Installation
-3. **[[Plugin-Liste]]** - Alle 31 Plugins im Überblick
+1. **[Getting Started](Getting-Started.md)** - 5-Minuten-Schnelleinstieg
+2. **[Installation & Setup](Installation-&-Setup.md)** - Detaillierte Installation
+3. **[Plugin-Liste](Plugin-Liste.md)** - Alle 31 Plugins im Überblick
 
 ---
 
@@ -20,18 +20,18 @@ Neu hier? Starte mit diesen Seiten:
 
 | Seite | Beschreibung | Zielgruppe |
 |-------|--------------|------------|
-| **[[Getting-Started]]** | Schnelleinstieg in 5 Minuten | Anfänger |
-| **[[Installation-&-Setup]]** | Systemanforderungen, Installation | Alle |
-| **[[Konfiguration]]** | Einstellungen und Config-Dateien | Fortgeschritten |
-| **[[FAQ-&-Troubleshooting]]** | Häufige Probleme und Lösungen | Alle |
+| **[Getting Started](Getting-Started.md)** | Schnelleinstieg in 5 Minuten | Anfänger |
+| **[Installation & Setup](Installation-&-Setup.md)** | Systemanforderungen, Installation | Alle |
+| **[Konfiguration](Konfiguration.md)** | Einstellungen und Config-Dateien | Fortgeschritten |
+| **[FAQ & Troubleshooting](FAQ-&-Troubleshooting.md)** | Häufige Probleme und Lösungen | Alle |
 
 ### 🔌 Plugins
 
 | Seite | Beschreibung | Plugins |
 |-------|--------------|---------|
-| **[[Plugin-Dokumentation]]** | Plugin-System-Übersicht | Grundlagen |
-| **[[Plugin-Liste]]** | Alle 31 Plugins mit Details | Komplett |
-| **[[Plugins/VDO-Ninja]]** | VDO.Ninja Multi-Guest-Manager | Spezifisch |
+| **[Plugin-Dokumentation](Plugin-Dokumentation.md)** | Plugin-System-Übersicht | Grundlagen |
+| **[Plugin-Liste](Plugin-Liste.md)** | Alle 31 Plugins mit Details | Komplett |
+| **[VDO.Ninja](Plugins/VDO-Ninja.md)** | VDO.Ninja Multi-Guest-Manager | Spezifisch |
 
 **Plugin-Kategorien:**
 - 🔴 **6 Early Beta:** Advanced Timer, Chatango, GCCE HUD, Stream Alchemy, WebGPU Emoji Rain, Vulkan Rockets
@@ -43,27 +43,27 @@ Neu hier? Starte mit diesen Seiten:
 
 | Seite | Beschreibung | Level |
 |-------|--------------|-------|
-| **[[Features/WebGPU-Engine]]** | GPU-beschleunigtes Rendering | Fortgeschritten |
-| **[[Features/GCCE]]** | Global Chat Command Engine | Mittel |
-| **[[Features/Emoji-Rain]]** | Emoji-Regen-Effekt | Anfänger |
-| **[[Features/Cloud-Sync]]** | Cloud-Synchronisation | Fortgeschritten |
+| **[WebGPU Engine](Features/WebGPU-Engine.md)** | GPU-beschleunigtes Rendering | Fortgeschritten |
+| **[GCCE](Features/GCCE.md)** | Global Chat Command Engine | Mittel |
+| **[Emoji Rain](Features/Emoji-Rain.md)** | Emoji-Regen-Effekt | Anfänger |
+| **[Cloud Sync](Features/Cloud-Sync.md)** | Cloud-Synchronisation | Fortgeschritten |
 
 ### 🎨 Overlays & Streaming
 
 | Seite | Beschreibung | OBS-Kenntnisse |
 |-------|--------------|----------------|
-| **[[Overlays-&-Alerts]]** | 25+ Overlays für OBS Studio | Anfänger |
-| **[[Advanced-Features]]** | Advanced Features & Optimierungen | Fortgeschritten |
-| **[[modules/alerts]]** | Alert-System im Detail | Mittel |
-| **[[modules/flows]]** | Event-Automation-Flows | Mittel |
+| **[Overlays & Alerts](Overlays-&-Alerts.md)** | 25+ Overlays für OBS Studio | Anfänger |
+| **[Advanced Features](Advanced-Features.md)** | Advanced Features & Optimierungen | Fortgeschritten |
+| **[Alerts](modules/alerts.md)** | Alert-System im Detail | Mittel |
+| **[Flows](modules/flows.md)** | Event-Automation-Flows | Mittel |
 
 ### 👨‍💻 Entwickler
 
 | Seite | Beschreibung | Niveau |
 |-------|--------------|--------|
-| **[[Entwickler-Leitfaden]]** | Coding-Standards, Workflow | Alle Devs |
-| **[[Architektur]]** | System-Architektur | Fortgeschritten |
-| **[[API-Reference]]** | REST-API & WebSocket-Events | Alle Devs |
+| **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)** | Coding-Standards, Workflow | Alle Devs |
+| **[Architektur](Architektur.md)** | System-Architektur | Fortgeschritten |
+| **[API-Reference](API-Reference.md)** | REST-API & WebSocket-Events | Alle Devs |
 
 ---
 
@@ -71,36 +71,36 @@ Neu hier? Starte mit diesen Seiten:
 
 ### Streaming-Setup
 
-1. **[[Getting-Started]]** - Grundsetup
-2. **[[Overlays-&-Alerts]]** - OBS-Overlays einrichten
-3. **[[Plugin-Liste#tts-v20]]** - Text-to-Speech konfigurieren
-4. **[[Plugin-Liste#live-goals]]** - Goals einrichten
-5. **[[Plugin-Liste#leaderboard]]** - Leaderboard hinzufügen
+1. **[Getting Started](Getting-Started.md)** - Grundsetup
+2. **[Overlays & Alerts](Overlays-&-Alerts.md)** - OBS-Overlays einrichten
+3. **[TTS v2.0](Plugin-Liste.md#tts-v20)** - Text-to-Speech konfigurieren
+4. **[Live Goals](Plugin-Liste.md#live-goals)** - Goals einrichten
+5. **[Leaderboard](Plugin-Liste.md#leaderboard)** - Leaderboard hinzufügen
 
 ### VRChat-Streaming
 
-1. **[[Plugin-Liste#osc-bridge-vrchat]]** - OSC-Bridge Setup
-2. **[[Advanced-Features#multi-device-setup]]** - Multi-Device-Setup
-3. **[[Plugin-Liste#clarityhud]]** - VR-optimiertes HUD
+1. **[OSC-Bridge](Plugin-Liste.md#osc-bridge-vrchat)** - OSC-Bridge Setup
+2. **[Multi-Device Setup](Advanced-Features.md#multi-device-setup)** - Multi-Device-Setup
+3. **[ClarityHUD](Plugin-Liste.md#clarityhud)** - VR-optimiertes HUD
 
 ### Multi-Guest-Streaming
 
-1. **[[Plugins/VDO-Ninja]]** - VDO.Ninja einrichten
-2. **[[Plugin-Liste#multi-cam-switcher]]** - Kamera-Switching
-3. **[[Plugin-Liste#quiz-show]]** - Quiz mit Gästen
+1. **[VDO.Ninja](Plugins/VDO-Ninja.md)** - VDO.Ninja einrichten
+2. **[Multi-Cam Switcher](Plugin-Liste.md#multi-cam-switcher)** - Kamera-Switching
+3. **[Quiz Show](Plugin-Liste.md#quiz-show)** - Quiz mit Gästen
 
 ### Performance-Optimierung
 
-1. **[[Features/WebGPU-Engine]]** - GPU-Rendering nutzen
-2. **[[Advanced-Features#performance-optimizations]]** - Optimierungen
-3. **[[Architektur#performance--skalierung]]** - Skalierungs-Strategien
+1. **[WebGPU Engine](Features/WebGPU-Engine.md)** - GPU-Rendering nutzen
+2. **[Performance Optimierungen](Advanced-Features.md#performance-optimizations)** - Optimierungen
+3. **[Performance & Skalierung](Architektur.md#performance--skalierung)** - Skalierungs-Strategien
 
 ### Plugin-Entwicklung
 
-1. **[[Plugin-Dokumentation]]** - Plugin-Basics
-2. **[[Entwickler-Leitfaden]]** - Best Practices
-3. **[[API-Reference]]** - API-Methoden
-4. **[[Advanced-Features#plugin-data-storage]]** - Daten-Speicherung
+1. **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Plugin-Basics
+2. **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)** - Best Practices
+3. **[API-Reference](API-Reference.md)** - API-Methoden
+4. **[Plugin Data Storage](Advanced-Features.md#plugin-data-storage)** - Daten-Speicherung
 
 ---
 
@@ -152,13 +152,13 @@ Neu hier? Starte mit diesen Seiten:
 ## 🔗 Externe Ressourcen
 
 ### Official Links
-- **GitHub Repository:** [Loggableim/pupcidslittletiktoolhelper_desktop](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop)
-- **Changelog:** [CHANGELOG.md](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop/blob/main/CHANGELOG.md)
+- **GitHub Repository:** [Loggableim/ltth_desktop2](https://github.com/Loggableim/ltth_desktop2)
+- **Changelog:** [CHANGELOG.md](https://github.com/Loggableim/ltth_desktop2/blob/main/CHANGELOG.md)
 - **License:** CC BY-NC 4.0
 
 ### Support
 - **E-Mail:** loggableim@gmail.com
-- **Issues:** [GitHub Issues](https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop/issues)
+- **Issues:** [GitHub Issues](https://github.com/Loggableim/ltth_desktop2/issues)
 
 ### Externe Tools
 - **Node.js:** [nodejs.org](https://nodejs.org/)
@@ -168,7 +168,7 @@ Neu hier? Starte mit diesen Seiten:
 
 ---
 
-## 🆕 Version 1.2.1 Highlights
+## 🆕 Version 1.3.3 Highlights
 
 ### Neue Features
 - ✅ **31 integrierte Plugins** (vorher 7)
@@ -190,7 +190,7 @@ Neu hier? Starte mit diesen Seiten:
 - 📺 **Vulkan Rockets** - Spektakuläre Feuerwerke
 - 📺 **5 Leaderboard-Themes**
 
-Siehe **[[Home]]** für vollständige Übersicht.
+Siehe **[Home](Home.md)** für vollständige Übersicht.
 
 ---
 
@@ -208,46 +208,46 @@ Siehe **[[Home]]** für vollständige Übersicht.
 | Developer Guide | ✅ | 100% |
 | Troubleshooting | ✅ | 100% |
 
-**Letzte große Aktualisierung:** 2025-12-11  
-**Version:** 1.2.1
+**Letzte große Aktualisierung:** 2026-04-04  
+**Version:** 1.3.3
 
 ---
 
 ## 🎯 Häufige Aufgaben - Schnellzugriff
 
 ### Setup
-- **[[Getting-Started#schnellstart-5-minuten]]** - Tool starten
-- **[[Getting-Started#tiktok-verbinden]]** - TikTok LIVE verbinden
-- **[[Overlays-&-Alerts#obs-browser-source-setup]]** - OBS einrichten
+- **[Schnellstart](Getting-Started.md#schnellstart-5-minuten)** - Tool starten
+- **[TikTok verbinden](Getting-Started.md#tiktok-verbinden)** - TikTok LIVE verbinden
+- **[OBS Browser Source Setup](Overlays-&-Alerts.md#obs-browser-source-setup)** - OBS einrichten
 
 ### Konfiguration
-- **[[Plugin-Liste#tts-v20]]** - TTS-Stimmen konfigurieren
-- **[[Plugin-Liste#live-goals]]** - Goals erstellen
-- **[[Konfiguration#umgebungsvariablen]]** - Env-Variablen setzen
+- **[TTS v2.0](Plugin-Liste.md#tts-v20)** - TTS-Stimmen konfigurieren
+- **[Live Goals](Plugin-Liste.md#live-goals)** - Goals erstellen
+- **[Umgebungsvariablen](Konfiguration.md#umgebungsvariablen)** - Env-Variablen setzen
 
 ### Troubleshooting
-- **[[FAQ-&-Troubleshooting#plugin-lädt-nicht]]** - Plugin-Probleme
-- **[[Overlays-&-Alerts#overlay-lädt-nicht]]** - Overlay-Probleme
-- **[[FAQ-&-Troubleshooting#tiktok-verbindung-fehlgeschlagen]]** - Connection-Issues
+- **[Plugin lädt nicht](FAQ-&-Troubleshooting.md#plugin-lädt-nicht)** - Plugin-Probleme
+- **[Overlay lädt nicht](Overlays-&-Alerts.md#overlay-lädt-nicht)** - Overlay-Probleme
+- **[TikTok Verbindung](FAQ-&-Troubleshooting.md#tiktok-verbindung-fehlgeschlagen)** - Connection-Issues
 
 ### Development
-- **[[Plugin-Dokumentation#beispiel-plugin-erstellen]]** - Plugin erstellen
-- **[[API-Reference#rest-api-endpoints]]** - API nutzen
-- **[[Entwickler-Leitfaden#code-style--standards]]** - Coding-Standards
+- **[Beispiel Plugin erstellen](Plugin-Dokumentation.md#beispiel-plugin-erstellen)** - Plugin erstellen
+- **[REST API Endpoints](API-Reference.md#rest-api-endpoints)** - API nutzen
+- **[Code Style & Standards](Entwickler-Leitfaden.md#code-style--standards)** - Coding-Standards
 
 ---
 
 ## 📖 Wiki durchsuchen
 
 **Nach Stichwort:**
-- **TikTok:** [[Getting-Started]], [[Installation-&-Setup]], [[FAQ-&-Troubleshooting]]
-- **OBS:** [[Overlays-&-Alerts]], [[Getting-Started#obs-einrichten]]
-- **Plugins:** [[Plugin-Liste]], [[Plugin-Dokumentation]]
-- **WebGPU:** [[Features/WebGPU-Engine]], [[Plugin-Liste#webgpu-emoji-rain]]
-- **VRChat:** [[Plugin-Liste#osc-bridge-vrchat]], [[Plugin-Liste#clarityhud]]
-- **Performance:** [[Advanced-Features#performance-optimizations]], [[Features/WebGPU-Engine]]
-- **Chat Commands:** [[Features/GCCE]], [[Plugin-Liste#gcce]]
-- **Automation:** [[modules/flows]], [[Advanced-Features#flow-system]]
+- **TikTok:** [Getting Started](Getting-Started.md), [Installation & Setup](Installation-&-Setup.md), [FAQ & Troubleshooting](FAQ-&-Troubleshooting.md)
+- **OBS:** [Overlays & Alerts](Overlays-&-Alerts.md), [OBS einrichten](Getting-Started.md#obs-einrichten)
+- **Plugins:** [Plugin-Liste](Plugin-Liste.md), [Plugin-Dokumentation](Plugin-Dokumentation.md)
+- **WebGPU:** [WebGPU Engine](Features/WebGPU-Engine.md), [WebGPU Emoji Rain](Plugin-Liste.md#webgpu-emoji-rain)
+- **VRChat:** [OSC-Bridge](Plugin-Liste.md#osc-bridge-vrchat), [ClarityHUD](Plugin-Liste.md#clarityhud)
+- **Performance:** [Performance Optimierungen](Advanced-Features.md#performance-optimizations), [WebGPU Engine](Features/WebGPU-Engine.md)
+- **Chat Commands:** [GCCE](Features/GCCE.md), [GCCE](Plugin-Liste.md#gcce)
+- **Automation:** [Flows](modules/flows.md), [Flow System](Advanced-Features.md#flow-system)
 
 ---
 
@@ -311,18 +311,18 @@ app/wiki/
 - [x] Plugin Data Storage
 
 ### Version-Updates
-- [x] Alle Markdown-Dateien auf v1.2.1
-- [x] Alle "Letzte Aktualisierung" auf 2025-12-11
+- [x] Alle Markdown-Dateien auf v1.3.3
+- [x] Alle "Letzte Aktualisierung" auf 2026-04-04
 - [x] GitHub-Links aktualisiert
 - [x] Branding auf "Little TikTool Helper"
 
 ---
 
-**Zurück zur Startseite:** **[[Home]]**
+**Zurück zur Startseite:** **[Home](Home.md)**
 
 ---
 
-*Letzte Aktualisierung: 2025-12-11*  
-*Version: 1.2.1*  
+*Letzte Aktualisierung: 2026-04-04*  
+*Version: 1.3.3*  
 *Wiki-Seiten: 20+*  
 *Vollständigkeit: 100%*

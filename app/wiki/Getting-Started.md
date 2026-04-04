@@ -54,8 +54,8 @@ This guide will help you get started with **Little TikTool Helper v1.2.1** in **
 **Option A - Desktop App (Recommended):**
 ```bash
 # Clone repository
-git clone https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop.git
-cd pupcidslittletiktoolhelper_desktop
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 
 # Install dependencies
 npm install
@@ -372,8 +372,8 @@ Dieser Guide führt dich in **5-10 Minuten** durch die wichtigsten Schritte, um 
 **Option A - Desktop App (Empfohlen):**
 ```bash
 # Repository klonen
-git clone https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop.git
-cd pupcidslittletiktoolhelper_desktop
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 
 # Dependencies installieren
 npm install
@@ -690,8 +690,8 @@ Esta guía te ayudará a comenzar con **Little TikTool Helper v1.2.1** en **5-10
 **Opción A - Aplicación de Escritorio (Recomendado):**
 ```bash
 # Clonar repositorio
-git clone https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop.git
-cd pupcidslittletiktoolhelper_desktop
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 
 # Instalar dependencias
 npm install
@@ -1008,8 +1008,8 @@ Ce guide vous aidera à démarrer avec **Little TikTool Helper v1.2.1** en **5-1
 **Option A - Application de Bureau (Recommandé) :**
 ```bash
 # Cloner le dépôt
-git clone https://github.com/Loggableim/pupcidslittletiktoolhelper_desktop.git
-cd pupcidslittletiktoolhelper_desktop
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 
 # Installer les dépendances
 npm install

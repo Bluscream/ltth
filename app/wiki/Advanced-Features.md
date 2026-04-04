@@ -31,7 +31,7 @@ Little TikTool Helper v1.2.1 enthält zahlreiche **Advanced Features** für Powe
 
 GPU-beschleunigtes Rendering-System für hochperformante visuelle Effekte.
 
-**Siehe:** **[[Features/WebGPU-Engine]]** für vollständige Dokumentation
+**Siehe:** **[WebGPU Engine](Features/WebGPU-Engine.md)** für vollständige Dokumentation
 
 ### Highlights
 
@@ -174,7 +174,7 @@ class MultiStageEffect {
 
 Zentrales Chat-Command-Framework für alle Plugins.
 
-**Siehe:** **[[Features/GCCE]]** für vollständige Dokumentation
+**Siehe:** **[GCCE](Features/GCCE.md)** für vollständige Dokumentation
 
 ### Features
 
@@ -224,7 +224,7 @@ Bot:  !mytimer <duration>
 
 "Wenn-Dann"-Automatisierungen ohne Code.
 
-**Siehe:** **[[modules/flows]]** für vollständige Dokumentation
+**Siehe:** **[Flows](modules/flows.md)** für vollständige Dokumentation
 
 ### Trigger-Typen
 
@@ -619,19 +619,19 @@ if (file.size > 10 * 1024 * 1024) {
 ## 🔗 Weiterführende Ressourcen
 
 ### Feature-Dokumentation
-- **[[Features/WebGPU-Engine]]** - GPU-Rendering-System
-- **[[Features/GCCE]]** - Chat-Command-Engine
-- **[[modules/flows]]** - Flow-Automation-System
+- **[WebGPU Engine](Features/WebGPU-Engine.md)** - GPU-Rendering-System
+- **[GCCE](Features/GCCE.md)** - Chat-Command-Engine
+- **[Flows](modules/flows.md)** - Flow-Automation-System
 
 ### Plugin-Entwicklung
-- **[[Plugin-Dokumentation]]** - Plugin-API
-- **[[Entwickler-Leitfaden]]** - Best Practices
-- **[[API-Reference]]** - Vollständige API-Dokumentation
+- **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Plugin-API
+- **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)** - Best Practices
+- **[API-Reference](API-Reference.md)** - Vollständige API-Dokumentation
 
 ### Weitere Guides
-- **[[Getting-Started]]** - Schnelleinstieg
-- **[[Konfiguration]]** - Erweiterte Einstellungen
-- **[[FAQ-&-Troubleshooting]]** - Probleme lösen
+- **[Getting Started](Getting-Started.md)** - Schnelleinstieg
+- **[Konfiguration](Konfiguration.md)** - Erweiterte Einstellungen
+- **[FAQ & Troubleshooting](FAQ-&-Troubleshooting.md)** - Probleme lösen
 
 ---
 

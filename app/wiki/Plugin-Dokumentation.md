@@ -732,7 +732,7 @@ http://localhost:3000/plugins/gift-counter/ui.html
 
 Für eine detaillierte Übersicht aller Plugins mit Features, Status, Endpoints und Konfigurationsoptionen siehe:
 
-➡️ **[[Plugin-Liste]]** - Komplette Liste aller 31 Plugins
+➡️ **[Plugin-Liste](Plugin-Liste.md)** - Komplette Liste aller 31 Plugins
 
 ### Plugin-Kategorien
 
@@ -770,7 +770,7 @@ Für eine detaillierte Übersicht aller Plugins mit Features, Status, Endpoints 
 - Bidirektionale OSC-Kommunikation
 - Status: 🔵 Final
 
-Siehe **[[Plugin-Liste]]** für alle Details zu jedem Plugin.
+Siehe **[Plugin-Liste](Plugin-Liste.md)** für alle Details zu jedem Plugin.
 
 ---
 
@@ -956,9 +956,9 @@ registerTikTokEvents() {
 
 ## 🔗 Weitere Ressourcen
 
-- **[[API-Reference]]** - Vollständige API-Dokumentation
-- **[[Entwickler-Leitfaden]]** - Code-Standards
-- **[[Architektur]]** - System-Architektur verstehen
+- **[API-Reference](API-Reference.md)** - Vollständige API-Dokumentation
+- **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)** - Code-Standards
+- **[Architektur](Architektur.md)** - System-Architektur verstehen
 
 ---
 

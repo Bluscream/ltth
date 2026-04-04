@@ -1144,10 +1144,10 @@ Key-Format: `plugin:<plugin-id>:<key>`
 
 ## 🔗 Weiterführende Dokumentation
 
-- **[[Plugin-Dokumentation]]** - Entwickler-Leitfaden für eigene Plugins
-- **[[API-Reference]]** - Vollständige API-Dokumentation
-- **[[Entwickler-Leitfaden]]** - Code-Standards und Best Practices
-- **[[Architektur]]** - System-Architektur verstehen
+- **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Entwickler-Leitfaden für eigene Plugins
+- **[API-Reference](API-Reference.md)** - Vollständige API-Dokumentation
+- **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)** - Code-Standards und Best Practices
+- **[Architektur](Architektur.md)** - System-Architektur verstehen
 
 ---
 
