@@ -31,7 +31,12 @@ class GoalsPlugin extends EventEmitter {
 
         // Initialize modules
         this.db = new GoalsDatabase(api);
-        this.stateMachineManager = new StateMachineManager();
+        this.stateMachineManager = new StateMachineManager({
+            warn: (msg) => api.log(msg, 'warn'),
+            info: (msg) => api.log(msg, 'info'),
+            error: (msg) => api.log(msg, 'error'),
+            debug: (msg) => api.log(msg, 'debug')
+        });
         this.apiModule = new GoalsAPI(this);
         this.websocket = new GoalsWebSocket(this);
         this.eventHandlers = new GoalsEventHandlers(this);
@@ -170,12 +175,21 @@ class GoalsPlugin extends EventEmitter {
 
         // Reset goal
         this.api.registerFlowAction('goals.reset', async (params) => {
-            const { goalId } = params;
-            const goal = this.db.resetGoal(goalId);
-            const machine = this.stateMachineManager.getMachine(goalId);
-            machine.reset();
-            this.broadcastGoalReset(goal);
-            return { success: true };
+            try {
+                const { goalId } = params;
+                const goal = this.db.getGoal(goalId);
+                if (!goal) {
+                    return { success: false, error: `Goal ${goalId} not found` };
+                }
+                const resetGoal = this.db.resetGoal(goalId);
+                const machine = this.stateMachineManager.getMachine(goalId);
+                machine.reset();
+                this.broadcastGoalReset(resetGoal);
+                return { success: true };
+            } catch (error) {
+                this.api.log(`Error in goals.reset flow action: ${error.message}`, 'error');
+                return { success: false, error: error.message };
+            }
         });
 
         // Toggle goal enabled
@@ -272,13 +286,23 @@ class GoalsPlugin extends EventEmitter {
                     throw new ValidationError('Goal ID is required', 'goalId');
                 }
                 
-                const goal = this.db.resetGoal(goalId);
-                const machine = this.stateMachineManager.getMachine(goalId);
-                machine.reset();
-                this.broadcastGoalReset(goal);
-                services.logger?.info(`🎯 Goals: Reset goal ${goalId}`);
+                const existing = this.db.getGoal(goalId);
+                if (!existing) {
+                    throw new NotFoundError('Goal not found');
+                }
                 
-                return { success: true, goalId };
+                try {
+                    const goal = this.db.resetGoal(goalId);
+                    const machine = this.stateMachineManager.getMachine(goalId);
+                    machine.reset();
+                    this.broadcastGoalReset(goal);
+                    services.logger?.info(`🎯 Goals: Reset goal ${goalId}`);
+                    
+                    return { success: true, goalId };
+                } catch (error) {
+                    this.api.log(`Error in goals:reset IFTTT action: ${error.message}`, 'error');
+                    throw error;
+                }
             }
         });
 

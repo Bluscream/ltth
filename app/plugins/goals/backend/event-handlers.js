@@ -45,9 +45,9 @@ class GoalsEventHandlers {
         // Listen for TikTok connection to sync likes goals
         this.api.registerTikTokEvent('connected', () => {
             // Wait a moment for stats to be populated, then sync
-            setTimeout(() => {
+            this.plugin._lifecycle.trackTimeout(setTimeout(() => {
                 this.syncLikesGoalsWithStream();
-            }, SYNC_DELAY_ON_CONNECT_MS);
+            }, SYNC_DELAY_ON_CONNECT_MS));
         });
 
         // Listen for TikTok disconnection to reset goals with doubled/incremented targets
@@ -225,26 +225,21 @@ class GoalsEventHandlers {
      */
     incrementGoal(goalId, amount) {
         try {
-            const goal = this.db.getGoal(goalId);
-            if (!goal) return;
+            if (!this.db.goalExists(goalId)) return;
 
-            // Get state machine
+            // Atomically increment in DB first
+            const updatedGoal = this.db.incrementValue(goalId, amount);
+
+            // Sync state machine to DB value
             const machine = this.stateMachineManager.getMachine(goalId);
+            machine.updateValue(updatedGoal.current_value, true);
 
-            // Update via state machine
-            const success = machine.incrementValue(amount);
+            // Broadcast to all clients
+            this.plugin.broadcastGoalValueChanged(updatedGoal);
 
-            if (success) {
-                // Update database
-                const updatedGoal = this.db.incrementValue(goalId, amount);
-
-                // Broadcast to all clients
-                this.plugin.broadcastGoalValueChanged(updatedGoal);
-
-                // Check if goal reached
-                if (machine.isReached() && machine.getState() === 'reached') {
-                    this.plugin.broadcastGoalReached(goalId);
-                }
+            // Check if goal reached
+            if (machine.isReached() && machine.getState() === 'reached') {
+                this.plugin.broadcastGoalReached(goalId);
             }
         } catch (error) {
             this.api.log(`Error incrementing goal ${goalId}: ${error.message}`, 'error');
@@ -256,26 +251,20 @@ class GoalsEventHandlers {
      */
     setGoalValue(goalId, value) {
         try {
-            const goal = this.db.getGoal(goalId);
-            if (!goal) return;
+            // Update database first to ensure consistency
+            const updatedGoal = this.db.updateValue(goalId, value);
+            if (!updatedGoal) return;
 
-            // Get state machine
+            // Sync state machine to DB value
             const machine = this.stateMachineManager.getMachine(goalId);
+            machine.updateValue(updatedGoal.current_value, true);
 
-            // Update via state machine
-            const success = machine.updateValue(value);
+            // Broadcast to all clients
+            this.plugin.broadcastGoalValueChanged(updatedGoal);
 
-            if (success) {
-                // Update database
-                const updatedGoal = this.db.updateValue(goalId, value);
-
-                // Broadcast to all clients
-                this.plugin.broadcastGoalValueChanged(updatedGoal);
-
-                // Check if goal reached
-                if (machine.isReached() && machine.getState() === 'reached') {
-                    this.plugin.broadcastGoalReached(goalId);
-                }
+            // Check if goal reached
+            if (machine.isReached() && machine.getState() === 'reached') {
+                this.plugin.broadcastGoalReached(goalId);
             }
         } catch (error) {
             this.api.log(`Error setting goal value ${goalId}: ${error.message}`, 'error');
@@ -352,5 +341,7 @@ class GoalsEventHandlers {
 
 // Export the class and constants
 GoalsEventHandlers.SYNC_DELAY_ON_INIT_MS = SYNC_DELAY_ON_INIT_MS;
+GoalsEventHandlers.SYNC_DELAY_ON_CONNECT_MS = SYNC_DELAY_ON_CONNECT_MS;
+GoalsEventHandlers.API_TIMEOUT_MS = API_TIMEOUT_MS;
 
 module.exports = GoalsEventHandlers;

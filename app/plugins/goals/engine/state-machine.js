@@ -38,7 +38,7 @@ const EVENTS = {
  * State Machine for a single goal
  */
 class GoalStateMachine extends EventEmitter {
-    constructor(goalId) {
+    constructor(goalId, logger = null) {
         super();
         this.goalId = goalId;
         this.state = STATES.IDLE;
@@ -49,6 +49,7 @@ class GoalStateMachine extends EventEmitter {
             startValue: 0,
             previousValue: 0
         };
+        this.logger = logger || { warn: () => {}, info: () => {}, error: () => {}, debug: () => {} };
     }
 
     /**
@@ -87,7 +88,7 @@ class GoalStateMachine extends EventEmitter {
 
         // Validate transition
         if (!this.canTransition(oldState, newState)) {
-            console.warn(`[GoalStateMachine:${this.goalId}] Invalid transition from ${oldState} to ${newState}`);
+            this.logger.warn(`[GoalStateMachine:${this.goalId}] Invalid transition from ${oldState} to ${newState}`);
             return false;
         }
 
@@ -180,7 +181,7 @@ class GoalStateMachine extends EventEmitter {
      */
     updateValue(newValue, animate = true) {
         if (this.state === STATES.HIDDEN) {
-            console.warn(`[GoalStateMachine:${this.goalId}] Cannot update value while hidden`);
+            this.logger.warn(`[GoalStateMachine:${this.goalId}] Cannot update value while hidden`);
             return false;
         }
 
@@ -333,7 +334,7 @@ class GoalStateMachine extends EventEmitter {
                 break;
 
             default:
-                console.warn(`[GoalStateMachine:${this.goalId}] Unknown reach action: ${action}`);
+                this.logger.warn(`[GoalStateMachine:${this.goalId}] Unknown reach action: ${action}`);
                 this.transition(STATES.IDLE);
         }
     }
@@ -350,9 +351,9 @@ class GoalStateMachine extends EventEmitter {
             value: this.data.currentValue
         });
 
-        if (this.state === STATES.HIDDEN) {
-            this.transition(STATES.IDLE);
-        }
+        // Force to IDLE regardless of current state
+        this.previousState = this.state;
+        this.state = STATES.IDLE;
     }
 
     /**
@@ -368,17 +369,20 @@ class GoalStateMachine extends EventEmitter {
      * Hide goal
      */
     hide() {
-        if (this.state !== STATES.HIDDEN) {
-            this.transition(STATES.HIDDEN);
-        }
+        if (this.state === STATES.HIDDEN) return;
+        // Force hide from any state (bypass transition validation)
+        this.previousState = this.state;
+        this.state = STATES.HIDDEN;
+        this.emit(EVENTS.GOAL_HIDDEN, { goalId: this.goalId });
     }
 
     /**
      * Get progress percentage (0-100)
      */
     getProgress() {
-        if (this.data.targetValue === 0) return 0;
-        const progress = (this.data.currentValue / this.data.targetValue) * 100;
+        const range = this.data.targetValue - this.data.startValue;
+        if (range <= 0) return 0;
+        const progress = ((this.data.currentValue - this.data.startValue) / range) * 100;
         return Math.min(100, Math.max(0, progress));
     }
 
@@ -408,8 +412,9 @@ class GoalStateMachine extends EventEmitter {
  * State Machine Manager - manages multiple goal state machines
  */
 class StateMachineManager {
-    constructor() {
+    constructor(logger = null) {
         this.machines = new Map();
+        this.logger = logger;
     }
 
     /**
@@ -417,7 +422,7 @@ class StateMachineManager {
      */
     getMachine(goalId) {
         if (!this.machines.has(goalId)) {
-            const machine = new GoalStateMachine(goalId);
+            const machine = new GoalStateMachine(goalId, this.logger);
             this.machines.set(goalId, machine);
         }
         return this.machines.get(goalId);
