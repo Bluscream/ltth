@@ -3470,6 +3470,204 @@
                                 </div>
                             </div>
 
+                            <!-- Network Access Manager -->
+                            <div class="settings-card">
+                                <h3 class="card-title">
+                                    <i data-lucide="network"></i>
+                                    <span>Network Access</span>
+                                </h3>
+                                <p class="text-sm text-gray-400 mb-4">
+                                    Control how the server is accessible. Default is local-only (127.0.0.1).
+                                    You can allow LAN access, configure tunnels, or set up custom domains.
+                                </p>
+
+                                <!-- Notification bar -->
+                                <div id="network-notification-bar" class="rounded-lg p-3 mb-4 text-sm" style="display:none;"></div>
+
+                                <!-- Security Warning -->
+                                <div id="network-security-warning" class="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3 mb-4" style="display:none;">
+                                    <div class="flex items-start gap-2">
+                                        <i data-lucide="alert-triangle" class="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5"></i>
+                                        <div class="text-sm">
+                                            <p class="text-yellow-400 font-medium mb-1">Security Warning</p>
+                                            <p class="text-gray-300 text-xs">The server is accessible outside of localhost. Make sure your firewall is configured appropriately.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Bind Mode -->
+                                <div class="bg-gray-700 rounded-lg p-4 mb-4">
+                                    <h4 class="text-sm font-semibold text-gray-300 mb-3">
+                                        <i data-lucide="server" class="inline-block w-4 h-4 mr-1"></i>
+                                        Bind Mode
+                                    </h4>
+                                    <div class="form-group mb-3">
+                                        <label class="text-sm text-gray-400">Access Mode</label>
+                                        <select id="network-bind-mode" class="form-input mt-1">
+                                            <option value="local">Local Only (127.0.0.1) – most secure</option>
+                                            <option value="select">Select Interfaces – choose specific network adapters</option>
+                                            <option value="all">All Interfaces (0.0.0.0) – full LAN access</option>
+                                            <option value="custom">Custom IP – bind to a specific IP address</option>
+                                        </select>
+                                        <p class="text-xs text-gray-500 mt-1">⚠ Changing bind mode requires a server restart to take effect.</p>
+                                    </div>
+
+                                    <!-- Select Interfaces group -->
+                                    <div id="network-select-ifaces-group" style="display:none;">
+                                        <label class="text-sm text-gray-400 mb-2 block">Select Interfaces</label>
+                                        <div id="network-iface-list" class="bg-gray-800 rounded p-2 max-h-40 overflow-y-auto">
+                                            <p class="text-sm text-gray-500">Loading interfaces…</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Custom IP group -->
+                                    <div id="network-custom-address-group" style="display:none;" class="mt-3">
+                                        <label class="text-sm text-gray-400 mb-1 block">Custom Bind Address</label>
+                                        <div class="flex gap-2">
+                                            <select id="network-custom-address-select" class="form-input flex-1">
+                                                <option value="">Loading…</option>
+                                            </select>
+                                        </div>
+                                        <input type="text" id="network-custom-address" class="form-input mt-2" placeholder="e.g. 192.168.1.100">
+                                        <p class="text-xs text-gray-500 mt-1">Select from list above or enter manually.</p>
+                                    </div>
+                                </div>
+
+                                <!-- Tunnel Section -->
+                                <div class="bg-gray-700 rounded-lg p-4 mb-4">
+                                    <h4 class="text-sm font-semibold text-gray-300 mb-3">
+                                        <i data-lucide="globe" class="inline-block w-4 h-4 mr-1"></i>
+                                        Tunnel / Remote Access
+                                    </h4>
+                                    <p class="text-xs text-gray-400 mb-3">
+                                        Use a tunnel to make the dashboard accessible from the internet without port-forwarding.
+                                    </p>
+
+                                    <div class="flex items-center gap-4 mb-3">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs text-gray-400">Status:</span>
+                                            <span id="network-tunnel-status" class="text-sm text-gray-400">Inactive</span>
+                                        </div>
+                                        <div class="flex gap-2">
+                                            <button id="network-tunnel-start-btn" class="btn btn-primary btn-sm">
+                                                <i data-lucide="play" class="w-4 h-4"></i> Start
+                                            </button>
+                                            <button id="network-tunnel-stop-btn" class="btn btn-danger btn-sm" disabled>
+                                                <i data-lucide="square" class="w-4 h-4"></i> Stop
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Tunnel URL display -->
+                                    <div id="network-tunnel-url" class="flex items-center gap-2 bg-gray-800 rounded p-2 mb-3" style="display:none!important;">
+                                        <span class="text-xs text-gray-400 flex-shrink-0">URL:</span>
+                                        <span id="network-tunnel-url-text" class="font-mono text-sm flex-1 break-all text-green-400"></span>
+                                        <button id="network-tunnel-url-copy" class="btn btn-sm text-gray-400 hover:text-white" title="Copy">
+                                            <i data-lucide="copy" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+
+                                    <div class="form-group mb-3">
+                                        <label class="text-sm text-gray-400">Provider</label>
+                                        <select id="network-tunnel-provider" class="form-input mt-1">
+                                            <option value="cloudflare">Cloudflare (cloudflared)</option>
+                                            <option value="ngrok">ngrok</option>
+                                            <option value="localtunnel">localtunnel (npx)</option>
+                                            <option value="custom">Custom Command</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group mb-2">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="network-tunnel-autostart">
+                                            <span class="text-sm">Auto-start tunnel on server start</span>
+                                        </label>
+                                    </div>
+
+                                    <!-- Cloudflare Config -->
+                                    <div id="tunnel-config-cloudflare" style="display:none;">
+                                        <div class="form-group mb-2">
+                                            <label class="text-sm text-gray-400">cloudflared binary path <span class="text-gray-500">(default: cloudflared)</span></label>
+                                            <input type="text" id="network-tunnel-binary" class="form-input mt-1" placeholder="cloudflared">
+                                        </div>
+                                        <div class="form-group mb-2">
+                                            <label class="text-sm text-gray-400">Named tunnel <span class="text-gray-500">(optional – leave empty for quick tunnel)</span></label>
+                                            <input type="text" id="network-tunnel-named" class="form-input mt-1" placeholder="my-tunnel-name">
+                                        </div>
+                                    </div>
+
+                                    <!-- ngrok Config -->
+                                    <div id="tunnel-config-ngrok" style="display:none;">
+                                        <div class="form-group mb-2">
+                                            <label class="text-sm text-gray-400">Auth Token <span class="text-gray-500">(optional)</span></label>
+                                            <input type="password" id="network-tunnel-ngrok-token" class="form-input mt-1" placeholder="ngrok auth token">
+                                        </div>
+                                        <div class="form-group mb-2">
+                                            <label class="text-sm text-gray-400">Subdomain <span class="text-gray-500">(paid plans)</span></label>
+                                            <input type="text" id="network-tunnel-subdomain" class="form-input mt-1" placeholder="my-stream">
+                                        </div>
+                                        <div class="form-group mb-2">
+                                            <label class="text-sm text-gray-400">Region</label>
+                                            <input type="text" id="network-tunnel-region" class="form-input mt-1" placeholder="eu">
+                                        </div>
+                                    </div>
+
+                                    <!-- localtunnel Config -->
+                                    <div id="tunnel-config-localtunnel" style="display:none;">
+                                        <div class="form-group mb-2">
+                                            <label class="text-sm text-gray-400">Subdomain <span class="text-gray-500">(optional)</span></label>
+                                            <input type="text" id="network-tunnel-subdomain-lt" class="form-input mt-1" placeholder="my-stream">
+                                        </div>
+                                    </div>
+
+                                    <!-- Custom Command Config -->
+                                    <div id="tunnel-config-custom" style="display:none;">
+                                        <div class="form-group mb-2">
+                                            <label class="text-sm text-gray-400">Command <span class="text-gray-500">(use {{PORT}} as placeholder)</span></label>
+                                            <input type="text" id="network-tunnel-custom-command" class="form-input mt-1" placeholder="mytunnel --port {{PORT}}">
+                                            <p class="text-xs text-gray-500 mt-1">The command's stdout/stderr will be scanned for any https:// URL.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- External URLs -->
+                                <div class="bg-gray-700 rounded-lg p-4 mb-4">
+                                    <h4 class="text-sm font-semibold text-gray-300 mb-3">
+                                        <i data-lucide="link" class="inline-block w-4 h-4 mr-1"></i>
+                                        External URLs / Reverse Proxy
+                                    </h4>
+                                    <p class="text-xs text-gray-400 mb-3">
+                                        Add custom domains or reverse proxy URLs to the CORS whitelist so that browsers served via these domains can connect.
+                                    </p>
+                                    <div id="network-external-url-list" class="mb-3">
+                                        <p class="text-sm text-gray-500">Loading…</p>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <input type="text" id="network-external-url-input" class="form-input flex-1" placeholder="https://my-stream.example.com">
+                                        <button id="network-add-url-btn" class="btn btn-primary btn-sm">
+                                            <i data-lucide="plus" class="w-4 h-4"></i> Add
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Active Access URLs -->
+                                <div class="bg-gray-700 rounded-lg p-4 mb-4">
+                                    <h4 class="text-sm font-semibold text-gray-300 mb-3">
+                                        <i data-lucide="monitor" class="inline-block w-4 h-4 mr-1"></i>
+                                        Active Access URLs
+                                    </h4>
+                                    <div id="network-access-urls">
+                                        <p class="text-sm text-gray-500">Loading…</p>
+                                    </div>
+                                </div>
+
+                                <button id="network-save-btn" class="btn btn-primary">
+                                    <i data-lucide="save"></i>
+                                    Save Network Settings
+                                </button>
+                                <p class="text-xs text-gray-500 mt-2">Note: Bind mode changes require a server restart to take effect. Tunnel and external URL changes are applied immediately.</p>
+                            </div>
+
                             <!-- About & Disclaimer -->
                             <div class="settings-card">
                                 <h3 class="card-title">
@@ -3611,6 +3809,7 @@
     <script src="/js/wiki.js"></script>
     <script src="/js/init-language-switchers.js"></script>
     <script src="/js/cloud-sync-settings.js"></script>
+    <script src="/js/network-settings.js"></script>
     <script src="/js/chatango-theme-adapter.js"></script>
 </body>
 </html>
