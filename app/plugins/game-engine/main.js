@@ -3124,42 +3124,57 @@ class GameEnginePlugin {
         // If still no mapping found, decide based on useDefaults flag
         if (!giftMapping) {
           const enabledBoards = boards.filter(b => b.enabled);
-          if (useDefaults && enabledBoards.length > 0 && normalizedGiftName) {
+          if (useDefaults && enabledBoards.length > 0 && (normalizedGiftName || normalizedGiftId)) {
             // Trigger-Tab-only configuration: no board-specific mapping, but the gift IS
             // configured as a Plinko trigger. Spawn with safe defaults so the user sees balls.
             giftMapping = { betAmount: 100, ballType: 'standard' };
-            this.logger.info(`[PLINKO] Gift "${normalizedGiftName}" has no board-specific mapping - using defaults (betAmount=100, ballType=standard) [source: Trigger-Tab fallback]`);
+            this.logger.info(`[PLINKO] Gift "${normalizedGiftName || normalizedGiftId}" has no board-specific mapping - using defaults (betAmount=100, ballType=standard) [source: Trigger-Tab fallback]`);
           } else {
             const boardNames = enabledBoards.map(b => b.name).join(', ') || 'none';
             const boardContext = boardId !== null ? ` (targeted board ID: ${boardId})` : '';
             this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board${boardContext}. Available enabled boards: ${boardNames}`);
-            return;
+            return { success: false, error: 'No gift mapping found' };
           }
         }
       }
 
       const betAmount = giftMapping.betAmount || 100; // Default bet if not configured
       const ballType = giftMapping.ballType || 'standard'; // 'standard' or 'golden'
+      const ballCount = Math.min(Math.max(giftMapping.ballCount || 1, 1), 50);
       const boardContext = boardId !== null ? ` [board ID: ${boardId}]` : '';
 
-      this.logger.info(`[PLINKO] Spawning ball for ${username}: betAmount=${betAmount}, ballType=${ballType}${boardContext}`);
-
-      // Spawn ball
-      const result = await this.plinkoGame.spawnBall(
-        username,
-        nickname,
-        profilePictureUrl || '',
-        betAmount,
-        ballType
-      );
+      let result;
+      if (ballCount > 1) {
+        this.logger.info(`[PLINKO] Spawning ${ballCount} balls for ${username}: betAmount=${betAmount}${boardContext}`);
+        result = await this.plinkoGame.spawnBalls(
+          username,
+          nickname,
+          profilePictureUrl || '',
+          betAmount,
+          ballCount,
+          { preferredColor: null }
+        );
+      } else {
+        this.logger.info(`[PLINKO] Spawning ball for ${username}: betAmount=${betAmount}, ballType=${ballType}${boardContext}`);
+        result = await this.plinkoGame.spawnBall(
+          username,
+          nickname,
+          profilePictureUrl || '',
+          betAmount,
+          ballType
+        );
+      }
 
       if (!result.success) {
         this.logger.error(`[PLINKO] Failed to spawn ball for ${username}: ${result.error}`);
       } else {
         this.logger.info(`[PLINKO] ✅ Ball spawned successfully for ${username}`);
       }
+
+      return result;
     } catch (error) {
       this.logger.error(`[PLINKO] Error handling gift trigger: ${error.message}`, error);
+      return { success: false, error: error.message };
     }
   }
 

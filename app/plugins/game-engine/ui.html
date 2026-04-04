@@ -6323,27 +6323,44 @@
         return;
       }
       
-      keys.forEach(giftName => {
-        const mapping = mappings[giftName];
+      keys.forEach(giftKey => {
+        const mapping = mappings[giftKey];
+        const displayName = mapping.giftName || giftKey;
+        const imgUrl = mapping.giftPictureUrl || '';
+        const betAmount = mapping.betAmount || 100;
+        const ballType = mapping.ballType || 'standard';
+        const ballCount = mapping.ballCount || 1;
+
         const mappingDiv = document.createElement('div');
-        mappingDiv.style.cssText = 'display: flex; gap: 10px; align-items: center; margin-bottom: 10px; padding: 10px; background: #3a3a4e; border-radius: 5px;';
+        mappingDiv.dataset.giftKey = giftKey;
+        mappingDiv.style.cssText = 'display: flex; gap: 10px; align-items: center; margin-bottom: 10px; padding: 10px; background: #3a3a4e; border-radius: 5px; flex-wrap: wrap;';
+        const logoHtml = imgUrl
+          ? `<img src="${escapeHtml(imgUrl)}" alt="${escapeHtml(displayName)}" style="width:40px;height:40px;object-fit:contain;border-radius:6px;background:#1a1a2e;padding:3px;flex-shrink:0;">`
+          : `<div style="width:40px;height:40px;background:#1a1a2e;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🎁</div>`;
         mappingDiv.innerHTML = `
-          <div style="flex: 1;">
-            <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 3px;">Geschenk-Name:</label>
-            <input type="text" class="plinko-gift-name" data-gift="${giftName}" value="${giftName}" style="width: 100%;">
+          <div style="display:flex;align-items:center;gap:10px;min-width:160px;flex:1;">
+            ${logoHtml}
+            <div>
+              <strong style="font-size:14px;color:#eee;">${escapeHtml(displayName)}</strong>
+              <div style="font-size:11px;color:#888;">ID: ${escapeHtml(giftKey)}</div>
+            </div>
           </div>
-          <div style="flex: 1;">
+          <div style="flex: 1; min-width: 90px;">
             <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 3px;">Einsatz (XP):</label>
-            <input type="number" class="plinko-gift-bet" data-gift="${giftName}" value="${mapping.betAmount || 100}" min="1" max="10000" style="width: 100%;">
+            <input type="number" class="plinko-gift-bet" data-gift-key="${escapeHtml(giftKey)}" value="${betAmount}" min="1" max="10000" style="width: 100%;">
           </div>
-          <div style="flex: 1;">
+          <div style="flex: 1; min-width: 120px;">
             <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 3px;">Ball-Typ:</label>
-            <select class="plinko-gift-ball-type" data-gift="${giftName}" style="width: 100%;">
-              <option value="standard" ${mapping.ballType === 'standard' ? 'selected' : ''}>Standard</option>
-              <option value="golden" ${mapping.ballType === 'golden' ? 'selected' : ''}>Golden (2x)</option>
+            <select class="plinko-gift-ball-type" data-gift-key="${escapeHtml(giftKey)}" style="width: 100%;">
+              <option value="standard" ${ballType === 'standard' ? 'selected' : ''}>Standard</option>
+              <option value="golden" ${ballType === 'golden' ? 'selected' : ''}>Golden (2x)</option>
             </select>
           </div>
-          <button class="danger plinko-remove-gift-mapping" data-gift="${giftName}" style="width: auto; padding: 10px;">🗑️</button>
+          <div style="flex: 1; min-width: 90px;">
+            <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 3px;">Anzahl Bälle:</label>
+            <input type="number" class="plinko-gift-ball-count" data-gift-key="${escapeHtml(giftKey)}" value="${ballCount}" min="1" max="50" style="width: 100%;">
+          </div>
+          <button class="danger plinko-remove-gift-mapping" data-gift-key="${escapeHtml(giftKey)}" style="width: auto; padding: 10px;">🗑️</button>
         `;
         container.appendChild(mappingDiv);
       });
@@ -6398,20 +6415,25 @@
           labelQueued:           getPlinkoDisplayText('plinko-display-queued')            || '⏳ Warteschlange...',
         };
         
-        // Collect gift mappings
+        // Collect gift mappings – preserve metadata (giftName, giftPictureUrl) from current config
         const giftMappings = {};
-        document.querySelectorAll('.plinko-gift-name').forEach(input => {
-          const oldName = input.dataset.gift;
-          const newName = input.value.trim();
-          if (newName) {
-            const betAmount = parseInt(document.querySelector(`.plinko-gift-bet[data-gift="${oldName}"]`).value);
-            const ballType = document.querySelector(`.plinko-gift-ball-type[data-gift="${oldName}"]`).value;
-            giftMappings[newName] = {
-              betAmount,
-              ballType,
-              multiplier: ballType === 'golden' ? 2.0 : 1.0
-            };
-          }
+        document.querySelectorAll('#plinko-gift-mappings-container [data-gift-key]').forEach(mappingDiv => {
+          const key = mappingDiv.dataset.giftKey;
+          if (!key) return;
+          const existing = (plinkoConfig.giftMappings && plinkoConfig.giftMappings[key]) || {};
+          const betInput = mappingDiv.querySelector('.plinko-gift-bet');
+          const ballTypeInput = mappingDiv.querySelector('.plinko-gift-ball-type');
+          const ballCountInput = mappingDiv.querySelector('.plinko-gift-ball-count');
+          const betAmount = betInput ? (parseInt(betInput.value) || 100) : (existing.betAmount || 100);
+          const ballType = ballTypeInput ? ballTypeInput.value : (existing.ballType || 'standard');
+          const ballCount = ballCountInput ? (parseInt(ballCountInput.value) || 1) : (existing.ballCount || 1);
+          giftMappings[key] = {
+            ...existing,
+            betAmount,
+            ballType,
+            ballCount,
+            multiplier: ballType === 'golden' ? 2.0 : 1.0
+          };
         });
         
         const res = await fetch('/api/game-engine/plinko/config', {
@@ -6662,6 +6684,7 @@
         tempMappings[giftInput] = {
           betAmount: 100,
           ballType: 'standard',
+          ballCount: 1,
           multiplier: 1.0
         };
         
@@ -6688,9 +6711,10 @@
     // Remove gift mapping (event delegation)
     document.getElementById('plinko-gift-mappings-container').addEventListener('click', (e) => {
       if (e.target.classList.contains('plinko-remove-gift-mapping')) {
-        const giftName = e.target.dataset.gift;
-        if (confirm(`Geschenk-Mapping "${giftName}" wirklich entfernen?`)) {
-          delete plinkoConfig.giftMappings[giftName];
+        const giftKey = e.target.dataset.giftKey;
+        const displayName = plinkoConfig.giftMappings?.[giftKey]?.giftName || giftKey;
+        if (confirm(`Geschenk-Mapping "${displayName}" wirklich entfernen?`)) {
+          delete plinkoConfig.giftMappings[giftKey];
           renderPlinkoGiftMappings();
         }
       }
@@ -6732,10 +6756,12 @@
       if (!plinkoConfig.giftMappings) plinkoConfig.giftMappings = {};
       const giftKey = String(gift.id);
       plinkoConfig.giftMappings[giftKey] = {
-        name: gift.name,
         betAmount: 100,
         ballType: 'standard',
-        multiplier: 1.0
+        ballCount: 1,
+        multiplier: 1.0,
+        giftName: gift.name || '',
+        giftPictureUrl: gift.image || gift.pictureUrl || ''
       };
       
       try {
