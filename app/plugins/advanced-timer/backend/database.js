@@ -274,64 +274,56 @@ class TimerDatabase {
     migrateSimpleEventsToPerFields() {
         try {
             const timers = this.db.prepare('SELECT id FROM advanced_timers').all();
+        const ALLOWED_PER_FIELDS = {
+            gift: 'per_coin',
+            follow: 'per_follow',
+            share: 'per_share',
+            subscribe: 'per_subscribe',
+            like: 'per_like',
+            chat: 'per_chat'
+        };
 
-            for (const { id } of timers) {
-                const events = this.db.prepare(
-                    'SELECT * FROM advanced_timer_events WHERE timer_id = ?'
-                ).all(id);
+        for (const { id } of timers) {
+            const events = this.db.prepare(
+                'SELECT * FROM advanced_timer_events WHERE timer_id = ?'
+            ).all(id);
 
-                const updates = {};
+            const updates = {};
 
-                for (const ev of events) {
-                    if (!ev.enabled) continue;
-                    if (ev.action_type !== 'add_time' && ev.action_type !== 'remove_time') continue;
+            for (const ev of events) {
+                if (!ev.enabled) continue;
+                if (ev.action_type !== 'add_time' && ev.action_type !== 'remove_time') continue;
 
-                    const conditions = JSON.parse(ev.conditions || '{}');
-                    const hasAdvancedConditions =
-                        conditions.giftName || conditions.minCoins || conditions.minLikes ||
-                        conditions.command || conditions.keyword;
-                    if (hasAdvancedConditions) continue;
+                const conditions = JSON.parse(ev.conditions || '{}');
+                const hasAdvancedConditions =
+                    conditions.giftName || conditions.minCoins || conditions.minLikes ||
+                    conditions.command || conditions.keyword;
+                if (hasAdvancedConditions) continue;
 
-                    const sign = ev.action_type === 'add_time' ? 1 : -1;
-                    const seconds = sign * (parseFloat(ev.action_value) || 0);
+                const sign = ev.action_type === 'add_time' ? 1 : -1;
+                const seconds = sign * (parseFloat(ev.action_value) || 0);
 
-                    const fieldMap = {
-                        gift: 'per_coin',
-                        follow: 'per_follow',
-                        share: 'per_share',
-                        subscribe: 'per_subscribe',
-                        like: 'per_like',
-                        chat: 'per_chat'
-                    };
+                const field = ALLOWED_PER_FIELDS[ev.event_type];
+                if (!field) continue;
 
-                    const field = fieldMap[ev.event_type];
-                    if (!field) continue;
-
-                    // Validate field is in allowed whitelist (keys from fieldMap) before using in SQL
-                    const allowedFields = Object.values(fieldMap);
-                    if (!allowedFields.includes(field)) continue;
-
-                    // Only migrate if the per_* field is still at default (0)
-                    const current = this.db.prepare(`SELECT ${field} FROM advanced_timers WHERE id = ?`).get(id);
-                    if (current && current[field] === 0) {
-                        updates[field] = seconds;
-                    }
-                }
-
-                if (Object.keys(updates).length > 0) {
-                    const allowedFields = Object.values({
-                        gift: 'per_coin', follow: 'per_follow', share: 'per_share',
-                        subscribe: 'per_subscribe', like: 'per_like', chat: 'per_chat'
-                    });
-                    const safeKeys = Object.keys(updates).filter(k => allowedFields.includes(k));
-                    if (safeKeys.length > 0) {
-                        const setClauses = safeKeys.map(k => `${k} = ?`).join(', ');
-                        this.db.prepare(`UPDATE advanced_timers SET ${setClauses} WHERE id = ?`)
-                            .run(...safeKeys.map(k => updates[k]), id);
-                        this.api.log(`Migrated ${safeKeys.length} event(s) to per_* fields for timer ${id}`, 'info');
-                    }
+                // Only migrate if the per_* field is still at default (0)
+                const current = this.db.prepare(`SELECT ${field} FROM advanced_timers WHERE id = ?`).get(id);
+                if (current && current[field] === 0) {
+                    updates[field] = seconds;
                 }
             }
+
+            if (Object.keys(updates).length > 0) {
+                const allowedValues = Object.values(ALLOWED_PER_FIELDS);
+                const safeKeys = Object.keys(updates).filter(k => allowedValues.includes(k));
+                if (safeKeys.length > 0) {
+                    const setClauses = safeKeys.map(k => `${k} = ?`).join(', ');
+                    this.db.prepare(`UPDATE advanced_timers SET ${setClauses} WHERE id = ?`)
+                        .run(...safeKeys.map(k => updates[k]), id);
+                    this.api.log(`Migrated ${safeKeys.length} event(s) to per_* fields for timer ${id}`, 'info');
+                }
+            }
+        }
         } catch (error) {
             this.api.log(`migrateSimpleEventsToPerFields (non-fatal): ${error.message}`, 'warn');
         }

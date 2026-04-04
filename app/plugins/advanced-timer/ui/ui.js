@@ -6,6 +6,9 @@ const socket = io();
 let timers = [];
 let giftCatalog = [];
 
+// WeakSet for tracking event delegation attachments without memory leaks
+const _advEventsBoundContainers = new WeakSet();
+
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
@@ -491,14 +494,16 @@ function renderAdvEvents(events) {
             '</div></div>';
     }).join('');
 
-    // Use event delegation — attach listener once to the container
-    if (!container._advEventsBound) {
-        container._advEventsBound = true;
+    // Use event delegation — attach listener once per container using WeakSet
+    if (!_advEventsBoundContainers.has(container)) {
+        _advEventsBoundContainers.add(container);
         container.addEventListener('click', function advEventHandler(e) {
             const editBtn = e.target.closest('.adv-edit-btn');
             const delBtn = e.target.closest('.adv-del-btn');
             if (!editBtn && !delBtn) return;
-            const evId = parseInt(e.target.closest('[data-event-id]')?.getAttribute('data-event-id'));
+            const eventEl = e.target.closest('[data-event-id]');
+            if (!eventEl) return;
+            const evId = parseInt(eventEl.getAttribute('data-event-id'));
             if (isNaN(evId)) return;
             if (editBtn) showEventEditor(evId);
             else deleteAdvEvent(evId);
@@ -735,6 +740,6 @@ function getStateLabel(state) {
 }
 function escapeHtml(text) {
     const d = document.createElement('div');
-    d.textContent = (text === null || text === undefined) ? '' : String(text);
+    d.textContent = text ?? '';
     return d.innerHTML;
 }
