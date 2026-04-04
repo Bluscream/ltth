@@ -125,21 +125,39 @@
     function handleHashNavigation() {
         const pageId = getPageFromHash();
         if (pageId && wikiStructure) {
-            loadPage(pageId);
+            const anchor = getAnchorFromHash();
+            loadPage(pageId).then(() => {
+                if (anchor) {
+                    setTimeout(() => scrollToArticleAnchor(anchor), 50);
+                }
+            });
         }
     }
 
     function getPageFromHash() {
         const hash = window.location.hash;
         if (hash && hash.startsWith('#wiki:')) {
-            return hash.replace('#wiki:', '');
+            const hashPayload = hash.replace('#wiki:', '');
+            const [pageId] = hashPayload.split('::');
+            return pageId;
         }
         return null;
     }
 
-    function setPageHash(pageId) {
+    function getAnchorFromHash() {
+        const hash = window.location.hash;
+        if (hash && hash.startsWith('#wiki:')) {
+            const hashPayload = hash.replace('#wiki:', '');
+            const [, anchor] = hashPayload.split('::');
+            return anchor ? decodeURIComponent(anchor) : null;
+        }
+        return null;
+    }
+
+    function setPageHash(pageId, anchor = null) {
         if (pageId && pageId !== 'home') {
-            window.history.pushState({ page: pageId }, '', `#wiki:${pageId}`);
+            const anchorPart = anchor ? `::${encodeURIComponent(anchor)}` : '';
+            window.history.pushState({ page: pageId, anchor }, '', `#wiki:${pageId}${anchorPart}`);
         } else {
             window.history.pushState({ page: 'home' }, '', window.location.pathname);
         }
@@ -222,15 +240,16 @@
     }
 
     // ========== PAGE LOADING ==========
-    async function loadPage(pageId) {
+    async function loadPage(pageId, options = {}) {
         log.info(`Loading page: ${pageId}`);
         currentPage = pageId;
 
         const articleContainer = document.getElementById('wiki-article');
         if (!articleContainer) return;
+        const scrollContainer = getWikiScrollContainer();
 
         // Save scroll position before loading new page
-        const scrollPosition = articleContainer.scrollTop;
+        const scrollPosition = scrollContainer ? scrollContainer.scrollTop : 0;
 
         // Show loading state
         articleContainer.innerHTML = `
@@ -273,10 +292,12 @@
             setPageHash(pageId);
 
             // Scroll to top of article container
-            articleContainer.scrollTop = 0;
+            if (scrollContainer) {
+                scrollContainer.scrollTop = 0;
+            }
 
             // Auto-scroll to language section if available
-            if (content.languageAnchor) {
+            if (content.languageAnchor && !options.suppressLanguageAnchorScroll) {
                 setTimeout(() => {
                     scrollToLanguageSection(content.languageAnchor);
                 }, 100);
@@ -387,8 +408,15 @@
             const wikiLink = e.target.closest('a[href^="#wiki:"]');
             if (wikiLink) {
                 e.preventDefault();
-                const pageId = wikiLink.getAttribute('href').replace('#wiki:', '');
-                loadPage(pageId);
+                const hashValue = wikiLink.getAttribute('href').replace('#wiki:', '');
+                const [pageId, encodedAnchor] = hashValue.split('::');
+                const anchor = encodedAnchor ? decodeURIComponent(encodedAnchor) : null;
+                loadPage(pageId, { suppressLanguageAnchorScroll: !!anchor }).then(() => {
+                    if (anchor) {
+                        setPageHash(pageId, anchor);
+                        setTimeout(() => scrollToArticleAnchor(anchor), 50);
+                    }
+                });
                 return;
             }
 
@@ -644,13 +672,44 @@
     function scrollToLanguageSection(anchor) {
         const articleContainer = document.getElementById('wiki-article');
         if (!articleContainer) return;
+        const scrollContainer = getWikiScrollContainer();
+        if (!scrollContainer) return;
 
         const heading = articleContainer.querySelector(`h2[id="${anchor}"], h2 a[name="${anchor}"]`);
         if (heading) {
-            // Scroll the article container to the language section
-            const offset = heading.offsetTop - 20;
-            articleContainer.scrollTop = offset;
+            const scrollRect = scrollContainer.getBoundingClientRect();
+            const headingRect = heading.getBoundingClientRect();
+            const offset = scrollContainer.scrollTop + (headingRect.top - scrollRect.top) - 20;
+            scrollContainer.scrollTop = Math.max(0, offset);
         }
+    }
+
+    function scrollToArticleAnchor(anchor) {
+        if (!anchor) return;
+        const articleContainer = document.getElementById('wiki-article');
+        if (!articleContainer) return;
+        const scrollContainer = getWikiScrollContainer();
+        if (!scrollContainer) return;
+        const normalizedAnchor = String(anchor).toLowerCase();
+        const target = articleContainer.querySelector(`#${anchor}, [id="${anchor}"]`) ||
+            Array.from(articleContainer.querySelectorAll('[id]')).find(el => {
+                const id = String(el.id || '').toLowerCase();
+                return id === normalizedAnchor ||
+                    id.endsWith(`-${normalizedAnchor}`) ||
+                    id.includes(normalizedAnchor);
+            });
+        if (target) {
+            const articleRect = scrollContainer.getBoundingClientRect();
+            const targetRect = target.getBoundingClientRect();
+            const offsetTop = scrollContainer.scrollTop + (targetRect.top - articleRect.top) - 20;
+            scrollContainer.scrollTo({ top: Math.max(0, offsetTop), behavior: 'auto' });
+        }
+    }
+
+    function getWikiScrollContainer() {
+        const articleContainer = document.getElementById('wiki-article');
+        if (!articleContainer) return null;
+        return articleContainer.closest('.wiki-content') || articleContainer;
     }
 
     // ========== EXPORT ==========
@@ -658,6 +717,7 @@
         loadPage,
         getCurrentPage: () => currentPage,
         getCurrentLanguage: () => currentLanguage,
+        getCurrentHashAnchor: getAnchorFromHash,
         setLanguage: setPreferredLanguage,
         clearCache: () => wikiCache.clear(),
         cleanup
