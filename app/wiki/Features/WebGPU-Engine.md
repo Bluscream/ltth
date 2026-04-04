@@ -335,12 +335,12 @@ passEncoder.draw(4, PARTICLE_COUNT, 0, 0);
 - [WebGPU Best Practices](https://toji.github.io/webgpu-best-practices/)
 
 ### Plugins mit WebGPU
-- **[[Plugin-Liste#webgpu-emoji-rain]]** - WebGPU Emoji Rain Plugin
-- **[[Plugin-Liste#vulkan-rockets-webgpu]]** - Vulkan Rockets Plugin
+- **[WebGPU Emoji Rain](Plugin-Liste.md#webgpu-emoji-rain)** - WebGPU Emoji Rain Plugin
+- **[Vulkan Rockets](Plugin-Liste.md#vulkan-rockets-webgpu)** - Vulkan Rockets Plugin
 
 ### Weitere Features
-- **[[Features/Emoji-Rain]]** - Emoji Rain Dokumentation
-- **[[Architektur]]** - System-Architektur
+- **[Emoji Rain](Features/Emoji-Rain.md)** - Emoji Rain Dokumentation
+- **[Architektur](Architektur.md)** - System-Architektur
 
 ---
 

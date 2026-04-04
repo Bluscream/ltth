@@ -596,16 +596,16 @@ const stats = gcce.getStatistics();
 ## 🔗 Weiterführende Ressourcen
 
 ### Plugin-Dokumentation
-- **[[Plugin-Liste#gcce]]** - GCCE Plugin-Details
-- **[[Plugin-Liste#gcce-hud-overlay]]** - GCCE HUD Overlay Plugin
+- **[GCCE](Plugin-Liste.md#gcce)** - GCCE Plugin-Details
+- **[GCCE HUD Overlay](Plugin-Liste.md#gcce-hud-overlay)** - GCCE HUD Overlay Plugin
 
 ### Verwandte Features
-- **[[Features/WebGPU-Engine]]** - WebGPU Rendering Engine
-- **[[modules/flows]]** - Event-Automation-System
+- **[WebGPU Engine](Features/WebGPU-Engine.md)** - WebGPU Rendering Engine
+- **[Flows](modules/flows.md)** - Event-Automation-System
 
 ### API-Reference
-- **[[API-Reference]]** - Vollständige API-Dokumentation
-- **[[Plugin-Dokumentation]]** - Plugin-Entwicklung
+- **[API-Reference](API-Reference.md)** - Vollständige API-Dokumentation
+- **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Plugin-Entwicklung
 
 ---
 

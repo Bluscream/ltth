@@ -77,8 +77,8 @@ Dieses Tool wird von mir als Solo-Entwickler zusammen mit Claude AI entwickelt. 
 
 ```bash
 # Repository klonen
-git clone https://github.com/yourusername/pupcidslittletiktokhelper.git
-cd pupcidslittletiktokhelper
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 
 # Dependencies installieren
 npm install
@@ -97,8 +97,7 @@ Dashboard öffnet sich automatisch unter `http://localhost:3000`
 
 **WICHTIG:** Ein Eulerstream API Key ist erforderlich, um sich mit TikTok LIVE zu verbinden.
 - API Key erhalten: [https://www.eulerstream.com](https://www.eulerstream.com)
-- Detaillierte Anleitung: Siehe `EULERSTREAM_API_GUIDE.md`
-- API Key testen: `node validate-euler-api-key.js`
+- Detaillierte Anleitung: Siehe Dashboard Settings nach dem Start
 
 **🔄 Euler Backup Key:**  
 Die App enthält einen Backup-API-Key für Notfälle. Wenn dieser verwendet wird:
@@ -213,7 +212,7 @@ Vollständige Docs siehe Code-Kommentare in `server.js`
 ## Projekt-Struktur
 
 ```
-pupcidslittletiktokhelper/
+ltth_desktop2/
 ├── server.js                     # Haupt-Server
 ├── package.json
 ├── modules/                      # Backend
@@ -278,5 +277,5 @@ Dieses Tool ist nicht offiziell von TikTok unterstützt. Nutzung auf eigene Vera
 ## Support
 
 - 📖 README & Troubleshooting-Sektion
-- 🐛 [GitHub Issues](https://github.com/yourusername/pupcidslittletiktokhelper/issues)
+- 🐛 [GitHub Issues](https://github.com/Loggableim/ltth_desktop2/issues)
 - 📧 [loggableim@gmail.com](mailto:loggableim@gmail.com)

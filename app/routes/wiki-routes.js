@@ -42,22 +42,12 @@ const WIKI_STRUCTURE = {
             title: 'Getting Started',
             icon: 'rocket',
             pages: [
-                { id: 'home', title: 'Overview', icon: 'home', file: 'Home.md' },
+                { id: 'home', title: 'Home', icon: 'home', file: 'Home.md' },
+                { id: 'wiki-index', title: 'Wiki Index', icon: 'list', file: 'Wiki-Index.md' },
+                { id: 'getting-started', title: 'Getting Started', icon: 'play-circle', file: 'Getting-Started.md' },
                 { id: 'installation', title: 'Installation & Setup', icon: 'download', file: 'Installation-&-Setup.md' },
                 { id: 'configuration', title: 'Configuration', icon: 'settings', file: 'Konfiguration.md' },
                 { id: 'faq', title: 'FAQ & Troubleshooting', icon: 'help-circle', file: 'FAQ-&-Troubleshooting.md' }
-            ]
-        },
-        {
-            id: 'core-features',
-            title: 'Core Features',
-            icon: 'zap',
-            pages: [
-                { id: 'tts', title: 'Text-to-Speech', icon: 'mic', file: 'plugins/tts/README.md' },
-                { id: 'soundboard', title: 'Soundboard', icon: 'music', file: 'plugins/soundboard/README.md' },
-                { id: 'goals', title: 'Goals System', icon: 'target', file: 'plugins/goals/README.md' },
-                { id: 'flows', title: 'Automation Flows', icon: 'git-branch', file: 'wiki/modules/flows.md' },
-                { id: 'alerts', title: 'Alert System', icon: 'bell', file: 'wiki/modules/alerts.md' }
             ]
         },
         {
@@ -66,14 +56,30 @@ const WIKI_STRUCTURE = {
             icon: 'puzzle',
             pages: [
                 { id: 'plugin-overview', title: 'Plugin System', icon: 'plug', file: 'Plugin-Dokumentation.md' },
-                { id: 'clarityhud', title: 'ClarityHUD', icon: 'layout', file: 'plugins/clarityhud/README.md' },
-                { id: 'lastevent', title: 'LastEvent Spotlight', icon: 'eye', file: 'plugins/lastevent-spotlight/README.md' },
-                { id: 'vdoninja', title: 'VDO.Ninja Multi-Guest', icon: 'users', file: 'Plugins/VDO-Ninja.md' },
-                { id: 'multicam', title: 'Multi-Cam Switcher', icon: 'video', file: 'plugins/multicam/README.md' },
-                { id: 'osc-bridge', title: 'OSC Bridge (VRChat)', icon: 'gamepad-2', file: 'plugins/osc-bridge/README.md' },
-                { id: 'hybridshock', title: 'HybridShock', icon: 'zap', file: 'plugins/hybridshock/README.md' },
-                { id: 'openshock', title: 'OpenShock', icon: 'zap', file: 'plugins/openshock/README.md' },
-                { id: 'quiz-show', title: 'Quiz Show', icon: 'help-circle', file: 'plugins/quiz-show/README.md' }
+                { id: 'plugin-list', title: 'Plugin-Liste', icon: 'layout-list', file: 'Plugin-Liste.md' },
+                { id: 'vdoninja', title: 'VDO.Ninja Multi-Guest', icon: 'users', file: 'Plugins/VDO-Ninja.md' }
+            ]
+        },
+        {
+            id: 'features',
+            title: 'Features',
+            icon: 'zap',
+            pages: [
+                { id: 'webgpu-engine', title: 'WebGPU Engine', icon: 'cpu', file: 'Features/WebGPU-Engine.md' },
+                { id: 'gcce', title: 'GCCE', icon: 'terminal', file: 'Features/GCCE.md' },
+                { id: 'emoji-rain', title: 'Emoji Rain', icon: 'smile', file: 'Features/Emoji-Rain.md' },
+                { id: 'cloud-sync', title: 'Cloud Sync', icon: 'cloud', file: 'Features/Cloud-Sync.md' }
+            ]
+        },
+        {
+            id: 'overlays-streaming',
+            title: 'Overlays & Streaming',
+            icon: 'monitor',
+            pages: [
+                { id: 'overlays-alerts', title: 'Overlays & Alerts', icon: 'image', file: 'Overlays-&-Alerts.md' },
+                { id: 'advanced-features', title: 'Advanced Features', icon: 'sliders-horizontal', file: 'Advanced-Features.md' },
+                { id: 'alerts', title: 'Alert System', icon: 'bell', file: 'modules/alerts.md' },
+                { id: 'flows', title: 'Automation Flows', icon: 'git-branch', file: 'modules/flows.md' }
             ]
         },
         {
@@ -97,6 +103,28 @@ function findPageById(pageId) {
             return { page, section };
         }
     }
+    return null;
+}
+
+function findPageByFile(filePath) {
+    const normalizedPath = filePath
+        .replace(/\\/g, '/')
+        .replace(/^\.?\//, '')
+        .replace(/^\.\.\//, '')
+        .toLowerCase();
+
+    const normalizedFileName = normalizedPath.split('/').pop();
+
+    for (const section of WIKI_STRUCTURE.sections) {
+        for (const page of section.pages) {
+            const pageFile = page.file.replace(/\\/g, '/').toLowerCase();
+            const pageFileName = pageFile.split('/').pop();
+            if (pageFile === normalizedPath || pageFileName === normalizedFileName) {
+                return page;
+            }
+        }
+    }
+
     return null;
 }
 
@@ -205,32 +233,17 @@ router.get('/page/:pageId', async (req, res) => {
         // Process markdown to fix internal links before rendering
         let processedMarkdown = markdown;
         
-        // Convert relative wiki links to absolute #wiki: links
-        // Pattern: [text](../path/file.md) or [text](path/file.md)
-        processedMarkdown = processedMarkdown.replace(/\[([^\]]+)\]\(([^)]+\.md)\)/g, (match, text, link) => {
-            // Extract just the filename without path and extension
-            const fileName = link.split('/').pop().replace('.md', '');
-            
-            // Try to find the page ID from the structure
-            let pageId = null;
-            for (const section of WIKI_STRUCTURE.sections) {
-                const foundPage = section.pages.find(p => 
-                    p.file.toLowerCase().includes(fileName.toLowerCase()) ||
-                    p.id === fileName.toLowerCase().replace(/[^a-z0-9-]/g, '-')
-                );
-                if (foundPage) {
-                    pageId = foundPage.id;
-                    break;
-                }
+        // Convert markdown wiki links to in-app #wiki: links, including optional anchors
+        processedMarkdown = processedMarkdown.replace(/\[([^\]]+)\]\(([^)\s]+\.md(?:#[^)]+)?)\)/g, (match, text, link) => {
+            const [linkPath, anchor] = link.split('#');
+            const foundPage = findPageByFile(linkPath);
+
+            if (!foundPage) {
+                return match;
             }
-            
-            // If we found a matching page, convert to wiki link
-            if (pageId) {
-                return `[${text}](#wiki:${pageId})`;
-            }
-            
-            // Otherwise keep the original link
-            return match;
+
+            const anchorPart = anchor ? `::${encodeURIComponent(anchor)}` : '';
+            return `[${text}](#wiki:${foundPage.id}${anchorPart})`;
         });
         
         // Render markdown to HTML

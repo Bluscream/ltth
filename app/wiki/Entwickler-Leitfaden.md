@@ -56,8 +56,8 @@ Speichere in `.vscode/extensions.json`.
 
 ```bash
 # Repository klonen
-git clone https://github.com/yourusername/pupcidslittletiktokhelper.git
-cd pupcidslittletiktokhelper
+git clone https://github.com/Loggableim/ltth_desktop2.git
+cd ltth_desktop2
 
 # Dependencies installieren
 npm install
@@ -883,9 +883,9 @@ async function connectToTikTok(username, options = {}) {
 
 ## 🔗 Weitere Ressourcen
 
-- **[[Plugin-Dokumentation]]** - Plugin erstellen
-- **[[API-Reference]]** - API-Endpunkte
-- **[[Architektur]]** - Systemarchitektur verstehen
+- **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Plugin erstellen
+- **[API-Reference](API-Reference.md)** - API-Endpunkte
+- **[Architektur](Architektur.md)** - Systemarchitektur verstehen
 
 ---
 

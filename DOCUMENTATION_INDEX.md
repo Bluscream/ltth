@@ -71,13 +71,16 @@ Welcome to the documentation index for PupCid's Little TikTool Helper (LTTH). Th
 
 ### `docs/` - Technical Documentation
 
-| Directory | Content |
-|-----------|---------|
-| `docs/` | Additional technical documentation, PDFs |
+| File | Purpose |
+|------|---------|
+| [docs/README.md](docs/README.md) | Index of the docs directory |
+| [BROWSER_CONSOLE_WARNINGS.md](docs/BROWSER_CONSOLE_WARNINGS.md) | Browser console warnings explanation |
+| [SOUNDBOARD_ANIMATION_MEMORY_FIX.md](docs/SOUNDBOARD_ANIMATION_MEMORY_FIX.md) | Soundboard animation memory fix |
+| [PER_USER_GAIN_CONTROL_IMPLEMENTATION.md](docs/PER_USER_GAIN_CONTROL_IMPLEMENTATION.md) | Per-user gain control implementation |
 
 ### `docs_archive/` - Historical Documentation
 
-**Contains 140+ archived implementation summaries and fix documentation:**
+**Contains 170+ archived implementation summaries and fix documentation:**
 - Bug fix summaries (e.g. `FIX_SUMMARY.md`, `PLUGIN_FIX_SUMMARY.md`, `LAUNCHER_FIX_SUMMARY.md`)
 - Feature implementation reports
 - Performance optimization analyses
@@ -225,7 +228,7 @@ This documentation aims to be:
 
 ---
 
-**Last Updated:** 2026-01-20  
+**Last Updated:** 2026-04-04  
 **Documentation Version:** 2.0 (Reorganized Structure)
 
 **Happy coding! 🚀**

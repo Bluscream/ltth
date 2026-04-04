@@ -1120,9 +1120,9 @@ Nur Port 3000 öffnen, **nicht öffentlich** verfügbar machen ohne Authentifizi
 
 ## 📚 Weitere Informationen
 
-- **[[API-Reference]]** - Vollständige API-Dokumentation
-- **[[Plugin-Dokumentation]]** - Plugin-System im Detail
-- **[[Entwickler-Leitfaden]]** - Code-Standards und Entwicklung
+- **[API-Reference](API-Reference.md)** - Vollständige API-Dokumentation
+- **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Plugin-System im Detail
+- **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)** - Code-Standards und Entwicklung
 
 ---
 
