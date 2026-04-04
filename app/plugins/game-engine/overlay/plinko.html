@@ -359,6 +359,7 @@
     // Check if test mode is enabled
     const urlParams = new URLSearchParams(window.location.search);
     const testMode = urlParams.get('testMode') === 'true';
+    const hideControls = urlParams.get('hideControls') === 'true';
 
     // Configuration (defaults until server config loads)
     let config = {
@@ -924,8 +925,12 @@
       
       // Rebuild world
       setupWorld();
-      if (overlayTestMode) {
+      const shouldHideControls = hideControls || !!config.physicsSettings.hideTestControls;
+      if (overlayTestMode && !shouldHideControls) {
         enableTestModeUI();
+      } else {
+        const controls = document.getElementById('test-mode-controls');
+        if (controls) controls.style.display = 'none';
       }
     });
 
@@ -945,8 +950,12 @@
         
         // Rebuild world
         setupWorld();
-        if (overlayTestMode) {
+        const shouldHideControls = hideControls || !!config.physicsSettings.hideTestControls;
+        if (overlayTestMode && !shouldHideControls) {
           enableTestModeUI();
+        } else {
+          const controls = document.getElementById('test-mode-controls');
+          if (controls) controls.style.display = 'none';
         }
       }
     });
@@ -1068,7 +1077,9 @@
 
     if (overlayTestMode) {
       console.log('🧪 Plinko test mode enabled');
-      enableTestModeUI();
+      if (!hideControls) {
+        enableTestModeUI();
+      }
     }
   </script>
 </body>

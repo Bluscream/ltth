@@ -114,6 +114,7 @@ class PlinkoGame {
         pegRows: 12,
         pegSpacing: 60,
         testModeEnabled: false,
+        hideTestControls: false,
         maxSimultaneousBalls: 5,
         rateLimitMs: 800
       },
@@ -183,6 +184,7 @@ class PlinkoGame {
       pegRows: 12,
       pegSpacing: 60,
       testModeEnabled: false,
+      hideTestControls: false,
       maxSimultaneousBalls: 5,
       rateLimitMs: 800
     };
