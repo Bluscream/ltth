@@ -178,6 +178,25 @@ function initializeButtons() {
         flowModalClose.addEventListener('click', hideCreateFlowModal);
     }
 
+    // Import flow from JSON file
+    const importFlowBtn = document.getElementById('import-flow-btn');
+    const importFlowFile = document.getElementById('import-flow-file');
+    if (importFlowBtn && importFlowFile) {
+        importFlowBtn.addEventListener('click', () => importFlowFile.click());
+        importFlowFile.addEventListener('change', handleFlowImport);
+    }
+
+    // Select-all checkbox for bulk actions
+    const selectAllCheckbox = document.getElementById('flows-select-all');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', (e) => {
+            document.querySelectorAll('.flow-select-checkbox').forEach(cb => {
+                cb.checked = e.target.checked;
+            });
+            updateBulkBar();
+        });
+    }
+
     // Flow Action Type Change (show/hide settings)
     const flowActionType = document.getElementById('flow-action-type');
     if (flowActionType) {
@@ -457,6 +476,15 @@ function setupEventDelegation() {
                 break;
             case 'delete-flow':
                 deleteFlow(parseInt(target.dataset.flowId));
+                break;
+            case 'clone-flow':
+                cloneFlow(parseInt(target.dataset.flowId));
+                break;
+            case 'export-flow':
+                exportFlow(parseInt(target.dataset.flowId));
+                break;
+            case 'edit-flow-wizard':
+                editFlowInWizard(parseInt(target.dataset.flowId));
                 break;
         }
     });
@@ -1923,50 +1951,83 @@ async function loadFlows() {
 
         if (flows.length === 0) {
             container.innerHTML = `
-                <div class="text-center text-gray-400 py-8">
-                    <p>No flows yet. Create your first automation flow!</p>
-                    <a href="/ifttt-flow-editor.html" target="_blank" class="btn btn-primary mt-4" style="display: inline-block;">
-                        Open Visual Flow Editor
-                    </a>
+                <div class="text-center text-gray-400 py-6">
+                    <p class="mb-4">Noch keine Flows. Starte mit einem Template oder erstelle deinen eigenen Flow!</p>
+                    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+                        <button class="btn btn-primary" onclick="showFlowPresets()">📦 Vorlagen anzeigen</button>
+                        <button class="btn btn-ghost" onclick="FlowWizard.open()">🧙 Wizard starten</button>
+                        <a href="/ifttt-flow-editor.html" target="_blank" class="btn btn-ghost">🎨 Visual Editor</a>
+                    </div>
                 </div>
+                <div id="inline-presets-section" class="mt-4"></div>
             `;
+            renderInlinePresets();
+            // Show the bulk bar toggle off
+            updateBulkBar();
             return;
         }
+
+        // Show bulk actions bar
+        const bulkBar = document.getElementById('flows-bulk-bar');
+        if (bulkBar) bulkBar.style.display = 'flex';
 
         flows.forEach(flow => {
             const flowDiv = document.createElement('div');
             flowDiv.className = 'bg-gray-700 rounded p-4 mb-3';
-            
+
             // Get trigger name
             const triggerName = flow.trigger_type.replace('tiktok:', '').replace(':', ' ');
             const triggerIcon = getTriggerIcon(flow.trigger_type);
-            
+            const cooldownBadge = flow.cooldown > 0
+                ? `<span class="text-xs bg-gray-600 px-2 py-0.5 rounded" title="Cooldown">⏳ ${flow.cooldown}s</span>`
+                : '';
+
             flowDiv.innerHTML = `
-                <div class="flex justify-between items-start">
-                    <div class="flex-1">
-                        <h3 class="font-bold text-lg">${flow.name}</h3>
-                        <div class="text-sm text-gray-400 mt-2 flex items-center gap-2">
-                            <span>${triggerIcon}</span>
-                            <span><strong>Trigger:</strong> ${triggerName}</span>
-                        </div>
-                        ${flow.trigger_condition ? `
-                            <div class="text-sm text-gray-400 mt-1">
-                                <strong>Condition:</strong> ${flow.trigger_condition.field || ''} ${flow.trigger_condition.operator || ''} ${flow.trigger_condition.value || ''}
+                <div class="flex justify-between items-start gap-3">
+                    <div style="display:flex;align-items:flex-start;gap:8px;">
+                        <input type="checkbox" class="flow-select-checkbox mt-1" data-flow-id="${flow.id}"
+                            style="width:15px;height:15px;cursor:pointer;" onchange="updateBulkBar()">
+                        <div class="flex-1">
+                            <h3 class="font-bold text-lg">${escapeHtml(flow.name)}</h3>
+                            <div class="text-sm text-gray-400 mt-2 flex items-center gap-2 flex-wrap">
+                                <span>${triggerIcon}</span>
+                                <span><strong>Trigger:</strong> ${escapeHtml(triggerName)}</span>
+                                ${cooldownBadge}
                             </div>
-                        ` : ''}
-                        <div class="text-sm text-gray-400 mt-1">
-                            <strong>Actions:</strong> ${flow.actions.length} action(s)
+                            ${flow.trigger_condition ? `
+                                <div class="text-sm text-gray-400 mt-1">
+                                    <strong>Bedingung:</strong> ${escapeHtml(flow.trigger_condition.field || '')} ${escapeHtml(flow.trigger_condition.operator || '')} ${escapeHtml(String(flow.trigger_condition.value || ''))}
+                                </div>
+                            ` : ''}
+                            <div class="text-sm text-gray-400 mt-1">
+                                <strong>Aktionen:</strong> ${flow.actions.length} Aktion(en)
+                            </div>
                         </div>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex gap-2 flex-wrap" style="flex-shrink:0;">
                         <button data-action="test-flow" data-flow-id="${flow.id}"
                                 class="px-3 py-1 rounded text-sm bg-blue-600 hover:bg-blue-700"
-                                title="Test flow">
+                                title="Flow testen">
                             🧪 Test
+                        </button>
+                        <button data-action="edit-flow-wizard" data-flow-id="${flow.id}"
+                                class="px-3 py-1 rounded text-sm bg-purple-600 hover:bg-purple-700"
+                                title="Im Wizard bearbeiten">
+                            🧙 Bearbeiten
+                        </button>
+                        <button data-action="clone-flow" data-flow-id="${flow.id}"
+                                class="px-3 py-1 rounded text-sm bg-gray-600 hover:bg-gray-500"
+                                title="Flow duplizieren">
+                            📋 Clone
+                        </button>
+                        <button data-action="export-flow" data-flow-id="${flow.id}"
+                                class="px-3 py-1 rounded text-sm bg-gray-600 hover:bg-gray-500"
+                                title="Als JSON exportieren">
+                            📤 Export
                         </button>
                         <button data-action="toggle-flow" data-flow-id="${flow.id}" data-enabled="${!flow.enabled}"
                                 class="px-3 py-1 rounded text-sm ${flow.enabled ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'}">
-                            ${flow.enabled ? '✅ Enabled' : '⏸️ Disabled'}
+                            ${flow.enabled ? '✅ Aktiv' : '⏸️ Inaktiv'}
                         </button>
                         <button data-action="delete-flow" data-flow-id="${flow.id}" class="bg-red-600 px-3 py-1 rounded text-sm hover:bg-red-700">
                             🗑️
@@ -1977,8 +2038,293 @@ async function loadFlows() {
             container.appendChild(flowDiv);
         });
 
+        updateBulkBar();
+
     } catch (error) {
         console.error('Error loading flows:', error);
+    }
+}
+
+/**
+ * Update the bulk actions bar based on checkbox selection state
+ */
+function updateBulkBar() {
+    const checkboxes = document.querySelectorAll('.flow-select-checkbox');
+    const checked = document.querySelectorAll('.flow-select-checkbox:checked');
+    const bulkBar = document.getElementById('flows-bulk-bar');
+    const countEl = document.getElementById('flows-selected-count');
+    const selectAll = document.getElementById('flows-select-all');
+
+    if (!bulkBar) return;
+
+    if (checkboxes.length === 0) {
+        bulkBar.style.display = 'none';
+        return;
+    }
+
+    bulkBar.style.display = 'flex';
+
+    if (countEl) {
+        countEl.textContent = checked.length > 0 ? `${checked.length} ausgewählt` : '';
+    }
+
+    if (selectAll) {
+        selectAll.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < checkboxes.length;
+    }
+}
+
+/**
+ * Bulk toggle enabled/disabled for selected flows
+ * @param {boolean} enabled
+ */
+async function bulkToggleFlows(enabled) {
+    const checked = document.querySelectorAll('.flow-select-checkbox:checked');
+    if (checked.length === 0) return;
+
+    const ids = Array.from(checked).map(cb => cb.dataset.flowId);
+    await Promise.all(ids.map(id => toggleFlow(id, enabled)));
+    loadFlows();
+}
+
+/**
+ * Clone a flow (creates a copy with "(Copy)" suffix)
+ * @param {number} id - Flow ID to clone
+ */
+async function cloneFlow(id) {
+    try {
+        const response = await fetch(`/api/flows/${id}`);
+        const flow = await response.json();
+
+        if (!flow || flow.error) {
+            alert('Fehler: Flow nicht gefunden.');
+            return;
+        }
+
+        const clonedFlow = {
+            name: `${flow.name} (Kopie)`,
+            description: flow.description || '',
+            trigger_type: flow.trigger_type,
+            trigger_condition: flow.trigger_condition,
+            actions: flow.actions,
+            enabled: false, // Start disabled for safety
+            cooldown: flow.cooldown || 0
+        };
+
+        const createResponse = await fetch('/api/flows', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(clonedFlow)
+        });
+
+        const result = await createResponse.json();
+        if (result.success) {
+            loadFlows();
+        } else {
+            alert('Fehler beim Duplizieren: ' + (result.error || 'Unbekannter Fehler'));
+        }
+    } catch (error) {
+        console.error('Error cloning flow:', error);
+        alert('Fehler beim Duplizieren des Flows.');
+    }
+}
+
+/**
+ * Export a single flow as JSON file download
+ * @param {number} id - Flow ID
+ */
+async function exportFlow(id) {
+    try {
+        const response = await fetch(`/api/flows/${id}`);
+        const flow = await response.json();
+
+        if (!flow || flow.error) {
+            alert('Fehler: Flow nicht gefunden.');
+            return;
+        }
+
+        const exportData = {
+            name: flow.name,
+            description: flow.description || '',
+            trigger_type: flow.trigger_type,
+            trigger_condition: flow.trigger_condition,
+            actions: flow.actions,
+            enabled: flow.enabled,
+            cooldown: flow.cooldown || 0
+        };
+
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `flow-${flow.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('Error exporting flow:', error);
+        alert('Fehler beim Exportieren des Flows.');
+    }
+}
+
+/**
+ * Handle flow import from JSON file
+ * @param {Event} event - File input change event
+ */
+async function handleFlowImport(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    // Reset file input so same file can be re-imported
+    event.target.value = '';
+
+    try {
+        const text = await file.text();
+        const flowData = JSON.parse(text);
+
+        if (!flowData.name || !flowData.trigger_type || !Array.isArray(flowData.actions)) {
+            alert('Ungültiges Flow-Format: name, trigger_type und actions sind erforderlich.');
+            return;
+        }
+
+        const response = await fetch('/api/flows', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(flowData)
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            loadFlows();
+        } else {
+            alert('Fehler beim Importieren: ' + (result.error || 'Unbekannter Fehler'));
+        }
+    } catch (error) {
+        console.error('Error importing flow:', error);
+        alert('Fehler beim Lesen der JSON-Datei.');
+    }
+}
+
+/**
+ * Show the presets modal
+ */
+function showFlowPresets() {
+    const modal = document.getElementById('flow-presets-modal');
+    if (!modal) return;
+
+    const list = document.getElementById('flow-presets-list');
+    if (list && typeof getFlowPresets === 'function') {
+        const presets = getFlowPresets();
+        list.innerHTML = presets.map(preset => `
+            <div class="bg-gray-700 rounded-lg p-4 mb-3">
+                <div class="flex justify-between items-start gap-3">
+                    <div>
+                        <div class="text-2xl mb-1">${preset.icon}</div>
+                        <h4 class="font-bold text-gray-100">${escapeHtml(preset.name)}</h4>
+                        <p class="text-sm text-gray-400 mt-1">${escapeHtml(preset.description)}</p>
+                        <span class="text-xs bg-gray-600 px-2 py-0.5 rounded mt-2 inline-block">${escapeHtml(preset.category)}</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
+                        <button class="btn btn-primary text-sm"
+                            onclick="deployPreset('${escapeHtml(preset.id)}')">
+                            🚀 Jetzt deployen
+                        </button>
+                        <button class="btn btn-ghost text-sm"
+                            onclick="openPresetInWizard('${escapeHtml(preset.id)}')">
+                            🧙 Im Wizard öffnen
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    modal.classList.add('active');
+}
+
+/**
+ * Render inline presets section (shown when no flows exist)
+ */
+function renderInlinePresets() {
+    const container = document.getElementById('inline-presets-section');
+    if (!container || typeof getFlowPresets !== 'function') return;
+
+    const presets = getFlowPresets();
+    container.innerHTML = `
+        <div class="mt-4">
+            <h4 class="font-semibold text-gray-200 mb-3">🚀 Starte mit einer Vorlage:</h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+                ${presets.map(preset => `
+                    <div class="bg-gray-700 rounded-lg p-3 border border-gray-600 hover:border-blue-500/50 transition-colors">
+                        <div class="text-xl mb-1">${preset.icon}</div>
+                        <div class="font-semibold text-sm text-gray-100">${escapeHtml(preset.name)}</div>
+                        <div class="text-xs text-gray-400 mt-1 mb-3">${escapeHtml(preset.description)}</div>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn btn-primary text-xs" style="padding:4px 8px;"
+                                onclick="deployPreset('${escapeHtml(preset.id)}')">🚀 Deploy</button>
+                            <button class="btn btn-ghost text-xs" style="padding:4px 8px;"
+                                onclick="openPresetInWizard('${escapeHtml(preset.id)}')">🧙 Wizard</button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Deploy a preset instantly (no wizard)
+ * @param {string} presetId - Preset ID
+ */
+async function deployPreset(presetId) {
+    if (typeof getFlowPresetById !== 'function') return;
+    const preset = getFlowPresetById(presetId);
+    if (!preset) return;
+
+    try {
+        const response = await fetch('/api/flows', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(preset.flow)
+        });
+        const result = await response.json();
+        if (result.success) {
+            document.getElementById('flow-presets-modal')?.classList.remove('active');
+            loadFlows();
+        } else {
+            alert('Fehler beim Erstellen: ' + (result.error || 'Unbekannter Fehler'));
+        }
+    } catch (error) {
+        console.error('Error deploying preset:', error);
+        alert('Fehler beim Deployen der Vorlage.');
+    }
+}
+
+/**
+ * Open a preset in the wizard for customization
+ * @param {string} presetId - Preset ID
+ */
+function openPresetInWizard(presetId) {
+    if (typeof getFlowPresetById !== 'function' || typeof FlowWizard === 'undefined') return;
+    const preset = getFlowPresetById(presetId);
+    if (!preset) return;
+
+    document.getElementById('flow-presets-modal')?.classList.remove('active');
+    FlowWizard.open(preset.flow);
+}
+
+/**
+ * Open a flow in the wizard for editing
+ * @param {number} id - Flow ID
+ */
+async function editFlowInWizard(id) {
+    try {
+        const response = await fetch(`/api/flows/${id}`);
+        const flow = await response.json();
+        if (flow && !flow.error && typeof FlowWizard !== 'undefined') {
+            FlowWizard.open(flow, id);
+        }
+    } catch (error) {
+        console.error('Error loading flow for wizard edit:', error);
     }
 }
 

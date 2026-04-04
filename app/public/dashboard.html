@@ -1515,17 +1515,36 @@
                                 <i data-lucide="git-branch"></i>
                                 IFTTT Automation Flows
                             </h2>
-                            <div style="display: flex; gap: 12px;">
+                            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                                 <a href="/ifttt-flow-editor.html" target="_blank" class="btn btn-primary">
                                     <i data-lucide="edit"></i>
                                     Visual Flow Editor
                                 </a>
+                                <button id="open-wizard-btn" class="btn btn-primary" onclick="FlowWizard.open()">
+                                    🧙 Wizard
+                                </button>
                                 <button id="add-flow-btn" class="btn btn-ghost">
                                     <i data-lucide="plus"></i>
                                     Quick Create
                                 </button>
+                                <button id="import-flow-btn" class="btn btn-ghost" title="Flow aus JSON importieren">
+                                    📥 Import
+                                </button>
+                                <input type="file" id="import-flow-file" accept=".json" style="display:none;">
                             </div>
                         </div>
+
+                        <!-- Bulk actions bar (shown when flows are selected) -->
+                        <div id="flows-bulk-bar" style="display:none;" class="bg-gray-700 rounded-lg p-3 mb-3 flex items-center gap-3 flex-wrap">
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                <input type="checkbox" id="flows-select-all" style="width:15px;height:15px;">
+                                Alle auswählen
+                            </label>
+                            <span id="flows-selected-count" class="text-gray-400 text-sm"></span>
+                            <button class="btn btn-ghost text-sm" onclick="bulkToggleFlows(true)">✅ Aktivieren</button>
+                            <button class="btn btn-ghost text-sm" onclick="bulkToggleFlows(false)">⏸️ Deaktivieren</button>
+                        </div>
+
                         <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 mb-4">
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 <i data-lucide="zap" style="color: #3b82f6; width: 24px; height: 24px;"></i>
@@ -3773,6 +3792,47 @@
         </div>
     </div>
 
+    <!-- Modal: Flow Wizard -->
+    <div id="flow-wizard-modal" class="modal">
+        <div class="modal-content" style="max-width:760px;width:95vw;max-height:90vh;display:flex;flex-direction:column;">
+            <div class="modal-header" style="flex-shrink:0;">
+                <h3 class="modal-title">
+                    🧙 Flow Wizard
+                </h3>
+                <button class="modal-close" onclick="FlowWizard.close()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <!-- Step indicator -->
+            <div id="flow-wizard-steps" class="wizard-steps-bar" style="display:flex;align-items:center;padding:12px 16px;background:#1e293b;border-bottom:1px solid #334155;flex-shrink:0;overflow-x:auto;gap:4px;"></div>
+
+            <!-- Step content -->
+            <div id="flow-wizard-content" class="modal-body" style="flex:1;overflow-y:auto;"></div>
+
+            <!-- Navigation -->
+            <div id="flow-wizard-nav" class="modal-footer" style="display:flex;justify-content:space-between;flex-shrink:0;"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Flow Presets -->
+    <div id="flow-presets-modal" class="modal">
+        <div class="modal-content" style="max-width:860px;width:95vw;max-height:90vh;display:flex;flex-direction:column;">
+            <div class="modal-header" style="flex-shrink:0;">
+                <h3 class="modal-title">
+                    📦 Flow Presets / Vorlagen
+                </h3>
+                <button class="modal-close" onclick="document.getElementById('flow-presets-modal').classList.remove('active')">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="modal-body" style="flex:1;overflow-y:auto;">
+                <p class="text-gray-400 mb-4">Starte mit einer vorgefertigten Vorlage oder passe sie im Wizard an.</p>
+                <div id="flow-presets-list" class="wizard-presets-grid"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Audio Elements for Dashboard Playback -->
     <audio id="dashboard-tts-audio"></audio>
     <div id="dashboard-soundboard-pool"></div>
@@ -3811,5 +3871,7 @@
     <script src="/js/cloud-sync-settings.js"></script>
     <script src="/js/network-settings.js"></script>
     <script src="/js/chatango-theme-adapter.js"></script>
+    <script src="/js/flow-presets.js"></script>
+    <script src="/js/flow-wizard.js"></script>
 </body>
 </html>

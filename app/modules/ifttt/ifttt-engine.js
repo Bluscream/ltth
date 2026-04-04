@@ -167,6 +167,18 @@ class IFTTTEngine {
                 });
             }
 
+            // Check per-flow cooldown (stored as DB setting: flow_cooldown_{flowId})
+            const cooldownSeconds = parseInt(this.db.getSetting(`flow_cooldown_${flow.id}`)) || 0;
+            if (cooldownSeconds > 0) {
+                const cooldownKey = `flow_cooldown_active_${flow.id}`;
+                if (this.variables.isCooldownActive(cooldownKey, cooldownSeconds)) {
+                    const remaining = this.variables.getCooldownRemaining(cooldownKey, cooldownSeconds);
+                    this.logger?.debug(`⏳ Flow "${flow.name}" on cooldown (${remaining.toFixed(1)}s remaining)`);
+                    this.executionStack.pop();
+                    return;
+                }
+            }
+
             // Create execution context
             const context = this.variables.createContext(eventData, {
                 flowId: flow.id,
@@ -210,6 +222,11 @@ class IFTTTEngine {
                     flowName: flow.name,
                     timestamp: Date.now()
                 });
+            }
+
+            // Activate per-flow cooldown after conditions are met (before actions run)
+            if (cooldownSeconds > 0) {
+                this.variables.setCooldown(`flow_cooldown_active_${flow.id}`);
             }
 
             // Execute actions
