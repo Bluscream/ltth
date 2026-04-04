@@ -925,13 +925,7 @@
       
       // Rebuild world
       setupWorld();
-      const shouldHideControls = hideControls || !!config.physicsSettings.hideTestControls;
-      if (overlayTestMode && !shouldHideControls) {
-        enableTestModeUI();
-      } else {
-        const controls = document.getElementById('test-mode-controls');
-        if (controls) controls.style.display = 'none';
-      }
+      updateTestModeControlsVisibility();
     });
 
     socket.on('plinko:config', (newConfig) => {
@@ -950,13 +944,7 @@
         
         // Rebuild world
         setupWorld();
-        const shouldHideControls = hideControls || !!config.physicsSettings.hideTestControls;
-        if (overlayTestMode && !shouldHideControls) {
-          enableTestModeUI();
-        } else {
-          const controls = document.getElementById('test-mode-controls');
-          if (controls) controls.style.display = 'none';
-        }
+        updateTestModeControlsVisibility();
       }
     });
 
@@ -1033,7 +1021,17 @@
     // ============================================
     // TEST MODE FUNCTIONALITY
     // ============================================
-    
+
+    function updateTestModeControlsVisibility() {
+      const shouldHideControls = hideControls || !!config.physicsSettings.hideTestControls;
+      const controls = document.getElementById('test-mode-controls');
+      if (overlayTestMode && !shouldHideControls) {
+        enableTestModeUI();
+      } else if (controls) {
+        controls.style.display = 'none';
+      }
+    }
+
     function enableTestModeUI() {
       const controls = document.getElementById('test-mode-controls');
       if (!controls) return;
@@ -1077,9 +1075,7 @@
 
     if (overlayTestMode) {
       console.log('🧪 Plinko test mode enabled');
-      if (!hideControls) {
-        enableTestModeUI();
-      }
+      updateTestModeControlsVisibility();
     }
   </script>
 </body>
