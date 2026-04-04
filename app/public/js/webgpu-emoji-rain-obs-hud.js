@@ -21,14 +21,19 @@
             physics_air: 0.02,
             physics_friction: 0.1,
             physics_restitution: 0.6,
-            physics_wind_strength: 0.0005,
-            physics_wind_variation: 0.0003,
             emoji_min_size_px: 40,
             emoji_max_size_px: 80,
             emoji_rotation_speed: 0.05,
             emoji_lifetime_ms: 8000,
             emoji_fade_duration_ms: 1000,
             max_emojis_on_screen: 200,
+            // Wind Simulation (BUG 5 fix: align config keys with engine.js)
+            wind_enabled: false,
+            wind_strength: 50,
+            wind_direction: 'auto',
+            // Bounce Physics
+            bounce_damping: 0.1,
+            floor_enabled: true,
             // Rate Limiting Queue
             rate_limit_enabled: false,
             rate_limit_emojis_per_second: 30,
@@ -134,10 +139,18 @@
             console.log('🍞 [TOASTER MODE] Deactivated - Original settings restored');
         }
 
+        // Physics constants (must match engine.js)
+        // <!-- SHARED MODULE CANDIDATE: extract to emoji-rain-shared.js -->
+        const WALL_THICKNESS = 100; // Wall thickness in pixels (must match createBoundaries)
+        const WIND_FORCE_MULTIPLIER = 300; // Force multiplier for wind (strength/100 × this value)
+        const WIND_AUTO_VARIATION = 0.2; // Variation factor for auto wind mode
+        const MAX_RATE_LIMIT_QUEUE_SIZE = 500; // BUG 11 fix: prevent unbounded queue growth
+
         // State
         let engine, render;
         let socket;
         let emojis = []; // Track emoji bodies and DOM elements
+        let emojiBodyMap = new Map(); // BUG 2 fix: Map physics bodies to emoji objects for O(1) lookup
         let particlePool = []; // Pool of reusable particle elements
         let userEmojiMap = {}; // User-specific emoji mappings
         let windForce = 0;
@@ -152,7 +165,7 @@
         let frameCount = 0;
         let fps = 60;
         let fpsUpdateTime = performance.now();
-        const TARGET_FRAME_TIME = 1000 / 60; // 60 FPS target
+        // BUG 7 fix: TARGET_FRAME_TIME is no longer a const – calculated dynamically in updateLoop
         const COLOR_UPDATE_THROTTLE_MS = 100; // Throttle non-rainbow color updates for performance
         let lastUpdateTime = performance.now();
 
@@ -240,7 +253,12 @@
                 }
             );
 
-            World.add(engine.world, [ground, leftWall, rightWall]);
+            // BUG 4 fix: respect floor_enabled toggle
+            if (config.floor_enabled) {
+                World.add(engine.world, [ground, leftWall, rightWall]);
+            } else {
+                World.add(engine.world, [leftWall, rightWall]);
+            }
 
             // Listen for collision with ground for bounce effect
             Events.on(engine, 'collisionStart', handleCollision);
@@ -255,7 +273,8 @@
             event.pairs.forEach(pair => {
                 if (pair.bodyA.label === 'ground' || pair.bodyB.label === 'ground') {
                     const emojiBody = pair.bodyA.label === 'ground' ? pair.bodyB : pair.bodyA;
-                    const emoji = emojis.find(e => e.body === emojiBody);
+                    // BUG 2 fix: use Map for O(1) lookup instead of O(n) Array.find
+                    const emoji = emojiBodyMap.get(emojiBody);
 
                     // Allow bounce effect to trigger multiple times, but rate-limit to avoid excessive triggers
                     const now = performance.now();
@@ -263,6 +282,17 @@
                         // Only trigger bounce if enough time has passed since last bounce (prevent spam)
                         if (!emoji.lastBounceTime || now - emoji.lastBounceTime > 300) {
                             emoji.lastBounceTime = now;
+
+                            // BUG 3 fix: apply bounce damping - reduce velocity after bounce
+                            if (config.bounce_damping > 0) {
+                                const dampingFactor = 1 - Math.min(1, Math.max(0, config.bounce_damping));
+                                const currentVelocity = emoji.body.velocity;
+                                Body.setVelocity(emoji.body, {
+                                    x: currentVelocity.x * dampingFactor,
+                                    y: currentVelocity.y * dampingFactor
+                                });
+                            }
+
                             triggerBounceEffect(emoji);
                         }
                     }
@@ -473,71 +503,93 @@
 
         /**
          * Apply color filter based on theme
+         * BUG 9 fix: use data-attributes and combineFilters() to prevent color overwriting pixel filter
          */
         function applyColorTheme(element, emoji = null) {
-            // Check for user-specific color first
+            let colorFilter = '';
+
             if (emoji && emoji.userColor) {
-                element.style.filter = `hue-rotate(${emoji.userColor}deg)`;
-                return;
-            }
-
-            if (config.rainbow_enabled) {
-                // Rainbow takes precedence
+                colorFilter = `hue-rotate(${emoji.userColor}deg)`;
+            } else if (config.rainbow_enabled) {
                 const hue = rainbowHueOffset % 360;
-                element.style.filter = `hue-rotate(${hue}deg)`;
-                return;
+                colorFilter = `hue-rotate(${hue}deg)`;
+            } else if (config.color_mode !== 'off') {
+                const intensity = config.color_intensity;
+                switch (config.color_mode) {
+                    case 'warm':
+                        colorFilter = `sepia(${intensity * 0.8}) saturate(${1 + intensity * 0.5}) brightness(${1 + intensity * 0.2})`;
+                        break;
+                    case 'cool':
+                        colorFilter = `hue-rotate(180deg) saturate(${1 + intensity}) brightness(${0.9 + intensity * 0.1})`;
+                        break;
+                    case 'neon':
+                        colorFilter = `saturate(${2 + intensity * 2}) brightness(${1.2 + intensity * 0.3}) contrast(${1.2})`;
+                        break;
+                    case 'pastel':
+                        colorFilter = `saturate(${0.5 + intensity * 0.3}) brightness(${1.1 + intensity * 0.2})`;
+                        break;
+                }
             }
 
-            if (config.color_mode === 'off') {
-                element.style.filter = '';
-                return;
-            }
-
-            const intensity = config.color_intensity;
-            let filter = '';
-
-            switch (config.color_mode) {
-                case 'warm':
-                    filter = `sepia(${intensity * 0.8}) saturate(${1 + intensity * 0.5}) brightness(${1 + intensity * 0.2})`;
-                    break;
-                case 'cool':
-                    filter = `hue-rotate(180deg) saturate(${1 + intensity}) brightness(${0.9 + intensity * 0.1})`;
-                    break;
-                case 'neon':
-                    filter = `saturate(${2 + intensity * 2}) brightness(${1.2 + intensity * 0.3}) contrast(${1.2})`;
-                    break;
-                case 'pastel':
-                    filter = `saturate(${0.5 + intensity * 0.3}) brightness(${1.1 + intensity * 0.2})`;
-                    break;
-            }
-
-            element.style.filter = filter;
+            element.setAttribute('data-color-filter', colorFilter);
+            combineFilters(element);
         }
 
         /**
          * Apply pixel effect
+         * BUG 8 fix: apply imageRendering on img element, use blur+contrast for text emojis
          */
         function applyPixelEffect(element) {
-            if (!config.pixel_enabled) {
-                element.style.imageRendering = '';
-                return;
+            let pixelFilter = '';
+
+            if (config.pixel_enabled) {
+                const img = element.querySelector('img');
+                if (img) {
+                    img.style.imageRendering = 'pixelated';
+                } else {
+                    const pixelAmount = config.pixel_size || 4;
+                    const PIXEL_BLUR_MULTIPLIER = 0.5;
+                    const PIXEL_CONTRAST = 2;
+                    const blurAmount = pixelAmount * PIXEL_BLUR_MULTIPLIER;
+                    pixelFilter = `blur(${blurAmount}px) contrast(${PIXEL_CONTRAST})`;
+                }
+            } else {
+                const img = element.querySelector('img');
+                if (img) {
+                    img.style.imageRendering = '';
+                }
             }
 
-            element.style.imageRendering = 'pixelated';
+            element.setAttribute('data-pixel-filter', pixelFilter);
+            combineFilters(element);
         }
 
-        // Main update loop with 60 FPS targeting
+        /**
+         * Combine color and pixel filters without one overwriting the other
+         * BUG 9 fix: mirrors engine.js combineFilters()
+         */
+        function combineFilters(element) {
+            const colorFilter = element.getAttribute('data-color-filter') || '';
+            const pixelFilter = element.getAttribute('data-pixel-filter') || '';
+            const filters = [colorFilter, pixelFilter].filter(f => f).join(' ');
+            element.style.filter = filters;
+        }
+
+        // Main update loop with dynamic FPS targeting
         function updateLoop(currentTime) {
             // Calculate delta time
             const deltaTime = currentTime - lastUpdateTime;
 
+            // BUG 7 fix: calculate targetFrameTime dynamically based on config.target_fps
+            const targetFrameTime = 1000 / (config.target_fps || 60);
+
             // Throttle to target FPS
-            if (deltaTime < TARGET_FRAME_TIME) {
+            if (deltaTime < targetFrameTime) {
                 requestAnimationFrame(updateLoop);
                 return;
             }
 
-            lastUpdateTime = currentTime - (deltaTime % TARGET_FRAME_TIME);
+            lastUpdateTime = currentTime - (deltaTime % targetFrameTime);
 
             // Update FPS counter
             frameCount++;
@@ -604,7 +656,7 @@
             }
 
             // Run physics engine step (clamp delta to prevent warnings)
-            const clampedDelta = Math.min(deltaTime, TARGET_FRAME_TIME);
+            const clampedDelta = Math.min(deltaTime, targetFrameTime);
             Engine.update(engine, clampedDelta);
             
             // Process rate limit queue (if enabled)
@@ -615,9 +667,8 @@
                 rainbowHueOffset = (rainbowHueOffset + config.rainbow_speed) % 360;
             }
 
-            // Apply wind force to all emojis
-            windForce += (Math.random() - 0.5) * config.physics_wind_variation;
-            windForce = Math.max(-config.physics_wind_strength, Math.min(config.physics_wind_strength, windForce));
+            // BUG 5 fix: calculate wind force via shared calculateWindForce() function
+            const currentWindForce = calculateWindForce();
 
             // Update all emojis
             emojis.forEach(emoji => {
@@ -632,17 +683,20 @@
                         return;
                     }
 
-                    // Apply wind
-                    Body.applyForce(emoji.body, emoji.body.position, {
-                        x: windForce,
-                        y: 0
-                    });
+                    // BUG 5 fix: only apply wind when wind_enabled is true
+                    if (config.wind_enabled) {
+                        Body.applyForce(emoji.body, emoji.body.position, {
+                            x: currentWindForce,
+                            y: 0
+                        });
+                    }
 
                     // Apply air resistance
                     const velocity = emoji.body.velocity;
+                    const airResistance = Math.min(1, Math.max(0, config.physics_air));
                     Body.setVelocity(emoji.body, {
-                        x: velocity.x * (1 - config.physics_air),
-                        y: velocity.y * (1 - config.physics_air)
+                        x: velocity.x * (1 - airResistance),
+                        y: velocity.y * (1 - airResistance)
                     });
 
                     // Update DOM element position and rotation (optimized)
@@ -694,6 +748,27 @@
             requestAnimationFrame(updateLoop);
         }
 
+        /**
+         * Calculate wind force based on configuration
+         * BUG 5 fix: mirrors calculateWindForce() from engine.js
+         * <!-- SHARED MODULE CANDIDATE: extract to emoji-rain-shared.js -->
+         */
+        function calculateWindForce() {
+            if (!config.wind_enabled) {
+                return 0;
+            }
+            const maxWindForce = (config.wind_strength / 100) * WIND_FORCE_MULTIPLIER;
+            if (config.wind_direction === 'left') {
+                return -maxWindForce;
+            } else if (config.wind_direction === 'right') {
+                return maxWindForce;
+            } else {
+                windForce += (Math.random() - 0.5) * maxWindForce * WIND_AUTO_VARIATION;
+                windForce = Math.max(-maxWindForce, Math.min(maxWindForce, windForce));
+                return windForce;
+            }
+        }
+
         // Spawn emoji with enhanced effects
         function spawnEmoji(emoji, x, y, size, username = null, profilePictureUrl = null, color = null) {
             // Check for user-specific emoji (try multiple username formats)
@@ -725,9 +800,33 @@
                 console.log(`🖼️ [PROFILE PICTURE] Using profile picture for ${username}: ${profilePictureUrl}`);
             }
 
-            // Normalize x position (0-1 to px)
+            // BUG 1 fix: normalize x with safety margins to prevent emojis getting stuck in walls
+            if (!canvasWidth || canvasWidth <= 0 || isNaN(canvasWidth)) {
+                canvasWidth = 1920;
+            }
+            if (!canvasHeight || canvasHeight <= 0 || isNaN(canvasHeight)) {
+                canvasHeight = 1080;
+            }
+
+            const minMargin = WALL_THICKNESS / 2 + size / 2;
             if (x >= 0 && x <= 1) {
-                x = x * canvasWidth;
+                const safeWidth = canvasWidth - (minMargin * 2);
+                if (safeWidth > 0) {
+                    x = minMargin + (x * safeWidth);
+                } else {
+                    x = canvasWidth / 2;
+                }
+            } else {
+                const minX = minMargin;
+                const maxX = canvasWidth - minMargin;
+                x = Math.max(minX, Math.min(maxX, x));
+            }
+
+            if (isNaN(x) || !isFinite(x)) {
+                x = canvasWidth / 2;
+            }
+            if (isNaN(y) || !isFinite(y)) {
+                y = 0;
             }
 
             // Create physics body (circle)
@@ -736,7 +835,7 @@
                 friction: config.physics_friction,
                 restitution: config.physics_restitution,
                 density: 0.01,
-                frictionAir: 0
+                frictionAir: config.physics_air // BUG 6 fix: use config.physics_air instead of hardcoded 0
             });
 
             // Add initial velocity
@@ -818,6 +917,8 @@
             };
 
             emojis.push(emojiObj);
+            // BUG 2 fix: register in emojiBodyMap for O(1) collision lookup
+            emojiBodyMap.set(body, emojiObj);
 
             // Apply pixel effect and color theme to the new emoji element
             applyPixelEffect(element);
@@ -868,6 +969,8 @@
 
             // Remove from physics world
             if (emoji.body) {
+                // BUG 2 fix: remove from emojiBodyMap before removing from world
+                emojiBodyMap.delete(emoji.body);
                 World.remove(engine.world, emoji.body);
                 emoji.body = null;
             }
@@ -876,6 +979,19 @@
             if (emoji.element && emoji.element.parentNode) {
                 emoji.element.parentNode.removeChild(emoji.element);
                 emoji.element = null;
+            }
+        }
+
+        /**
+         * Calculate offsetX with safety clamping to prevent negative or out-of-bounds coordinates
+         * BUG 12 fix: mirrors calculateOffsetX() from engine.js
+         * <!-- SHARED MODULE CANDIDATE: extract to emoji-rain-shared.js -->
+         */
+        function calculateOffsetX(x) {
+            if (x >= 0 && x <= 1) {
+                return Math.max(0, Math.min(1, x + (Math.random() - 0.5) * 0.2));
+            } else {
+                return x + (Math.random() - 0.5) * 100;
             }
         }
 
@@ -895,9 +1011,15 @@
 
             // If rate limiting is enabled, add individual emojis to the rate limit queue
             if (config.rate_limit_enabled && config.rate_limit_emojis_per_second > 0) {
+                // BUG 11 fix: enforce max queue size to prevent unbounded memory growth
+                if (rateLimitQueue.length + count > MAX_RATE_LIMIT_QUEUE_SIZE) {
+                    const excess = rateLimitQueue.length + count - MAX_RATE_LIMIT_QUEUE_SIZE;
+                    console.warn(`⚠️ [OBS HUD RATE LIMIT] Queue near limit, dropping ${excess} oldest entries`);
+                    rateLimitQueue.splice(0, excess);
+                }
                 for (let i = 0; i < count; i++) {
                     const size = config.emoji_min_size_px + Math.random() * (config.emoji_max_size_px - config.emoji_min_size_px);
-                    const offsetX = x + (Math.random() - 0.5) * 0.2;
+                    const offsetX = calculateOffsetX(x); // BUG 12 fix: use calculateOffsetX with clamping
                     const offsetY = y - i * 5;
                     
                     rateLimitQueue.push({
@@ -916,7 +1038,7 @@
                 // No rate limiting - spawn immediately
                 for (let i = 0; i < count; i++) {
                     const size = config.emoji_min_size_px + Math.random() * (config.emoji_max_size_px - config.emoji_min_size_px);
-                    const offsetX = x + (Math.random() - 0.5) * 0.2;
+                    const offsetX = calculateOffsetX(x); // BUG 12 fix: use calculateOffsetX with clamping
                     const offsetY = y - i * 5;
 
                     spawnEmoji(emoji, offsetX, offsetY, size, username, profilePictureUrl, color);
@@ -1130,6 +1252,19 @@
                     if (engine) {
                         engine.gravity.y = config.physics_gravity_y;
 
+                        // BUG 4 fix: handle floor toggle on config update
+                        if (data.config.floor_enabled !== undefined) {
+                            if (config.floor_enabled) {
+                                if (!engine.world.bodies.includes(ground)) {
+                                    World.add(engine.world, ground);
+                                }
+                            } else {
+                                if (engine.world.bodies.includes(ground)) {
+                                    World.remove(engine.world, ground);
+                                }
+                            }
+                        }
+
                         const newWidth = config.obs_hud_width || config.width_px || 1920;
                         const newHeight = config.obs_hud_height || config.height_px || 1080;
 
@@ -1220,6 +1355,12 @@
         window.addEventListener('beforeunload', () => {
             // Clean up all emojis
             emojis.forEach(emoji => removeEmoji(emoji));
+
+            // BUG 2 fix: clear emojiBodyMap on unload
+            emojiBodyMap.clear();
+
+            // Clear rate limit queue
+            rateLimitQueue = [];
 
             // Clear particle pool
             particlePool = [];

@@ -156,6 +156,7 @@ const MAX_SPAWN_QUEUE_SIZE = 100; // Maximum queued spawn events
 let rateLimitQueue = []; // Stores individual emoji spawn requests
 let emojisSpawnedThisSecond = 0;
 let secondStartTime = performance.now();
+const MAX_RATE_LIMIT_QUEUE_SIZE = 500; // BUG 11 fix: prevent unbounded rateLimitQueue growth
 
 // Physics constants
 const WALL_THICKNESS = 100; // Wall thickness in pixels (must match createBoundaries)
@@ -883,7 +884,9 @@ function spawnEmoji(emoji, x, y, size, username = null, profilePictureUrl = null
         frictionAir: config.physics_air
     });
 
-    console.log(`⚙️ [SPAWN] Created body with friction=${config.physics_friction}, restitution=${config.bounce_height}, frictionAir=${config.physics_air}`);
+    if (debugMode) {
+        console.log(`⚙️ [SPAWN] Created body with friction=${config.physics_friction}, restitution=${config.bounce_height}, frictionAir=${config.physics_air}`);
+    }
 
     // Add initial velocity
     Body.setVelocity(body, {
@@ -1111,6 +1114,12 @@ function calculateOffsetX(x) {
 function processSpawn(emoji, x, y, actualCount, username, profilePictureUrl, color, isBurst) {
     // If rate limiting is enabled, add individual emojis to the rate limit queue
     if (config.rate_limit_enabled && config.rate_limit_emojis_per_second > 0) {
+        // BUG 11 fix: enforce max queue size to prevent unbounded memory growth
+        if (rateLimitQueue.length + actualCount > MAX_RATE_LIMIT_QUEUE_SIZE) {
+            const excess = rateLimitQueue.length + actualCount - MAX_RATE_LIMIT_QUEUE_SIZE;
+            console.warn(`⚠️ [RATE LIMIT] Queue near limit, dropping ${excess} oldest entries`);
+            rateLimitQueue.splice(0, excess);
+        }
         for (let i = 0; i < actualCount; i++) {
             const size = config.emoji_min_size_px + Math.random() * (config.emoji_max_size_px - config.emoji_min_size_px);
             const offsetX = calculateOffsetX(x);
