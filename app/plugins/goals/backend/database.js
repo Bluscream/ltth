@@ -211,6 +211,13 @@ class GoalsDatabase {
             throw new Error(`Goal ${id} not found`);
         }
 
+        // Whitelist of allowed fields to prevent SQL injection via field names
+        const allowedFields = [
+            'name', 'goal_type', 'enabled', 'current_value', 'target_value',
+            'start_value', 'template_id', 'animation_on_update', 'animation_on_reach',
+            'on_reach_action', 'on_reach_increment', 'overlay_width', 'overlay_height'
+        ];
+
         // Build dynamic update query
         const fields = [];
         const values = [];
@@ -219,7 +226,7 @@ class GoalsDatabase {
             if (key === 'theme' && typeof updates[key] === 'object') {
                 fields.push('theme_json = ?');
                 values.push(JSON.stringify(updates[key]));
-            } else if (key !== 'id' && key !== 'created_at') {
+            } else if (allowedFields.includes(key)) {
                 fields.push(`${key} = ?`);
                 values.push(updates[key]);
             }
@@ -269,16 +276,20 @@ class GoalsDatabase {
     }
 
     /**
-     * Increment goal value
+     * Increment goal value (atomic update to prevent race conditions)
      */
     incrementValue(id, amount) {
-        const current = this.getGoal(id);
-        if (!current) {
+        const stmt = this.db.prepare(`
+            UPDATE goals SET current_value = current_value + ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `);
+        const result = stmt.run(amount, id);
+        if (result.changes === 0) {
             throw new Error(`Goal ${id} not found`);
         }
-
-        const newValue = current.current_value + amount;
-        return this.updateValue(id, newValue);
+        const updated = this.getGoal(id);
+        this.logHistory(id, 'value_updated', updated.current_value - amount, updated.current_value);
+        return updated;
     }
 
     /**
@@ -422,7 +433,7 @@ class GoalsDatabase {
         return multigoals.map(mg => {
             const full = this.getMultiGoalWithGoals(mg.id);
             if (!full) {
-                console.warn(`[GoalsDB] getAllMultiGoals: getMultiGoalWithGoals returned null for id=${mg.id}`);
+                this.api.log(`[GoalsDB] getAllMultiGoals: getMultiGoalWithGoals returned null for id=${mg.id}`, 'warn');
             }
             return full;
         }).filter(mg => mg !== null);

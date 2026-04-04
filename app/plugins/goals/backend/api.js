@@ -12,7 +12,7 @@ const animationRegistry = require('../engine/animations/registry');
  * Generate unique ID for goals
  */
 function generateId() {
-    return `goal_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    return `goal_${crypto.randomUUID()}`;
 }
 
 class GoalsAPI {
@@ -262,20 +262,21 @@ class GoalsAPI {
         this.api.registerRoute('post', '/api/goals/:id/increment', (req, res) => {
             try {
                 const { amount = 1 } = req.body;
-                const machine = this.stateMachineManager.getMachine(req.params.id);
 
-                if (!machine) {
+                // Check goal exists before incrementing
+                if (!this.db.goalExists(req.params.id)) {
                     return res.status(404).json({
                         success: false,
                         error: 'Goal not found'
                     });
                 }
 
-                // Increment via state machine
-                machine.incrementValue(amount);
-
-                // Update database
+                // Atomically increment in DB first
                 const goal = this.db.incrementValue(req.params.id, amount);
+
+                // Sync state machine to DB value
+                const machine = this.stateMachineManager.getMachine(req.params.id);
+                machine.updateValue(goal.current_value, true);
 
                 // Broadcast to all clients
                 this.plugin.broadcastGoalValueChanged(goal);
