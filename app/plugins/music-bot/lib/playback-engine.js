@@ -155,11 +155,27 @@ class PlaybackEngine extends EventEmitter {
       this.config.audioDevice || 'auto'
     ];
 
-    this.process = spawn(this.config.mpvPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      this.process = spawn(this.config.mpvPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (spawnError) {
+      this.emit('error', new Error(
+        `mpv konnte nicht gestartet werden ("${this.config.mpvPath}"): ${spawnError.message}. ` +
+        'Bitte installiere mpv (https://mpv.io) oder setze den korrekten Pfad in den Music Bot Einstellungen.'
+      ));
+      throw spawnError;
+    }
+
     this._shuttingDown = false;
     this._restartAttempts = 0;
 
     this.process.on('error', (error) => {
+      if (error.code === 'ENOENT') {
+        this.emit('error', new Error(
+          `mpv nicht gefunden ("${this.config.mpvPath}"). ` +
+          'Installiere mpv: https://mpv.io/installation/ — oder setze den Pfad in Music Bot → Einstellungen → Playback.'
+        ));
+        return;
+      }
       this.emit('error', error);
     });
 

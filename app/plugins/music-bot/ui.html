@@ -18,6 +18,59 @@
       <div class="status" id="playback-state">Idle</div>
     </header>
 
+    <div id="setup-issues-banner" style="display:none; border-left: 4px solid #f59e0b; margin-bottom: 1rem; padding: 1rem; background: rgba(245,158,11,0.08); border-radius: 6px;">
+      <h3 style="margin: 0 0 0.5rem 0; color: #f59e0b;">⚠️ Music Bot – Einrichtung erforderlich</h3>
+      <div id="setup-issues-list"></div>
+    </div>
+
+    <script>
+      (function () {
+        const banner = document.getElementById('setup-issues-banner');
+        const list = document.getElementById('setup-issues-list');
+
+        function renderIssues(issues) {
+          if (!issues || issues.length === 0) {
+            banner.style.display = 'none';
+            return;
+          }
+          banner.style.display = 'block';
+          list.innerHTML = '';
+          issues.forEach(function (issue) {
+            const div = document.createElement('div');
+            div.style.marginBottom = '0.75rem';
+            div.style.padding = '0.5rem';
+            div.style.background = issue.severity === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)';
+            div.style.borderRadius = '6px';
+            const icon = issue.severity === 'error' ? '❌' : '⚠️';
+            let html = '<strong>' + icon + ' ' + issue.title + '</strong><br>';
+            html += '<span style="font-size:0.9em;">' + (issue.description || '') + '</span>';
+            const instructions = issue.installInstructions;
+            if (instructions && instructions.length > 0) {
+              html += '<ul style="margin:0.5rem 0 0 1.2rem;padding:0;font-size:0.85em;">';
+              instructions.forEach(function (instr) {
+                html += '<li style="margin-bottom:0.25rem;"><code>' + instr + '</code></li>';
+              });
+              html += '</ul>';
+            }
+            div.innerHTML = html;
+            list.appendChild(div);
+          });
+        }
+
+        if (typeof io !== 'undefined') {
+          var _setupSocket = io();
+          _setupSocket.on('music-bot:setup-status', function (data) {
+            renderIssues(data.issues || []);
+          });
+        }
+
+        fetch('/api/plugins/music-bot/setup-status')
+          .then(function (r) { return r.json(); })
+          .then(function (data) { if (data.success) { renderIssues(data.issues || []); } })
+          .catch(function () {});
+      })();
+    </script>
+
     <section class="card player-card">
       <div class="card-header">
         <div>
