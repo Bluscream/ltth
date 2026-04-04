@@ -58,8 +58,8 @@
         }
 
         if (typeof io !== 'undefined') {
-          var _setupSocket = io();
-          _setupSocket.on('music-bot:setup-status', function (data) {
+          var setupSocket = io();
+          setupSocket.on('music-bot:setup-status', function (data) {
             renderIssues(data.issues || []);
           });
         }

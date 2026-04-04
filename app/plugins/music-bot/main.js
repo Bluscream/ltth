@@ -159,9 +159,7 @@ class MusicBotPlugin extends EventEmitter {
     await this._restoreState();
     this.api.log('[music-bot] Plugin initialized', 'info');
 
-    if (!this._ytdlpAvailable || !this._mpvAvailable) {
-      this._emitSetupStatus();
-    }
+    this._emitSetupStatus();
   }
 
   async destroy() {
