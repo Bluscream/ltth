@@ -9,6 +9,17 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
+// Per-interaction field mapping (event_type → column name) — used in migration and event-bridge
+const ALLOWED_PER_FIELDS = {
+    gift: 'per_coin',
+    follow: 'per_follow',
+    share: 'per_share',
+    subscribe: 'per_subscribe',
+    like: 'per_like',
+    chat: 'per_chat'
+};
+const ALLOWED_PER_FIELD_VALUES = Object.values(ALLOWED_PER_FIELDS);
+
 class TimerDatabase {
     constructor(api) {
         this.api = api;
@@ -274,14 +285,6 @@ class TimerDatabase {
     migrateSimpleEventsToPerFields() {
         try {
             const timers = this.db.prepare('SELECT id FROM advanced_timers').all();
-        const ALLOWED_PER_FIELDS = {
-            gift: 'per_coin',
-            follow: 'per_follow',
-            share: 'per_share',
-            subscribe: 'per_subscribe',
-            like: 'per_like',
-            chat: 'per_chat'
-        };
 
         for (const { id } of timers) {
             const events = this.db.prepare(
@@ -314,8 +317,7 @@ class TimerDatabase {
             }
 
             if (Object.keys(updates).length > 0) {
-                const allowedValues = Object.values(ALLOWED_PER_FIELDS);
-                const safeKeys = Object.keys(updates).filter(k => allowedValues.includes(k));
+                const safeKeys = Object.keys(updates).filter(k => ALLOWED_PER_FIELD_VALUES.includes(k));
                 if (safeKeys.length > 0) {
                     const setClauses = safeKeys.map(k => `${k} = ?`).join(', ');
                     this.db.prepare(`UPDATE advanced_timers SET ${setClauses} WHERE id = ?`)
