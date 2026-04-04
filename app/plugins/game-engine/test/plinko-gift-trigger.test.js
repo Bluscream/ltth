@@ -151,10 +151,10 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
             // If still no mapping found, decide based on useDefaults flag
             if (!giftMapping) {
               const enabledBoards = boards.filter(b => b.enabled);
-              if (useDefaults && enabledBoards.length > 0 && normalizedGiftName) {
+              if (useDefaults && enabledBoards.length > 0 && (normalizedGiftName || normalizedGiftId)) {
                 // Trigger-Tab-only configuration: spawn with safe defaults
                 giftMapping = { betAmount: 100, ballType: 'standard' };
-                this.logger.info(`[PLINKO] Gift "${normalizedGiftName}" has no board-specific mapping - using defaults (betAmount=100, ballType=standard) [source: Trigger-Tab fallback]`);
+                this.logger.info(`[PLINKO] Gift "${normalizedGiftName || normalizedGiftId}" has no board-specific mapping - using defaults (betAmount=100, ballType=standard) [source: Trigger-Tab fallback]`);
               } else {
                 const boardNames = enabledBoards.map(b => b.name).join(', ') || 'none';
                 const boardContext = boardId !== null ? ` (targeted board ID: ${boardId})` : '';
@@ -166,18 +166,30 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
 
           const betAmount = giftMapping.betAmount || 100;
           const ballType = giftMapping.ballType || 'standard';
+          const ballCount = Math.min(Math.max(giftMapping.ballCount || 1, 1), 50);
           const boardContext = boardId !== null ? ` [board ID: ${boardId}]` : '';
 
-          this.logger.info(`[PLINKO] Spawning ball for ${username}: betAmount=${betAmount}, ballType=${ballType}${boardContext}`);
-
-          // Spawn ball
-          const result = await this.plinkoGame.spawnBall(
-            username,
-            nickname,
-            profilePictureUrl || '',
-            betAmount,
-            ballType
-          );
+          let result;
+          if (ballCount > 1) {
+            this.logger.info(`[PLINKO] Spawning ${ballCount} balls for ${username}: betAmount=${betAmount}${boardContext}`);
+            result = await this.plinkoGame.spawnBalls(
+              username,
+              nickname,
+              profilePictureUrl || '',
+              betAmount,
+              ballCount,
+              { preferredColor: null }
+            );
+          } else {
+            this.logger.info(`[PLINKO] Spawning ball for ${username}: betAmount=${betAmount}, ballType=${ballType}${boardContext}`);
+            result = await this.plinkoGame.spawnBall(
+              username,
+              nickname,
+              profilePictureUrl || '',
+              betAmount,
+              ballType
+            );
+          }
 
           if (!result.success) {
             this.logger.error(`[PLINKO] Failed to spawn ball for ${username}: ${result.error}`);
@@ -780,6 +792,49 @@ describe('Plinko Gift Trigger - Enhanced Matching Logic', () => {
       );
 
       expect(result).toEqual({ success: false, error: 'No gift mapping found' });
+    });
+
+    test('should use defaults when only giftId provided (empty giftName) with useDefaults=true', async () => {
+      // Simulates Trigger-Tab configured by ID only, giftName empty from TikTok event
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', '', '5655', true
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('using defaults (betAmount=100, ballType=standard)')
+      );
+      expect(gameEnginePlugin.plinkoGame.spawnBall).toHaveBeenCalledWith(
+        'testuser', 'Test User', '', 100, 'standard'
+      );
+    });
+
+    test('should spawn multiple balls when ballCount > 1 in mapping', async () => {
+      // Add a board-specific mapping with ballCount: 3
+      const boards = db.getAllPlinkoBoards();
+      db.updatePlinkoGiftMappings(boards[0].id, {
+        'Dragon': { betAmount: 200, ballType: 'standard', ballCount: 3 }
+      });
+
+      const originalSpawnBalls = gameEnginePlugin.plinkoGame.spawnBalls.bind(gameEnginePlugin.plinkoGame);
+      gameEnginePlugin.plinkoGame.spawnBalls = jest.fn().mockResolvedValue({ success: true, ballIds: ['b1', 'b2', 'b3'] });
+
+      const result = await gameEnginePlugin.handlePlinkoGiftTrigger(
+        'testuser', 'Test User', '', 'Dragon', null, false
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(gameEnginePlugin.plinkoGame.spawnBalls).toHaveBeenCalledWith(
+        'testuser', 'Test User', '', 200, 3, { preferredColor: null }
+      );
+      expect(gameEnginePlugin.plinkoGame.spawnBall).not.toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Spawning 3 balls for testuser')
+      );
+
+      gameEnginePlugin.plinkoGame.spawnBalls = originalSpawnBalls;
     });
 
     test('board-specific mapping still takes precedence over defaults', async () => {
