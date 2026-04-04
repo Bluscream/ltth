@@ -1709,7 +1709,10 @@ class FireworksEngine {
                     return;
                 }
                 
-                this.webglEngine = new WebGLParticleEngine(this.canvas);
+                this.webglEngine = new WebGLParticleEngine(this.canvas, {
+                    preserveDrawingBuffer: this.config.preserveDrawingBuffer ?? true,
+                    desynchronized: this.config.desynchronized ?? true
+                });
                 const success = this.webglEngine.init();
                 
                 if (success) {
@@ -1935,6 +1938,12 @@ class FireworksEngine {
         
         // Set username
         usernameEl.textContent = data.username || 'Unknown';
+        
+        // Set thank you text from data if provided
+        const thankYouEl = document.getElementById('thank-you-text');
+        if (thankYouEl) {
+            thankYouEl.textContent = data.thankYouText || 'Thanks for the follow! 💙';
+        }
         
         // Set avatar if provided
         if (data.profilePictureUrl) {

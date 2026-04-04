@@ -56,6 +56,9 @@
       "no_good_presets": "Keine Voreinstellung erreicht 30 FPS. Wir empfehlen die \"Potato\" Voreinstellung für Ihr System.",
       "best_choice": "Beste Wahl",
       "alternative": "Alternative"
+    },
+    "overlay": {
+      "follower_thank_you": "Danke für den Follow! 💙"
     }
   }
 }

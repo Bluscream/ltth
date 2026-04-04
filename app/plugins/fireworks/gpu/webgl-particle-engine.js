@@ -14,7 +14,7 @@
  */
 
 class WebGLParticleEngine {
-    constructor(canvas) {
+    constructor(canvas, options = {}) {
         this.canvas = canvas;
         this.gl = null;
         this.program = null;
@@ -24,6 +24,8 @@ class WebGLParticleEngine {
         this.particleCount = 0;
         this.maxParticles = 100000;
         this.initialized = false;
+        this.preserveDrawingBuffer = options.preserveDrawingBuffer !== undefined ? options.preserveDrawingBuffer : true;
+        this.desynchronized = options.desynchronized !== undefined ? options.desynchronized : true;
     }
 
     /**
@@ -37,8 +39,8 @@ class WebGLParticleEngine {
                 antialias: false,        // Disable AA for performance
                 alpha: true,             // Enable transparency
                 premultipliedAlpha: false, // Use standard alpha (easier for OBS)
-                preserveDrawingBuffer: true, // Preserve for OBS capture
-                desynchronized: false,   // Disable for compatibility
+                preserveDrawingBuffer: this.preserveDrawingBuffer, // Configurable: true for OBS capture, false for browser preview
+                desynchronized: this.desynchronized,   // Configurable: true for better GPU performance (safe for OBS)
                 powerPreference: 'high-performance' // Use discrete GPU if available
             });
 
