@@ -419,6 +419,8 @@ class NetworkManager {
         }
 
         const parts = command.split(/\s+/);
+        // Note: simple whitespace splitting does not handle quoted arguments.
+        // Document that custom commands should not contain quoted arguments with spaces.
         child = spawn(parts[0], parts.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
         this.tunnelProcess = child;
 
@@ -537,7 +539,7 @@ class NetworkManager {
   /** Strip sensitive fields from tunnel config before sending to client */
   _safeTunnelConfig() {
     const cfg = { ...this.tunnelConfig };
-    if (cfg.authToken) cfg.authToken = cfg.authToken ? '***' : '';
+    if (cfg.authToken) cfg.authToken = '***';
     return cfg;
   }
 

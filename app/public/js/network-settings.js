@@ -15,6 +15,16 @@
 
   function el(id) { return document.getElementById(id); }
 
+  /** Escape a string for safe insertion into HTML. */
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function showNotification(message, type = 'success') {
     // Reuse existing notification pattern from dashboard if available
     if (window.showToast) {
@@ -94,10 +104,10 @@
         const badge = getBadgeHtml(iface.type);
         return `
         <label class="flex items-center gap-3 p-2 rounded hover:bg-gray-700 cursor-pointer">
-          <input type="checkbox" class="network-iface-checkbox" value="${iface.ip}" ${checked}>
+          <input type="checkbox" class="network-iface-checkbox" value="${esc(iface.ip)}" ${checked}>
           <span class="flex-1">
-            <span class="font-medium text-sm">${iface.label}</span>
-            <span class="text-xs text-gray-400 ml-2">${iface.ip}</span>
+            <span class="font-medium text-sm">${esc(iface.label)}</span>
+            <span class="text-xs text-gray-400 ml-2">${esc(iface.ip)}</span>
           </span>
           ${badge}
         </label>`;
@@ -110,7 +120,7 @@
       const manualSelected = currentCustom && !ifaces.find(i => i.ip === currentCustom) ? 'selected' : '';
       customSelect.innerHTML = '<option value="">-- Select Interface --</option>' +
         ifaces.filter(i => i.type !== 'loopback').map(i =>
-          `<option value="${i.ip}" ${i.ip === currentCustom ? 'selected' : ''}>${i.label} (${i.ip})</option>`
+          `<option value="${esc(i.ip)}" ${i.ip === currentCustom ? 'selected' : ''}>${esc(i.label)} (${esc(i.ip)})</option>`
         ).join('') +
         `<option value="manual" ${manualSelected}>Manual IP...</option>`;
     }
@@ -225,8 +235,8 @@
 
     list.innerHTML = urls.map(url =>
       `<div class="flex items-center gap-2 p-2 bg-gray-700 rounded mb-1">
-        <span class="flex-1 text-sm break-all">${url}</span>
-        <button class="btn btn-sm btn-danger network-remove-url-btn" data-url="${url}">
+        <span class="flex-1 text-sm break-all">${esc(url)}</span>
+        <button class="btn btn-sm btn-danger network-remove-url-btn" data-url="${esc(url)}">
           <i data-lucide="trash-2" class="w-4 h-4"></i>
         </button>
       </div>`
@@ -260,9 +270,9 @@
 
     container.innerHTML = entries.map(e => `
       <div class="flex items-center gap-2 p-2 bg-gray-700 rounded mb-1">
-        <span class="text-xs text-gray-400 w-24 flex-shrink-0">${e.label}</span>
-        <span class="flex-1 text-sm font-mono break-all">${e.url}/dashboard.html</span>
-        <button class="btn btn-sm text-gray-400 hover:text-white network-copy-url-btn" data-url="${e.url}/dashboard.html" title="Copy">
+        <span class="text-xs text-gray-400 w-24 flex-shrink-0">${esc(e.label)}</span>
+        <span class="flex-1 text-sm font-mono break-all">${esc(e.url)}/dashboard.html</span>
+        <button class="btn btn-sm text-gray-400 hover:text-white network-copy-url-btn" data-url="${esc(e.url)}/dashboard.html" title="Copy">
           <i data-lucide="copy" class="w-4 h-4"></i>
         </button>
       </div>`

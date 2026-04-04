@@ -173,8 +173,11 @@ let ALLOWED_ORIGINS = [
     'null'
 ];
 
-// IP Restriction Middleware (for "select" bind mode) – must be before CORS
-// Wrapped in a closure so it's evaluated per-request (networkManager is initialized later)
+// IP Restriction Middleware (for "select" bind mode) – must be before CORS.
+// Wrapped in a closure so networkManager is accessed at request-time, not at
+// module-load time. networkManager (const) is initialized further below in this
+// file; by the time the first request arrives (after server.listen()), it is
+// already initialized and the TDZ has ended.
 app.use((req, res, next) => networkManager.getIPRestrictionMiddleware()(req, res, next));
 
 app.use((req, res, next) => {
