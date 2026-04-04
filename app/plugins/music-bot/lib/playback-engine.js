@@ -160,6 +160,13 @@ class PlaybackEngine extends EventEmitter {
     this._restartAttempts = 0;
 
     this.process.on('error', (error) => {
+      if (error.code === 'ENOENT') {
+        this.emit('error', new Error(
+          `mpv nicht gefunden ("${this.config.mpvPath}"). ` +
+          'Installiere mpv: https://mpv.io/installation/ — oder setze den Pfad in Music Bot → Einstellungen → Playback.'
+        ));
+        return;
+      }
       this.emit('error', error);
     });
 

@@ -1,6 +1,14 @@
 const { spawn } = require('child_process');
 const https = require('https');
-const { YOUTUBE_DL_PATH } = require('youtube-dl-exec').constants;
+let YOUTUBE_DL_PATH = 'yt-dlp';
+try {
+  const youtubeDlExec = require('youtube-dl-exec');
+  if (youtubeDlExec && youtubeDlExec.constants && youtubeDlExec.constants.YOUTUBE_DL_PATH) {
+    YOUTUBE_DL_PATH = youtubeDlExec.constants.YOUTUBE_DL_PATH;
+  }
+} catch (_e) {
+  // youtube-dl-exec not installed — fallback to system yt-dlp
+}
 
 class MusicResolver {
   constructor(config, api) {

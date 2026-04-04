@@ -2,7 +2,15 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const EventEmitter = require('events');
-const { YOUTUBE_DL_PATH } = require('youtube-dl-exec').constants;
+let YOUTUBE_DL_PATH = 'yt-dlp';
+try {
+  const youtubeDlExec = require('youtube-dl-exec');
+  if (youtubeDlExec && youtubeDlExec.constants && youtubeDlExec.constants.YOUTUBE_DL_PATH) {
+    YOUTUBE_DL_PATH = youtubeDlExec.constants.YOUTUBE_DL_PATH;
+  }
+} catch (_e) {
+  // youtube-dl-exec not installed — fallback to system yt-dlp
+}
 const CommandParser = require('./lib/command-parser');
 const QueueManager = require('./lib/queue-manager');
 const MusicResolver = require('./lib/music-resolver');
@@ -122,6 +130,7 @@ class MusicBotPlugin extends EventEmitter {
     this.api.ensurePluginDataDir();
 
     await this._ensureYtDlp();
+    await this._ensureMpv();
 
     this.queueManager = new QueueManager(this.config, this.api);
     this.musicResolver = new MusicResolver(
@@ -149,6 +158,8 @@ class MusicBotPlugin extends EventEmitter {
 
     await this._restoreState();
     this.api.log('[music-bot] Plugin initialized', 'info');
+
+    this._emitSetupStatus();
   }
 
   async destroy() {
@@ -194,29 +205,95 @@ class MusicBotPlugin extends EventEmitter {
     try {
       await execFileAsync(ytdlpPath, ['--version'], { timeout: 5000 });
       this.api.log('[music-bot] yt-dlp found and ready', 'debug');
+      this._ytdlpAvailable = true;
       return;
     } catch (err) {
       if (err.code !== 'ENOENT' && err.code !== 'EACCES') {
         // Executable found but errored for another reason – treat as present
         this.api.log('[music-bot] yt-dlp found (version check returned error, but executable exists)', 'debug');
+        this._ytdlpAvailable = true;
         return;
       }
     }
 
+    this._ytdlpAvailable = false;
+
     if (isDefaultPath) {
       this.api.log(
-        `[music-bot] yt-dlp bundled binary not found at "${ytdlpPath}". ` +
-        'The youtube-dl-exec postinstall script may not have run correctly. ' +
-        'Try running "npm install" in the app directory, or set a custom yt-dlp path in Music Bot settings.',
-        'error'
+        '[music-bot] yt-dlp not found. Music Bot runs in limited mode (oEmbed fallback only). ' +
+        'Install yt-dlp for full functionality: run "npm install youtube-dl-exec" in app/, ' +
+        'or download yt-dlp manually and set the path in Music Bot settings.',
+        'warn'
       );
     } else {
       this.api.log(
         `[music-bot] yt-dlp not found at configured path "${ytdlpPath}". ` +
         'Please verify the path in Music Bot settings.',
-        'error'
+        'warn'
       );
     }
+  }
+
+  async _ensureMpv() {
+    const execFileAsync = promisify(execFile);
+    const mpvPath = this.config.playback.mpvPath || 'mpv';
+
+    try {
+      await execFileAsync(mpvPath, ['--version'], { timeout: 5000 });
+      this.api.log('[music-bot] mpv found and ready', 'debug');
+      this._mpvAvailable = true;
+    } catch (err) {
+      this._mpvAvailable = false;
+      this.api.log(
+        `[music-bot] mpv not found at "${mpvPath}". Music playback is disabled. ` +
+        'Install mpv (https://mpv.io/installation/) and restart LTTH, ' +
+        'or set the correct path in Music Bot settings.',
+        'warn'
+      );
+    }
+  }
+
+  _getSetupIssues() {
+    const issues = [];
+    if (!this._ytdlpAvailable) {
+      issues.push({
+        id: 'ytdlp-missing',
+        severity: 'warning',
+        title: 'yt-dlp nicht gefunden',
+        description: 'Für YouTube-Suche und Song-Downloads wird yt-dlp benötigt. ' +
+          'Ohne yt-dlp funktioniert nur der oEmbed-Fallback (eingeschränkte Metadaten, kein Suchfeld).',
+        installInstructions: [
+          'npm install youtube-dl-exec (im app/ Verzeichnis)',
+          'Oder: yt-dlp manuell von https://github.com/yt-dlp/yt-dlp/releases herunterladen',
+          'Oder: Pfad in Music Bot Einstellungen → Resolver → yt-dlp Pfad setzen'
+        ]
+      });
+    }
+    if (!this._mpvAvailable) {
+      issues.push({
+        id: 'mpv-missing',
+        severity: 'error',
+        title: 'mpv Media Player nicht gefunden',
+        description: 'Der Music Bot braucht mpv (https://mpv.io) für die Audio-Wiedergabe. ' +
+          'Ohne mpv wird keine Musik abgespielt.',
+        installInstructions: [
+          'Windows: https://mpv.io/installation/ oder scoop install mpv',
+          'Linux: sudo apt install mpv',
+          'macOS: brew install mpv',
+          'Pfad in Music Bot Einstellungen → Playback → mpv Pfad setzen'
+        ]
+      });
+    }
+    return issues;
+  }
+
+  _emitSetupStatus() {
+    const issues = this._getSetupIssues();
+    this.io.emit('music-bot:setup-status', {
+      ytdlpAvailable: this._ytdlpAvailable || false,
+      mpvAvailable: this._mpvAvailable || false,
+      issues
+    });
   }
 
   _mergeDeep(target, source) {
@@ -352,6 +429,15 @@ class MusicBotPlugin extends EventEmitter {
 
     this.api.registerRoute('get', '/api/plugins/music-bot/status', async (req, res) => {
       res.json(this._buildStatusPayload());
+    });
+
+    this.api.registerRoute('get', '/api/plugins/music-bot/setup-status', (req, res) => {
+      res.json({
+        success: true,
+        ytdlpAvailable: this._ytdlpAvailable || false,
+        mpvAvailable: this._mpvAvailable || false,
+        issues: this._getSetupIssues()
+      });
     });
 
     this.api.registerRoute('get', '/api/plugins/music-bot/resolve', async (req, res) => {
@@ -1018,7 +1104,9 @@ class MusicBotPlugin extends EventEmitter {
       queueLength: this.queueManager.getQueue().length,
       volume: this.playbackEngine.getVolume(),
       playbackState: this.playbackEngine.getState(),
-      autoDJ: this.autoDJ?.getStatus()
+      autoDJ: this.autoDJ?.getStatus(),
+      ytdlpAvailable: this._ytdlpAvailable || false,
+      mpvAvailable: this._mpvAvailable || false
     };
   }
 
