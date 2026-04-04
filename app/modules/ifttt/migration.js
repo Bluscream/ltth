@@ -111,28 +111,23 @@ async function migrateFlows(db, logger) {
                 changed = true;
             }
 
-            // Migrate action types
+            // Migrate action types - track changes during the map phase
             const originalActions = Array.isArray(flow.actions) ? flow.actions : [];
-            const migratedActions = originalActions
-                .map(a => migrateAction(a))
-                .filter(a => a !== null);
+            const migratedActions = [];
 
-            for (let i = 0; i < originalActions.length; i++) {
-                const orig = originalActions[i];
-                const migr = migratedActions[i]; // may be undefined if earlier items were removed
-                // Detect any change (including removals)
-                if (!migr || (orig && orig.type !== migr.type)) {
+            for (const orig of originalActions) {
+                const migr = migrateAction(orig);
+                if (migr === null) {
+                    // Action removed
                     changed = true;
-                    if (!migr) {
-                        logger?.info(`  ↳ Flow "${flow.name}" [${flow.id}]: removed unsupported action type "${orig.type}"`);
-                    } else {
+                    logger?.info(`  ↳ Flow "${flow.name}" [${flow.id}]: removed unsupported action type "${orig.type}"`);
+                } else {
+                    if (orig && orig.type !== migr.type) {
+                        changed = true;
                         logger?.info(`  ↳ Flow "${flow.name}" [${flow.id}]: action ${orig.type} → ${migr.type}`);
                     }
+                    migratedActions.push(migr);
                 }
-            }
-
-            if (originalActions.length !== migratedActions.length) {
-                changed = true;
             }
 
             if (changed) {

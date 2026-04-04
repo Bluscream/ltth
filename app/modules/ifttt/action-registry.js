@@ -39,6 +39,9 @@ const BLOCKED_IP_PATTERNS = [
     'fd00:'
 ];
 
+// Blocked IP prefixes pre-lowercased for efficient matching
+const BLOCKED_IP_PATTERNS_LOWER = BLOCKED_IP_PATTERNS.map(p => p.toLowerCase());
+
 /**
  * Validate a webhook URL against SSRF protections.
  * @param {string} url - URL to validate
@@ -47,9 +50,10 @@ const BLOCKED_IP_PATTERNS = [
  */
 async function validateWebhookUrl(url, allowedDomains) {
     const urlObj = new URL(url);
+    const hostLower = urlObj.hostname.toLowerCase();
 
     // Block direct IP-based URLs
-    const isDirectIP = BLOCKED_IP_PATTERNS.some(p => urlObj.hostname.toLowerCase().startsWith(p.toLowerCase()));
+    const isDirectIP = BLOCKED_IP_PATTERNS_LOWER.some(p => hostLower.startsWith(p));
     if (isDirectIP) {
         throw new Error(`Webhook to internal network blocked: ${urlObj.hostname}`);
     }
@@ -78,7 +82,8 @@ async function validateWebhookUrl(url, allowedDomains) {
         const v4 = await dns.resolve4(urlObj.hostname).catch(() => []);
         const v6 = await dns.resolve6(urlObj.hostname).catch(() => []);
         for (const ip of [...v4, ...v6]) {
-            if (BLOCKED_IP_PATTERNS.some(p => ip.toLowerCase().startsWith(p.toLowerCase()))) {
+            const ipLower = ip.toLowerCase();
+            if (BLOCKED_IP_PATTERNS_LOWER.some(p => ipLower.startsWith(p))) {
                 throw new Error(`Webhook resolves to blocked IP: ${ip} (${urlObj.hostname})`);
             }
         }
