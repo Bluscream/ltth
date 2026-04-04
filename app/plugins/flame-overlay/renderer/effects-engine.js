@@ -291,7 +291,8 @@ class EffectsEngine {
         const interpolate = () => {
             const elapsed = Date.now() - startTime;
             const t = Math.min(elapsed / duration, 1.0);
-            const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // ease-in-out
+            // Quadratic ease-in-out: accelerates then decelerates
+            const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
 
             for (const field of numericFields) {
                 if (startConfig[field] !== undefined && targetConfig[field] !== undefined) {

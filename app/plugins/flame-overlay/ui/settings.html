@@ -1287,7 +1287,7 @@
 
                 if (effectVal) rule.effect = effectVal;
                 if (amountVal !== '') {
-                    if (['pulse'].includes(action)) rule.intensity = parseFloat(amountVal);
+                    if (action === 'pulse') rule.intensity = parseFloat(amountVal);
                     else rule.amount = parseFloat(amountVal);
                 }
                 if (['color-change', 'color-flash'].includes(action)) rule.color = colorVal;

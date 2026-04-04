@@ -552,7 +552,7 @@ class FlameOverlayPlugin {
         this.lastTriggerTime.set(eventKey, now);
         this.activeTriggerCount++;
 
-        const triggerId = `${now}-${Math.random().toString(36).substr(2, 6)}`;
+        const triggerId = `${now}-${Math.random().toString(36).slice(2, 8)}`;
         const triggerWithId = { ...trigger, id: triggerId };
 
         this.api.emit('flame-overlay:trigger', triggerWithId);
