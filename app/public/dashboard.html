@@ -1295,7 +1295,7 @@
                                     <i data-lucide="edit"></i>
                                     Visual Flow Editor
                                 </a>
-                                <button id="open-wizard-btn" class="btn btn-primary" onclick="FlowWizard.open()">
+                                <button id="open-wizard-btn" class="btn btn-primary">
                                     🧙 Wizard
                                 </button>
                                 <button id="add-flow-btn" class="btn btn-ghost">
@@ -1316,8 +1316,8 @@
                                 Alle auswählen
                             </label>
                             <span id="flows-selected-count" class="text-gray-400 text-sm"></span>
-                            <button class="btn btn-ghost text-sm" onclick="bulkToggleFlows(true)">✅ Aktivieren</button>
-                            <button class="btn btn-ghost text-sm" onclick="bulkToggleFlows(false)">⏸️ Deaktivieren</button>
+                            <button id="bulk-enable-flows-btn" class="btn btn-ghost text-sm">✅ Aktivieren</button>
+                            <button id="bulk-disable-flows-btn" class="btn btn-ghost text-sm">⏸️ Deaktivieren</button>
                         </div>
 
                         <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 mb-4">
@@ -3133,7 +3133,7 @@
                 <h3 class="modal-title">
                     🧙 Flow Wizard
                 </h3>
-                <button class="modal-close" onclick="FlowWizard.close()">
+                <button id="flow-wizard-close-btn" class="modal-close">
                     <i data-lucide="x"></i>
                 </button>
             </div>
@@ -3156,7 +3156,7 @@
                 <h3 class="modal-title">
                     📦 Flow Presets / Vorlagen
                 </h3>
-                <button class="modal-close" onclick="document.getElementById('flow-presets-modal').classList.remove('active')">
+                <button id="flow-presets-close-btn" class="modal-close">
                     <i data-lucide="x"></i>
                 </button>
             </div>

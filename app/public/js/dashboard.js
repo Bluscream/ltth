@@ -404,6 +404,44 @@ function initializeButtons() {
     // Event delegation for dynamically created buttons
     setupEventDelegation();
     
+    // Wizard open button
+    const openWizardBtn = document.getElementById('open-wizard-btn');
+    if (openWizardBtn) {
+        openWizardBtn.addEventListener('click', () => {
+            if (typeof FlowWizard !== 'undefined') {
+                FlowWizard.open();
+            }
+        });
+    }
+
+    // Wizard modal close button
+    const flowWizardCloseBtn = document.getElementById('flow-wizard-close-btn');
+    if (flowWizardCloseBtn) {
+        flowWizardCloseBtn.addEventListener('click', () => {
+            if (typeof FlowWizard !== 'undefined') {
+                FlowWizard.close();
+            }
+        });
+    }
+
+    // Presets modal close button
+    const flowPresetsCloseBtn = document.getElementById('flow-presets-close-btn');
+    if (flowPresetsCloseBtn) {
+        flowPresetsCloseBtn.addEventListener('click', () => {
+            document.getElementById('flow-presets-modal')?.classList.remove('active');
+        });
+    }
+
+    // Bulk toggle buttons
+    const bulkEnableBtn = document.getElementById('bulk-enable-flows-btn');
+    if (bulkEnableBtn) {
+        bulkEnableBtn.addEventListener('click', () => bulkToggleFlows(true));
+    }
+    const bulkDisableBtn = document.getElementById('bulk-disable-flows-btn');
+    if (bulkDisableBtn) {
+        bulkDisableBtn.addEventListener('click', () => bulkToggleFlows(false));
+    }
+
     // Username Alias - Add Button
     const addAliasBtnEl = document.getElementById('add-alias-btn');
     if (addAliasBtnEl) {
@@ -421,7 +459,7 @@ function initializeButtons() {
 
 // ========== EVENT DELEGATION FOR DYNAMIC BUTTONS ==========
 function setupEventDelegation() {
-    // Event delegation for voice mapping delete buttons
+    // Event delegation for voice mapping delete buttons and dynamically generated flow buttons
     document.body.addEventListener('click', (e) => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
@@ -450,6 +488,25 @@ function setupEventDelegation() {
             case 'edit-flow-wizard':
                 editFlowInWizard(parseInt(target.dataset.flowId));
                 break;
+            case 'show-flow-presets':
+                showFlowPresets();
+                break;
+            case 'open-wizard':
+                if (typeof FlowWizard !== 'undefined') FlowWizard.open();
+                break;
+            case 'deploy-preset':
+                deployPreset(target.dataset.presetId);
+                break;
+            case 'open-preset-wizard':
+                openPresetInWizard(target.dataset.presetId);
+                break;
+        }
+    });
+
+    // Event delegation for dynamically generated flow-select checkboxes
+    document.body.addEventListener('change', (e) => {
+        if (e.target.classList.contains('flow-select-checkbox')) {
+            updateBulkBar();
         }
     });
 }
@@ -1918,8 +1975,8 @@ async function loadFlows() {
                 <div class="text-center text-gray-400 py-6">
                     <p class="mb-4">Noch keine Flows. Starte mit einem Template oder erstelle deinen eigenen Flow!</p>
                     <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-                        <button class="btn btn-primary" onclick="showFlowPresets()">📦 Vorlagen anzeigen</button>
-                        <button class="btn btn-ghost" onclick="FlowWizard.open()">🧙 Wizard starten</button>
+                        <button class="btn btn-primary" data-action="show-flow-presets">📦 Vorlagen anzeigen</button>
+                        <button class="btn btn-ghost" data-action="open-wizard">🧙 Wizard starten</button>
                         <a href="/ifttt-flow-editor.html" target="_blank" class="btn btn-ghost">🎨 Visual Editor</a>
                     </div>
                 </div>
@@ -1950,7 +2007,7 @@ async function loadFlows() {
                 <div class="flex justify-between items-start gap-3">
                     <div style="display:flex;align-items:flex-start;gap:8px;">
                         <input type="checkbox" class="flow-select-checkbox mt-1" data-flow-id="${flow.id}"
-                            style="width:15px;height:15px;cursor:pointer;" onchange="updateBulkBar()">
+                            style="width:15px;height:15px;cursor:pointer;">
                         <div class="flex-1">
                             <h3 class="font-bold text-lg">${escapeHtml(flow.name)}</h3>
                             <div class="text-sm text-gray-400 mt-2 flex items-center gap-2 flex-wrap">
@@ -2189,11 +2246,11 @@ function showFlowPresets() {
                     </div>
                     <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
                         <button class="btn btn-primary text-sm"
-                            onclick="deployPreset('${escapeHtml(preset.id)}')">
+                            data-action="deploy-preset" data-preset-id="${escapeHtml(preset.id)}">
                             🚀 Jetzt deployen
                         </button>
                         <button class="btn btn-ghost text-sm"
-                            onclick="openPresetInWizard('${escapeHtml(preset.id)}')">
+                            data-action="open-preset-wizard" data-preset-id="${escapeHtml(preset.id)}">
                             🧙 Im Wizard öffnen
                         </button>
                     </div>
@@ -2224,9 +2281,9 @@ function renderInlinePresets() {
                         <div class="text-xs text-gray-400 mt-1 mb-3">${escapeHtml(preset.description)}</div>
                         <div style="display:flex;gap:6px;">
                             <button class="btn btn-primary text-xs" style="padding:4px 8px;"
-                                onclick="deployPreset('${escapeHtml(preset.id)}')">🚀 Deploy</button>
+                                data-action="deploy-preset" data-preset-id="${escapeHtml(preset.id)}">🚀 Deploy</button>
                             <button class="btn btn-ghost text-xs" style="padding:4px 8px;"
-                                onclick="openPresetInWizard('${escapeHtml(preset.id)}')">🧙 Wizard</button>
+                                data-action="open-preset-wizard" data-preset-id="${escapeHtml(preset.id)}">🧙 Wizard</button>
                         </div>
                     </div>
                 `).join('')}

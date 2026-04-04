@@ -2008,10 +2008,10 @@ async function bindSoundToGift(giftId, giftLabel) {
 
 // ========== AUDIO TESTING & PERMISSIONS ==========
 let audioTestMinimized = false;
-let audioUnlocked = false; // Track if audio has been unlocked
+let soundboardAudioUnlocked = false; // Track if audio has been unlocked (soundboard-specific)
 
 async function ensureAudioUnlocked() {
-    if (audioUnlocked) {
+    if (soundboardAudioUnlocked) {
         return true;
     }
     
@@ -2033,7 +2033,7 @@ async function ensureAudioUnlocked() {
             audio.volume = 0.01;
             
             await audio.play();
-            audioUnlocked = true;
+            soundboardAudioUnlocked = true;
             updateAutoplayStatus('Allowed');
             logAudioEvent('success', 'Audio permissions unlocked', null);
             return true;
@@ -2089,7 +2089,7 @@ async function enableAudioPermissions() {
             
             try {
                 await audio.play();
-                audioUnlocked = true;
+                soundboardAudioUnlocked = true;
                 updateAutoplayStatus('Allowed');
                 logAudioEvent('success', 'Audio autoplay test passed', null);
             } catch (err) {
