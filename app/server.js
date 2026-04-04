@@ -2165,8 +2165,8 @@ app.put('/api/flows/:id', apiLimiter, (req, res) => {
 app.delete('/api/flows/:id', apiLimiter, (req, res) => {
     try {
         db.deleteFlow(req.params.id);
-        // Clean up cooldown setting
-        db.setSetting(`flow_cooldown_${req.params.id}`, '0');
+        // Clean up cooldown setting to avoid orphaned data
+        db.deleteSetting(`flow_cooldown_${req.params.id}`);
         logger.info(`🗑️ Deleted flow: ${req.params.id}`);
         res.json({ success: true });
     } catch (error) {

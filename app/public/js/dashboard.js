@@ -2102,7 +2102,7 @@ async function cloneFlow(id) {
         }
 
         const clonedFlow = {
-            name: `${flow.name} (Copy)`,
+            name: `${flow.name} (Kopie)`,
             description: flow.description || '',
             trigger_type: flow.trigger_type,
             trigger_condition: flow.trigger_condition,

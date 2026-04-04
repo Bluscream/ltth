@@ -826,6 +826,11 @@ class DatabaseManager {
         stmt.run(key, String(value));
     }
 
+    deleteSetting(key) {
+        const stmt = this.db.prepare('DELETE FROM settings WHERE key = ?');
+        stmt.run(key);
+    }
+
     // ========== FLOWS ==========
     getFlows() {
         const stmt = this.db.prepare('SELECT * FROM flows ORDER BY created_at DESC');
