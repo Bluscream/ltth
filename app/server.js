@@ -133,17 +133,10 @@ const io = socketIO(server, {
         origin: function(origin, callback) {
             // Allow requests with no origin (like mobile apps, curl requests, or OBS BrowserSource)
             if (!origin) return callback(null, true);
-            
-            // Check if origin is in the allowed list
-            const ALLOWED_ORIGINS = [
-                'http://localhost:3000',
-                'http://127.0.0.1:3000',
-                'http://localhost:8080',
-                'http://127.0.0.1:8080',
-                'null'
-            ];
-            
-            if (ALLOWED_ORIGINS.indexOf(origin) !== -1) {
+            // Use NetworkManager for dynamic origin checking (PORT may not be resolved yet here,
+            // so we use the default port 3000 as a conservative fallback; actual check happens
+            // per-request in the Express CORS middleware where PORT is known).
+            if (networkManager.isOriginAllowed(origin, PORT || 3000)) {
                 callback(null, true);
             } else {
                 // For OBS BrowserSource and other local contexts, allow null origin
@@ -171,6 +164,7 @@ const io = socketIO(server, {
 app.use(express.json());
 
 // CORS-Header mit Whitelist (let so dynamic ports can be added at startup)
+// Populated dynamically by NetworkManager once PORT is resolved
 let ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
@@ -179,16 +173,25 @@ let ALLOWED_ORIGINS = [
     'null'
 ];
 
+// IP Restriction Middleware (for "select" bind mode) – must be before CORS.
+// Wrapped in a closure so networkManager is accessed at request-time, not at
+// module-load time. networkManager (const) is initialized further below in this
+// file; by the time the first request arrives (after server.listen()), it is
+// already initialized and the TDZ has ended.
+app.use((req, res, next) => networkManager.getIPRestrictionMiddleware()(req, res, next));
+
 app.use((req, res, next) => {
     const origin = req.headers.origin;
 
-    // Whitelist-basiertes CORS
-    if (origin && ALLOWED_ORIGINS.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', origin);
-        res.header('Access-Control-Allow-Credentials', 'true');
-    } else if (!origin) {
-        // Requests ohne Origin (z.B. Server-to-Server)
-        res.header('Access-Control-Allow-Origin', 'null');
+    // Dynamic CORS via NetworkManager
+    if (networkManager.isOriginAllowed(origin, PORT || 3000)) {
+        if (origin) {
+            res.header('Access-Control-Allow-Origin', origin);
+            res.header('Access-Control-Allow-Credentials', 'true');
+        } else {
+            // Requests ohne Origin (z.B. Server-to-Server)
+            res.header('Access-Control-Allow-Origin', 'null');
+        }
     }
 
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -402,6 +405,11 @@ logger.info(`✅ Database initialized: ${dbPath}`);
 logger.info(`💡 All settings (including API keys) are stored here and will survive app updates!`);
 logger.info(`👤 Streamer ID for scoped data: ${activeProfile}`);
 initState.setDatabaseReady();
+
+// ========== NETWORK MANAGER ==========
+const NetworkManager = require('./modules/network-manager');
+const networkManager = new NetworkManager(db);
+const { bindAddress: BIND_ADDRESS } = networkManager.init();
 
 // Ensure soundboard_enabled has a default value so that alerts.js and the
 // soundboard plugin both agree on the initial state (prevents double audio
@@ -3237,6 +3245,126 @@ tiktok.on('streamChanged', async (data) => {
     await iftttEngine.processEvent('system:streamChanged', data);
 });
 
+// ========== NETWORK MANAGER API ROUTES ==========
+
+/**
+ * GET /api/network/config
+ * Returns full network config including interfaces, URLs, tunnel status.
+ */
+app.get('/api/network/config', apiLimiter, (req, res) => {
+    try {
+        res.json({ success: true, config: networkManager.getConfig(PORT || 3000) });
+    } catch (error) {
+        logger.error('Error getting network config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/network/interfaces
+ * Returns detected network interfaces (re-detected on each call).
+ */
+app.get('/api/network/interfaces', apiLimiter, (req, res) => {
+    try {
+        res.json({ success: true, interfaces: networkManager.getInterfaces() });
+    } catch (error) {
+        logger.error('Error getting network interfaces:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/network/config
+ * Update network settings (mode, selectedInterfaces, customAddress, tunnel config, corsExtra, externalURLs).
+ */
+app.post('/api/network/config', apiLimiter, (req, res) => {
+    try {
+        const { needsRestart } = networkManager.applyConfig(req.body);
+        // Refresh CORS whitelist after config change
+        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT || 3000);
+        logger.info(`🌐 Network config updated (needsRestart: ${needsRestart})`);
+        res.json({
+            success: true,
+            needsRestart,
+            config: networkManager.getConfig(PORT || 3000)
+        });
+    } catch (error) {
+        logger.error('Error updating network config:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/network/tunnel/start
+ * Start tunnel with configured provider.
+ */
+app.post('/api/network/tunnel/start', apiLimiter, async (req, res) => {
+    try {
+        const url = await networkManager.startTunnel(PORT || 3000);
+        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT || 3000);
+        logger.info(`🚇 Tunnel started via API: ${url}`);
+        res.json({ success: true, tunnelURL: url });
+    } catch (error) {
+        logger.error('Error starting tunnel:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/network/tunnel/stop
+ * Stop running tunnel.
+ */
+app.post('/api/network/tunnel/stop', apiLimiter, (req, res) => {
+    try {
+        networkManager.stopTunnel();
+        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT || 3000);
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Error stopping tunnel:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/network/external-url
+ * Add an external URL to CORS whitelist.
+ * Body: { url: string }
+ */
+app.post('/api/network/external-url', apiLimiter, (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url || typeof url !== 'string') {
+            return res.status(400).json({ success: false, error: 'url is required' });
+        }
+        const urls = networkManager.addExternalURL(url);
+        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT || 3000);
+        res.json({ success: true, externalURLs: urls });
+    } catch (error) {
+        logger.error('Error adding external URL:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/network/external-url
+ * Remove an external URL from CORS whitelist.
+ * Body: { url: string }
+ */
+app.delete('/api/network/external-url', apiLimiter, (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url || typeof url !== 'string') {
+            return res.status(400).json({ success: false, error: 'url is required' });
+        }
+        const urls = networkManager.removeExternalURL(url);
+        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT || 3000);
+        res.json({ success: true, externalURLs: urls });
+    } catch (error) {
+        logger.error('Error removing external URL:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 // ========== SERVER STARTEN ==========
 
 // ========== PORT RESOLUTION ==========
@@ -3278,18 +3406,11 @@ const pluginCacheControl = (req, res, next) => {
             logger.warn(`⚠️  Primary port unavailable, using fallback port ${PORT}`);
         }
 
-        // Extend CORS whitelist for dynamic port
+        // Rebuild CORS whitelist with NetworkManager for resolved port
+        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
+        logger.info(`📋 CORS whitelist initialized for port ${PORT} (mode: ${networkManager.bindMode})`);
         if (PORT !== 3000) {
-            const dynamicOrigins = [
-                `http://localhost:${PORT}`,
-                `http://127.0.0.1:${PORT}`
-            ];
-            dynamicOrigins.forEach(origin => {
-                if (!ALLOWED_ORIGINS.includes(origin)) {
-                    ALLOWED_ORIGINS.push(origin);
-                }
-            });
-            logger.info(`📋 CORS whitelist extended for port ${PORT}`);
+            logger.info(`📋 Server running on non-default port ${PORT}`);
         }
     } catch (portError) {
         logger.error(`❌ Port resolution failed: ${portError.message}`);
@@ -3385,16 +3506,22 @@ const pluginCacheControl = (req, res, next) => {
     }
 
     // Jetzt Server starten
-    server.listen(PORT, async () => {
+    server.listen(PORT, BIND_ADDRESS, async () => {
         initState.setServerStarted();
+
+        const accessURLs = networkManager.getAccessURLs(PORT);
 
         logger.info('\n' + '='.repeat(50));
         logger.info('✅ Pup Cids little TikTok Helper läuft!');
         logger.info('='.repeat(50));
-        logger.info(`\n📊 Dashboard:     http://localhost:${PORT}/dashboard.html`);
-        logger.info(`🎬 Overlay:       http://localhost:${PORT}/overlay.html`);
-        logger.info(`📚 API Docs:      http://localhost:${PORT}/api-docs`);
+        logger.info(`\n📊 Dashboard:     ${accessURLs.localhost}/dashboard.html`);
+        logger.info(`🎬 Overlay:       ${accessURLs.localhost}/overlay.html`);
+        logger.info(`📚 API Docs:      ${accessURLs.localhost}/api-docs`);
         logger.info(`🐾 Pup Cid:       https://www.tiktok.com/@pupcid`);
+        if (accessURLs.lan.length > 0) {
+            logger.info('\n🌐 LAN Access:');
+            accessURLs.lan.forEach(l => logger.info(`   ${l.label}: ${l.url}/dashboard.html`));
+        }
         if (PORT !== 3000) {
             logger.info(`\n⚠️  ACHTUNG: Server läuft auf Port ${PORT} statt 3000!`);
             logger.info(`   Overlay-URLs in OBS müssen ggf. angepasst werden.`);
@@ -3475,6 +3602,17 @@ const pluginCacheControl = (req, res, next) => {
             await cloudSync.initialize();
         } catch (error) {
             logger.warn(`⚠️  Cloud Sync konnte nicht initialisiert werden: ${error.message}`);
+        }
+
+        // Auto-start tunnel if configured
+        if (networkManager.tunnelEnabled) {
+            logger.info(`🚇 Auto-starting tunnel (provider: ${networkManager.tunnelProvider})...`);
+            networkManager.startTunnel(PORT).then(url => {
+                logger.info(`🚇 Tunnel ready: ${url}`);
+                ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
+            }).catch(err => {
+                logger.warn(`⚠️  Tunnel auto-start failed: ${err.message}`);
+            });
         }
 
         // Auto-Update-Check starten (alle 24 Stunden)
@@ -3825,6 +3963,13 @@ process.on('SIGINT', async () => {
         await cloudSync.shutdown();
     } catch (error) {
         logger.error('Error shutting down cloud sync:', error);
+    }
+
+    // Network Manager beenden (stops any running tunnel)
+    try {
+        networkManager.shutdown();
+    } catch (error) {
+        logger.error('Error shutting down network manager:', error);
     }
 
     // Alle Socket.io-Verbindungen sofort trennen damit server.close() nicht endlos wartet
