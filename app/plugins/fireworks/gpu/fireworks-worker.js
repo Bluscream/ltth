@@ -78,7 +78,7 @@ function initWorker(data) {
         // Create GPU-accelerated 2D context
         ctx = canvas.getContext('2d', {
             alpha: true,
-            desynchronized: true,  // GPU acceleration
+            desynchronized: config.desynchronized !== undefined ? config.desynchronized : true,  // GPU acceleration, configurable with fallback to true
             willReadFrequently: false
         });
         

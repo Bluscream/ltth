@@ -56,6 +56,9 @@
       "no_good_presets": "No preset reaches 30 FPS. We recommend the \"Potato\" preset for your system.",
       "best_choice": "Best Choice",
       "alternative": "Alternative"
+    },
+    "overlay": {
+      "follower_thank_you": "Thanks for the follow! 💙"
     }
   }
 }

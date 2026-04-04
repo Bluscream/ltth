@@ -274,6 +274,7 @@ class FireworksPlugin {
             followerAnimationScale: 1.0, // Custom scale factor (0.5 - 2.0) when size is 'custom'
             followerAnimationStyle: 'gradient-purple', // 'gradient-purple', 'gradient-blue', 'gradient-gold', 'gradient-rainbow', 'neon', 'minimal'
             followerAnimationEntrance: 'scale', // 'scale', 'fade', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'bounce', 'rotate'
+            followerThankYouText: 'Thanks for the follow! 💙', // Thank you text shown in follower animation
             
             // Interactive triggers
             interactiveEnabled: false,
@@ -289,6 +290,8 @@ class FireworksPlugin {
             
             // Performance
             gpuAcceleration: true,
+            preserveDrawingBuffer: true, // Preserve drawing buffer for OBS capture (disable for better GPU performance in browser preview)
+            desynchronized: true, // Enable desynchronized rendering for better GPU performance (safe for OBS Browser Source)
             particleSizeRange: [4, 12],
             resolution: 1.0, // Legacy - kept for backward compatibility
             resolutionPreset: '1080p', // Resolution preset: 360p, 540p, 720p, 1080p, 1440p, 4k
@@ -1003,7 +1006,8 @@ class FireworksPlugin {
                     size: this.config.followerAnimationSize || 'medium',
                     scale: this.config.followerAnimationScale || 1.0,
                     style: this.config.followerAnimationStyle || 'gradient-purple',
-                    entrance: this.config.followerAnimationEntrance || 'scale'
+                    entrance: this.config.followerAnimationEntrance || 'scale',
+                    thankYouText: this.config.followerThankYouText || 'Thanks for the follow! 💙'
                 });
             }, animationDelay);
         }
