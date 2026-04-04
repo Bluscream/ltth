@@ -134,7 +134,7 @@ class TimerEventBridge {
             const actionValue = parseFloat(ev.action_value) || 0;
             let units = 1;
             if (eventType === 'gift') units = (data.coins || 0) * (data.repeatCount || 1);
-            if (eventType === 'like') units = data.likeCount || 1;
+            else if (eventType === 'like') units = data.likeCount || 1;
 
             const actualValue = actionValue * units;
 

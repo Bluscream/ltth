@@ -482,14 +482,28 @@ function renderAdvEvents(events) {
     }
     container.innerHTML = events.map(ev => {
         const cStr = formatConditions(ev.event_type, ev.conditions);
-        return '<div style="border:1px solid var(--color-border);border-radius:8px;padding:10px;margin-bottom:8px;font-size:0.84rem;">' +
+        return '<div style="border:1px solid var(--color-border);border-radius:8px;padding:10px;margin-bottom:8px;font-size:0.84rem;" data-event-id="' + ev.id + '">' +
             '<div style="font-weight:600;">' + getEventLabel(ev.event_type) + ' → ' + getActionLabel(ev.action_type) + ' ' + ev.action_value + 's</div>' +
             (cStr ? '<div style="color:var(--color-text-secondary);margin-top:2px;">' + cStr + '</div>' : '') +
             '<div style="margin-top:8px;display:flex;gap:6px;">' +
-              '<button class="btn btn-xs btn-secondary" onclick="showEventEditor(' + ev.id + ')">✏️ Edit</button>' +
-              '<button class="btn btn-xs btn-danger" onclick="deleteAdvEvent(' + ev.id + ')">🗑️</button>' +
+              '<button class="btn btn-xs btn-secondary adv-edit-btn">✏️ Edit</button>' +
+              '<button class="btn btn-xs btn-danger adv-del-btn">🗑️</button>' +
             '</div></div>';
     }).join('');
+
+    // Use event delegation — attach listener once to the container
+    if (!container._advEventsBound) {
+        container._advEventsBound = true;
+        container.addEventListener('click', function advEventHandler(e) {
+            const editBtn = e.target.closest('.adv-edit-btn');
+            const delBtn = e.target.closest('.adv-del-btn');
+            if (!editBtn && !delBtn) return;
+            const evId = parseInt(e.target.closest('[data-event-id]')?.getAttribute('data-event-id'));
+            if (isNaN(evId)) return;
+            if (editBtn) showEventEditor(evId);
+            else deleteAdvEvent(evId);
+        });
+    }
 }
 
 function getEventLabel(t) {
@@ -640,15 +654,22 @@ function renderProfiles(profiles) {
     if (!container) return;
     container.innerHTML = profiles.length
         ? profiles.map(p =>
-            '<div class="profile-card">' +
+            '<div class="profile-card" data-profile-id="' + escapeHtml(p.id) + '">' +
               '<div><div class="profile-name">' + escapeHtml(p.name) + '</div>' +
               '<div class="profile-meta">' + new Date(p.created_at * 1000).toLocaleDateString() + '</div></div>' +
               '<div style="display:flex;gap:8px;">' +
-                '<button class="btn btn-xs btn-primary" onclick="applyProfile(\'' + p.id + '\')">Apply</button>' +
-                '<button class="btn btn-xs btn-danger" onclick="deleteProfile(\'' + p.id + '\')">🗑️</button>' +
+                '<button class="btn btn-xs btn-primary profile-apply-btn">Apply</button>' +
+                '<button class="btn btn-xs btn-danger profile-del-btn">🗑️</button>' +
               '</div>' +
             '</div>').join('')
         : '<p style="color:var(--color-text-secondary);">No saved profiles. Click "Save Current Setup" to save your timers.</p>';
+
+    // Event delegation — safe, no inline onclick
+    container.querySelectorAll('[data-profile-id]').forEach(card => {
+        const pid = card.getAttribute('data-profile-id');
+        card.querySelector('.profile-apply-btn')?.addEventListener('click', () => applyProfile(pid));
+        card.querySelector('.profile-del-btn')?.addEventListener('click', () => deleteProfile(pid));
+    });
 
     const saveBtn = document.getElementById('save-profile-btn');
     if (saveBtn && !saveBtn._bound) {
@@ -714,6 +735,6 @@ function getStateLabel(state) {
 }
 function escapeHtml(text) {
     const d = document.createElement('div');
-    d.textContent = String(text == null ? '' : text);
+    d.textContent = (text === null || text === undefined) ? '' : String(text);
     return d.innerHTML;
 }

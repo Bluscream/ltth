@@ -258,7 +258,7 @@ class TimerDatabase {
         for (const colDef of newColumns) {
             try {
                 this.db.prepare(`ALTER TABLE advanced_timers ADD COLUMN ${colDef}`).run();
-            } catch (_e) {
+            } catch (_alreadyExists) {
                 // Column already exists — silently ignore
             }
         }
@@ -307,6 +307,10 @@ class TimerDatabase {
                     const field = fieldMap[ev.event_type];
                     if (!field) continue;
 
+                    // Validate field is in allowed whitelist (keys from fieldMap) before using in SQL
+                    const allowedFields = Object.values(fieldMap);
+                    if (!allowedFields.includes(field)) continue;
+
                     // Only migrate if the per_* field is still at default (0)
                     const current = this.db.prepare(`SELECT ${field} FROM advanced_timers WHERE id = ?`).get(id);
                     if (current && current[field] === 0) {
@@ -315,10 +319,17 @@ class TimerDatabase {
                 }
 
                 if (Object.keys(updates).length > 0) {
-                    const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-                    this.db.prepare(`UPDATE advanced_timers SET ${setClauses} WHERE id = ?`)
-                        .run(...Object.values(updates), id);
-                    this.api.log(`Migrated ${Object.keys(updates).length} event(s) to per_* fields for timer ${id}`, 'info');
+                    const allowedFields = Object.values({
+                        gift: 'per_coin', follow: 'per_follow', share: 'per_share',
+                        subscribe: 'per_subscribe', like: 'per_like', chat: 'per_chat'
+                    });
+                    const safeKeys = Object.keys(updates).filter(k => allowedFields.includes(k));
+                    if (safeKeys.length > 0) {
+                        const setClauses = safeKeys.map(k => `${k} = ?`).join(', ');
+                        this.db.prepare(`UPDATE advanced_timers SET ${setClauses} WHERE id = ?`)
+                            .run(...safeKeys.map(k => updates[k]), id);
+                        this.api.log(`Migrated ${safeKeys.length} event(s) to per_* fields for timer ${id}`, 'info');
+                    }
                 }
             }
         } catch (error) {
