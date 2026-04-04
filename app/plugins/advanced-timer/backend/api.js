@@ -58,7 +58,7 @@ class TimerAPI {
                 const timers = this.plugin.db.getAllTimers();
                 const timerStates = timers.map(timer => {
                     const instance = this.plugin.engine.getTimer(timer.id);
-                    return instance ? instance.getState() : timer;
+                    return instance ? { ...timer, ...instance.getState() } : timer;
                 });
                 res.json({ success: true, timers: timerStates });
             } catch (error) {
@@ -283,7 +283,7 @@ class TimerAPI {
                 }
 
                 const instance = this.plugin.engine.getTimer(id);
-                const state = instance ? instance.getState() : timer;
+                const state = instance ? { ...timer, ...instance.getState() } : timer;
                 
                 res.json({ success: true, timer: state });
             } catch (error) {
@@ -350,6 +350,7 @@ class TimerAPI {
 
                 // Create timer instance
                 this.plugin.engine.createTimer(timerData);
+                this.plugin.eventBridge.rebuildCache();
 
                 res.json({ success: true, timer: timerData });
             } catch (error) {
@@ -417,6 +418,7 @@ class TimerAPI {
                 // Update engine instance
                 this.plugin.engine.removeTimer(id);
                 this.plugin.engine.createTimer(updatedTimer);
+                this.plugin.eventBridge.rebuildCache();
 
                 res.json({ success: true, timer: updatedTimer });
             } catch (error) {
@@ -431,8 +433,120 @@ class TimerAPI {
                 
                 this.plugin.engine.removeTimer(id);
                 this.plugin.db.deleteTimer(id);
+                this.plugin.eventBridge.rebuildCache();
                 
                 res.json({ success: true });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // ── TikFinity-style flat interaction endpoints ─────────────────────────
+
+        // Update per-interaction seconds (per_coin, per_follow, per_share, per_subscribe, per_like, per_chat)
+        this.api.registerRoute('put', '/api/advanced-timer/timers/:id/interactions', (req, res) => {
+            try {
+                const { id } = req.params;
+                const existing = this.plugin.db.getTimer(id);
+                if (!existing) {
+                    return res.status(404).json({ success: false, error: 'Timer not found' });
+                }
+
+                const fields = ['per_coin', 'per_follow', 'per_share', 'per_subscribe', 'per_like', 'per_chat'];
+                for (const f of fields) {
+                    if (req.body[f] !== undefined) {
+                        existing[f] = parseFloat(req.body[f]) || 0;
+                    }
+                }
+
+                this.plugin.db.saveTimer(existing);
+                // Selective cache update — avoid a full rebuild for per_* changes
+                this.plugin.eventBridge.updateCacheEntry(id, {
+                    per_coin: existing.per_coin,
+                    per_follow: existing.per_follow,
+                    per_share: existing.per_share,
+                    per_subscribe: existing.per_subscribe,
+                    per_like: existing.per_like,
+                    per_chat: existing.per_chat
+                });
+                res.json({ success: true, timer: existing });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Update multiplier
+        this.api.registerRoute('put', '/api/advanced-timer/timers/:id/multiplier', (req, res) => {
+            try {
+                const { id } = req.params;
+                const existing = this.plugin.db.getTimer(id);
+                if (!existing) {
+                    return res.status(404).json({ success: false, error: 'Timer not found' });
+                }
+
+                if (req.body.multiplier !== undefined) {
+                    existing.multiplier = parseFloat(req.body.multiplier) || 1.0;
+                }
+                if (req.body.multiplier_enabled !== undefined) {
+                    existing.multiplier_enabled = req.body.multiplier_enabled ? 1 : 0;
+                }
+
+                this.plugin.db.saveTimer(existing);
+                // Selective cache update — avoid a full rebuild for multiplier changes
+                this.plugin.eventBridge.updateCacheEntry(id, {
+                    multiplier: existing.multiplier,
+                    multiplier_enabled: existing.multiplier_enabled ? true : false
+                });
+                res.json({ success: true, timer: existing });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Update expiry action
+        this.api.registerRoute('put', '/api/advanced-timer/timers/:id/expiry', (req, res) => {
+            try {
+                const { id } = req.params;
+                const existing = this.plugin.db.getTimer(id);
+                if (!existing) {
+                    return res.status(404).json({ success: false, error: 'Timer not found' });
+                }
+
+                if (req.body.expiry_action !== undefined) {
+                    existing.expiry_action = req.body.expiry_action || 'none';
+                }
+                if (req.body.expiry_action_config !== undefined) {
+                    existing.expiry_action_config = req.body.expiry_action_config || {};
+                }
+
+                this.plugin.db.saveTimer(existing);
+                // Recreate engine instance so it picks up new expiry config
+                this.plugin.engine.removeTimer(id);
+                this.plugin.engine.createTimer(existing);
+                res.json({ success: true, timer: existing });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Update keyboard shortcuts
+        this.api.registerRoute('put', '/api/advanced-timer/timers/:id/shortcuts', (req, res) => {
+            try {
+                const { id } = req.params;
+                const existing = this.plugin.db.getTimer(id);
+                if (!existing) {
+                    return res.status(404).json({ success: false, error: 'Timer not found' });
+                }
+
+                const shortcutFields = ['shortcut_start_pause', 'shortcut_increase', 'shortcut_decrease', 'shortcut_step'];
+                for (const f of shortcutFields) {
+                    if (req.body[f] !== undefined) {
+                        existing[f] = f === 'shortcut_step' ? (parseFloat(req.body[f]) || 60) : (req.body[f] || '');
+                    }
+                }
+
+                this.plugin.db.saveTimer(existing);
+                res.json({ success: true, timer: existing });
             } catch (error) {
                 res.status(500).json({ success: false, error: error.message });
             }

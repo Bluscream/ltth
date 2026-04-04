@@ -15,7 +15,7 @@ const EventEmitter = require('events');
 const TimerDatabase = require('./backend/database');
 const TimerAPI = require('./backend/api');
 const TimerWebSocket = require('./backend/websocket');
-const TimerEventHandlers = require('./backend/event-handlers');
+const TimerEventBridge = require('./backend/event-bridge');
 const { TimerEngine } = require('./engine/timer-engine');
 
 class AdvancedTimerPlugin extends EventEmitter {
@@ -28,7 +28,7 @@ class AdvancedTimerPlugin extends EventEmitter {
         this.engine = new TimerEngine(api);
         this.apiModule = new TimerAPI(this);
         this.websocket = new TimerWebSocket(this);
-        this.eventHandlers = new TimerEventHandlers(this);
+        this.eventBridge = new TimerEventBridge(this);
 
         // Auto-save interval
         this.autoSaveInterval = null;
@@ -51,7 +51,8 @@ class AdvancedTimerPlugin extends EventEmitter {
             this.websocket.registerHandlers();
 
             // Register TikTok event handlers
-            this.eventHandlers.registerHandlers();
+            this.eventBridge.registerHandlers();
+            this.eventBridge.rebuildCache();
 
             // Register Flow actions
             this.registerFlowActions();
@@ -635,9 +636,9 @@ class AdvancedTimerPlugin extends EventEmitter {
                 this.db.updateTimerState(state.id, state.state, state.current_value);
             }
 
-            // Cleanup event handlers
-            if (this.eventHandlers) {
-                this.eventHandlers.destroy();
+            // Cleanup event bridge
+            if (this.eventBridge) {
+                this.eventBridge.destroy();
             }
 
             // Cleanup engine
