@@ -8,6 +8,7 @@ let giftCatalog = [];
 
 // WeakSet for tracking event delegation attachments without memory leaks
 const _advEventsBoundContainers = new WeakSet();
+const _saveProfileBtnBound = new WeakSet();
 
 // ---------------------------------------------------------------------------
 // Init
@@ -677,8 +678,8 @@ function renderProfiles(profiles) {
     });
 
     const saveBtn = document.getElementById('save-profile-btn');
-    if (saveBtn && !saveBtn._bound) {
-        saveBtn._bound = true;
+    if (saveBtn && !_saveProfileBtnBound.has(saveBtn)) {
+        _saveProfileBtnBound.add(saveBtn);
         saveBtn.addEventListener('click', async () => {
             const name = prompt('Profile name:');
             if (!name) return;

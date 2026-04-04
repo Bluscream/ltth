@@ -15,6 +15,9 @@ class TimerEventBridge {
         // In-memory cache: timerId → { per_coin, per_follow, … , multiplier, multiplier_enabled }
         this.cache = new Map();
 
+        // Pre-computed set of timer IDs that have advanced event rules
+        this.timersWithAdvancedRules = new Set();
+
         // Like speed tracking (kept from old event-handlers for likesToSpeedRatio feature)
         this.likesPerSecondTracker = new Map();
         this.likeTrackingInterval = null;
@@ -27,6 +30,7 @@ class TimerEventBridge {
     rebuildCache() {
         try {
             this.cache.clear();
+            this.timersWithAdvancedRules.clear();
             const timers = this.plugin.db.getAllTimers();
             for (const t of timers) {
                 this.cache.set(t.id, {
@@ -40,9 +44,25 @@ class TimerEventBridge {
                     multiplier_enabled: t.multiplier_enabled ? true : false
                 });
             }
-            this.api.log(`EventBridge cache rebuilt: ${this.cache.size} timer(s)`, 'debug');
+            // Pre-compute which timers have advanced event rules (gift-name filters, conditions, etc.)
+            const allEvents = this.plugin.db.db.prepare('SELECT DISTINCT timer_id FROM advanced_timer_events WHERE enabled = 1').all();
+            for (const { timer_id } of allEvents) {
+                this.timersWithAdvancedRules.add(timer_id);
+            }
+            this.api.log(`EventBridge cache rebuilt: ${this.cache.size} timer(s), ${this.timersWithAdvancedRules.size} with advanced rules`, 'debug');
         } catch (error) {
             this.api.log(`EventBridge rebuildCache error: ${error.message}`, 'error');
+        }
+    }
+
+    /**
+     * Update a single timer entry in the cache without a full rebuild.
+     * Used by interaction/multiplier endpoints for efficiency.
+     */
+    updateCacheEntry(timerId, fields) {
+        const existing = this.cache.get(timerId);
+        if (existing) {
+            Object.assign(existing, fields);
         }
     }
 
@@ -167,14 +187,13 @@ class TimerEventBridge {
             this._applyFlat(
                 'per_coin', totalCoins,
                 `gift:${uniqueId}`, 'gift', uniqueId,
-                `Gift: ${giftName} (${coins} coins) x${repeatCount || 1} = ${(totalCoins).toFixed(0)} coins`
+                `Gift: ${giftName} (${coins} coins) x${repeatCount || 1} = ${totalCoins.toFixed(0)} coins`
             );
 
-            // Advanced rules fallback (only for timers that have event rows)
+            // Advanced rules fallback — only for pre-computed timers that have event rows
             const timers = this.plugin.engine.getAllTimers();
             for (const timer of timers) {
-                const events = this.plugin.db.getTimerEvents(timer.id);
-                if (events.some(e => e.enabled && e.event_type === 'gift')) {
+                if (this.timersWithAdvancedRules.has(timer.id)) {
                     this._applyAdvancedEvents('gift', timer.id, timer, data);
                 }
             }
@@ -201,8 +220,7 @@ class TimerEventBridge {
             // Advanced rules fallback
             const timers = this.plugin.engine.getAllTimers();
             for (const timer of timers) {
-                const events = this.plugin.db.getTimerEvents(timer.id);
-                if (events.some(e => e.enabled && e.event_type === 'like')) {
+                if (this.timersWithAdvancedRules.has(timer.id)) {
                     this._applyAdvancedEvents('like', timer.id, timer, data);
                 }
             }
@@ -218,8 +236,7 @@ class TimerEventBridge {
 
             const timers = this.plugin.engine.getAllTimers();
             for (const timer of timers) {
-                const events = this.plugin.db.getTimerEvents(timer.id);
-                if (events.some(e => e.enabled && e.event_type === 'follow')) {
+                if (this.timersWithAdvancedRules.has(timer.id)) {
                     this._applyAdvancedEvents('follow', timer.id, timer, data);
                 }
             }
@@ -235,8 +252,7 @@ class TimerEventBridge {
 
             const timers = this.plugin.engine.getAllTimers();
             for (const timer of timers) {
-                const events = this.plugin.db.getTimerEvents(timer.id);
-                if (events.some(e => e.enabled && e.event_type === 'share')) {
+                if (this.timersWithAdvancedRules.has(timer.id)) {
                     this._applyAdvancedEvents('share', timer.id, timer, data);
                 }
             }
@@ -252,8 +268,7 @@ class TimerEventBridge {
 
             const timers = this.plugin.engine.getAllTimers();
             for (const timer of timers) {
-                const events = this.plugin.db.getTimerEvents(timer.id);
-                if (events.some(e => e.enabled && e.event_type === 'subscribe')) {
+                if (this.timersWithAdvancedRules.has(timer.id)) {
                     this._applyAdvancedEvents('subscribe', timer.id, timer, data);
                 }
             }
@@ -269,8 +284,7 @@ class TimerEventBridge {
 
             const timers = this.plugin.engine.getAllTimers();
             for (const timer of timers) {
-                const events = this.plugin.db.getTimerEvents(timer.id);
-                if (events.some(e => e.enabled && e.event_type === 'chat')) {
+                if (this.timersWithAdvancedRules.has(timer.id)) {
                     this._applyAdvancedEvents('chat', timer.id, timer, data);
                 }
             }
@@ -314,6 +328,7 @@ class TimerEventBridge {
         }
         this.likesPerSecondTracker.clear();
         this.cache.clear();
+        this.timersWithAdvancedRules.clear();
     }
 }
 

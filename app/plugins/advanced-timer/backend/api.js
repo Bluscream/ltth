@@ -460,7 +460,15 @@ class TimerAPI {
                 }
 
                 this.plugin.db.saveTimer(existing);
-                this.plugin.eventBridge.rebuildCache();
+                // Selective cache update — avoid a full rebuild for per_* changes
+                this.plugin.eventBridge.updateCacheEntry(id, {
+                    per_coin: existing.per_coin,
+                    per_follow: existing.per_follow,
+                    per_share: existing.per_share,
+                    per_subscribe: existing.per_subscribe,
+                    per_like: existing.per_like,
+                    per_chat: existing.per_chat
+                });
                 res.json({ success: true, timer: existing });
             } catch (error) {
                 res.status(500).json({ success: false, error: error.message });
@@ -484,7 +492,11 @@ class TimerAPI {
                 }
 
                 this.plugin.db.saveTimer(existing);
-                this.plugin.eventBridge.rebuildCache();
+                // Selective cache update — avoid a full rebuild for multiplier changes
+                this.plugin.eventBridge.updateCacheEntry(id, {
+                    multiplier: existing.multiplier,
+                    multiplier_enabled: existing.multiplier_enabled ? true : false
+                });
                 res.json({ success: true, timer: existing });
             } catch (error) {
                 res.status(500).json({ success: false, error: error.message });

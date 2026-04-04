@@ -269,8 +269,11 @@ class TimerDatabase {
         for (const colDef of newColumns) {
             try {
                 this.db.prepare(`ALTER TABLE advanced_timers ADD COLUMN ${colDef}`).run();
-            } catch (_alreadyExists) {
-                // Column already exists — silently ignore
+            } catch (err) {
+                // Only suppress "duplicate column" — rethrow unexpected errors
+                if (!err.message || !err.message.includes('duplicate column name')) {
+                    this.api.log(`Unexpected ALTER TABLE error: ${err.message}`, 'warn');
+                }
             }
         }
 
@@ -286,10 +289,16 @@ class TimerDatabase {
         try {
             const timers = this.db.prepare('SELECT id FROM advanced_timers').all();
 
+        // Fetch all events in a single query and group by timer_id
+        const allEvents = this.db.prepare('SELECT * FROM advanced_timer_events').all();
+        const eventsByTimer = new Map();
+        for (const ev of allEvents) {
+            if (!eventsByTimer.has(ev.timer_id)) eventsByTimer.set(ev.timer_id, []);
+            eventsByTimer.get(ev.timer_id).push(ev);
+        }
+
         for (const { id } of timers) {
-            const events = this.db.prepare(
-                'SELECT * FROM advanced_timer_events WHERE timer_id = ?'
-            ).all(id);
+            const events = eventsByTimer.get(id) || [];
 
             const updates = {};
 
