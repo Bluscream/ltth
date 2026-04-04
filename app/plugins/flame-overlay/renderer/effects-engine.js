@@ -30,7 +30,7 @@ class EffectsEngine {
         this.init();
     }
     
-    init() {
+    async init() {
         if (!this.canvas) {
             console.error('Cannot initialize: canvas is null');
             return;
@@ -48,17 +48,18 @@ class EffectsEngine {
             return;
         }
         
-        this.loadConfig();
+        await this.loadConfig();
         this.setupAllShaders();
         this.setupGeometry();
         this.loadTextures();
         this.initPostProcessor();
         this.initParticles();
-        this.render();
-        this.setupSocketListener();
+        this.handleResize();
         
         window.addEventListener('resize', () => this.handleResize());
-        this.handleResize();
+        
+        this.render();
+        this.setupSocketListener();
     }
     
     async loadConfig() {
@@ -154,7 +155,7 @@ class EffectsEngine {
     initPostProcessor() {
         if (typeof PostProcessor !== 'undefined') {
             this.postProcessor = new PostProcessor(this.gl);
-            this.postProcessor.resize(this.canvas.width, this.canvas.height);
+            // Framebuffers are created by handleResize() once canvas has valid dimensions
         } else {
             console.warn('PostProcessor not available - bloom effects disabled');
         }
@@ -539,7 +540,7 @@ void main() {
 }
 `;
         
-        this.programs.flames = this.createProgram(vertexShaderSource, fragmentShaderSource);
+        this.programs.flames = this.createProgram(vertexShaderSource, fragmentShaderSource, 'flames');
     }
     
     setupSmokeShaders() {
@@ -694,7 +695,7 @@ void main() {
 }
 `;
         
-        this.programs.smoke = this.createProgram(vertexShaderSource, fragmentShaderSource);
+        this.programs.smoke = this.createProgram(vertexShaderSource, fragmentShaderSource, 'smoke');
     }
     
     setupParticleShaders() {
@@ -729,7 +730,6 @@ void main() {
             
             varying vec2 vTexCoord;
             
-            // Pseudo-random function
             float random(vec2 st) {
                 return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
             }
@@ -737,46 +737,61 @@ void main() {
             vec4 renderParticles(vec2 uv, vec2 pixelPos, float edgeDist) {
                 vec4 color = vec4(0.0);
                 
-                // Create multiple layers of particles - optimized for performance
-                for (int layer = 0; layer < 2; layer++) {
-                    float layerOffset = float(layer) * 0.5;
-                    float particleCount = 12.0 + float(layer) * 6.0;
+                for (int layer = 0; layer < 3; layer++) {
+                    float layerF = float(layer);
+                    float layerOffset = layerF * 0.37;
+                    float particleCount = 16.0 + layerF * 8.0;
                     
-                    for (float i = 0.0; i < 18.0; i += 1.0) {
+                    for (float i = 0.0; i < 24.0; i += 1.0) {
                         if (i >= particleCount) break;
                         
-                        // Particle position
-                        float particleTime = uTime * uFlameSpeed + i * 0.1 + layerOffset;
-                        float x = fract(random(vec2(i, layerOffset)) + particleTime * 0.05);
-                        float y = fract(random(vec2(i + 100.0, layerOffset)) + particleTime * 0.3);
+                        vec2 seed = vec2(i + layerF * 100.0, layerOffset);
                         
-                        vec2 particlePos = vec2(x * uResolution.x, y * uFrameThickness);
+                        // Individual phase so particles are staggered in time
+                        float phase = random(seed) * 6.28318;
+                        float particleTime = uTime * uFlameSpeed + phase;
                         
-                        // Particle size based on intensity
-                        float size = (5.0 + random(vec2(i, i)) * 15.0) * uFlameIntensity;
+                        // Horizontal position: random + very slow drift
+                        float x = fract(random(seed + vec2(0.1, 0.0)) + particleTime * 0.025);
+                        // Vertical: rises through the frame region
+                        float life = fract(particleTime * 0.35);
+                        float y = life * uFrameThickness;
                         
-                        // Distance to particle
-                        float dist = length(pixelPos - particlePos);
+                        vec2 particlePos = vec2(x * uResolution.x, y);
                         
-                        // Particle glow
-                        if (dist < size) {
-                            float alpha = 1.0 - (dist / size);
-                            alpha = pow(alpha, 2.0);
+                        // Velocity direction (upward with slight random horizontal drift)
+                        float vx = (random(seed + vec2(0.5, 0.0)) - 0.5) * 18.0;
+                        float vy = uFrameThickness * 0.55;
+                        vec2 vel = normalize(vec2(vx, vy));
+                        
+                        // Size: varies by layer and shrinks near end of life
+                        float baseSize = (4.0 + random(seed + vec2(0.2, 0.0)) * 14.0) * uFlameIntensity;
+                        float size = baseSize * (1.0 - life * 0.45);
+                        float blurLen = size * 2.5;
+                        
+                        // Motion-blur: elongate in velocity direction
+                        vec2 toParticle = pixelPos - particlePos;
+                        float velProj = dot(toParticle, vel);
+                        vec2 clampedProj = clamp(velProj, -blurLen * 0.5, blurLen * 0.5) * vel;
+                        float closestDist = length(toParticle - clampedProj);
+                        
+                        // Soft Gaussian glow falloff
+                        float alpha = exp(-closestDist * closestDist / (size * size));
+                        alpha *= (1.0 - life * 0.8);
+                        
+                        if (alpha > 0.001) {
+                            // Temperature-based color: hot near base, cooler at top
+                            float temp = 1.0 - life * 0.7;
+                            vec3 hotColor = vec3(1.0, 0.95, 0.65);
+                            vec3 pColor = mix(uFlameColor, hotColor, temp * 0.55);
                             
-                            // Color variation
-                            vec3 particleColor = mix(
-                                uFlameColor * 0.8,
-                                uFlameColor * 1.5,
-                                random(vec2(i, particleTime))
-                            );
-                            
-                            color.rgb += particleColor * alpha * 0.4;
-                            color.a += alpha * 0.4;
+                            color.rgb += pColor * alpha * 0.55;
+                            color.a += alpha * 0.55;
                         }
                     }
                 }
                 
-                return color * uFlameBrightness * 2.0;
+                return color * uFlameBrightness * 1.6;
             }
             
             void main() {
@@ -800,24 +815,22 @@ void main() {
                     if (pixelPos.x < uFrameThickness) {
                         inFrame = true;
                         edgeDist = pixelPos.x / uFrameThickness;
-                        vec2 temp = pixelPos;
-                        pixelPos.x = temp.y;
-                        pixelPos.y = temp.x;
+                        vec2 tmp = pixelPos;
+                        pixelPos.x = tmp.y;
+                        pixelPos.y = tmp.x;
                     } else if (pixelPos.x > uResolution.x - uFrameThickness) {
                         inFrame = true;
                         edgeDist = (uResolution.x - pixelPos.x) / uFrameThickness;
-                        vec2 temp = pixelPos;
-                        pixelPos.x = temp.y;
-                        pixelPos.y = uResolution.x - temp.x;
+                        vec2 tmp = pixelPos;
+                        pixelPos.x = tmp.y;
+                        pixelPos.y = uResolution.x - tmp.x;
                     }
                 } else {
                     float distFromLeft = pixelPos.x;
                     float distFromRight = uResolution.x - pixelPos.x;
                     float distFromBottom = pixelPos.y;
                     float distFromTop = uResolution.y - pixelPos.y;
-                    
                     float minDist = min(min(distFromLeft, distFromRight), min(distFromBottom, distFromTop));
-                    
                     if (minDist < uFrameThickness) {
                         inFrame = true;
                         edgeDist = minDist / uFrameThickness;
@@ -834,7 +847,7 @@ void main() {
             }
         `;
         
-        this.programs.particles = this.createProgram(vertexShaderSource, fragmentShaderSource);
+        this.programs.particles = this.createProgram(vertexShaderSource, fragmentShaderSource, 'particles');
     }
 
     
@@ -870,45 +883,73 @@ void main() {
             
             varying vec2 vTexCoord;
             
-            float noise(vec2 p) {
-                return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+            // Value noise for UV distortion
+            float valueNoise(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                float a = fract(sin(dot(i,               vec2(127.1, 311.7))) * 43758.5453);
+                float b = fract(sin(dot(i + vec2(1.0,0.0), vec2(127.1, 311.7))) * 43758.5453);
+                float c = fract(sin(dot(i + vec2(0.0,1.0), vec2(127.1, 311.7))) * 43758.5453);
+                float d = fract(sin(dot(i + vec2(1.0,1.0), vec2(127.1, 311.7))) * 43758.5453);
+                return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
             }
             
             vec4 renderEnergyWaves(vec2 uv, vec2 pixelPos, float edgeDist) {
                 vec4 color = vec4(0.0);
                 
-                // Multiple wave layers
-                for (int i = 0; i < 4; i++) {
-                    float offset = float(i) * 0.25;
-                    float wave = sin(uv.x * 20.0 + uTime * uFlameSpeed * 2.0 + offset) * 
-                                 cos(uv.x * 15.0 - uTime * uFlameSpeed * 1.5 + offset);
+                // Noise-based UV distortion to break up the wave regularity
+                float distNoise = valueNoise(uv * 5.0 + uTime * 0.25) * 0.07 - 0.035;
+                vec2 distUV = uv + vec2(distNoise, distNoise * 0.6);
+                
+                // Multiple distorted wave layers with even angular spacing
+                for (int i = 0; i < 5; i++) {
+                    float fi = float(i);
+                    float offset = fi * 1.2566; // 2*PI/5
                     
+                    float wave = sin(distUV.x * 18.0 + uTime * uFlameSpeed * 2.5 + offset) *
+                                 cos(distUV.x * 13.0 - uTime * uFlameSpeed * 1.8 + offset * 1.3);
+                    wave += sin(distNoise * 14.0 + uTime * 0.6) * 0.28;
                     wave *= uFlameIntensity * 0.5;
                     
-                    // Wave pattern based on edge distance
-                    float waveIntensity = abs(wave - edgeDist + 0.5);
-                    waveIntensity = 1.0 - smoothstep(0.0, 0.2, waveIntensity);
+                    float waveCenter = wave * 0.4 + 0.5 + fi * 0.06;
+                    float waveDist = abs(edgeDist - fract(waveCenter));
+                    // Gaussian band — tight, glowing lines
+                    float waveIntensity = exp(-waveDist * waveDist * 220.0);
                     
-                    // Color based on wave layer
+                    // Fresnel-like concentration: energy concentrates where distance gradient peaks
+                    float fresnel = sqrt(edgeDist) * (1.0 - edgeDist);
+                    waveIntensity *= (0.6 + fresnel * 2.2);
+                    
                     vec3 waveColor = mix(
-                        uFlameColor * 0.5,
-                        uFlameColor * 2.0,
-                        float(i) / 3.0
+                        uFlameColor * 0.4,
+                        uFlameColor * 2.4,
+                        fi / 4.0
                     );
                     
-                    color.rgb += waveColor * waveIntensity * 0.3;
-                    color.a += waveIntensity * 0.3;
+                    color.rgb += waveColor * waveIntensity * 0.4;
+                    color.a  += waveIntensity * 0.35;
                 }
                 
-                // Add flowing energy effect
-                float flow = sin(uv.x * 10.0 + uTime * uFlameSpeed * 3.0) * 
-                            cos(uv.y * 8.0 - uTime * uFlameSpeed * 2.0);
+                // Pulsing glow synchronized to wave peaks
+                float pulse = (sin(uTime * uFlameSpeed * 2.0) + 1.0) * 0.5;
+                
+                // Fresnel edge glow: bright rim at both the inner and outer boundary
+                float edgeFresnel = pow(1.0 - abs(edgeDist * 2.0 - 1.0), 3.0);
+                color.rgb += uFlameColor * edgeFresnel * (0.3 + 0.2 * pulse);
+                color.a  += edgeFresnel * (0.2 + 0.15 * pulse);
+                
+                // Flowing energy with noise distortion
+                float flow = sin(distUV.x * 9.0 + uTime * uFlameSpeed * 3.5 + distNoise * 5.0) *
+                             cos(distUV.y * 7.0 - uTime * uFlameSpeed * 2.2);
                 flow = (flow + 1.0) * 0.5;
+                color.rgb += uFlameColor * flow * 0.14;
+                color.a  += flow * 0.08;
                 
-                color.rgb += uFlameColor * flow * 0.2;
-                color.a += flow * 0.1;
+                // Modulate overall brightness with pulse
+                color.rgb *= (0.88 + 0.12 * pulse);
                 
-                return color * uFlameBrightness * 2.5;
+                return color * uFlameBrightness * 2.0;
             }
             
             void main() {
@@ -937,13 +978,11 @@ void main() {
                         }
                     }
                 } else {
-                    float distFromLeft = pixelPos.x;
-                    float distFromRight = uResolution.x - pixelPos.x;
+                    float distFromLeft   = pixelPos.x;
+                    float distFromRight  = uResolution.x - pixelPos.x;
                     float distFromBottom = pixelPos.y;
-                    float distFromTop = uResolution.y - pixelPos.y;
-                    
+                    float distFromTop    = uResolution.y - pixelPos.y;
                     float minDist = min(min(distFromLeft, distFromRight), min(distFromBottom, distFromTop));
-                    
                     if (minDist < uFrameThickness) {
                         inFrame = true;
                         edgeDist = minDist / uFrameThickness;
@@ -960,7 +999,7 @@ void main() {
             }
         `;
         
-        this.programs.energy = this.createProgram(vertexShaderSource, fragmentShaderSource);
+        this.programs.energy = this.createProgram(vertexShaderSource, fragmentShaderSource, 'energy');
     }
 
     
@@ -997,69 +1036,90 @@ void main() {
             varying vec2 vTexCoord;
             
             float random(vec2 st) {
-                return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+                return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+            }
+            
+            // Multi-octave noise-based displacement along the bolt path
+            float boltDisplacement(float progress, float seed, float t) {
+                float disp = 0.0;
+                float amp  = 0.10;
+                float freq = 1.0;
+                for (int oct = 0; oct < 5; oct++) {
+                    disp += sin(progress * freq * 9.0 + t * 3.5 + seed * 6.3) * amp;
+                    freq *= 2.0;
+                    amp  *= 0.5;
+                }
+                return disp * uFlameIntensity;
             }
             
             vec4 renderLightning(vec2 uv, vec2 pixelPos, float edgeDist) {
                 vec4 color = vec4(0.0);
                 
-                // Electric arc effect - optimized for performance
-                float boltCount = 3.0 + floor(uFlameIntensity * 4.0);
+                float boltCount = 3.0 + floor(uFlameIntensity * 3.0);
                 
-                for (float i = 0.0; i < 7.0; i += 1.0) {
+                for (float i = 0.0; i < 6.0; i += 1.0) {
                     if (i >= boltCount) break;
                     
-                    float boltTime = uTime * uFlameSpeed + i * 0.3;
-                    float boltX = fract(random(vec2(i, floor(boltTime))) + boltTime * 0.1);
+                    float seed      = i * 1.7321 + 0.123;
+                    float boltTime  = uTime * uFlameSpeed + i * 0.5;
                     
-                    // Lightning bolt path with jagged movement - reduced segments
-                    float segments = 6.0;
+                    // Per-bolt random on/off flickering (different rate per bolt)
+                    float flickerRate = 6.0 + random(vec2(i, 0.1)) * 6.0;
+                    float flickerSeed = floor(boltTime * flickerRate) + i * 13.7;
+                    float isOn = step(0.35, random(vec2(flickerSeed, flickerSeed * 0.3)));
+                    if (isOn < 0.5) continue;
                     
-                    for (float s = 0.0; s < 6.0; s += 1.0) {
-                        if (s >= segments) break;
+                    // Bolt X position, changes slowly over time
+                    float boltX = random(vec2(floor(boltTime * 0.4) + seed, seed * 0.7));
+                    
+                    // Noise-based displacement at current edgeDist (continuous along height)
+                    float mainDisp = boltDisplacement(edgeDist, seed, boltTime);
+                    float totalX   = boltX + mainDisp;
+                    
+                    float distToMain = abs(uv.x - totalX);
+                    float glowRadius = 0.035 + uFlameIntensity * 0.018;
+                    
+                    if (distToMain < glowRadius * 5.0) {
+                        // Core: very tight bright white-blue line
+                        float core = exp(-distToMain * distToMain * 1200.0);
+                        // Wide glow halo
+                        float glow = exp(-distToMain * distToMain / (glowRadius * glowRadius));
+                        // Intensity flicker (independent from on/off)
+                        float flicker = 0.65 + 0.35 * sin(uTime * 18.0 + i * 2.7);
                         
-                        float segmentProgress = s / segments;
-                        float nextSegmentProgress = (s + 1.0) / segments;
+                        vec3 coreColor = vec3(0.85, 0.92, 1.0);
+                        color.rgb += (coreColor * core + uFlameColor * glow) * flicker;
+                        color.a   += (core * 0.9 + glow * 0.55) * flicker;
+                    }
+                    
+                    // Branch bolt: forks off from main bolt partway up
+                    float branchStart = 0.2 + random(vec2(seed, 3.3)) * 0.45;
+                    if (edgeDist > branchStart) {
+                        float branchProg = (edgeDist - branchStart) / max(1.0 - branchStart, 0.001);
+                        float branchDisp = boltDisplacement(branchProg, seed + 17.3, boltTime);
+                        float branchDir  = (random(vec2(seed, 5.1)) > 0.5) ? 1.0 : -1.0;
+                        float branchX    = totalX + branchDir * 0.025 + branchDisp * 0.55;
                         
-                        if (uv.x >= boltX - 0.05 && uv.x <= boltX + 0.05) {
-                            float zigzag = (random(vec2(i, s + floor(boltTime * 10.0))) - 0.5) * 0.1 * uFlameIntensity;
-                            
-                            float lineY = mix(segmentProgress, nextSegmentProgress, 
-                                            fract((uv.x - boltX + 0.05) * 10.0)) + zigzag;
-                            
-                            float dist = abs(edgeDist - lineY);
-                            
-                            if (dist < 0.05) {
-                                float intensity = 1.0 - (dist / 0.05);
-                                intensity = pow(intensity, 2.0);
-                                
-                                // Flickering effect
-                                float flicker = 0.7 + 0.3 * sin(uTime * 20.0 + i);
-                                
-                                color.rgb += uFlameColor * intensity * flicker * 0.6;
-                                color.a += intensity * flicker * 0.6;
-                                
-                                // Glow around bolt
-                                if (dist < 0.1) {
-                                    float glow = 1.0 - (dist / 0.1);
-                                    glow = pow(glow, 3.0);
-                                    color.rgb += uFlameColor * glow * 0.25;
-                                    color.a += glow * 0.15;
-                                }
-                            }
-                        }
+                        float distToBranch = abs(uv.x - branchX);
+                        float branchGlow   = exp(-distToBranch * distToBranch / (glowRadius * 0.6 * glowRadius * 0.6));
+                        // Branch fades toward its tip
+                        branchGlow *= (1.0 - branchProg * 0.8);
+                        
+                        float bFlicker = 0.55 + 0.45 * sin(uTime * 22.0 + i * 3.1);
+                        color.rgb += uFlameColor * branchGlow * 0.55 * bFlicker;
+                        color.a   += branchGlow * 0.35 * bFlicker;
                     }
                 }
                 
-                // Add ambient electric field
-                float field = sin(uv.x * 30.0 + uTime * uFlameSpeed * 5.0) * 
-                             cos(edgeDist * 20.0 - uTime * uFlameSpeed * 3.0);
+                // Ambient electric field with noise-based distortion
+                float ambNoise = random(vec2(floor(uv.x * 30.0 + uTime * 2.0), floor(uv.y * 20.0)));
+                float field = sin(uv.x * 28.0 + uTime * uFlameSpeed * 4.5 + ambNoise * 0.8) *
+                              cos(edgeDist * 18.0 - uTime * uFlameSpeed * 2.8);
                 field = (field + 1.0) * 0.5;
+                color.rgb += uFlameColor * field * 0.07;
+                color.a   += field * 0.04;
                 
-                color.rgb += uFlameColor * field * 0.1;
-                color.a += field * 0.05;
-                
-                return color * uFlameBrightness * 3.0;
+                return color * uFlameBrightness * 2.8;
             }
             
             void main() {
@@ -1088,13 +1148,11 @@ void main() {
                         }
                     }
                 } else {
-                    float distFromLeft = pixelPos.x;
-                    float distFromRight = uResolution.x - pixelPos.x;
+                    float distFromLeft   = pixelPos.x;
+                    float distFromRight  = uResolution.x - pixelPos.x;
                     float distFromBottom = pixelPos.y;
-                    float distFromTop = uResolution.y - pixelPos.y;
-                    
+                    float distFromTop    = uResolution.y - pixelPos.y;
                     float minDist = min(min(distFromLeft, distFromRight), min(distFromBottom, distFromTop));
-                    
                     if (minDist < uFrameThickness) {
                         inFrame = true;
                         edgeDist = minDist / uFrameThickness;
@@ -1111,13 +1169,18 @@ void main() {
             }
         `;
         
-        this.programs.lightning = this.createProgram(vertexShaderSource, fragmentShaderSource);
+        this.programs.lightning = this.createProgram(vertexShaderSource, fragmentShaderSource, 'lightning');
     }
 
     
-    createProgram(vertexSource, fragmentSource) {
+    createProgram(vertexSource, fragmentSource, name) {
         const vertexShader = this.compileShader(vertexSource, this.gl.VERTEX_SHADER);
         const fragmentShader = this.compileShader(fragmentSource, this.gl.FRAGMENT_SHADER);
+        
+        if (!vertexShader || !fragmentShader) {
+            console.error('Shader compilation failed for effect:', name || 'unknown');
+            return null;
+        }
         
         const program = this.gl.createProgram();
         this.gl.attachShader(program, vertexShader);
@@ -1155,7 +1218,16 @@ void main() {
         };
         
         const programKey = effectMap[effectType] || 'flames';
-        this.currentProgram = this.programs[programKey];
+        let program = this.programs[programKey];
+        
+        // Fall back to any available program if the requested one failed to compile
+        if (!program) {
+            console.warn(`Program '${programKey}' not available, falling back`);
+            program = this.programs.flames || this.programs.particles ||
+                      this.programs.energy || this.programs.lightning || null;
+        }
+        
+        this.currentProgram = program;
         
         if (this.currentProgram) {
             this.gl.useProgram(this.currentProgram);
@@ -1411,7 +1483,7 @@ void main() {
         
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         
-        if (this.postProcessor) {
+        if (this.postProcessor && this.canvas.width > 0 && this.canvas.height > 0) {
             this.postProcessor.resize(this.canvas.width, this.canvas.height);
         }
         
@@ -1486,13 +1558,12 @@ void main() {
         // Render smoke layer if enabled
         if (this.config.smokeEnabled && this.programs.smoke) {
             const prevProgram = this.currentProgram;
-            const prevUniforms = this.uniforms;
             
             gl.useProgram(this.programs.smoke);
             
-            // Cache smoke uniforms if not already cached
-            if (!this.uniforms.smokeUniforms) {
-                this.uniforms.smokeUniforms = {
+            // Cache smoke uniform locations on a dedicated property (not nested in this.uniforms)
+            if (!this.smokeUniforms) {
+                this.smokeUniforms = {
                     time: gl.getUniformLocation(this.programs.smoke, 'uTime'),
                     resolution: gl.getUniformLocation(this.programs.smoke, 'uResolution'),
                     frameThickness: gl.getUniformLocation(this.programs.smoke, 'uFrameThickness'),
@@ -1507,7 +1578,7 @@ void main() {
             }
             
             // Set smoke-specific uniforms
-            const smokeUniforms = this.uniforms.smokeUniforms;
+            const smokeUniforms = this.smokeUniforms;
             if (smokeUniforms.time) gl.uniform1f(smokeUniforms.time, time);
             if (smokeUniforms.resolution) gl.uniform2f(smokeUniforms.resolution, this.canvas.width, this.canvas.height);
             if (smokeUniforms.frameThickness) gl.uniform1f(smokeUniforms.frameThickness, this.config.frameThickness || 150);
@@ -1541,11 +1612,14 @@ void main() {
                 gl.vertexAttribPointer(aSmokeTexCoord, 2, gl.FLOAT, false, 0, 0);
             }
             
+            // Additive blending for smoke on top of main effect
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            // Restore standard alpha blending
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
             
-            // Restore previous program and uniforms
+            // Restore previous program
             gl.useProgram(prevProgram);
-            this.uniforms = prevUniforms;
         }
     }
     

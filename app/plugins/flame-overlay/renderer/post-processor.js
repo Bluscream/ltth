@@ -233,6 +233,11 @@ class PostProcessor {
     createFramebuffer(width, height, name) {
         const gl = this.gl;
         
+        if (width <= 0 || height <= 0) {
+            console.warn(`Cannot create framebuffer '${name}': invalid dimensions ${width}x${height}`);
+            return null;
+        }
+        
         const framebuffer = gl.createFramebuffer();
         gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
         
@@ -259,6 +264,8 @@ class PostProcessor {
     }
     
     resize(width, height) {
+        if (width <= 0 || height <= 0) return;
+        
         // Recreate framebuffers with new size
         const fbNames = ['scene', 'bright', 'blur1', 'blur2'];
         fbNames.forEach(name => {
