@@ -1,1224 +1,719 @@
 /**
- * Advanced Timer Plugin UI
- * Client-side JavaScript for timer management interface
+ * Advanced Timer Plugin UI - TikFinity-style flat layout
  */
 
 const socket = io();
 let timers = [];
-let currentEditingTimer = null;
 let giftCatalog = [];
-let editingEventId = null;
 
-// Handler function references for proper cleanup
-let timerNameEnterHandler = null;
-let conditionsKeypressHandler = null;
-let eventListDelegationAttached = false;
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
 
-// Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
-    // Wait for global i18n to be ready (initialized by i18n-client.js)
-    if (!window.i18n.initialized) {
-        await window.i18n.init();
-    }
-    
-    // Listen for language changes
-    window.i18n.onLanguageChange((newLocale) => {
-        console.log('Language changed to:', newLocale);
-        // Re-render UI with new language
+    if (!window.i18n.initialized) await window.i18n.init();
+    window.i18n.onLanguageChange(() => renderTimers());
+    socket.on('locale-changed', async (locale) => {
+        await window.i18n.changeLanguage(locale);
         renderTimers();
     });
-    
-    // Also listen for language changes via socket (for real-time sync)
-    socket.on('locale-changed', async (newLocale) => {
-        console.log('Locale changed via socket:', newLocale);
-        await window.i18n.changeLanguage(newLocale);
-        renderTimers();
-    });
-    
-    // Setup event listeners
-    setupEventListeners();
-    
+    setupNav();
+    setupCreateForm();
+    setupSocketListeners();
     loadTimers();
     loadGiftCatalog();
-    setupSocketListeners();
+    loadProfiles();
 });
 
-/**
- * Setup UI event listeners
- */
-function setupEventListeners() {
-    // Navigation buttons (sidebar)
-    document.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const tabName = e.currentTarget.getAttribute('data-tab');
-            showTab(tabName, e.currentTarget);
-        });
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+
+function setupNav() {
+    document.querySelectorAll('[data-tab]').forEach(el => {
+        el.addEventListener('click', e => showTab(e.currentTarget.getAttribute('data-tab'), e.currentTarget));
     });
-    
-    // New Timer button in timers tab
-    const newTimerBtn = document.querySelector('#tab-timers .btn-primary[data-tab="create"]');
-    if (newTimerBtn) {
-        newTimerBtn.addEventListener('click', (e) => {
-            showTab('create', e.currentTarget);
-        });
-    }
-    
-    // Timer form submission
-    const timerForm = document.getElementById('timer-form');
-    if (timerForm) {
-        timerForm.addEventListener('submit', handleCreateTimer);
-    }
-    
-    // Timer mode change
-    const timerModeSelect = document.getElementById('timer-mode');
-    if (timerModeSelect) {
-        timerModeSelect.addEventListener('change', handleModeChange);
-    }
-    
-    // Cancel button in create form
-    const cancelBtn = document.querySelector('#tab-create .btn-secondary[data-tab="timers"]');
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', (e) => {
-            showTab('timers', e.currentTarget);
-        });
-    }
-    
-    // Settings modal tabs
-    document.querySelectorAll('#timer-settings-modal .tab[data-settings-tab]').forEach(tab => {
-        tab.addEventListener('click', (e) => {
-            const tabName = e.currentTarget.getAttribute('data-settings-tab');
-            showSettingsTab(tabName, e.currentTarget);
-        });
-    });
-    
-    // Settings modal buttons
-    const saveSettingsBtn = document.getElementById('save-timer-settings');
-    if (saveSettingsBtn) {
-        saveSettingsBtn.addEventListener('click', saveTimerSettings);
-    }
-    
-    const closeModalBtn = document.getElementById('close-modal');
-    if (closeModalBtn) {
-        closeModalBtn.addEventListener('click', closeModal);
-    }
-    
-    const addEventBtn = document.getElementById('add-timer-event');
-    if (addEventBtn) {
-        addEventBtn.addEventListener('click', addTimerEvent);
-    }
-    
-    const copyUrlBtn = document.getElementById('copy-overlay-url');
-    if (copyUrlBtn) {
-        copyUrlBtn.addEventListener('click', copyOverlayURL);
-    }
-    
-    const exportLogsBtn = document.getElementById('export-logs');
-    if (exportLogsBtn) {
-        exportLogsBtn.addEventListener('click', exportLogs);
-    }
 }
 
-/**
- * Setup Socket.IO listeners for real-time updates
- */
+function showTab(name, triggerEl) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    const sidebarBtn = document.querySelector('.nav-btn[data-tab="' + name + '"]');
+    if (sidebarBtn) sidebarBtn.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(t => { t.style.display = 'none'; });
+    const target = document.getElementById('tab-' + name);
+    if (target) target.style.display = 'block';
+    if (name === 'profiles') loadProfiles();
+}
+
+// ---------------------------------------------------------------------------
+// Socket
+// ---------------------------------------------------------------------------
+
 function setupSocketListeners() {
-    // Timer events
-    socket.on('advanced-timer:tick', (data) => {
-        updateTimerDisplay(data);
+    socket.on('advanced-timer:tick', data => {
+        const el = document.getElementById('td-' + data.id);
+        if (el) {
+            el.textContent = formatTime(data.currentValue);
+            el.className = 'timer-display' + (data.state === 'running' ? ' running' : '');
+        }
     });
-
-    socket.on('advanced-timer:started', (data) => {
-        refreshTimerState(data.id);
-    });
-
-    socket.on('advanced-timer:paused', (data) => {
-        refreshTimerState(data.id);
-    });
-
-    socket.on('advanced-timer:stopped', (data) => {
-        refreshTimerState(data.id);
-    });
-
-    socket.on('advanced-timer:completed', (data) => {
-        refreshTimerState(data.id);
-        showNotification('Timer Completed', `${getTimerName(data.id)} has completed!`);
-    });
-
-    socket.on('advanced-timer:time-added', (data) => {
-        refreshTimerState(data.id);
-    });
-
-    socket.on('advanced-timer:time-removed', (data) => {
-        refreshTimerState(data.id);
+    ['started','paused','stopped','reset','completed','time-added','time-removed'].forEach(ev => {
+        socket.on('advanced-timer:' + ev, data => refreshTimer(data.id));
     });
 }
 
-/**
- * Escape HTML to prevent XSS
- */
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
+// ---------------------------------------------------------------------------
+// Load / Render timers
+// ---------------------------------------------------------------------------
 
-/**
- * Load all timers from server
- */
 async function loadTimers() {
     try {
-        const response = await fetch('/api/advanced-timer/timers');
-        const data = await response.json();
-        
-        if (data.success) {
-            timers = data.timers;
-            renderTimers();
-        }
-    } catch (error) {
-        console.error('Error loading timers:', error);
-        showNotification('Error', 'Failed to load timers', 'error');
-    }
+        const res = await fetch('/api/advanced-timer/timers');
+        const data = await res.json();
+        if (data.success) { timers = data.timers; renderTimers(); }
+    } catch (e) { console.error('loadTimers', e); }
 }
 
-/**
- * Load gift catalog from server
- */
-async function loadGiftCatalog() {
+async function refreshTimer(id) {
     try {
-        const response = await fetch('/api/gift-catalog');
-        const data = await response.json();
-        
+        const res = await fetch('/api/advanced-timer/timers/' + id);
+        const data = await res.json();
         if (data.success) {
-            giftCatalog = data.catalog || [];
-            console.log(`Loaded ${giftCatalog.length} gifts from catalog`);
+            const idx = timers.findIndex(t => t.id === id);
+            if (idx !== -1) timers[idx] = data.timer; else timers.push(data.timer);
+            renderSingleTimer(data.timer);
         }
-    } catch (error) {
-        console.error('Error loading gift catalog:', error);
-        giftCatalog = [];
-    }
+    } catch (e) { console.error('refreshTimer', e); }
 }
 
-/**
- * Render timers list
- */
 function renderTimers() {
     const container = document.getElementById('timers-container');
-    
-    // Helper to get translation safely
-    const t = (key, fallback) => {
-        if (!window.i18n || !window.i18n.initialized) return fallback;
-        const trans = window.i18n.t(key);
-        return trans === key ? fallback : trans;
-    };
-    
     if (timers.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-state-icon">⏱️</div>
-                <div class="empty-state-text">${t('ui.messages.noTimers', 'No timers yet')}</div>
-                <button class="btn btn-primary" data-tab="create">${t('ui.messages.createFirst', 'Create Your First Timer')}</button>
-            </div>
-        `;
-        
-        // Add event listener to the create button
-        const createBtn = container.querySelector('button[data-tab="create"]');
-        if (createBtn) {
-            createBtn.addEventListener('click', (e) => {
-                showTab('create', e.currentTarget);
-            });
-        }
+        container.innerHTML =
+            '<div class="empty-state">' +
+            '<div class="empty-state-icon">⏱️</div>' +
+            '<div class="empty-state-text">No timers yet</div>' +
+            '<button class="btn btn-primary" data-tab="create">Create Your First Timer</button>' +
+            '</div>';
+        container.querySelector('[data-tab]')?.addEventListener('click', e => showTab('create', e.currentTarget));
         return;
     }
-
-    container.innerHTML = timers.map(timer => `
-        <div class="timer-card" id="timer-${timer.id}">
-            <div class="timer-header">
-                <div>
-                    <div class="timer-title">${escapeHtml(timer.name)}</div>
-                    <span class="timer-mode-badge">${getModeLabel(timer.mode)}</span>
-                </div>
-                <div>
-                    <span class="timer-state state-${timer.state}">${getStateLabel(timer.state)}</span>
-                </div>
-            </div>
-
-            <div class="timer-display ${timer.state === 'running' ? 'running' : ''}" id="timer-display-${timer.id}">
-                ${formatTime(timer.current_value)}
-            </div>
-
-            <div class="timer-controls">
-                ${timer.state === 'stopped' || timer.state === 'paused' || timer.state === 'completed' ? 
-                    `<button class="btn btn-success btn-sm" data-action="start" data-timer-id="${timer.id}">▶️ ${t('ui.buttons.start', 'Start')}</button>` : ''}
-                ${timer.state === 'running' ? 
-                    `<button class="btn btn-warning btn-sm" data-action="pause" data-timer-id="${timer.id}">⏸️ ${t('ui.buttons.pause', 'Pause')}</button>` : ''}
-                ${timer.state === 'running' || timer.state === 'paused' ? 
-                    `<button class="btn btn-danger btn-sm" data-action="stop" data-timer-id="${timer.id}">⏹️ ${t('ui.buttons.stop', 'Stop')}</button>` : ''}
-                <button class="btn btn-secondary btn-sm" data-action="reset" data-timer-id="${timer.id}">🔄 ${t('ui.buttons.reset', 'Reset')}</button>
-                <button class="btn btn-secondary btn-sm" data-action="settings" data-timer-id="${timer.id}">⚙️ ${t('ui.buttons.settings', 'Settings')}</button>
-                <button class="btn btn-danger btn-sm" data-action="delete" data-timer-id="${timer.id}">🗑️ ${t('ui.buttons.delete', 'Delete')}</button>
-            </div>
-
-            <div class="quick-actions">
-                <button class="btn btn-secondary btn-sm" data-action="add-time" data-timer-id="${timer.id}" data-seconds="10">+10s</button>
-                <button class="btn btn-secondary btn-sm" data-action="add-time" data-timer-id="${timer.id}" data-seconds="30">+30s</button>
-                <button class="btn btn-secondary btn-sm" data-action="add-time" data-timer-id="${timer.id}" data-seconds="60">+1m</button>
-                <button class="btn btn-secondary btn-sm" data-action="add-time" data-timer-id="${timer.id}" data-seconds="300">+5m</button>
-                <button class="btn btn-secondary btn-sm" data-action="remove-time" data-timer-id="${timer.id}" data-seconds="10">-10s</button>
-                <button class="btn btn-secondary btn-sm" data-action="remove-time" data-timer-id="${timer.id}" data-seconds="30">-30s</button>
-            </div>
-        </div>
-    `).join('');
-    
-    // Setup event delegation for timer control buttons
-    setupTimerControlListeners();
+    container.innerHTML = '';
+    timers.forEach(t => container.appendChild(buildTimerCard(t)));
 }
 
-/**
- * Setup event listeners for timer control buttons (using event delegation)
- */
-let timerControlsSetup = false; // Flag to prevent duplicate setup
+function renderSingleTimer(timer) {
+    const existing = document.getElementById('tc-' + timer.id);
+    const card = buildTimerCard(timer);
+    if (existing) existing.replaceWith(card);
+    else document.getElementById('timers-container').appendChild(card);
+}
 
-function setupTimerControlListeners() {
-    // Only setup once
-    if (timerControlsSetup) {
-        return;
-    }
-    
-    const container = document.getElementById('timers-container');
-    if (!container) return;
-    
-    // Event delegation for all timer buttons
-    container.addEventListener('click', (e) => {
-        const button = e.target.closest('button[data-action]');
-        if (!button) return;
-        
-        const action = button.getAttribute('data-action');
-        const timerId = button.getAttribute('data-timer-id');
-        const secondsAttr = button.getAttribute('data-seconds');
-        const seconds = secondsAttr ? parseInt(secondsAttr, 10) : 0;
-        
-        // Validate seconds for add/remove-time actions
-        if ((action === 'add-time' || action === 'remove-time') && (isNaN(seconds) || seconds <= 0)) {
-            console.error('Invalid seconds value:', secondsAttr);
-            return;
-        }
-        
-        switch (action) {
-            case 'start':
-                startTimer(timerId);
-                break;
-            case 'pause':
-                pauseTimer(timerId);
-                break;
-            case 'stop':
-                stopTimer(timerId);
-                break;
-            case 'reset':
-                resetTimer(timerId);
-                break;
-            case 'settings':
-                openTimerSettings(timerId);
-                break;
-            case 'delete':
-                deleteTimer(timerId);
-                break;
-            case 'add-time':
-                addTime(timerId, seconds);
-                break;
-            case 'remove-time':
-                removeTime(timerId, seconds);
-                break;
-        }
+// ---------------------------------------------------------------------------
+// Build timer card
+// ---------------------------------------------------------------------------
+
+function buildTimerCard(t) {
+    const card = document.createElement('div');
+    card.className = 'timer-card';
+    card.id = 'tc-' + t.id;
+    const overlayUrl = window.location.origin + '/advanced-timer/overlay?timer=' + t.id;
+
+    card.innerHTML =
+        // Header
+        '<div class="timer-card-header">' +
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+            '<span class="timer-title">' + escapeHtml(t.name) + '</span>' +
+            '<span class="timer-mode-badge">' + getModeLabel(t.mode) + '</span>' +
+          '</div>' +
+          '<span class="timer-state-badge state-' + t.state + '">' + getStateLabel(t.state) + '</span>' +
+        '</div>' +
+        // Display
+        '<div class="timer-display' + (t.state === 'running' ? ' running' : '') + '" id="td-' + t.id + '">' +
+          formatTime(t.current_value) +
+        '</div>' +
+        // Controls
+        '<div class="timer-controls" id="tctrl-' + t.id + '">' + timerControlButtons(t) + '</div>' +
+        // Quick +/-
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">' +
+          '<button class="btn btn-secondary btn-xs" data-at="add" data-s="10">+10s</button>' +
+          '<button class="btn btn-secondary btn-xs" data-at="add" data-s="30">+30s</button>' +
+          '<button class="btn btn-secondary btn-xs" data-at="add" data-s="60">+1m</button>' +
+          '<button class="btn btn-secondary btn-xs" data-at="add" data-s="300">+5m</button>' +
+          '<button class="btn btn-secondary btn-xs" data-at="remove" data-s="10">−10s</button>' +
+          '<button class="btn btn-secondary btn-xs" data-at="remove" data-s="30">−30s</button>' +
+        '</div>' +
+        // Overlay URL
+        '<div class="overlay-row">' +
+          '<span style="font-size:0.78rem;color:var(--color-text-secondary);flex-shrink:0;">Overlay:</span>' +
+          '<span class="overlay-url-text">' + overlayUrl + '</span>' +
+          '<button class="btn btn-xs btn-secondary copy-url-btn" title="Copy URL">📋</button>' +
+        '</div>' +
+        // Settings section
+        '<button class="section-toggle" data-sec="settings">⚙️ Settings <span class="chevron">▼</span></button>' +
+        '<div class="section-body" data-sec-body="settings">' +
+          '<div class="settings-grid">' +
+            '<div class="field-group"><label class="field-label">Timer Name</label>' +
+              '<input class="field-input" type="text" data-field="name" value="' + escapeHtml(t.name) + '"></div>' +
+            '<div class="field-group"><label class="field-label">Initial Duration (seconds)</label>' +
+              '<input class="field-input" type="number" min="0" data-field="initial_duration" value="' + (t.initial_duration || 0) + '"></div>' +
+            '<div class="field-group"><label class="field-label">Action on Expiry</label>' +
+              '<select class="field-input" data-field="expiry_action">' +
+                '<option value="none"' + ((t.expiry_action||'none')==='none'?' selected':'') + '>None</option>' +
+                '<option value="restart"' + (t.expiry_action==='restart'?' selected':'') + '>Restart</option>' +
+                '<option value="alert"' + (t.expiry_action==='alert'?' selected':'') + '>Show Alert</option>' +
+                '<option value="sound"' + (t.expiry_action==='sound'?' selected':'') + '>Play Sound</option>' +
+                '<option value="scene_change"' + (t.expiry_action==='scene_change'?' selected':'') + '>Scene Change</option>' +
+                '<option value="chain"' + (t.expiry_action==='chain'?' selected':'') + '>Trigger Chain</option>' +
+              '</select></div>' +
+          '</div>' +
+          '<div style="margin-top:10px;"><button class="btn btn-sm btn-primary save-settings-btn">Save Settings</button></div>' +
+        '</div>' +
+        // Interactions section
+        '<button class="section-toggle open" data-sec="interactions">⚡ Interactions <span class="chevron" style="transform:rotate(180deg);">▼</span></button>' +
+        '<div class="section-body open" data-sec-body="interactions">' +
+          '<p style="font-size:0.78rem;color:var(--color-text-secondary);margin-bottom:10px;">Positive = add time, negative = reduce. Supports decimals (e.g. 0.05).</p>' +
+          '<div class="interactions-grid">' +
+            interactionRow('per_coin',      '🪙 Per Coin',         t.per_coin) +
+            interactionRow('per_subscribe', '🌟 Per Subscribe',    t.per_subscribe) +
+            interactionRow('per_follow',    '⭐ Per Follow',       t.per_follow) +
+            interactionRow('per_share',     '🔄 Per Share',        t.per_share) +
+            interactionRow('per_like',      '👍 Per Like',         t.per_like) +
+            interactionRow('per_chat',      '💬 Per Chat Message', t.per_chat) +
+          '</div>' +
+          '<a class="adv-events-link" data-adv-timer="' + t.id + '">🔧 Advanced Event Rules (gift-name filters, commands…)</a>' +
+          '<span class="save-indicator" id="si-' + t.id + '">✓ Saved</span>' +
+        '</div>' +
+        // Multiplier section
+        '<button class="section-toggle open" data-sec="multiplier">✖️ Multiplier <span class="chevron" style="transform:rotate(180deg);">▼</span></button>' +
+        '<div class="section-body open" data-sec-body="multiplier">' +
+          '<div class="multiplier-row">' +
+            '<label class="toggle-switch"><input type="checkbox" class="multiplier-toggle"' + (t.multiplier_enabled ? ' checked' : '') + '><span class="toggle-slider"></span></label>' +
+            '<span style="font-size:0.85rem;">×</span>' +
+            '<input class="interaction-input multiplier-value-input" type="number" min="0.01" step="0.01" value="' + (t.multiplier || 1) + '" style="width:70px;">' +
+            '<span class="interaction-unit">multiplier</span>' +
+            '<span style="font-size:0.78rem;color:var(--color-text-secondary);">(all interaction values × this factor)</span>' +
+          '</div>' +
+        '</div>' +
+        // Keyboard Shortcuts section
+        '<button class="section-toggle" data-sec="shortcuts">⌨️ Keyboard Shortcuts <span class="chevron">▼</span></button>' +
+        '<div class="section-body" data-sec-body="shortcuts">' +
+          '<div class="shortcuts-grid">' +
+            '<div class="shortcut-row"><span class="shortcut-label">Start / Pause</span><input class="shortcut-input" type="text" data-sc="shortcut_start_pause" value="' + escapeHtml(t.shortcut_start_pause||'') + '" placeholder="e.g. ALT+P"></div>' +
+            '<div class="shortcut-row"><span class="shortcut-label">Increase</span><input class="shortcut-input" type="text" data-sc="shortcut_increase" value="' + escapeHtml(t.shortcut_increase||'') + '" placeholder="e.g. ALT+S"></div>' +
+            '<div class="shortcut-row"><span class="shortcut-label">Reduce</span><input class="shortcut-input" type="text" data-sc="shortcut_decrease" value="' + escapeHtml(t.shortcut_decrease||'') + '" placeholder="e.g. ALT+A"></div>' +
+            '<div class="shortcut-row"><span class="shortcut-label">Step (seconds)</span><input class="shortcut-input" type="number" min="1" data-sc="shortcut_step" value="' + (t.shortcut_step||60) + '" style="width:70px;"></div>' +
+          '</div>' +
+          '<div style="margin-top:10px;"><button class="btn btn-sm btn-primary save-shortcuts-btn">Save Shortcuts</button></div>' +
+        '</div>' +
+        // Activity log section
+        '<button class="section-toggle" data-sec="log">📋 Activity Log <span class="chevron">▼</span></button>' +
+        '<div class="section-body" data-sec-body="log">' +
+          '<div class="log-entries" id="log-' + t.id + '"><p style="color:var(--color-text-secondary);font-size:0.82rem;">Click the section header to load.</p></div>' +
+          '<div style="margin-top:8px;display:flex;gap:8px;">' +
+            '<button class="btn btn-sm btn-secondary reload-log-btn">🔄 Refresh</button>' +
+            '<a href="/api/advanced-timer/timers/' + t.id + '/export-logs" target="_blank" class="btn btn-sm btn-secondary">📥 Export</a>' +
+          '</div>' +
+        '</div>' +
+        // Delete
+        '<div style="margin-top:12px;border-top:1px solid var(--color-border);padding-top:12px;display:flex;justify-content:flex-end;">' +
+          '<button class="btn btn-sm btn-danger delete-timer-btn">🗑️ Delete Timer</button>' +
+        '</div>';
+
+    const tid = t.id;
+
+    // Section toggles
+    card.querySelectorAll('.section-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sec = btn.getAttribute('data-sec');
+            const body = card.querySelector('[data-sec-body="' + sec + '"]');
+            const isOpen = body.classList.contains('open');
+            body.classList.toggle('open', !isOpen);
+            btn.classList.toggle('open', !isOpen);
+            const chev = btn.querySelector('.chevron');
+            if (chev) chev.style.transform = isOpen ? '' : 'rotate(180deg)';
+        });
     });
-    
-    timerControlsSetup = true;
-}
 
-/**
- * Update timer display in real-time
- */
-function updateTimerDisplay(data) {
-    const displayElement = document.getElementById(`timer-display-${data.id}`);
-    if (displayElement) {
-        displayElement.textContent = formatTime(data.currentValue);
-        
-        // Update running animation
-        if (data.state === 'running') {
-            displayElement.classList.add('running');
-        } else {
-            displayElement.classList.remove('running');
-        }
-    }
-}
+    // Copy overlay URL
+    card.querySelector('.copy-url-btn')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(overlayUrl).then(() => flashSaved(tid));
+    });
 
-/**
- * Refresh entire timer state
- */
-async function refreshTimerState(timerId) {
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}`);
-        const data = await response.json();
-        
-        if (data.success) {
-            const index = timers.findIndex(t => t.id === timerId);
-            if (index !== -1) {
-                timers[index] = data.timer;
-                renderTimers();
-            }
-        }
-    } catch (error) {
-        console.error('Error refreshing timer:', error);
-    }
-}
-
-/**
- * Handle mode change in create form
- */
-function handleModeChange() {
-    const mode = document.getElementById('timer-mode').value;
-    const initialDurationGroup = document.getElementById('initial-duration-group');
-    const targetValueGroup = document.getElementById('target-value-group');
-
-    if (mode === 'countdown' || mode === 'loop') {
-        initialDurationGroup.style.display = 'block';
-        targetValueGroup.style.display = 'none';
-    } else if (mode === 'countup' || mode === 'interval') {
-        initialDurationGroup.style.display = 'none';
-        targetValueGroup.style.display = 'block';
-    } else if (mode === 'stopwatch') {
-        initialDurationGroup.style.display = 'none';
-        targetValueGroup.style.display = 'none';
-    }
-}
-
-/**
- * Handle timer creation
- */
-async function handleCreateTimer(event) {
-    event.preventDefault();
-
-    const name = document.getElementById('timer-name').value;
-    const mode = document.getElementById('timer-mode').value;
-    const initialDuration = parseInt(document.getElementById('initial-duration').value) || 0;
-    const targetValue = parseInt(document.getElementById('target-value').value) || 0;
-
-    const timerData = {
-        name: name,
-        mode: mode,
-        initial_duration: mode === 'countdown' || mode === 'loop' ? initialDuration : 0,
-        current_value: mode === 'countdown' || mode === 'loop' ? initialDuration : 0,
-        target_value: mode === 'countup' || mode === 'interval' ? targetValue : 0,
-        state: 'stopped',
-        config: {}
-    };
-
-    try {
-        const response = await fetch('/api/advanced-timer/timers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(timerData)
+    // Quick add/remove
+    card.querySelectorAll('[data-at]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const act = btn.getAttribute('data-at');
+            timerAction(tid, act === 'add' ? 'add-time' : 'remove-time', { seconds: parseFloat(btn.getAttribute('data-s')), source: 'manual' });
         });
+    });
 
-        const data = await response.json();
+    // Start/Pause/Stop/Reset (event delegation)
+    card.addEventListener('click', e => {
+        const btn = e.target.closest('[data-ctrl]');
+        if (!btn) return;
+        const ctrl = btn.getAttribute('data-ctrl');
+        if (ctrl === 'start') timerAction(tid, 'start');
+        else if (ctrl === 'pause') timerAction(tid, 'pause');
+        else if (ctrl === 'stop') timerAction(tid, 'stop');
+        else if (ctrl === 'reset') timerAction(tid, 'reset');
+    });
 
-        if (data.success) {
-            showNotification('Success', 'Timer created successfully!', 'success');
-            document.getElementById('timer-form').reset();
-            loadTimers();
-            showTab('timers');
-        } else {
-            showNotification('Error', data.error || 'Failed to create timer', 'error');
-        }
-    } catch (error) {
-        console.error('Error creating timer:', error);
-        showNotification('Error', 'Failed to create timer', 'error');
-    }
-}
+    // Settings save
+    card.querySelector('.save-settings-btn')?.addEventListener('click', () => saveSettings(card, tid));
 
-/**
- * Timer control functions
- */
-async function startTimer(timerId) {
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}/start`, {
-            method: 'POST'
+    // Interaction inputs – auto-save debounced 500ms
+    const debounceMap = new Map();
+    card.querySelectorAll('.interaction-input[data-int]').forEach(inp => {
+        inp.addEventListener('input', () => {
+            clearTimeout(debounceMap.get(inp));
+            debounceMap.set(inp, setTimeout(() => saveInteractions(card, tid), 500));
         });
-        const data = await response.json();
-        if (data.success) {
-            loadTimers();
-        }
-    } catch (error) {
-        console.error('Error starting timer:', error);
-    }
-}
+    });
 
-async function pauseTimer(timerId) {
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}/pause`, {
-            method: 'POST'
-        });
-        const data = await response.json();
-        if (data.success) {
-            loadTimers();
-        }
-    } catch (error) {
-        console.error('Error pausing timer:', error);
-    }
-}
-
-async function stopTimer(timerId) {
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}/stop`, {
-            method: 'POST'
-        });
-        const data = await response.json();
-        if (data.success) {
-            loadTimers();
-        }
-    } catch (error) {
-        console.error('Error stopping timer:', error);
-    }
-}
-
-async function resetTimer(timerId) {
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}/reset`, {
-            method: 'POST'
-        });
-        const data = await response.json();
-        if (data.success) {
-            loadTimers();
-        }
-    } catch (error) {
-        console.error('Error resetting timer:', error);
-    }
-}
-
-async function deleteTimer(timerId) {
-    if (!confirm('Are you sure you want to delete this timer?')) {
-        return;
-    }
-
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}`, {
-            method: 'DELETE'
-        });
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Success', 'Timer deleted successfully!', 'success');
-            loadTimers();
-        }
-    } catch (error) {
-        console.error('Error deleting timer:', error);
-        showNotification('Error', 'Failed to delete timer', 'error');
-    }
-}
-
-async function addTime(timerId, seconds) {
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}/add-time`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ seconds, source: 'manual' })
-        });
-        const data = await response.json();
-        if (data.success) {
-            loadTimers();
-        }
-    } catch (error) {
-        console.error('Error adding time:', error);
-    }
-}
-
-async function removeTime(timerId, seconds) {
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}/remove-time`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ seconds, source: 'manual' })
-        });
-        const data = await response.json();
-        if (data.success) {
-            loadTimers();
-        }
-    } catch (error) {
-        console.error('Error removing time:', error);
-    }
-}
-
-/**
- * Timer settings modal
- */
-async function openTimerSettings(timerId) {
-    currentEditingTimer = timers.find(t => t.id === timerId);
-    if (!currentEditingTimer) return;
-
-    const editNameInput = document.getElementById('edit-timer-name');
-    editNameInput.value = currentEditingTimer.name;
-    
-    // Remove previous listener if exists and add a new one
-    if (timerNameEnterHandler) {
-        editNameInput.removeEventListener('keypress', timerNameEnterHandler);
-    }
-    timerNameEnterHandler = function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            saveTimerSettings();
-        }
-    };
-    editNameInput.addEventListener('keypress', timerNameEnterHandler);
-    
-    // Set overlay URL
-    const overlayUrl = `${window.location.origin}/advanced-timer/overlay?timer=${timerId}`;
-    document.getElementById('overlay-url').textContent = overlayUrl;
-
-    // Load events
-    loadTimerEvents(timerId);
-
-    // Load logs
-    loadTimerLogs(timerId);
-
-    document.getElementById('timer-settings-modal').classList.add('active');
-}
-
-function closeModal() {
-    document.getElementById('timer-settings-modal').classList.remove('active');
-    currentEditingTimer = null;
-}
-
-async function saveTimerSettings() {
-    if (!currentEditingTimer) return;
-
-    const updatedName = document.getElementById('edit-timer-name').value;
-    
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${currentEditingTimer.id}`, {
+    // Multiplier
+    const multToggle = card.querySelector('.multiplier-toggle');
+    const multVal = card.querySelector('.multiplier-value-input');
+    const saveMultiplier = () => {
+        fetch('/api/advanced-timer/timers/' + tid + '/multiplier', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: updatedName })
+            body: JSON.stringify({ multiplier: parseFloat(multVal.value)||1, multiplier_enabled: multToggle.checked ? 1 : 0 })
+        }).then(() => flashSaved(tid)).catch(e => console.error(e));
+    };
+    multToggle?.addEventListener('change', saveMultiplier);
+    multVal?.addEventListener('change', saveMultiplier);
+
+    // Shortcuts save
+    card.querySelector('.save-shortcuts-btn')?.addEventListener('click', () => saveShortcuts(card, tid));
+
+    // Log: load on first toggle open
+    let logLoaded = false;
+    card.querySelector('[data-sec="log"]')?.addEventListener('click', () => {
+        if (!logLoaded) { logLoaded = true; loadLog(tid); }
+    });
+    card.querySelector('.reload-log-btn')?.addEventListener('click', () => loadLog(tid));
+
+    // Advanced event rules link
+    card.querySelector('[data-adv-timer]')?.addEventListener('click', () => openAdvancedEvents(tid));
+
+    // Delete
+    card.querySelector('.delete-timer-btn')?.addEventListener('click', () => deleteTimer(tid));
+
+    return card;
+}
+
+function interactionRow(field, label, value) {
+    return '<div class="interaction-row">' +
+        '<span class="interaction-label">' + label + '</span>' +
+        '<div class="interaction-input-wrap">' +
+            '<input class="interaction-input" type="number" step="0.01" data-int="' + field + '" value="' + (value || 0) + '">' +
+            '<span class="interaction-unit">s</span>' +
+        '</div>' +
+    '</div>';
+}
+
+function timerControlButtons(t) {
+    let html = '';
+    if (t.state !== 'running') html += '<button class="btn btn-success btn-sm" data-ctrl="start">▶ Start</button>';
+    if (t.state === 'running') html += '<button class="btn btn-warning btn-sm" data-ctrl="pause">⏸ Pause</button>';
+    if (t.state === 'running' || t.state === 'paused') html += '<button class="btn btn-danger btn-sm" data-ctrl="stop">⏹ Stop</button>';
+    html += '<button class="btn btn-secondary btn-sm" data-ctrl="reset">🔄 Reset</button>';
+    return html;
+}
+
+// ---------------------------------------------------------------------------
+// Timer control
+// ---------------------------------------------------------------------------
+
+async function timerAction(id, action, body) {
+    try {
+        const opts = { method: 'POST' };
+        if (body) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+        const res = await fetch('/api/advanced-timer/timers/' + id + '/' + action, opts);
+        const data = await res.json();
+        if (data.success) await refreshTimer(id);
+    } catch (e) { console.error('timerAction', action, e); }
+}
+
+async function deleteTimer(id) {
+    if (!confirm('Delete this timer?')) return;
+    try {
+        const res = await fetch('/api/advanced-timer/timers/' + id, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            timers = timers.filter(t => t.id !== id);
+            document.getElementById('tc-' + id)?.remove();
+            if (timers.length === 0) renderTimers();
+        }
+    } catch (e) { console.error('deleteTimer', e); }
+}
+
+// ---------------------------------------------------------------------------
+// Save helpers
+// ---------------------------------------------------------------------------
+
+async function saveSettings(card, id) {
+    const name = card.querySelector('[data-field="name"]')?.value;
+    const initial_duration = parseFloat(card.querySelector('[data-field="initial_duration"]')?.value) || 0;
+    const expiry_action = card.querySelector('[data-field="expiry_action"]')?.value || 'none';
+    try {
+        await fetch('/api/advanced-timer/timers/' + id, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, initial_duration, expiry_action })
         });
-
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Success', 'Timer updated successfully!', 'success');
-            closeModal();
-            loadTimers();
-        }
-    } catch (error) {
-        console.error('Error updating timer:', error);
-        showNotification('Error', 'Failed to update timer', 'error');
-    }
+        await refreshTimer(id);
+        flashSaved(id);
+    } catch (e) { console.error('saveSettings', e); }
 }
 
-async function loadTimerLogs(timerId) {
+async function saveInteractions(card, id) {
+    const payload = {};
+    card.querySelectorAll('.interaction-input[data-int]').forEach(inp => {
+        payload[inp.getAttribute('data-int')] = parseFloat(inp.value) || 0;
+    });
     try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}/logs?limit=50`);
-        const data = await response.json();
-        
-        if (data.success) {
-            const logsContainer = document.getElementById('logs-container');
-            if (data.logs.length === 0) {
-                logsContainer.innerHTML = '<p style="text-align: center; color: var(--color-text-secondary);">No activity yet</p>';
-            } else {
-                logsContainer.innerHTML = data.logs.map(log => `
-                    <div class="log-entry">
-                        <div>
-                            <strong>${log.event_type}</strong>
-                            ${log.user_name ? ` - ${log.user_name}` : ''}
-                            ${log.value_change ? ` (${log.value_change > 0 ? '+' : ''}${log.value_change}s)` : ''}
-                            ${log.description ? `<br><small>${log.description}</small>` : ''}
-                        </div>
-                        <div class="log-time">${formatTimestamp(log.timestamp)}</div>
-                    </div>
-                `).join('');
-            }
-        }
-    } catch (error) {
-        console.error('Error loading logs:', error);
-    }
+        await fetch('/api/advanced-timer/timers/' + id + '/interactions', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        const t = timers.find(x => x.id === id);
+        if (t) Object.assign(t, payload);
+        flashSaved(id);
+    } catch (e) { console.error('saveInteractions', e); }
 }
 
-async function exportLogs() {
-    if (!currentEditingTimer) return;
-
+async function saveShortcuts(card, id) {
+    const payload = {};
+    card.querySelectorAll('[data-sc]').forEach(inp => {
+        const k = inp.getAttribute('data-sc');
+        payload[k] = k === 'shortcut_step' ? (parseFloat(inp.value)||60) : inp.value;
+    });
     try {
-        window.open(`/api/advanced-timer/timers/${currentEditingTimer.id}/export-logs`, '_blank');
-    } catch (error) {
-        console.error('Error exporting logs:', error);
+        await fetch('/api/advanced-timer/timers/' + id + '/shortcuts', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        flashSaved(id);
+    } catch (e) { console.error('saveShortcuts', e); }
+}
+
+function flashSaved(id) {
+    const el = document.getElementById('si-' + id);
+    if (!el) return;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 1500);
+}
+
+// ---------------------------------------------------------------------------
+// Activity log
+// ---------------------------------------------------------------------------
+
+async function loadLog(id) {
+    try {
+        const res = await fetch('/api/advanced-timer/timers/' + id + '/logs?limit=20');
+        const data = await res.json();
+        const container = document.getElementById('log-' + id);
+        if (!container) return;
+        if (!data.success || !data.logs.length) {
+            container.innerHTML = '<p style="color:var(--color-text-secondary);font-size:0.82rem;">No activity yet.</p>';
+            return;
+        }
+        container.innerHTML = data.logs.map(l => {
+            const sign = l.value_change > 0 ? 'positive' : (l.value_change < 0 ? 'negative' : '');
+            const cs = l.value_change ? (l.value_change > 0 ? '+' : '') + l.value_change.toFixed(2) + 's' : '';
+            return '<div class="log-entry">' +
+                '<span>' + escapeHtml(l.event_type) + (l.user_name ? ' · ' + escapeHtml(l.user_name) : '') +
+                (l.description ? '<br><small style="color:var(--color-text-secondary)">' + escapeHtml(l.description) + '</small>' : '') + '</span>' +
+                (cs ? '<span class="log-change ' + sign + '">' + cs + '</span>' : '') +
+                '<span class="log-time">' + new Date(l.timestamp * 1000).toLocaleTimeString() + '</span>' +
+            '</div>';
+        }).join('');
+    } catch (e) { console.error('loadLog', e); }
+}
+
+// ---------------------------------------------------------------------------
+// Advanced Event Rules modal
+// ---------------------------------------------------------------------------
+
+let currentAdvTimerId = null;
+let editingEventId = null;
+
+function openAdvancedEvents(timerId) {
+    currentAdvTimerId = timerId;
+    let modal = document.getElementById('adv-events-modal');
+    if (!modal) modal = createAdvEventsModal();
+    modal.style.display = 'flex';
+    loadAdvEvents(timerId);
+}
+
+function createAdvEventsModal() {
+    const modal = document.createElement('div');
+    modal.id = 'adv-events-modal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;background:var(--color-modal-backdrop,rgba(0,0,0,.5));z-index:2000;align-items:center;justify-content:center;';
+    modal.innerHTML =
+        '<div style="background:var(--color-modal-bg,var(--color-bg-card));border:1px solid var(--color-border);border-radius:16px;padding:28px;max-width:560px;width:92%;max-height:88vh;overflow-y:auto;">' +
+          '<div style="font-size:1.2rem;font-weight:700;margin-bottom:16px;">🔧 Advanced Event Rules</div>' +
+          '<p style="font-size:0.82rem;color:var(--color-text-secondary);margin-bottom:14px;">These rules add on top of the flat per-* values. Use for gift-name filters, minCoins, chat commands.</p>' +
+          '<div id="adv-events-list"></div>' +
+          '<div style="display:flex;gap:10px;margin-top:14px;">' +
+            '<button class="btn btn-sm btn-primary" id="add-adv-event-btn">+ Add Rule</button>' +
+            '<button class="btn btn-sm btn-secondary" id="close-adv-events-btn">Close</button>' +
+          '</div>' +
+        '</div>';
+    document.body.appendChild(modal);
+    modal.querySelector('#close-adv-events-btn').addEventListener('click', () => { modal.style.display = 'none'; });
+    modal.querySelector('#add-adv-event-btn').addEventListener('click', () => showEventEditor(null));
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    return modal;
+}
+
+async function loadAdvEvents(timerId) {
+    try {
+        const res = await fetch('/api/advanced-timer/timers/' + timerId + '/events');
+        const data = await res.json();
+        if (data.success) renderAdvEvents(data.events);
+    } catch (e) { console.error('loadAdvEvents', e); }
+}
+
+function renderAdvEvents(events) {
+    const container = document.getElementById('adv-events-list');
+    if (!events.length) {
+        container.innerHTML = '<p style="color:var(--color-text-secondary);font-size:0.85rem;text-align:center;padding:12px;">No advanced rules yet.</p>';
+        return;
+    }
+    container.innerHTML = events.map(ev => {
+        const cStr = formatConditions(ev.event_type, ev.conditions);
+        return '<div style="border:1px solid var(--color-border);border-radius:8px;padding:10px;margin-bottom:8px;font-size:0.84rem;">' +
+            '<div style="font-weight:600;">' + getEventLabel(ev.event_type) + ' → ' + getActionLabel(ev.action_type) + ' ' + ev.action_value + 's</div>' +
+            (cStr ? '<div style="color:var(--color-text-secondary);margin-top:2px;">' + cStr + '</div>' : '') +
+            '<div style="margin-top:8px;display:flex;gap:6px;">' +
+              '<button class="btn btn-xs btn-secondary" onclick="showEventEditor(' + ev.id + ')">✏️ Edit</button>' +
+              '<button class="btn btn-xs btn-danger" onclick="deleteAdvEvent(' + ev.id + ')">🗑️</button>' +
+            '</div></div>';
+    }).join('');
+}
+
+function getEventLabel(t) {
+    return { gift:'🎁 Gift', like:'👍 Like', follow:'⭐ Follow', share:'🔄 Share', subscribe:'🌟 Subscribe', chat:'💬 Chat' }[t] || t;
+}
+function getActionLabel(t) {
+    return { add_time:'Add', remove_time:'Remove', set_value:'Set to' }[t] || t;
+}
+function formatConditions(type, cond) {
+    if (!cond || !Object.keys(cond).length) return '';
+    const p = [];
+    if (cond.giftName) p.push('Gift: ' + cond.giftName);
+    if (cond.minCoins) p.push('Min coins: ' + cond.minCoins);
+    if (cond.minLikes) p.push('Min likes: ' + cond.minLikes);
+    if (cond.command) p.push('Command: ' + cond.command);
+    if (cond.keyword) p.push('Keyword: ' + cond.keyword);
+    return p.join(' · ');
+}
+
+async function deleteAdvEvent(id) {
+    if (!confirm('Delete this event rule?')) return;
+    try {
+        await fetch('/api/advanced-timer/events/' + id, { method: 'DELETE' });
+        loadAdvEvents(currentAdvTimerId);
+    } catch (e) { console.error('deleteAdvEvent', e); }
+}
+
+function showEventEditor(eventId) {
+    editingEventId = eventId;
+    document.getElementById('event-editor-modal')?.remove();
+    const editor = document.createElement('div');
+    editor.id = 'event-editor-modal';
+    editor.style.cssText = 'display:flex;position:fixed;inset:0;background:var(--color-modal-backdrop,rgba(0,0,0,.5));z-index:3000;align-items:center;justify-content:center;';
+    editor.innerHTML =
+        '<div style="background:var(--color-modal-bg,var(--color-bg-card));border:1px solid var(--color-border);border-radius:14px;padding:24px;max-width:480px;width:92%;max-height:88vh;overflow-y:auto;">' +
+          '<div style="font-size:1.1rem;font-weight:700;margin-bottom:14px;">' + (eventId ? '✏️ Edit' : '➕ Add') + ' Event Rule</div>' +
+          '<div class="form-group"><label class="form-label">Event Type</label>' +
+            '<select class="form-control" id="ee-type">' +
+              ['gift','like','follow','share','subscribe','chat'].map(v => '<option value="' + v + '">' + getEventLabel(v) + '</option>').join('') +
+            '</select></div>' +
+          '<div class="form-group"><label class="form-label">Action</label>' +
+            '<select class="form-control" id="ee-action">' +
+              '<option value="add_time">Add Time</option><option value="remove_time">Remove Time</option><option value="set_value">Set Value</option>' +
+            '</select></div>' +
+          '<div class="form-group"><label class="form-label">Value (seconds)</label>' +
+            '<input type="number" class="form-control" id="ee-value" value="10" min="0" step="0.01"></div>' +
+          '<div id="ee-conditions"></div>' +
+          '<div style="display:flex;gap:10px;margin-top:16px;">' +
+            '<button class="btn btn-sm btn-primary" id="ee-save">Save</button>' +
+            '<button class="btn btn-sm btn-secondary" id="ee-cancel">Cancel</button>' +
+          '</div>' +
+        '</div>';
+    document.body.appendChild(editor);
+
+    const typeSelect = editor.querySelector('#ee-type');
+    const renderCond = () => {
+        const tp = typeSelect.value;
+        const c = editor.querySelector('#ee-conditions');
+        if (tp === 'gift') {
+            c.innerHTML = '<div class="form-group"><label class="form-label">Gift Name (blank = any)</label><input class="form-control" id="ee-gift-name" placeholder="e.g. Rose"></div>' +
+                '<div class="form-group"><label class="form-label">Min Coins (0 = no min)</label><input type="number" class="form-control" id="ee-min-coins" value="0" min="0"></div>';
+        } else if (tp === 'like') {
+            c.innerHTML = '<div class="form-group"><label class="form-label">Min Likes per Event</label><input type="number" class="form-control" id="ee-min-likes" value="0" min="0"></div>';
+        } else if (tp === 'chat') {
+            c.innerHTML = '<div class="form-group"><label class="form-label">Command prefix (e.g. !time)</label><input class="form-control" id="ee-command" placeholder="!time"></div>' +
+                '<div class="form-group"><label class="form-label">Keyword (contains)</label><input class="form-control" id="ee-keyword" placeholder="add time"></div>';
+        } else { c.innerHTML = ''; }
+    };
+    typeSelect.addEventListener('change', renderCond);
+    renderCond();
+
+    editor.querySelector('#ee-cancel').addEventListener('click', () => editor.remove());
+    editor.querySelector('#ee-save').addEventListener('click', async () => {
+        const type = editor.querySelector('#ee-type').value;
+        const action = editor.querySelector('#ee-action').value;
+        const value = parseFloat(editor.querySelector('#ee-value').value) || 0;
+        const cond = {};
+        if (type === 'gift') {
+            const gn = editor.querySelector('#ee-gift-name')?.value; if (gn) cond.giftName = gn;
+            const mc = parseInt(editor.querySelector('#ee-min-coins')?.value); if (mc > 0) cond.minCoins = mc;
+        } else if (type === 'like') {
+            const ml = parseInt(editor.querySelector('#ee-min-likes')?.value); if (ml > 0) cond.minLikes = ml;
+        } else if (type === 'chat') {
+            const cmd = editor.querySelector('#ee-command')?.value; if (cmd) cond.command = cmd;
+            const kw = editor.querySelector('#ee-keyword')?.value; if (kw) cond.keyword = kw;
+        }
+        const payload = { timer_id: currentAdvTimerId, event_type: type, action_type: action, action_value: value, conditions: cond, enabled: 1 };
+        if (editingEventId) payload.id = editingEventId;
+        try {
+            await fetch('/api/advanced-timer/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            editor.remove();
+            loadAdvEvents(currentAdvTimerId);
+        } catch (e) { console.error('saveEventRule', e); }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Create Timer form
+// ---------------------------------------------------------------------------
+
+function setupCreateForm() {
+    const form = document.getElementById('timer-form');
+    if (!form) return;
+    const modeSelect = document.getElementById('timer-mode');
+    const updateFields = () => {
+        const mode = modeSelect.value;
+        document.getElementById('initial-duration-group').style.display = ['countdown','loop'].includes(mode) ? '' : 'none';
+        document.getElementById('target-value-group').style.display = ['countup','interval'].includes(mode) ? '' : 'none';
+    };
+    modeSelect.addEventListener('change', updateFields);
+    updateFields();
+    form.addEventListener('submit', async e => {
+        e.preventDefault();
+        const name = document.getElementById('timer-name').value.trim();
+        const mode = modeSelect.value;
+        const init = parseFloat(document.getElementById('initial-duration').value) || 0;
+        const target = parseFloat(document.getElementById('target-value').value) || 0;
+        const payload = {
+            name, mode,
+            initial_duration: ['countdown','loop'].includes(mode) ? init : 0,
+            current_value:    ['countdown','loop'].includes(mode) ? init : 0,
+            target_value:     ['countup','interval'].includes(mode) ? target : 0,
+            state: 'stopped', config: {}
+        };
+        try {
+            const res = await fetch('/api/advanced-timer/timers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const data = await res.json();
+            if (data.success) { form.reset(); updateFields(); await loadTimers(); showTab('timers'); }
+            else alert(data.error || 'Failed to create timer');
+        } catch (err) { console.error('createTimer', err); }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Profiles
+// ---------------------------------------------------------------------------
+
+async function loadProfiles() {
+    try {
+        const res = await fetch('/api/advanced-timer/profiles');
+        const data = await res.json();
+        if (data.success) renderProfiles(data.profiles);
+    } catch (e) { console.error('loadProfiles', e); }
+}
+
+function renderProfiles(profiles) {
+    const container = document.getElementById('profiles-container');
+    if (!container) return;
+    container.innerHTML = profiles.length
+        ? profiles.map(p =>
+            '<div class="profile-card">' +
+              '<div><div class="profile-name">' + escapeHtml(p.name) + '</div>' +
+              '<div class="profile-meta">' + new Date(p.created_at * 1000).toLocaleDateString() + '</div></div>' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button class="btn btn-xs btn-primary" onclick="applyProfile(\'' + p.id + '\')">Apply</button>' +
+                '<button class="btn btn-xs btn-danger" onclick="deleteProfile(\'' + p.id + '\')">🗑️</button>' +
+              '</div>' +
+            '</div>').join('')
+        : '<p style="color:var(--color-text-secondary);">No saved profiles. Click "Save Current Setup" to save your timers.</p>';
+
+    const saveBtn = document.getElementById('save-profile-btn');
+    if (saveBtn && !saveBtn._bound) {
+        saveBtn._bound = true;
+        saveBtn.addEventListener('click', async () => {
+            const name = prompt('Profile name:');
+            if (!name) return;
+            await fetch('/api/advanced-timer/profiles', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, config: { timers } })
+            });
+            loadProfiles();
+        });
     }
 }
 
-function copyOverlayURL() {
-    const url = document.getElementById('overlay-url').textContent;
-    navigator.clipboard.writeText(url).then(() => {
-        showNotification('Success', 'URL copied to clipboard!', 'success');
-    });
+async function applyProfile(id) {
+    if (!confirm('Apply this profile? Current timers will be replaced.')) return;
+    try {
+        const res = await fetch('/api/advanced-timer/profiles/' + id + '/apply', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) { await loadTimers(); showTab('timers'); }
+    } catch (e) { console.error('applyProfile', e); }
 }
 
-/**
- * Tab navigation
- */
-function showTab(tabName, targetElement) {
-    // Update nav buttons
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    if (targetElement) {
-        targetElement.classList.add('active');
-    }
-
-    // Update tab content
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-    document.getElementById(`tab-${tabName}`).classList.add('active');
+async function deleteProfile(id) {
+    if (!confirm('Delete this profile?')) return;
+    try { await fetch('/api/advanced-timer/profiles/' + id, { method: 'DELETE' }); loadProfiles(); }
+    catch (e) { console.error('deleteProfile', e); }
 }
 
-function showSettingsTab(tabName, targetElement) {
-    // Update tabs
-    document.querySelectorAll('#timer-settings-modal .tab').forEach(tab => {
-        tab.classList.remove('active');
-    });
-    if (targetElement) {
-        targetElement.classList.add('active');
-    }
+// ---------------------------------------------------------------------------
+// Gift catalog
+// ---------------------------------------------------------------------------
 
-    // Update tab content
-    document.querySelectorAll('#timer-settings-modal .tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-    document.getElementById(`settings-tab-${tabName}`).classList.add('active');
+async function loadGiftCatalog() {
+    try {
+        const res = await fetch('/api/gift-catalog');
+        const data = await res.json();
+        if (data.success) giftCatalog = data.catalog || [];
+    } catch (_) { giftCatalog = []; }
 }
 
-/**
- * Utility functions
- */
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
 function formatTime(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    if (hours > 0) {
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    } else {
-        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
+    const s = Math.max(0, seconds || 0);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    if (h > 0) return pad(h) + ':' + pad(m) + ':' + pad(sec);
+    return pad(m) + ':' + pad(sec);
 }
-
-function formatTimestamp(timestamp) {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleString();
-}
+function pad(n) { return String(n).padStart(2, '0'); }
 
 function getModeLabel(mode) {
-    if (!window.i18n || !window.i18n.initialized) {
-        // Fallback labels when i18n not ready
-        const labels = {
-            'countdown': 'Countdown',
-            'countup': 'Count Up',
-            'stopwatch': 'Stopwatch',
-            'loop': 'Loop',
-            'interval': 'Interval'
-        };
-        return labels[mode] || mode;
-    }
-    
-    const key = `ui.modes.${mode}`;
-    const translation = window.i18n.t(key);
-    // If translation is same as key, it means it wasn't found, return the mode itself
-    return translation === key ? mode : translation.split(' - ')[0]; // Take only the first part before " - "
+    return { countdown:'Countdown', countup:'Count Up', stopwatch:'Stopwatch', loop:'Loop', interval:'Interval' }[mode] || mode;
 }
-
 function getStateLabel(state) {
-    if (!window.i18n || !window.i18n.initialized) {
-        // Fallback labels when i18n not ready
-        const labels = {
-            'running': 'Running',
-            'paused': 'Paused',
-            'stopped': 'Stopped',
-            'completed': 'Completed'
-        };
-        return labels[state] || state;
-    }
-    
-    const key = `ui.states.${state}`;
-    const translation = window.i18n.t(key);
-    return translation === key ? state : translation;
+    return { running:'Running', paused:'Paused', stopped:'Stopped', completed:'Completed' }[state] || state;
 }
-
-function getTimerName(timerId) {
-    const timer = timers.find(t => t.id === timerId);
-    return timer ? timer.name : 'Unknown';
-}
-
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function showNotification(title, message, type = 'info') {
-    // Simple notification - could be enhanced with a toast library
-    console.log(`[${type.toUpperCase()}] ${title}: ${message}`);
-    alert(`${title}\n${message}`);
-}
-
-/**
- * Timer Events Management
- */
-async function loadTimerEvents(timerId) {
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${timerId}/events`);
-        const data = await response.json();
-        
-        if (data.success) {
-            renderTimerEvents(data.events);
-        }
-    } catch (error) {
-        console.error('Error loading timer events:', error);
-    }
-}
-
-function renderTimerEvents(events) {
-    const container = document.getElementById('events-list');
-    
-    if (!events || events.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--color-text-secondary); padding: 20px;">No event rules configured yet. Click "Add Event Rule" to get started.</p>';
-        return;
-    }
-    
-    container.innerHTML = events.map(event => {
-        const eventTypeLabel = getEventTypeLabel(event.event_type);
-        const actionTypeLabel = getActionTypeLabel(event.action_type);
-        const conditionsDesc = getConditionsDescription(event.event_type, event.conditions);
-        
-        return `
-            <div class="timer-card" style="margin-bottom: 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; margin-bottom: 4px;">
-                            ${eventTypeLabel} → ${actionTypeLabel} ${event.action_value}s
-                        </div>
-                        ${conditionsDesc ? `<div style="font-size: 0.85rem; color: var(--color-text-secondary);">${conditionsDesc}</div>` : ''}
-                        <div style="margin-top: 8px;">
-                            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" 
-                                    data-event-id="${event.id}"
-                                    class="event-enabled-checkbox"
-                                    ${event.enabled ? 'checked' : ''}>
-                                <span style="font-size: 0.9rem;">Enabled</span>
-                            </label>
-                        </div>
-                    </div>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="btn btn-sm btn-secondary edit-event-btn" data-event-id="${event.id}">✏️ Edit</button>
-                        <button class="btn btn-sm btn-danger delete-event-btn" data-event-id="${event.id}">🗑️</button>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-    
-    // Use event delegation for better performance and to avoid memory leaks
-    // Only attach listeners once to avoid unnecessary operations
-    if (!eventListDelegationAttached) {
-        container.addEventListener('change', handleEventCheckboxChange);
-        container.addEventListener('click', handleEventButtonClick);
-        eventListDelegationAttached = true;
-    }
-}
-
-// Delegated event handler for checkboxes
-function handleEventCheckboxChange(e) {
-    if (e.target.classList.contains('event-enabled-checkbox')) {
-        toggleEventEnabled(parseInt(e.target.dataset.eventId), e.target.checked);
-    }
-}
-
-// Delegated event handler for buttons
-function handleEventButtonClick(e) {
-    const target = e.target.closest('.edit-event-btn, .delete-event-btn');
-    if (!target) return;
-    
-    const eventId = parseInt(target.dataset.eventId);
-    if (target.classList.contains('edit-event-btn')) {
-        editTimerEvent(eventId);
-    } else if (target.classList.contains('delete-event-btn')) {
-        deleteTimerEvent(eventId);
-    }
-}
-
-function getEventTypeLabel(eventType) {
-    const labels = {
-        'gift': '🎁 Gift',
-        'like': '👍 Like',
-        'follow': '⭐ Follow',
-        'share': '🔄 Share',
-        'subscribe': '🌟 Subscribe',
-        'chat': '💬 Chat'
-    };
-    return labels[eventType] || eventType;
-}
-
-function getActionTypeLabel(actionType) {
-    const labels = {
-        'add_time': 'Add',
-        'remove_time': 'Remove',
-        'set_value': 'Set to'
-    };
-    return labels[actionType] || actionType;
-}
-
-function getConditionsDescription(eventType, conditions) {
-    if (!conditions || Object.keys(conditions).length === 0) {
-        return '';
-    }
-    
-    const parts = [];
-    
-    if (eventType === 'gift') {
-        if (conditions.giftName) {
-            parts.push(`Gift: ${conditions.giftName}`);
-        }
-        if (conditions.minCoins) {
-            parts.push(`Min coins: ${conditions.minCoins}`);
-        }
-    } else if (eventType === 'like') {
-        if (conditions.minLikes) {
-            parts.push(`Min likes per event: ${conditions.minLikes}`);
-        }
-    } else if (eventType === 'chat') {
-        if (conditions.command) {
-            parts.push(`Command: ${conditions.command}`);
-        }
-        if (conditions.keyword) {
-            parts.push(`Keyword: ${conditions.keyword}`);
-        }
-    }
-    
-    return parts.length > 0 ? `Conditions: ${parts.join(', ')}` : '';
-}
-
-async function toggleEventEnabled(eventId, enabled) {
-    try {
-        const response = await fetch(`/api/advanced-timer/events`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: eventId, enabled: enabled ? 1 : 0 })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Success', enabled ? 'Event enabled' : 'Event disabled', 'success');
-        }
-    } catch (error) {
-        console.error('Error toggling event:', error);
-        showNotification('Error', 'Failed to update event', 'error');
-    }
-}
-
-async function deleteTimerEvent(eventId) {
-    if (!confirm('Are you sure you want to delete this event rule?')) {
-        return;
-    }
-    
-    try {
-        const response = await fetch(`/api/advanced-timer/events/${eventId}`, {
-            method: 'DELETE'
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Success', 'Event rule deleted', 'success');
-            if (currentEditingTimer) {
-                loadTimerEvents(currentEditingTimer.id);
-            }
-        }
-    } catch (error) {
-        console.error('Error deleting event:', error);
-        showNotification('Error', 'Failed to delete event rule', 'error');
-    }
-}
-
-function addTimerEvent() {
-    editingEventId = null;
-    showEventEditorModal();
-}
-
-async function editTimerEvent(eventId) {
-    if (!currentEditingTimer) return;
-    
-    try {
-        const response = await fetch(`/api/advanced-timer/timers/${currentEditingTimer.id}/events`);
-        const data = await response.json();
-        
-        if (data.success) {
-            const event = data.events.find(e => e.id === eventId);
-            if (event) {
-                editingEventId = eventId;
-                showEventEditorModal(event);
-            }
-        }
-    } catch (error) {
-        console.error('Error loading event for edit:', error);
-    }
-}
-
-function showEventEditorModal(event = null) {
-    const modal = document.createElement('div');
-    modal.className = 'modal active';
-    modal.id = 'event-editor-modal';
-    
-    const isEdit = event !== null;
-    const eventType = event?.event_type || 'gift';
-    const actionType = event?.action_type || 'add_time';
-    const conditions = event?.conditions || {};
-    
-    modal.innerHTML = `
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">${isEdit ? '✏️ Edit' : '➕ Add'} Event Rule</div>
-            
-            <div class="form-group">
-                <label class="form-label">Event Type</label>
-                <select class="form-control" id="event-type-select">
-                    <option value="gift" ${eventType === 'gift' ? 'selected' : ''}>🎁 Gift</option>
-                    <option value="like" ${eventType === 'like' ? 'selected' : ''}>👍 Like</option>
-                    <option value="follow" ${eventType === 'follow' ? 'selected' : ''}>⭐ Follow</option>
-                    <option value="share" ${eventType === 'share' ? 'selected' : ''}>🔄 Share</option>
-                    <option value="subscribe" ${eventType === 'subscribe' ? 'selected' : ''}>🌟 Subscribe</option>
-                    <option value="chat" ${eventType === 'chat' ? 'selected' : ''}>💬 Chat</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Action</label>
-                <select class="form-control" id="event-action-select">
-                    <option value="add_time" ${actionType === 'add_time' ? 'selected' : ''}>Add Time</option>
-                    <option value="remove_time" ${actionType === 'remove_time' ? 'selected' : ''}>Remove Time</option>
-                    <option value="set_value" ${actionType === 'set_value' ? 'selected' : ''}>Set Value</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label" id="event-value-label">Value (seconds)</label>
-                <input type="number" class="form-control" id="event-value-input" value="${event?.action_value || 10}" min="0" step="0.01">
-                <small id="event-value-help" style="color: var(--color-text-secondary); font-size: 0.85rem; display: block; margin-top: 4px;"></small>
-            </div>
-            
-            <div id="event-conditions-container">
-                <!-- Conditions will be inserted here based on event type -->
-            </div>
-            
-            <div style="display: flex; gap: 12px; margin-top: 24px;">
-                <button class="btn btn-primary" id="save-event-rule-btn">${isEdit ? 'Update' : 'Add'} Event Rule</button>
-                <button class="btn btn-secondary" id="close-event-editor-btn">Cancel</button>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    // Attach event listeners
-    const eventTypeSelect = document.getElementById('event-type-select');
-    eventTypeSelect.addEventListener('change', () => {
-        updateEventConditions({});
-        updateEventValueLabel();
-    });
-    
-    const saveBtn = document.getElementById('save-event-rule-btn');
-    saveBtn.addEventListener('click', saveEventRule);
-    
-    const closeBtn = document.getElementById('close-event-editor-btn');
-    closeBtn.addEventListener('click', closeEventEditorModal);
-    
-    const eventValueInput = document.getElementById('event-value-input');
-    eventValueInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            saveEventRule();
-        }
-    });
-    
-    updateEventConditions(conditions);
-    updateEventValueLabel();
-}
-
-function updateEventConditions(existingConditions = {}) {
-    const eventType = document.getElementById('event-type-select').value;
-    const container = document.getElementById('event-conditions-container');
-    
-    let html = '<div class="info-box" style="margin-top: 16px;"><div class="info-box-title">Conditions (Optional)</div>';
-    
-    if (eventType === 'gift') {
-        // Build gift catalog options
-        let giftOptions = '<option value="">All gifts</option>';
-        if (giftCatalog && giftCatalog.length > 0) {
-            giftCatalog.forEach(gift => {
-                const selected = existingConditions.giftName === gift.name ? 'selected' : '';
-                const escapedName = escapeHtml(gift.name);
-                giftOptions += `<option value="${escapedName}" ${selected}>${escapedName} (${gift.coins} coins)</option>`;
-            });
-        }
-        
-        html += `
-            <div class="form-group">
-                <label class="form-label">Select Gift</label>
-                <select class="form-control" id="condition-gift-select" style="max-height: 200px;">
-                    ${giftOptions}
-                </select>
-                <small style="color: var(--color-text-secondary); font-size: 0.85rem;">Or leave as "All gifts" to trigger on any gift</small>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Minimum Coins (0 = no minimum)</label>
-                <input type="number" class="form-control condition-input" id="condition-min-coins" value="${existingConditions.minCoins || 0}" min="0">
-            </div>
-        `;
-    } else if (eventType === 'like') {
-        html += `
-            <div class="form-group">
-                <label class="form-label">Minimum Likes per Event (0 = no minimum)</label>
-                <input type="number" class="form-control condition-input" id="condition-min-likes" value="${existingConditions.minLikes || 0}" min="0">
-            </div>
-        `;
-    } else if (eventType === 'chat') {
-        html += `
-            <div class="form-group">
-                <label class="form-label">Command (must start with this)</label>
-                <input type="text" class="form-control condition-input" id="condition-command" value="${existingConditions.command || ''}" placeholder="e.g., !timer">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Keyword (must contain this)</label>
-                <input type="text" class="form-control condition-input" id="condition-keyword" value="${existingConditions.keyword || ''}" placeholder="e.g., add time">
-            </div>
-        `;
-    } else {
-        html += '<p style="color: var(--color-text-secondary);">No additional conditions for this event type.</p>';
-    }
-    
-    html += '</div>';
-    container.innerHTML = html;
-    
-    // Add event delegation listener only once (on first call)
-    // Event delegation works on the container element, which persists even when innerHTML changes
-    // The handler checks for the condition-input class, so it works for all input elements
-    // regardless of which event type's conditions are currently displayed
-    if (!conditionsKeypressHandler) {
-        conditionsKeypressHandler = function(e) {
-            if (e.target.classList.contains('condition-input') && e.key === 'Enter') {
-                e.preventDefault();
-                saveEventRule();
-            }
-        };
-        container.addEventListener('keypress', conditionsKeypressHandler);
-    }
-}
-
-function updateEventValueLabel() {
-    const eventType = document.getElementById('event-type-select')?.value;
-    const label = document.getElementById('event-value-label');
-    const helpText = document.getElementById('event-value-help');
-    
-    if (!label || !helpText) return;
-    
-    if (eventType === 'gift') {
-        label.textContent = 'Seconds per Coin';
-        helpText.textContent = 'Example: 0.1 = 0.1 seconds added per coin value of the gift';
-    } else if (eventType === 'like') {
-        label.textContent = 'Seconds per Like';
-        helpText.textContent = 'Example: 0.1 = 0.1 seconds added per like received';
-    } else {
-        label.textContent = 'Value (seconds)';
-        helpText.textContent = '';
-    }
-}
-
-async function saveEventRule() {
-    if (!currentEditingTimer) return;
-    
-    const eventType = document.getElementById('event-type-select').value;
-    const actionType = document.getElementById('event-action-select').value;
-    let actionValueStr = document.getElementById('event-value-input').value;
-    
-    // Support both comma and dot as decimal separators (replace all commas)
-    // Note: This is appropriate for seconds input (HTML5 number input type)
-    // which doesn't support thousand separators, only decimal values
-    actionValueStr = actionValueStr.replace(/,/g, '.');
-    const actionValue = parseFloat(actionValueStr);
-    
-    // Validate action value
-    if (isNaN(actionValue) || actionValue < 0) {
-        showNotification('Error', 'Please enter a valid positive number for the value', 'error');
-        return;
-    }
-    
-    // Collect conditions based on event type
-    const conditions = {};
-    
-    if (eventType === 'gift') {
-        const giftName = document.getElementById('condition-gift-select')?.value;
-        const minCoinsStr = document.getElementById('condition-min-coins')?.value || '0';
-        const minCoins = parseInt(minCoinsStr, 10);
-        
-        if (isNaN(minCoins) || minCoins < 0) {
-            showNotification('Error', 'Minimum coins must be a valid positive number', 'error');
-            return;
-        }
-        
-        if (giftName) conditions.giftName = giftName;
-        if (minCoins > 0) conditions.minCoins = minCoins;
-    } else if (eventType === 'like') {
-        const minLikesStr = document.getElementById('condition-min-likes')?.value || '0';
-        const minLikes = parseInt(minLikesStr, 10);
-        
-        if (isNaN(minLikes) || minLikes < 0) {
-            showNotification('Error', 'Minimum likes must be a valid positive number', 'error');
-            return;
-        }
-        
-        if (minLikes > 0) conditions.minLikes = minLikes;
-    } else if (eventType === 'chat') {
-        const command = document.getElementById('condition-command')?.value;
-        const keyword = document.getElementById('condition-keyword')?.value;
-        if (command) conditions.command = command;
-        if (keyword) conditions.keyword = keyword;
-    }
-    
-    const eventData = {
-        timer_id: currentEditingTimer.id,
-        event_type: eventType,
-        action_type: actionType,
-        action_value: actionValue,
-        conditions: conditions,
-        enabled: 1
-    };
-    
-    if (editingEventId) {
-        eventData.id = editingEventId;
-    }
-    
-    try {
-        const response = await fetch('/api/advanced-timer/events', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(eventData)
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Success', `Event rule ${editingEventId ? 'updated' : 'added'} successfully!`, 'success');
-            closeEventEditorModal();
-            loadTimerEvents(currentEditingTimer.id);
-        }
-    } catch (error) {
-        console.error('Error saving event rule:', error);
-        showNotification('Error', 'Failed to save event rule', 'error');
-    }
-}
-
-function closeEventEditorModal() {
-    const modal = document.getElementById('event-editor-modal');
-    if (modal) {
-        modal.remove();
-    }
-    editingEventId = null;
+    const d = document.createElement('div');
+    d.textContent = String(text == null ? '' : text);
+    return d.innerHTML;
 }

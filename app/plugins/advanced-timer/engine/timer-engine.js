@@ -179,7 +179,12 @@ class Timer extends EventEmitter {
     handleCompletion() {
         this.state = 'completed';
         this.stop();
-        this.emit('completed', { id: this.id, currentValue: this.currentValue });
+        this.emit('completed', {
+            id: this.id,
+            currentValue: this.currentValue,
+            expiryAction: this.config.expiry_action || 'none',
+            expiryActionConfig: this.config.expiry_action_config || {}
+        });
         this.api.log(`Timer ${this.name} completed`, 'info');
     }
 
@@ -188,12 +193,7 @@ class Timer extends EventEmitter {
      */
     addTime(seconds, source = null) {
         const oldValue = this.currentValue;
-        
-        if (this.mode === 'countdown' || this.mode === 'loop') {
-            this.currentValue += seconds;
-        } else {
-            this.currentValue += seconds;
-        }
+        this.currentValue += seconds;
 
         this.emit('time-added', { 
             id: this.id, 
@@ -211,12 +211,7 @@ class Timer extends EventEmitter {
      */
     removeTime(seconds, source = null) {
         const oldValue = this.currentValue;
-        
-        if (this.mode === 'countdown' || this.mode === 'loop') {
-            this.currentValue = Math.max(0, this.currentValue - seconds);
-        } else {
-            this.currentValue = Math.max(0, this.currentValue - seconds);
-        }
+        this.currentValue = Math.max(0, this.currentValue - seconds);
 
         this.emit('time-removed', { 
             id: this.id, 

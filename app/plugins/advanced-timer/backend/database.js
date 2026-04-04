@@ -217,14 +217,112 @@ class TimerDatabase {
 
             this.api.log('Advanced Timer database tables initialized', 'info');
 
+            // Add new flat per-interaction columns (idempotent)
+            this.upgradeSchema();
+
             // Migrate old data if needed (must happen after tables are created)
             if (this._pendingMigrationPath) {
                 this.migrateOldDatabase(this._pendingMigrationPath);
                 this._pendingMigrationPath = null;
             }
+
+            // Migrate simple timer_events entries into per_* columns
+            this.migrateSimpleEventsToPerFields();
         } catch (error) {
             this.api.log(`Error initializing timer database: ${error.message}`, 'error');
             throw error;
+        }
+    }
+
+    /**
+     * Add new columns to advanced_timers (idempotent — SQLite throws if column exists, we catch that)
+     */
+    upgradeSchema() {
+        const newColumns = [
+            'per_coin REAL DEFAULT 0',
+            'per_follow REAL DEFAULT 0',
+            'per_share REAL DEFAULT 0',
+            'per_subscribe REAL DEFAULT 0',
+            'per_like REAL DEFAULT 0',
+            'per_chat REAL DEFAULT 0',
+            'multiplier REAL DEFAULT 1.0',
+            'multiplier_enabled INTEGER DEFAULT 0',
+            'expiry_action TEXT DEFAULT \'none\'',
+            'expiry_action_config TEXT DEFAULT \'{}\'',
+            'shortcut_start_pause TEXT DEFAULT \'\'',
+            'shortcut_increase TEXT DEFAULT \'\'',
+            'shortcut_decrease TEXT DEFAULT \'\'',
+            'shortcut_step REAL DEFAULT 60'
+        ];
+
+        for (const colDef of newColumns) {
+            try {
+                this.db.prepare(`ALTER TABLE advanced_timers ADD COLUMN ${colDef}`).run();
+            } catch (_e) {
+                // Column already exists — silently ignore
+            }
+        }
+
+        this.api.log('Advanced Timer schema upgrade complete', 'debug');
+    }
+
+    /**
+     * One-time migration: convert simple advanced_timer_events rows
+     * (gift→add_time / remove_time without conditions) into per_* fields on the timer.
+     * Leaves entries with gift-name/minCoins conditions or set_value actions untouched.
+     */
+    migrateSimpleEventsToPerFields() {
+        try {
+            const timers = this.db.prepare('SELECT id FROM advanced_timers').all();
+
+            for (const { id } of timers) {
+                const events = this.db.prepare(
+                    'SELECT * FROM advanced_timer_events WHERE timer_id = ?'
+                ).all(id);
+
+                const updates = {};
+
+                for (const ev of events) {
+                    if (!ev.enabled) continue;
+                    if (ev.action_type !== 'add_time' && ev.action_type !== 'remove_time') continue;
+
+                    const conditions = JSON.parse(ev.conditions || '{}');
+                    const hasAdvancedConditions =
+                        conditions.giftName || conditions.minCoins || conditions.minLikes ||
+                        conditions.command || conditions.keyword;
+                    if (hasAdvancedConditions) continue;
+
+                    const sign = ev.action_type === 'add_time' ? 1 : -1;
+                    const seconds = sign * (parseFloat(ev.action_value) || 0);
+
+                    const fieldMap = {
+                        gift: 'per_coin',
+                        follow: 'per_follow',
+                        share: 'per_share',
+                        subscribe: 'per_subscribe',
+                        like: 'per_like',
+                        chat: 'per_chat'
+                    };
+
+                    const field = fieldMap[ev.event_type];
+                    if (!field) continue;
+
+                    // Only migrate if the per_* field is still at default (0)
+                    const current = this.db.prepare(`SELECT ${field} FROM advanced_timers WHERE id = ?`).get(id);
+                    if (current && current[field] === 0) {
+                        updates[field] = seconds;
+                    }
+                }
+
+                if (Object.keys(updates).length > 0) {
+                    const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+                    this.db.prepare(`UPDATE advanced_timers SET ${setClauses} WHERE id = ?`)
+                        .run(...Object.values(updates), id);
+                    this.api.log(`Migrated ${Object.keys(updates).length} event(s) to per_* fields for timer ${id}`, 'info');
+                }
+            }
+        } catch (error) {
+            this.api.log(`migrateSimpleEventsToPerFields (non-fatal): ${error.message}`, 'warn');
         }
     }
 
@@ -234,10 +332,7 @@ class TimerDatabase {
     getAllTimers() {
         try {
             const timers = this.db.prepare('SELECT * FROM advanced_timers ORDER BY created_at DESC').all();
-            return timers.map(timer => ({
-                ...timer,
-                config: JSON.parse(timer.config || '{}')
-            }));
+            return timers.map(timer => this._parseTimer(timer));
         } catch (error) {
             this.api.log(`Error getting all timers: ${error.message}`, 'error');
             return [];
@@ -251,10 +346,7 @@ class TimerDatabase {
         try {
             const timer = this.db.prepare('SELECT * FROM advanced_timers WHERE id = ?').get(id);
             if (!timer) return null;
-            return {
-                ...timer,
-                config: JSON.parse(timer.config || '{}')
-            };
+            return this._parseTimer(timer);
         } catch (error) {
             this.api.log(`Error getting timer ${id}: ${error.message}`, 'error');
             return null;
@@ -262,16 +354,54 @@ class TimerDatabase {
     }
 
     /**
+     * Parse raw DB row into a timer object
+     */
+    _parseTimer(row) {
+        return {
+            ...row,
+            config: JSON.parse(row.config || '{}'),
+            expiry_action_config: JSON.parse(row.expiry_action_config || '{}'),
+            per_coin: row.per_coin || 0,
+            per_follow: row.per_follow || 0,
+            per_share: row.per_share || 0,
+            per_subscribe: row.per_subscribe || 0,
+            per_like: row.per_like || 0,
+            per_chat: row.per_chat || 0,
+            multiplier: row.multiplier || 1.0,
+            multiplier_enabled: row.multiplier_enabled ? 1 : 0,
+            expiry_action: row.expiry_action || 'none',
+            shortcut_start_pause: row.shortcut_start_pause || '',
+            shortcut_increase: row.shortcut_increase || '',
+            shortcut_decrease: row.shortcut_decrease || '',
+            shortcut_step: row.shortcut_step || 60
+        };
+    }
+
+    /**
      * Create or update timer
      */
     saveTimer(timer) {
         try {
-            const { id, name, mode, initial_duration, current_value, target_value, state, config } = timer;
+            const {
+                id, name, mode, initial_duration, current_value, target_value, state, config,
+                per_coin, per_follow, per_share, per_subscribe, per_like, per_chat,
+                multiplier, multiplier_enabled,
+                expiry_action, expiry_action_config,
+                shortcut_start_pause, shortcut_increase, shortcut_decrease, shortcut_step
+            } = timer;
             
             this.db.prepare(`
                 INSERT OR REPLACE INTO advanced_timers 
-                (id, name, mode, initial_duration, current_value, target_value, state, config, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+                (id, name, mode, initial_duration, current_value, target_value, state, config, updated_at,
+                 per_coin, per_follow, per_share, per_subscribe, per_like, per_chat,
+                 multiplier, multiplier_enabled,
+                 expiry_action, expiry_action_config,
+                 shortcut_start_pause, shortcut_increase, shortcut_decrease, shortcut_step)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'),
+                        ?, ?, ?, ?, ?, ?,
+                        ?, ?,
+                        ?, ?,
+                        ?, ?, ?, ?)
             `).run(
                 id,
                 name,
@@ -280,7 +410,21 @@ class TimerDatabase {
                 current_value || 0,
                 target_value || 0,
                 state || 'stopped',
-                JSON.stringify(config || {})
+                JSON.stringify(config || {}),
+                per_coin || 0,
+                per_follow || 0,
+                per_share || 0,
+                per_subscribe || 0,
+                per_like || 0,
+                per_chat || 0,
+                multiplier !== undefined ? multiplier : 1.0,
+                multiplier_enabled ? 1 : 0,
+                expiry_action || 'none',
+                JSON.stringify(expiry_action_config || {}),
+                shortcut_start_pause || '',
+                shortcut_increase || '',
+                shortcut_decrease || '',
+                shortcut_step !== undefined ? shortcut_step : 60
             );
 
             return true;

@@ -3,6 +3,12 @@
  * Handles real-time communication between server and clients
  */
 
+const FORWARDED_EVENTS = [
+    'started', 'paused', 'stopped', 'reset',
+    'tick', 'time-added', 'time-removed', 'value-set',
+    'loop', 'interval-complete', 'speed-changed'
+];
+
 class TimerWebSocket {
     constructor(plugin) {
         this.plugin = plugin;
@@ -11,55 +17,23 @@ class TimerWebSocket {
     }
 
     registerHandlers() {
-        // Forward timer engine events to all connected clients
-        this.plugin.engine.on('timer:started', (data) => {
-            this.io.emit('advanced-timer:started', data);
-        });
+        // Generic forwarding loop — replaces 13 copy-pasted handlers
+        for (const event of FORWARDED_EVENTS) {
+            this.plugin.engine.on(`timer:${event}`, (data) => {
+                this.io.emit(`advanced-timer:${event}`, data);
+            });
+        }
 
-        this.plugin.engine.on('timer:paused', (data) => {
-            this.io.emit('advanced-timer:paused', data);
-        });
-
-        this.plugin.engine.on('timer:stopped', (data) => {
-            this.io.emit('advanced-timer:stopped', data);
-        });
-
-        this.plugin.engine.on('timer:reset', (data) => {
-            this.io.emit('advanced-timer:reset', data);
-        });
-
+        // Completion needs special handling (chains, rules, log)
         this.plugin.engine.on('timer:completed', (data) => {
             this.io.emit('advanced-timer:completed', data);
             this.handleTimerCompleted(data);
         });
 
-        this.plugin.engine.on('timer:tick', (data) => {
-            this.io.emit('advanced-timer:tick', data);
-        });
-
-        this.plugin.engine.on('timer:time-added', (data) => {
-            this.io.emit('advanced-timer:time-added', data);
-        });
-
-        this.plugin.engine.on('timer:time-removed', (data) => {
-            this.io.emit('advanced-timer:time-removed', data);
-        });
-
+        // Threshold needs special handling (rules, log)
         this.plugin.engine.on('timer:threshold', (data) => {
             this.io.emit('advanced-timer:threshold', data);
             this.handleThresholdReached(data);
-        });
-
-        this.plugin.engine.on('timer:loop', (data) => {
-            this.io.emit('advanced-timer:loop', data);
-        });
-
-        this.plugin.engine.on('timer:interval-complete', (data) => {
-            this.io.emit('advanced-timer:interval-complete', data);
-        });
-
-        this.plugin.engine.on('timer:speed-changed', (data) => {
-            this.io.emit('advanced-timer:speed-changed', data);
         });
 
         // Client-initiated socket events
