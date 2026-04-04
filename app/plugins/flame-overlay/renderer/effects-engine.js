@@ -742,7 +742,7 @@ void main() {
                     float layerOffset = layerF * 0.37;
                     float particleCount = 16.0 + layerF * 8.0;
                     
-                    for (float i = 0.0; i < 24.0; i += 1.0) {
+                    for (float i = 0.0; i < 32.0; i += 1.0) {
                         if (i >= particleCount) break;
                         
                         vec2 seed = vec2(i + layerF * 100.0, layerOffset);
@@ -815,15 +815,15 @@ void main() {
                     if (pixelPos.x < uFrameThickness) {
                         inFrame = true;
                         edgeDist = pixelPos.x / uFrameThickness;
-                        vec2 tmp = pixelPos;
-                        pixelPos.x = tmp.y;
-                        pixelPos.y = tmp.x;
+                        vec2 originalPos = pixelPos;
+                        pixelPos.x = originalPos.y;
+                        pixelPos.y = originalPos.x;
                     } else if (pixelPos.x > uResolution.x - uFrameThickness) {
                         inFrame = true;
                         edgeDist = (uResolution.x - pixelPos.x) / uFrameThickness;
-                        vec2 tmp = pixelPos;
-                        pixelPos.x = tmp.y;
-                        pixelPos.y = uResolution.x - tmp.x;
+                        vec2 originalPos = pixelPos;
+                        pixelPos.x = originalPos.y;
+                        pixelPos.y = uResolution.x - originalPos.x;
                     }
                 } else {
                     float distFromLeft = pixelPos.x;
@@ -1057,7 +1057,7 @@ void main() {
                 
                 float boltCount = 3.0 + floor(uFlameIntensity * 3.0);
                 
-                for (float i = 0.0; i < 6.0; i += 1.0) {
+                for (float i = 0.0; i < 7.0; i += 1.0) {
                     if (i >= boltCount) break;
                     
                     float seed      = i * 1.7321 + 0.123;
