@@ -323,10 +323,10 @@
                     <div class="mb-3 flex items-center gap-3">
                         <span class="text-gray-400 text-sm">Verknüpfung:</span>
                         <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
-                            <input type="radio" name="cond-logic" value="and" ${wizardState.conditionLogic === 'and' ? 'checked' : ''}> UND (alle müssen zutreffen)
+                            <input type="radio" name="cond-logic" value="and" ${wizardState.conditionLogic === 'and' ? 'checked' : ''} data-wiz-field="conditionLogic"> UND (alle müssen zutreffen)
                         </label>
                         <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
-                            <input type="radio" name="cond-logic" value="or" ${wizardState.conditionLogic === 'or' ? 'checked' : ''}> ODER (mindestens eine muss zutreffen)
+                            <input type="radio" name="cond-logic" value="or" ${wizardState.conditionLogic === 'or' ? 'checked' : ''} data-wiz-field="conditionLogic"> ODER (mindestens eine muss zutreffen)
                         </label>
                     </div>
                 ` : ''}
@@ -974,6 +974,44 @@
     // ===== EVENT DELEGATION =====
 
     /**
+     * Handles input/change events on wizard form fields using data-* attributes.
+     * Extracted as a module-level function for maintainability.
+     * @param {HTMLElement} target - The event target element
+     */
+    function handleWizFieldChange(target) {
+        if (target.dataset.wizField) {
+            const field = target.dataset.wizField;
+            let value;
+            if (target.type === 'checkbox') {
+                value = target.checked;
+            } else if (target.type === 'number') {
+                value = parseFloat(target.value) || 0;
+            } else {
+                value = target.value;
+            }
+            _updateState(field, value);
+        }
+
+        if (target.dataset.wizCondition !== undefined) {
+            const index = parseInt(target.dataset.wizCondition);
+            const key = target.dataset.key;
+            _updateCondition(index, key, target.value);
+        }
+
+        if (target.dataset.wizActionField !== undefined) {
+            const actionIndex = parseInt(target.dataset.wizActionField);
+            const key = target.dataset.key;
+            const value = target.type === 'checkbox' ? target.checked :
+                target.type === 'number' ? (parseFloat(target.value) || 0) : target.value;
+            _updateAction(actionIndex, key, value);
+        }
+
+        if (target.dataset.wizFilterActions !== undefined) {
+            _filterActions(target.value);
+        }
+    }
+
+    /**
      * Initialize event delegation for wizard modal
      * Replaces all inline onclick/oninput/onchange handlers
      */
@@ -1026,43 +1064,6 @@
                     break;
             }
         });
-
-        function handleWizFieldChange(target) {
-            if (target.dataset.wizField) {
-                const field = target.dataset.wizField;
-                let value;
-                if (target.type === 'checkbox') {
-                    value = target.checked;
-                } else if (target.type === 'number') {
-                    value = parseFloat(target.value) || 0;
-                } else {
-                    value = target.value;
-                }
-                _updateState(field, value);
-            }
-
-            if (target.dataset.wizCondition !== undefined) {
-                const index = parseInt(target.dataset.wizCondition);
-                const key = target.dataset.key;
-                _updateCondition(index, key, target.value);
-            }
-
-            if (target.dataset.wizActionField !== undefined) {
-                const actionIndex = parseInt(target.dataset.wizActionField);
-                const key = target.dataset.key;
-                const value = target.type === 'checkbox' ? target.checked :
-                    target.type === 'number' ? (parseFloat(target.value) || 0) : target.value;
-                _updateAction(actionIndex, key, value);
-            }
-
-            if (target.dataset.wizFilterActions !== undefined) {
-                _filterActions(target.value);
-            }
-
-            if (target.name === 'cond-logic') {
-                _updateState('conditionLogic', target.value);
-            }
-        }
 
         modal.addEventListener('input', (e) => {
             handleWizFieldChange(e.target);
