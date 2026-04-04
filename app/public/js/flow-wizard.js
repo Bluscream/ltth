@@ -197,7 +197,7 @@
             const isDone = step < wizardState.currentStep;
             return `
                 <button class="wizard-step-btn ${isActive ? 'active' : ''} ${isDone ? 'done' : ''}"
-                        onclick="FlowWizard.goToStep(${step})"
+                        data-wiz-action="go-to-step" data-step="${step}"
                         title="${label}">
                     <span class="step-num">${isDone ? '✓' : step}</span>
                     <span class="step-label">${label}</span>
@@ -218,14 +218,14 @@
 
         nav.innerHTML = `
             <div style="display:flex;gap:8px;align-items:center;">
-                ${!isFirst ? `<button class="btn btn-ghost" onclick="FlowWizard.prevStep()">← Zurück</button>` : ''}
+                ${!isFirst ? `<button class="btn btn-ghost" data-wiz-action="prev-step">← Zurück</button>` : ''}
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
                 ${isLast ? `
-                    <button class="btn btn-ghost" onclick="FlowWizard.testFlow()" id="wizard-test-btn">🧪 Testen</button>
-                    <button class="btn btn-primary" onclick="FlowWizard.saveFlow()">💾 Flow Speichern</button>
+                    <button class="btn btn-ghost" data-wiz-action="test-flow" id="wizard-test-btn">🧪 Testen</button>
+                    <button class="btn btn-primary" data-wiz-action="save-flow">💾 Flow Speichern</button>
                 ` : `
-                    <button class="btn btn-primary" onclick="FlowWizard.nextStep()">Weiter →</button>
+                    <button class="btn btn-primary" data-wiz-action="next-step">Weiter →</button>
                 `}
             </div>
         `;
@@ -243,20 +243,20 @@
                     <label class="form-label" for="wiz-name">Flow Name <span style="color:#ef4444">*</span></label>
                     <input type="text" id="wiz-name" class="form-input" placeholder="z.B. Rose Geschenk → Danke TTS"
                         value="${escapeHtmlAttr(wizardState.name)}"
-                        oninput="FlowWizard._updateState('name', this.value)">
+                        data-wiz-field="name">
                 </div>
 
                 <div class="form-group mb-4">
                     <label class="form-label" for="wiz-desc">Beschreibung <span class="text-gray-500">(optional)</span></label>
                     <textarea id="wiz-desc" class="form-textarea" rows="2"
                         placeholder="Wofür ist dieser Flow?"
-                        oninput="FlowWizard._updateState('description', this.value)">${escapeHtmlContent(wizardState.description)}</textarea>
+                        data-wiz-field="description">${escapeHtmlContent(wizardState.description)}</textarea>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
                         <input type="checkbox" id="wiz-enabled" ${wizardState.enabled ? 'checked' : ''}
-                            onchange="FlowWizard._updateState('enabled', this.checked)"
+                            data-wiz-field="enabled"
                             style="width:16px;height:16px;">
                         Flow sofort aktivieren
                     </label>
@@ -293,7 +293,7 @@
                         <div class="wizard-trigger-grid">
                             ${items.map(t => `
                                 <button class="wizard-trigger-card ${wizardState.trigger_type === t.id ? 'selected' : ''}"
-                                        onclick="FlowWizard._selectTrigger('${escapeHtmlAttr(t.id)}')"
+                                        data-wiz-action="select-trigger" data-trigger-id="${escapeHtmlAttr(t.id)}"
                                         title="${escapeHtmlAttr(t.description || '')}">
                                     <span class="trigger-icon">${t.icon || '⚡'}</span>
                                     <span class="trigger-name">${escapeHtmlContent(t.name)}</span>
@@ -323,12 +323,10 @@
                     <div class="mb-3 flex items-center gap-3">
                         <span class="text-gray-400 text-sm">Verknüpfung:</span>
                         <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
-                            <input type="radio" name="cond-logic" value="and" ${wizardState.conditionLogic === 'and' ? 'checked' : ''}
-                                onchange="FlowWizard._updateState('conditionLogic', 'and')"> UND (alle müssen zutreffen)
+                            <input type="radio" name="cond-logic" value="and" ${wizardState.conditionLogic === 'and' ? 'checked' : ''} data-wiz-field="conditionLogic"> UND (alle müssen zutreffen)
                         </label>
                         <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
-                            <input type="radio" name="cond-logic" value="or" ${wizardState.conditionLogic === 'or' ? 'checked' : ''}
-                                onchange="FlowWizard._updateState('conditionLogic', 'or')"> ODER (mindestens eine muss zutreffen)
+                            <input type="radio" name="cond-logic" value="or" ${wizardState.conditionLogic === 'or' ? 'checked' : ''} data-wiz-field="conditionLogic"> ODER (mindestens eine muss zutreffen)
                         </label>
                     </div>
                 ` : ''}
@@ -337,7 +335,7 @@
                     ${conditions.map((cond, i) => renderConditionRow(cond, i)).join('')}
                 </div>
 
-                <button class="btn btn-ghost mt-3" onclick="FlowWizard._addCondition()">
+                <button class="btn btn-ghost mt-3" data-wiz-action="add-condition">
                     + Bedingung hinzufügen
                 </button>
 
@@ -362,10 +360,10 @@
                 <div style="display:flex;gap:4px;align-items:center;flex:1;flex-wrap:wrap;min-width:0;">
                     <input type="text" class="form-input" placeholder="Feld (z.B. giftName)"
                         value="${escapeHtmlAttr(cond.field || '')}"
-                        oninput="FlowWizard._updateCondition(${index}, 'field', this.value)"
+                        data-wiz-condition="${index}" data-key="field"
                         style="width:150px;min-width:120px;">
                     <select class="form-select" style="width:160px;min-width:130px;"
-                        onchange="FlowWizard._updateCondition(${index}, 'operator', this.value)">
+                        data-wiz-condition="${index}" data-key="operator">
                         ${operators.map(op => `
                             <option value="${escapeHtmlAttr(op.id)}" ${cond.operator === op.id ? 'selected' : ''}>${escapeHtmlContent(op.label)}</option>
                         `).join('')}
@@ -380,11 +378,11 @@
                     </select>
                     <input type="text" class="form-input" placeholder="Wert"
                         value="${escapeHtmlAttr(cond.value || '')}"
-                        oninput="FlowWizard._updateCondition(${index}, 'value', this.value)"
+                        data-wiz-condition="${index}" data-key="value"
                         style="width:150px;min-width:120px;">
                 </div>
                 <button class="btn btn-ghost" style="color:#ef4444;padding:4px 8px;"
-                    onclick="FlowWizard._removeCondition(${index})">✕</button>
+                    data-wiz-action="remove-condition" data-index="${index}">✕</button>
             </div>
         `;
     }
@@ -435,7 +433,7 @@
 
                 ${wizardState.actions.length === 0 ? '<p class="text-gray-500 text-sm mb-3">Noch keine Aktionen. Füge mindestens eine hinzu.</p>' : ''}
 
-                <button class="btn btn-ghost mt-3" onclick="FlowWizard._showActionPicker()">
+                <button class="btn btn-ghost mt-3" data-wiz-action="show-action-picker">
                     + Aktion hinzufügen
                 </button>
 
@@ -443,7 +441,7 @@
                 <div id="wizard-action-picker" style="display:none;" class="mt-4 p-4 bg-gray-800 rounded-lg">
                     <h4 class="text-sm font-semibold mb-3 text-gray-200">Aktion auswählen:</h4>
                     <input type="text" class="form-input mb-3" placeholder="Aktionen suchen..."
-                        oninput="FlowWizard._filterActions(this.value)">
+                        data-wiz-filter-actions="">
                     <div id="wizard-action-picker-list" class="wizard-action-picker-grid">
                         ${renderActionPickerItems(wizardState.availableActions)}
                     </div>
@@ -485,7 +483,7 @@
                 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;">
                     ${items.map(a => `
                         <button class="wizard-action-option"
-                            onclick="FlowWizard._addAction('${escapeHtmlAttr(a.id)}')"
+                            data-wiz-action="add-action" data-action-type="${escapeHtmlAttr(a.id)}"
                             title="${escapeHtmlAttr(a.description || '')}">
                             <span style="font-weight:600;">${escapeHtmlContent(a.name)}</span>
                             ${a.description ? `<span style="font-size:11px;color:#9ca3af;display:block;">${escapeHtmlContent(a.description.substring(0, 60))}${a.description.length > 60 ? '…' : ''}</span>` : ''}
@@ -508,9 +506,9 @@
                 <div class="flex justify-between items-center mb-2">
                     <span class="font-semibold text-gray-200">${index + 1}. ${escapeHtmlContent(name)}</span>
                     <div style="display:flex;gap:4px;">
-                        ${canMoveUp ? `<button class="btn btn-ghost" style="padding:2px 6px;font-size:12px;" onclick="FlowWizard._moveAction(${index}, -1)" title="Nach oben">▲</button>` : ''}
-                        ${canMoveDown ? `<button class="btn btn-ghost" style="padding:2px 6px;font-size:12px;" onclick="FlowWizard._moveAction(${index}, 1)" title="Nach unten">▼</button>` : ''}
-                        <button class="btn btn-ghost" style="padding:2px 6px;color:#ef4444;" onclick="FlowWizard._removeAction(${index})">✕</button>
+                        ${canMoveUp ? `<button class="btn btn-ghost" style="padding:2px 6px;font-size:12px;" data-wiz-action="move-action" data-index="${index}" data-direction="-1" title="Nach oben">▲</button>` : ''}
+                        ${canMoveDown ? `<button class="btn btn-ghost" style="padding:2px 6px;font-size:12px;" data-wiz-action="move-action" data-index="${index}" data-direction="1" title="Nach unten">▼</button>` : ''}
+                        <button class="btn btn-ghost" style="padding:2px 6px;color:#ef4444;" data-wiz-action="remove-action" data-index="${index}">✕</button>
                     </div>
                 </div>
                 ${renderActionFields(action, index, fields)}
@@ -535,7 +533,7 @@
                             <label class="form-label text-xs" for="${inputId}">${escapeHtmlContent(field.label)}</label>
                             <textarea id="${inputId}" class="form-textarea" rows="2"
                                 placeholder="${escapeHtmlAttr(field.placeholder || '')}"
-                                oninput="FlowWizard._updateAction(${actionIndex}, '${field.name}', this.value)"
+                                data-wiz-action-field="${actionIndex}" data-key="${field.name}"
                                 >${escapeHtmlContent(String(val))}</textarea>
                         </div>
                     `;
@@ -544,7 +542,7 @@
                         <div class="form-group mb-2">
                             <label class="form-label text-xs" for="${inputId}">${escapeHtmlContent(field.label)}</label>
                             <select id="${inputId}" class="form-select"
-                                onchange="FlowWizard._updateAction(${actionIndex}, '${field.name}', this.value)">
+                                data-wiz-action-field="${actionIndex}" data-key="${field.name}">
                                 ${(field.options || []).map(opt => {
                                     const optVal = typeof opt === 'object' ? opt.value : opt;
                                     const optLabel = typeof opt === 'object' ? opt.label : opt;
@@ -559,7 +557,7 @@
                             <label class="form-label text-xs" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
                                 <input type="checkbox" id="${inputId}"
                                     ${val ? 'checked' : ''}
-                                    onchange="FlowWizard._updateAction(${actionIndex}, '${field.name}', this.checked)"
+                                    data-wiz-action-field="${actionIndex}" data-key="${field.name}"
                                     style="width:14px;height:14px;">
                                 ${escapeHtmlContent(field.label)}
                             </label>
@@ -574,7 +572,7 @@
                                 ${field.min !== undefined ? `min="${field.min}"` : ''}
                                 ${field.max !== undefined ? `max="${field.max}"` : ''}
                                 placeholder="${escapeHtmlAttr(field.placeholder || '')}"
-                                oninput="FlowWizard._updateAction(${actionIndex}, '${field.name}', parseFloat(this.value) || 0)">
+                                data-wiz-action-field="${actionIndex}" data-key="${field.name}">
                         </div>
                     `;
                 default: // text
@@ -584,7 +582,7 @@
                             <input type="text" id="${inputId}" class="form-input"
                                 value="${escapeHtmlAttr(String(val))}"
                                 placeholder="${escapeHtmlAttr(field.placeholder || '')}"
-                                oninput="FlowWizard._updateAction(${actionIndex}, '${field.name}', this.value)">
+                                data-wiz-action-field="${actionIndex}" data-key="${field.name}">
                         </div>
                     `;
             }
@@ -612,13 +610,13 @@
                         <label class="form-label" for="wiz-cooldown">Cooldown (Sekunden)</label>
                         <input type="number" id="wiz-cooldown" class="form-input" min="0" max="3600"
                             value="${wizardState.cooldown}"
-                            oninput="FlowWizard._updateState('cooldown', parseInt(this.value) || 0)">
+                            data-wiz-field="cooldown">
                         <p class="form-help">0 = kein Cooldown. Flow kann nicht schneller als alle N Sekunden auslösen.</p>
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="wiz-priority">Priorität</label>
                         <select id="wiz-priority" class="form-select"
-                            onchange="FlowWizard._updateState('priority', this.value)">
+                            data-wiz-field="priority">
                             ${PRIORITY_OPTIONS.map(p => `
                                 <option value="${p.value}" ${wizardState.priority === p.value ? 'selected' : ''}>${p.label}</option>
                             `).join('')}
@@ -971,6 +969,116 @@
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
+    }
+
+    // ===== EVENT DELEGATION =====
+
+    /**
+     * Handles input/change events on wizard form fields using data-* attributes.
+     * Extracted as a module-level function for maintainability.
+     * @param {HTMLElement} target - The event target element
+     */
+    function handleWizFieldChange(target) {
+        if (target.dataset.wizField) {
+            const field = target.dataset.wizField;
+            let value;
+            if (target.type === 'checkbox') {
+                value = target.checked;
+            } else if (target.type === 'number') {
+                value = parseFloat(target.value) || 0;
+            } else {
+                value = target.value;
+            }
+            _updateState(field, value);
+        }
+
+        if (target.dataset.wizCondition !== undefined) {
+            const index = parseInt(target.dataset.wizCondition);
+            const key = target.dataset.key;
+            _updateCondition(index, key, target.value);
+        }
+
+        if (target.dataset.wizActionField !== undefined) {
+            const actionIndex = parseInt(target.dataset.wizActionField);
+            const key = target.dataset.key;
+            const value = target.type === 'checkbox' ? target.checked :
+                target.type === 'number' ? (parseFloat(target.value) || 0) : target.value;
+            _updateAction(actionIndex, key, value);
+        }
+
+        if (target.dataset.wizFilterActions !== undefined) {
+            _filterActions(target.value);
+        }
+    }
+
+    /**
+     * Initialize event delegation for wizard modal
+     * Replaces all inline onclick/oninput/onchange handlers
+     */
+    function initWizardEventDelegation() {
+        const modal = document.getElementById('flow-wizard-modal');
+        if (!modal) return;
+
+        modal.addEventListener('click', (e) => {
+            const target = e.target.closest('[data-wiz-action]');
+            if (!target) return;
+
+            const action = target.dataset.wizAction;
+
+            switch (action) {
+                case 'go-to-step':
+                    goToStep(parseInt(target.dataset.step));
+                    break;
+                case 'prev-step':
+                    prevStep();
+                    break;
+                case 'next-step':
+                    nextStep();
+                    break;
+                case 'save-flow':
+                    saveFlow();
+                    break;
+                case 'test-flow':
+                    testFlow();
+                    break;
+                case 'select-trigger':
+                    _selectTrigger(target.dataset.triggerId);
+                    break;
+                case 'add-condition':
+                    _addCondition();
+                    break;
+                case 'remove-condition':
+                    _removeCondition(parseInt(target.dataset.index));
+                    break;
+                case 'show-action-picker':
+                    _showActionPicker();
+                    break;
+                case 'add-action':
+                    _addAction(target.dataset.actionType);
+                    break;
+                case 'remove-action':
+                    _removeAction(parseInt(target.dataset.index));
+                    break;
+                case 'move-action':
+                    _moveAction(parseInt(target.dataset.index), parseInt(target.dataset.direction));
+                    break;
+            }
+        });
+
+        modal.addEventListener('input', (e) => {
+            handleWizFieldChange(e.target);
+        });
+
+        modal.addEventListener('change', (e) => {
+            handleWizFieldChange(e.target);
+        });
+    }
+
+    // Initialize event delegation once DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initWizardEventDelegation);
+    } else {
+        initWizardEventDelegation();
     }
 
     // ===== PUBLIC API =====
