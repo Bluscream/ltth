@@ -431,6 +431,7 @@ const iftttServices = {
 };
 const iftttEngine = new IFTTTEngine(db, logger, iftttServices);
 logger.info('⚡ IFTTT Engine initialized (replaces FlowEngine)');
+iftttEngine.init().catch(err => logger.error('❌ IFTTT Engine init error:', err));
 
 // PERFORMANCE OPTIMIZATION: Session Extractor is now lazy-loaded
 // It will be initialized on first use via getSessionExtractor()
