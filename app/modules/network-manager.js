@@ -41,8 +41,10 @@ function ifaceLabel(name, ip) {
   if (n.includes('zerotier') || n.startsWith('zt')) return 'ZeroTier';
   if (n.startsWith('docker') || n.startsWith('br-') || n.startsWith('veth')) return 'Docker';
   if (n.includes('wireguard') || n.startsWith('wg')) return 'WireGuard';
-  if (n.startsWith('wlan') || n.startsWith('wifi') || n.startsWith('wlp') || n.startsWith('wi-fi') || n.includes('wireless')) return 'WiFi';
-  if (n.startsWith('eth') || n.startsWith('en') || n.startsWith('ens') || n.startsWith('enp') || n.includes('ethernet')) return 'Ethernet';
+  if (n.startsWith('wlan') || n.startsWith('wlp') || n.startsWith('wi-fi') || n.includes('wireless')) return 'WiFi';
+  // macOS: en0 is typically WiFi, en1+ can be Ethernet/Thunderbolt
+  if (n.match(/^en\d+$/)) return 'Network Adapter';
+  if (n.startsWith('eth') || n.startsWith('ens') || n.startsWith('enp') || n.includes('ethernet')) return 'Ethernet';
   if (n.includes('loopback') || n === 'lo') return 'Loopback';
   if (n.startsWith('tun') || n.startsWith('tap')) return 'VPN Tunnel';
   return name;
@@ -417,7 +419,7 @@ class NetworkManager {
         }
 
         const parts = command.split(/\s+/);
-        child = spawn(parts[0], parts.slice(1), { stdio: ['ignore', 'pipe', 'pipe'], shell: true });
+        child = spawn(parts[0], parts.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
         this.tunnelProcess = child;
 
         const handler = (data) => {

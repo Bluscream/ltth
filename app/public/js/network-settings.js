@@ -107,11 +107,12 @@
     const customSelect = el('network-custom-address-select');
     if (customSelect) {
       const currentCustom = networkConfig.bindAddress || '';
+      const manualSelected = currentCustom && !ifaces.find(i => i.ip === currentCustom) ? 'selected' : '';
       customSelect.innerHTML = '<option value="">-- Select Interface --</option>' +
         ifaces.filter(i => i.type !== 'loopback').map(i =>
           `<option value="${i.ip}" ${i.ip === currentCustom ? 'selected' : ''}>${i.label} (${i.ip})</option>`
         ).join('') +
-        '<option value="manual" ${currentCustom && !ifaces.find(i => i.ip === currentCustom) ? "selected" : ""}>Manual IP...</option>';
+        `<option value="manual" ${manualSelected}>Manual IP...</option>`;
     }
   }
 
