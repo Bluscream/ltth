@@ -1,6 +1,6 @@
 /**
- * Test Suite for Flame Overlay Plugin v2.2.0
- * Tests backward compatibility and new features
+ * Test Suite for Flame Overlay Plugin v3.0.0
+ * Tests backward compatibility and new trigger features
  */
 
 const assert = require('assert');
@@ -13,6 +13,7 @@ class MockAPI {
         this.routes = [];
         this.sockets = [];
         this.emits = [];
+        this.tikTokHandlers = {};
     }
 
     getConfig(key) {
@@ -35,6 +36,10 @@ class MockAPI {
         this.emits.push({ event, data });
     }
 
+    registerTikTokEvent(event, handler) {
+        this.tikTokHandlers[event] = handler;
+    }
+
     getApp() {
         return {
             use: () => {}
@@ -51,7 +56,7 @@ class MockAPI {
 // Load the plugin
 const FlameOverlayPlugin = require('../main.js');
 
-console.log('🔥 Testing Flame Overlay Plugin v2.2.0\n');
+console.log('🔥 Testing Flame Overlay Plugin v3.0.0\n');
 
 // Test 1: Plugin initialization with no saved config
 console.log('Test 1: Default configuration initialization');
@@ -261,10 +266,216 @@ console.log('\nTest 7: Config value ranges (documentation check)');
     console.log('  ✓ All default values within documented ranges');
 }
 
-console.log('\n✅ All tests passed! Plugin v2.2.0 is working correctly.\n');
+// ============================
+// v3.0.0 Trigger System Tests
+// ============================
+
+// Test 8: Trigger defaults present in config
+console.log('\nTest 8: Trigger system defaults (v3.0.0)');
+{
+    const api = new MockAPI();
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+
+    assert.strictEqual(plugin.config.triggersEnabled, true, 'Triggers enabled by default');
+    assert.ok(Array.isArray(plugin.config.triggerRules), 'triggerRules is an array');
+    assert.ok(plugin.config.triggerRules.length > 0, 'triggerRules has default entries');
+    assert.strictEqual(plugin.config.triggerCooldown, 2000, 'Default cooldown is 2000ms');
+    assert.strictEqual(plugin.config.triggerMaxStack, 5, 'Default max stack is 5');
+    assert.strictEqual(plugin.config.chatColorCommands, true, 'Chat color commands enabled by default');
+    assert.strictEqual(plugin.config.triggerPreset, 'default', "Default preset is 'default'");
+
+    console.log('  ✓ All trigger defaults correct');
+}
+
+// Test 9: dispatchTrigger emits socket event
+console.log('\nTest 9: dispatchTrigger emits flame-overlay:trigger');
+{
+    const api = new MockAPI();
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+    plugin.config.triggerCooldown = 0; // disable cooldown for testing
+
+    plugin.dispatchTrigger({ type: 'flash', duration: 500, source: 'test' });
+
+    const triggerEmit = api.emits.find(e => e.event === 'flame-overlay:trigger');
+    assert.ok(triggerEmit, 'flame-overlay:trigger was emitted');
+    assert.strictEqual(triggerEmit.data.type, 'flash', 'Trigger type is flash');
+
+    console.log('  ✓ dispatchTrigger emits event correctly');
+}
+
+// Test 10: Cooldown prevents double-dispatch
+console.log('\nTest 10: Cooldown prevents rapid duplicate triggers');
+{
+    const api = new MockAPI();
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+    plugin.config.triggerCooldown = 5000; // 5 second cooldown
+
+    plugin.dispatchTrigger({ type: 'flash', duration: 500, source: 'gift:10' });
+    plugin.dispatchTrigger({ type: 'flash', duration: 500, source: 'gift:10' }); // should be blocked
+
+    const triggerEmits = api.emits.filter(e => e.event === 'flame-overlay:trigger');
+    assert.strictEqual(triggerEmits.length, 1, 'Only one trigger emitted due to cooldown');
+
+    console.log('  ✓ Cooldown blocks rapid duplicate triggers');
+}
+
+// Test 11: Max stack prevents over-triggering
+console.log('\nTest 11: Max stack prevents exceeding trigger limit');
+{
+    const api = new MockAPI();
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+    plugin.config.triggerCooldown = 0;
+    plugin.config.triggerMaxStack = 2;
+
+    plugin.dispatchTrigger({ type: 'flash', source: 'event1' });
+    plugin.dispatchTrigger({ type: 'pulse', source: 'event2' });
+    plugin.dispatchTrigger({ type: 'intensity-boost', source: 'event3' }); // should be blocked
+
+    const triggerEmits = api.emits.filter(e => e.event === 'flame-overlay:trigger');
+    assert.strictEqual(triggerEmits.length, 2, 'Only 2 triggers fired (maxStack=2)');
+
+    console.log('  ✓ Max stack blocks triggers when limit reached');
+}
+
+// Test 12: handleGiftTrigger tier dispatching
+console.log('\nTest 12: handleGiftTrigger dispatches correct tier');
+{
+    const api = new MockAPI();
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+    plugin.config.triggerCooldown = 0;
+
+    // Big gift
+    plugin.handleGiftTrigger({ diamondCount: 1500 });
+    const bigGift = api.emits.find(e => e.event === 'flame-overlay:trigger');
+    assert.strictEqual(bigGift.data.type, 'dramatic', 'Big gift → dramatic');
+
+    // Reset state between tiers
+    api.emits = [];
+    plugin.lastTriggerTime.clear();
+    plugin.activeTriggerCount = 0;
+
+    // Medium gift
+    plugin.handleGiftTrigger({ diamondCount: 200 });
+    const medGift = api.emits.find(e => e.event === 'flame-overlay:trigger');
+    assert.strictEqual(medGift.data.type, 'intensity-boost', 'Medium gift → intensity-boost');
+
+    // Reset state between tiers
+    api.emits = [];
+    plugin.lastTriggerTime.clear();
+    plugin.activeTriggerCount = 0;
+
+    // Small gift
+    plugin.handleGiftTrigger({ diamondCount: 5 });
+    const smallGift = api.emits.find(e => e.event === 'flame-overlay:trigger');
+    assert.strictEqual(smallGift.data.type, 'flash', 'Small gift → flash');
+
+    console.log('  ✓ Gift tiers dispatch correct trigger types');
+}
+
+// Test 13: handleChatCommand recognises color commands
+console.log('\nTest 13: handleChatCommand recognises chat color commands');
+{
+    const api = new MockAPI();
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+    plugin.config.triggerCooldown = 0;
+
+    plugin.handleChatCommand({ comment: '!red' });
+    const redTrigger = api.emits.find(e => e.event === 'flame-overlay:trigger');
+    assert.ok(redTrigger, '!red chat command fires trigger');
+    assert.strictEqual(redTrigger.data.color, '#ff0000', '!red maps to #ff0000');
+    api.emits = [];
+
+    plugin.handleChatCommand({ comment: 'hello world' }); // no match
+    const noTrigger = api.emits.find(e => e.event === 'flame-overlay:trigger');
+    assert.ok(!noTrigger, 'Regular chat message fires no trigger');
+
+    console.log('  ✓ Chat color commands work correctly');
+}
+
+// Test 14: evaluateCondition
+console.log('\nTest 14: evaluateCondition parses comparison expressions');
+{
+    const api = new MockAPI();
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+
+    assert.strictEqual(plugin.evaluateCondition('any', {}), true, "'any' always true");
+    assert.strictEqual(plugin.evaluateCondition('diamondCount >= 100', { diamondCount: 200 }), true, '>= 100 with 200');
+    assert.strictEqual(plugin.evaluateCondition('diamondCount >= 100', { diamondCount: 50 }), false, '>= 100 with 50');
+    assert.strictEqual(plugin.evaluateCondition('likeCount > 50', { likeCount: 51 }), true, '> 50 with 51');
+    assert.strictEqual(plugin.evaluateCondition('likeCount > 50', { likeCount: 50 }), false, '> 50 with 50');
+    assert.strictEqual(plugin.evaluateCondition('keyword-match', {}), false, "'keyword-match' returns false");
+
+    console.log('  ✓ evaluateCondition works correctly');
+}
+
+// Test 15: Preset activation updates config
+console.log('\nTest 15: Preset activation route updates config and saves');
+{
+    const api = new MockAPI();
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+    plugin.registerRoutes();
+
+    // Simulate the preset route handler
+    const presetRoute = api.routes.find(r => r.path === '/api/flame-overlay/trigger-preset/:name');
+    assert.ok(presetRoute, 'Preset activation route registered');
+
+    const mockRes = {
+        status: (code) => ({ json: () => {} }),
+        json: (data) => { mockRes._lastResponse = data; }
+    };
+
+    presetRoute.handler({ params: { name: 'hype' } }, mockRes);
+    assert.strictEqual(plugin.config.triggerPreset, 'hype', "Config preset set to 'hype'");
+    assert.strictEqual(plugin.config.triggerCooldown, 500, 'Hype preset cooldown is 500ms');
+    assert.strictEqual(plugin.config.triggerMaxStack, 10, 'Hype preset maxStack is 10');
+
+    presetRoute.handler({ params: { name: 'chill' } }, mockRes);
+    assert.strictEqual(plugin.config.triggerPreset, 'chill', "Config preset set to 'chill'");
+    assert.strictEqual(plugin.config.triggerCooldown, 5000, 'Chill preset cooldown is 5000ms');
+
+    console.log('  ✓ Preset activation route updates config correctly');
+}
+
+// Test 16: Backward compat - old config without triggerRules gets defaults
+console.log('\nTest 16: Backward compat - old config without triggerRules');
+{
+    const api = new MockAPI();
+    api.setConfig('settings', {
+        effectType: 'flames',
+        flameColor: '#0000ff',
+        // no triggerRules, triggersEnabled, etc.
+    });
+
+    const plugin = new FlameOverlayPlugin(api);
+    plugin.loadConfig();
+
+    assert.strictEqual(plugin.config.flameColor, '#0000ff', 'Old config preserved');
+    assert.ok(Array.isArray(plugin.config.triggerRules), 'triggerRules defaulted to array');
+    assert.ok(plugin.config.triggerRules.length > 0, 'triggerRules defaulted to non-empty');
+    assert.strictEqual(plugin.config.triggersEnabled, true, 'triggersEnabled defaults to true');
+
+    console.log('  ✓ Backward compat: old config gets trigger defaults');
+}
+
+console.log('\n✅ All tests passed! Plugin v3.0.0 is working correctly.\n');
 console.log('Summary:');
 console.log('  - Backward compatibility: ✓');
 console.log('  - New features (30+ options): ✓');
 console.log('  - Config persistence: ✓');
 console.log('  - Resolution presets: ✓');
 console.log('  - Value ranges: ✓');
+console.log('  - Trigger defaults (v3.0.0): ✓');
+console.log('  - Trigger dispatch & cooldown: ✓');
+console.log('  - Gift handler tiers: ✓');
+console.log('  - Chat color commands: ✓');
+console.log('  - Trigger rule evaluation: ✓');
+console.log('  - Preset activation: ✓');
+console.log('  - Backward compat (no triggerRules): ✓');
