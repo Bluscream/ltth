@@ -2870,7 +2870,9 @@ class GameEnginePlugin {
       this.recentGiftEvents.set(dedupKey, now);
       this.logger.info(`[PLINKO TRIGGER] Gift ${giftName} (ID: ${giftId}) matched Plinko board "${matchingPlinkoBoard.name}" (ID: ${matchingPlinkoBoard.id}) - triggering ${effectiveCount}x`);
       for (let i = 0; i < effectiveCount; i++) {
-        this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, giftIdStr);
+        // Pass matchingPlinkoBoard.id so handlePlinkoGiftTrigger uses the correct board's config
+        // directly instead of falling back to the default (first) board.
+        this.handlePlinkoGiftTrigger(uniqueId, nickname, profilePictureUrl, giftName, giftIdStr, false, matchingPlinkoBoard.id);
       }
       return;
     }
@@ -3022,7 +3024,7 @@ class GameEnginePlugin {
   /**
    * Handle Plinko gift trigger
    */
-  async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName, giftId = null, useDefaults = false) {
+  async handlePlinkoGiftTrigger(username, nickname, profilePictureUrl, giftName, giftId = null, useDefaults = false, boardId = null) {
     try {
       // Normalize gift name and ID for consistent comparisons
       const normalizedGiftName = (giftName || '').trim();
@@ -3030,19 +3032,31 @@ class GameEnginePlugin {
       const normalizedGiftId = giftId ? String(giftId).trim() : null;
       let giftMapping = null;
       
-      // Get primary config
-      const config = this.plinkoGame.getConfig();
+      // When a specific board was identified during gift trigger lookup, use it directly.
+      // This prevents silently falling back to the first/default board when the matching
+      // gift actually belongs to a different board (the root cause of non-default boards
+      // not spawning balls).
+      if (boardId !== null) {
+        this.logger.info(`[PLINKO TRIGGER] Board-aware path: targeting board ID ${boardId} (matched by gift trigger lookup)`);
+      } else {
+        this.logger.debug(`[PLINKO TRIGGER] No specific board targeted – checking primary config then all boards`);
+      }
+
+      // Get config for the specific board (if known) or the default/first board (backward compat)
+      const config = boardId !== null
+        ? this.plinkoGame.getConfig(boardId)
+        : this.plinkoGame.getConfig();
       
       // Try by gift ID first (catalog-added mappings use the numeric ID as key)
       if (normalizedGiftId && config.giftMappings && config.giftMappings[normalizedGiftId]) {
         giftMapping = config.giftMappings[normalizedGiftId];
-        this.logger.debug(`[PLINKO] Found gift mapping in primary config by ID "${normalizedGiftId}"`);
+        this.logger.info(`[PLINKO] Found gift mapping in board "${config.name}" (ID: ${config.id}) by ID key "${normalizedGiftId}"`);
       }
       
       // Try exact match by gift name in primary config
       if (!giftMapping && config.giftMappings && config.giftMappings[normalizedGiftName]) {
         giftMapping = config.giftMappings[normalizedGiftName];
-        this.logger.debug(`[PLINKO] Found gift mapping in primary config for "${normalizedGiftName}"`);
+        this.logger.info(`[PLINKO] Found gift mapping in board "${config.name}" (ID: ${config.id}) by name key "${normalizedGiftName}"`);
       }
       
       // Try case-insensitive match by gift name in primary config
@@ -3051,15 +3065,23 @@ class GameEnginePlugin {
         for (const [key, value] of Object.entries(config.giftMappings)) {
           if (key.toLowerCase() === lowerGiftName) {
             giftMapping = value;
-            this.logger.info(`[PLINKO] Matched gift "${normalizedGiftName}" via case-insensitive lookup (key: "${key}")`);
+            this.logger.info(`[PLINKO] Matched gift "${normalizedGiftName}" in board "${config.name}" (ID: ${config.id}) via case-insensitive lookup (key: "${key}")`);
             break;
           }
         }
       }
       
-      // Fallback: Check all enabled Plinko boards for gift mappings
+      // Fallback: Check all enabled Plinko boards for gift mappings.
+      // This path is only reached when no specific boardId was provided (e.g. backward-compat
+      // calls) or when the primary config does not contain the mapping.
+      // When boardId IS provided, the primary config above is already the correct board, so
+      // reaching here means the mapping was not found there – log a warning for debuggability.
       if (!giftMapping) {
-        this.logger.debug(`[PLINKO] No mapping in primary config, checking all enabled boards...`);
+        if (boardId !== null) {
+          this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'none'}) not found in targeted board ID ${boardId} – falling back to all enabled boards`);
+        } else {
+          this.logger.debug(`[PLINKO] No mapping in primary config, checking all enabled boards...`);
+        }
         const boards = this.plinkoGame.getAllBoards();
         const lowerGiftName = normalizedGiftName.toLowerCase(); // Compute once, reuse in loop
         
@@ -3073,14 +3095,14 @@ class GameEnginePlugin {
             // Try by gift ID first (catalog-added mappings use the numeric ID as key)
             if (normalizedGiftId && mappings[normalizedGiftId]) {
               giftMapping = mappings[normalizedGiftId];
-              this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" by ID "${normalizedGiftId}" (board ID: ${board.id})`);
+              this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id}) by ID key "${normalizedGiftId}"`);
               break;
             }
             
             // Try exact match by name
             if (mappings[normalizedGiftName]) {
               giftMapping = mappings[normalizedGiftName];
-              this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id})`);
+              this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id}) by name key "${normalizedGiftName}"`);
               break;
             }
             
@@ -3088,7 +3110,7 @@ class GameEnginePlugin {
             for (const [key, value] of Object.entries(mappings)) {
               if (key.toLowerCase() === lowerGiftName) {
                 giftMapping = value;
-                this.logger.info(`[PLINKO] Matched gift "${normalizedGiftName}" in board "${board.name}" via case-insensitive lookup (key: "${key}")`);
+                this.logger.info(`[PLINKO] Matched gift "${normalizedGiftName}" in board "${board.name}" (ID: ${board.id}) via case-insensitive lookup (key: "${key}")`);
                 break;
               }
             }
@@ -3106,10 +3128,11 @@ class GameEnginePlugin {
             // Trigger-Tab-only configuration: no board-specific mapping, but the gift IS
             // configured as a Plinko trigger. Spawn with safe defaults so the user sees balls.
             giftMapping = { betAmount: 100, ballType: 'standard' };
-            this.logger.info(`[PLINKO] Gift "${normalizedGiftName}" has no board-specific mapping - using defaults (betAmount=100, ballType=standard)`);
+            this.logger.info(`[PLINKO] Gift "${normalizedGiftName}" has no board-specific mapping - using defaults (betAmount=100, ballType=standard) [source: Trigger-Tab fallback]`);
           } else {
             const boardNames = enabledBoards.map(b => b.name).join(', ') || 'none';
-            this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board. Available enabled boards: ${boardNames}`);
+            const boardContext = boardId !== null ? ` (targeted board ID: ${boardId})` : '';
+            this.logger.warn(`[PLINKO] Gift "${normalizedGiftName}" (ID: ${normalizedGiftId || 'unknown'}) triggered Plinko but no mapping found in any board${boardContext}. Available enabled boards: ${boardNames}`);
             return;
           }
         }
@@ -3117,8 +3140,9 @@ class GameEnginePlugin {
 
       const betAmount = giftMapping.betAmount || 100; // Default bet if not configured
       const ballType = giftMapping.ballType || 'standard'; // 'standard' or 'golden'
+      const boardContext = boardId !== null ? ` [board ID: ${boardId}]` : '';
 
-      this.logger.info(`[PLINKO] Spawning ball for ${username}: betAmount=${betAmount}, ballType=${ballType}`);
+      this.logger.info(`[PLINKO] Spawning ball for ${username}: betAmount=${betAmount}, ballType=${ballType}${boardContext}`);
 
       // Spawn ball
       const result = await this.plinkoGame.spawnBall(

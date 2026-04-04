@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### 🎰 **Plinko – Board-aware gift trigger flow** (PR #222)
+- Fixed root cause: gifts configured on non-default Plinko boards were never recognized because `handlePlinkoGiftTrigger()` always loaded the first/default board config via `getConfig()` without a board ID, ignoring the board already identified by `findBoardByGiftTrigger()`.
+- `handleGiftTrigger()` now passes `matchingPlinkoBoard.id` into `handlePlinkoGiftTrigger()` so the correct board's config is used directly.
+- `handlePlinkoGiftTrigger()` accepts a new optional `boardId` parameter; when provided, `getConfig(boardId)` targets that specific board instead of the default.
+- Trigger-Tab-only fallback (`useDefaults=true`) and disabled-board handling are fully preserved.
+- Improved log output: logs now show which board was targeted, which mapping key matched, whether defaults were applied, and the reason when spawning is skipped.
+- Added 4 regression tests: non-default board path, fall-through-to-all-boards warning, `handleGiftTrigger` boardId propagation, Trigger-Tab null-boardId contract.
+
 ## [1.3.3] - 2026-03-26
 
 ### Added
