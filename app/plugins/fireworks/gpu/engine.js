@@ -1710,8 +1710,8 @@ class FireworksEngine {
                 }
                 
                 this.webglEngine = new WebGLParticleEngine(this.canvas, {
-                    preserveDrawingBuffer: this.config.preserveDrawingBuffer !== false,
-                    desynchronized: this.config.desynchronized !== false
+                    preserveDrawingBuffer: this.config.preserveDrawingBuffer ?? true,
+                    desynchronized: this.config.desynchronized ?? true
                 });
                 const success = this.webglEngine.init();
                 
