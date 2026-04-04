@@ -185,10 +185,10 @@ function initializeButtons() {
             const alertSettings = document.getElementById('alert-settings');
             const webhookSettings = document.getElementById('webhook-settings');
 
-            if (e.target.value === 'alert') {
+            if (e.target.value === 'alert:show') {
                 alertSettings.style.display = 'block';
                 webhookSettings.style.display = 'none';
-            } else if (e.target.value === 'webhook') {
+            } else if (e.target.value === 'webhook:send') {
                 alertSettings.style.display = 'none';
                 webhookSettings.style.display = 'block';
             }
@@ -2061,8 +2061,8 @@ async function deleteFlow(id) {
 function showCreateFlowModal() {
     // Reset form
     document.getElementById('flow-name').value = '';
-    document.getElementById('flow-trigger-type').value = 'gift';
-    document.getElementById('flow-action-type').value = 'alert';
+    document.getElementById('flow-trigger-type').value = 'tiktok:gift';
+    document.getElementById('flow-action-type').value = 'alert:show';
     document.getElementById('flow-action-text').value = '';
 
     // Show modal
@@ -2084,7 +2084,7 @@ async function saveNewFlow() {
         return;
     }
 
-    if (actionType === 'alert' && !actionText) {
+    if (actionType === 'alert:show' && !actionText) {
         alert('Please enter alert text!');
         return;
     }
@@ -2099,22 +2099,22 @@ async function saveNewFlow() {
     };
 
     // Add action based on type
-    if (actionType === 'alert') {
+    if (actionType === 'alert:show') {
         flow.actions.push({
-            type: 'alert',
+            type: 'alert:show',
             text: actionText,
             duration: 5,
             sound_file: null,
             volume: 80
         });
-    } else if (actionType === 'webhook') {
+    } else if (actionType === 'webhook:send') {
         const webhookUrl = document.getElementById('flow-webhook-url').value.trim();
         if (!webhookUrl) {
             alert('Please enter a webhook URL!');
             return;
         }
         flow.actions.push({
-            type: 'webhook',
+            type: 'webhook:send',
             method: 'POST',
             url: webhookUrl
         });

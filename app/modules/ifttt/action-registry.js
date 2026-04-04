@@ -3,9 +3,97 @@
  * Central registry for all available actions in the automation system
  */
 
+const dns = require('dns').promises;
+
 // Constants
 const VRCHAT_EMOTE_SLOT_MIN = 0;
 const VRCHAT_EMOTE_SLOT_MAX = 7;
+
+// Default allowed webhook domains (SSRF protection)
+const DEFAULT_ALLOWED_WEBHOOK_DOMAINS = [
+    'webhook.site',
+    'discord.com',
+    'zapier.com',
+    'ifttt.com',
+    'make.com',
+    'integromat.com'
+];
+
+// Blocked IP prefixes (RFC1918, loopback, link-local, multicast, IPv6 private)
+const BLOCKED_IP_PATTERNS = [
+    '127.',
+    '10.',
+    '172.16.', '172.17.', '172.18.', '172.19.',
+    '172.20.', '172.21.', '172.22.', '172.23.',
+    '172.24.', '172.25.', '172.26.', '172.27.',
+    '172.28.', '172.29.', '172.30.', '172.31.',
+    '192.168.',
+    '169.254.',
+    '0.',
+    '224.', '225.', '226.', '227.', '228.', '229.', '230.', '231.',
+    '232.', '233.', '234.', '235.', '236.', '237.', '238.', '239.',
+    'localhost',
+    '::1',
+    'fe80:',
+    'fc00:',
+    'fd00:'
+];
+
+// Blocked IP prefixes pre-lowercased for efficient matching
+const BLOCKED_IP_PATTERNS_LOWER = BLOCKED_IP_PATTERNS.map(p => p.toLowerCase());
+
+/**
+ * Validate a webhook URL against SSRF protections.
+ * @param {string} url - URL to validate
+ * @param {string[]} allowedDomains - Whitelisted domains
+ * @throws {Error} if URL is blocked
+ */
+async function validateWebhookUrl(url, allowedDomains) {
+    const urlObj = new URL(url);
+    const hostLower = urlObj.hostname.toLowerCase();
+
+    // Block direct IP-based URLs
+    const isDirectIP = BLOCKED_IP_PATTERNS_LOWER.some(p => hostLower.startsWith(p));
+    if (isDirectIP) {
+        throw new Error(`Webhook to internal network blocked: ${urlObj.hostname}`);
+    }
+
+    // Domain whitelist check (exact match or direct subdomain)
+    let isAllowedDomain = false;
+    for (const domain of allowedDomains) {
+        if (urlObj.hostname === domain) {
+            isAllowedDomain = true;
+            break;
+        }
+        const parts = urlObj.hostname.split('.');
+        const domainParts = domain.split('.');
+        if (parts.length === domainParts.length + 1 && urlObj.hostname.endsWith('.' + domain)) {
+            isAllowedDomain = true;
+            break;
+        }
+    }
+
+    if (!isAllowedDomain) {
+        throw new Error(`Webhook URL not in whitelist: ${urlObj.hostname}`);
+    }
+
+    // DNS resolution check against IP blacklist
+    try {
+        const v4 = await dns.resolve4(urlObj.hostname).catch(() => []);
+        const v6 = await dns.resolve6(urlObj.hostname).catch(() => []);
+        for (const ip of [...v4, ...v6]) {
+            const ipLower = ip.toLowerCase();
+            if (BLOCKED_IP_PATTERNS_LOWER.some(p => ipLower.startsWith(p))) {
+                throw new Error(`Webhook resolves to blocked IP: ${ip} (${urlObj.hostname})`);
+            }
+        }
+    } catch (dnsError) {
+        // Re-throw blocked-IP errors; ignore plain DNS lookup failures for whitelisted domains
+        if (dnsError.message.startsWith('Webhook resolves to blocked IP')) {
+            throw dnsError;
+        }
+    }
+}
 
 class ActionRegistry {
     constructor(logger) {
@@ -500,7 +588,7 @@ class ActionRegistry {
         // Webhook Actions
         this.register('webhook:send', {
             name: 'Send Webhook',
-            description: 'Send HTTP request to webhook',
+            description: 'Send HTTP request to webhook (allowed domains: webhook.site, discord.com, zapier.com, ifttt.com, make.com, integromat.com)',
             category: 'integration',
             icon: 'send',
             fields: [
@@ -515,20 +603,36 @@ class ActionRegistry {
                     services.logger?.warn('HTTP client (axios) not available');
                     throw new Error('HTTP client not available');
                 }
-                
+
                 if (!action.url) {
                     throw new Error('Webhook URL is required');
                 }
-                
-                const body = action.body 
-                    ? JSON.parse(services.templateEngine.render(action.body, context.data)) 
+
+                // Load configurable domain whitelist from DB, fall back to defaults
+                let allowedDomains = DEFAULT_ALLOWED_WEBHOOK_DOMAINS;
+                if (services.db) {
+                    try {
+                        const customDomains = services.db.getSetting('webhook_allowed_domains');
+                        if (customDomains) {
+                            allowedDomains = JSON.parse(customDomains);
+                        }
+                    } catch (e) {
+                        services.logger?.warn('Failed to parse webhook_allowed_domains setting, using defaults');
+                    }
+                }
+
+                // SSRF protection
+                await validateWebhookUrl(action.url, allowedDomains);
+
+                const body = action.body
+                    ? JSON.parse(services.templateEngine.render(action.body, context.data))
                     : context.data;
-                const headers = action.headers 
-                    ? JSON.parse(action.headers) 
+                const headers = action.headers
+                    ? JSON.parse(action.headers)
                     : { 'Content-Type': 'application/json' };
-                
+
                 services.logger?.info(`🌐 Webhook: ${action.method || 'POST'} ${action.url}`);
-                
+
                 const response = await axios({
                     method: action.method || 'POST',
                     url: action.url,
@@ -536,7 +640,7 @@ class ActionRegistry {
                     headers,
                     timeout: 5000
                 });
-                
+
                 services.logger?.info(`✅ Webhook response: ${response.status}`);
                 return response.data;
             }
@@ -1003,7 +1107,9 @@ class ActionRegistry {
             executor: async (action, context, services) => {
                 const logger = services.logger;
                 if (!logger) {
-                    console.log('[Flow Log]', action.message || '(no message)');
+                    // fallback when logger not injected
+                    const level = action.level || 'info';
+                    process.stdout.write(`[Flow Log] ${action.message || '(no message)'}\n`);
                     return;
                 }
                 
@@ -1242,6 +1348,143 @@ class ActionRegistry {
 
                 services.logger?.info(`🎵 OpenShock: Pattern ${patternId} executed on ${deviceId}`);
                 return result;
+            }
+        });
+
+        // VDO.Ninja Actions
+        this.register('vdoninja:mute', {
+            name: 'VDO.Ninja - Mute Guest',
+            description: 'Mute audio and/or video for a VDO.Ninja guest slot',
+            category: 'vdoninja',
+            icon: 'mic-off',
+            fields: [
+                { name: 'guest_slot', label: 'Guest Slot (1-based)', type: 'number', required: true },
+                { name: 'mute_audio', label: 'Mute Audio', type: 'checkbox', default: true },
+                { name: 'mute_video', label: 'Mute Video', type: 'checkbox', default: false }
+            ],
+            executor: async (action, context, services) => {
+                const vdoninja = services.vdoninja;
+                if (!vdoninja) {
+                    services.logger?.warn('⚠️ VDO.Ninja Manager not available');
+                    throw new Error('VDO.Ninja Manager not available');
+                }
+                const slot = parseInt(action.guest_slot);
+                const muteAudio = action.mute_audio !== false;
+                const muteVideo = action.mute_video || false;
+                await vdoninja.muteGuest(slot, muteAudio, muteVideo);
+                services.logger?.info(`🔇 VDO.Ninja: Guest ${slot} muted - audio: ${muteAudio}, video: ${muteVideo}`);
+            }
+        });
+
+        this.register('vdoninja:unmute', {
+            name: 'VDO.Ninja - Unmute Guest',
+            description: 'Unmute audio and/or video for a VDO.Ninja guest slot',
+            category: 'vdoninja',
+            icon: 'mic',
+            fields: [
+                { name: 'guest_slot', label: 'Guest Slot (1-based)', type: 'number', required: true },
+                { name: 'unmute_audio', label: 'Unmute Audio', type: 'checkbox', default: true },
+                { name: 'unmute_video', label: 'Unmute Video', type: 'checkbox', default: false }
+            ],
+            executor: async (action, context, services) => {
+                const vdoninja = services.vdoninja;
+                if (!vdoninja) {
+                    services.logger?.warn('⚠️ VDO.Ninja Manager not available');
+                    throw new Error('VDO.Ninja Manager not available');
+                }
+                const slot = parseInt(action.guest_slot);
+                const unmuteAudio = action.unmute_audio !== false;
+                const unmuteVideo = action.unmute_video || false;
+                await vdoninja.unmuteGuest(slot, unmuteAudio, unmuteVideo);
+                services.logger?.info(`🔊 VDO.Ninja: Guest ${slot} unmuted - audio: ${unmuteAudio}, video: ${unmuteVideo}`);
+            }
+        });
+
+        this.register('vdoninja:solo', {
+            name: 'VDO.Ninja - Solo Guest',
+            description: 'Solo a VDO.Ninja guest for a specified duration',
+            category: 'vdoninja',
+            icon: 'user',
+            fields: [
+                { name: 'guest_slot', label: 'Guest Slot (1-based)', type: 'number', required: true },
+                { name: 'duration', label: 'Duration (ms)', type: 'number', default: 10000 }
+            ],
+            executor: async (action, context, services) => {
+                const vdoninja = services.vdoninja;
+                if (!vdoninja) {
+                    services.logger?.warn('⚠️ VDO.Ninja Manager not available');
+                    throw new Error('VDO.Ninja Manager not available');
+                }
+                const slot = parseInt(action.guest_slot);
+                const duration = action.duration || 10000;
+                await vdoninja.soloGuest(slot, duration);
+                services.logger?.info(`⭐ VDO.Ninja: Guest ${slot} solo for ${duration}ms`);
+            }
+        });
+
+        this.register('vdoninja:layout', {
+            name: 'VDO.Ninja - Change Layout',
+            description: 'Change VDO.Ninja layout with optional transition',
+            category: 'vdoninja',
+            icon: 'layout',
+            fields: [
+                { name: 'layout', label: 'Layout Name', type: 'text', required: true },
+                { name: 'transition', label: 'Transition', type: 'select', options: ['fade', 'slide', 'none'], default: 'fade' }
+            ],
+            executor: async (action, context, services) => {
+                const vdoninja = services.vdoninja;
+                if (!vdoninja) {
+                    services.logger?.warn('⚠️ VDO.Ninja Manager not available');
+                    throw new Error('VDO.Ninja Manager not available');
+                }
+                const layout = action.layout_name || action.layout;
+                const transition = action.transition || 'fade';
+                await vdoninja.changeLayout(layout, transition);
+                services.logger?.info(`🎨 VDO.Ninja: Layout changed to ${layout} (transition: ${transition})`);
+            }
+        });
+
+        this.register('vdoninja:volume', {
+            name: 'VDO.Ninja - Set Guest Volume',
+            description: 'Set audio volume for a VDO.Ninja guest slot',
+            category: 'vdoninja',
+            icon: 'volume-2',
+            fields: [
+                { name: 'guest_slot', label: 'Guest Slot (1-based)', type: 'number', required: true },
+                { name: 'volume', label: 'Volume (0.0 – 1.0)', type: 'number', default: 1.0 }
+            ],
+            executor: async (action, context, services) => {
+                const vdoninja = services.vdoninja;
+                if (!vdoninja) {
+                    services.logger?.warn('⚠️ VDO.Ninja Manager not available');
+                    throw new Error('VDO.Ninja Manager not available');
+                }
+                const slot = parseInt(action.guest_slot);
+                const volume = parseFloat(action.volume) || 1.0;
+                await vdoninja.setGuestVolume(slot, volume);
+                services.logger?.info(`🔊 VDO.Ninja: Guest ${slot} volume set to ${volume}`);
+            }
+        });
+
+        this.register('vdoninja:kick', {
+            name: 'VDO.Ninja - Kick Guest',
+            description: 'Remove a guest from VDO.Ninja with an optional reason',
+            category: 'vdoninja',
+            icon: 'user-x',
+            fields: [
+                { name: 'guest_slot', label: 'Guest Slot (1-based)', type: 'number', required: true },
+                { name: 'reason', label: 'Reason', type: 'text', default: 'Kicked by automation' }
+            ],
+            executor: async (action, context, services) => {
+                const vdoninja = services.vdoninja;
+                if (!vdoninja) {
+                    services.logger?.warn('⚠️ VDO.Ninja Manager not available');
+                    throw new Error('VDO.Ninja Manager not available');
+                }
+                const slot = parseInt(action.guest_slot);
+                const reason = action.reason || 'Kicked by automation';
+                await vdoninja.kickGuest(slot, reason);
+                services.logger?.info(`❌ VDO.Ninja: Guest ${slot} kicked - reason: ${reason}`);
             }
         });
     }

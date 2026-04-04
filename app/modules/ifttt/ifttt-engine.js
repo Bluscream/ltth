@@ -43,12 +43,35 @@ class IFTTTEngine {
         this.maxExecutionDepth = 10;
         this.executionStack = [];
 
+        // Warn about missing services (non-fatal)
+        this.validateServices();
+
         this.logger?.info('✅ IFTTT Engine initialized');
     }
 
     /**
-     * Process an event through the IFTTT system
+     * Validate injected services and warn about missing ones
      */
+    validateServices() {
+        const expectedServices = ['io', 'alertManager', 'obs', 'osc', 'tts', 'pluginLoader', 'vdoninja'];
+        for (const svc of expectedServices) {
+            if (!this.services[svc]) {
+                this.logger?.warn(`⚠️ IFTTT Service not available: ${svc} — related actions will fail`);
+            }
+        }
+    }
+
+    /**
+     * Async initialisation: runs DB migrations, sets up timer triggers
+     */
+    async init() {
+        try {
+            const { migrateFlows } = require('./migration');
+            await migrateFlows(this.db, this.logger);
+        } catch (error) {
+            this.logger?.error('❌ IFTTT migration error:', error);
+        }
+    }
     async processEvent(eventType, eventData = {}) {
         try {
             // Check if flows are globally enabled
