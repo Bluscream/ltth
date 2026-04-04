@@ -115,20 +115,23 @@ describe('Flame Overlay Plugin', () => {
     
     test('renderer has required shaders', () => {
         const rendererPath = path.join(pluginDir, 'renderer', 'index.html');
-        const content = fs.readFileSync(rendererPath, 'utf8');
+        const indexContent = fs.readFileSync(rendererPath, 'utf8');
         
-        // Check for shader scripts
-        expect(content).toContain('id="vertex-shader"');
-        expect(content).toContain('id="fragment-shader"');
-        expect(content).toContain('type="x-shader/x-vertex"');
-        expect(content).toContain('type="x-shader/x-fragment"');
+        // index.html must load effects-engine.js (all shaders live there as JS template literals)
+        expect(indexContent).toContain('effects-engine.js');
         
-        // Check for essential shader uniforms
-        expect(content).toContain('uTime');
-        expect(content).toContain('uFlameColor');
-        expect(content).toContain('uFlameSpeed');
-        expect(content).toContain('uFlameIntensity');
-        expect(content).toContain('uFrameThickness');
+        // Inline shader script blocks are intentionally absent – shaders are in effects-engine.js
+        expect(indexContent).not.toContain('id="vertex-shader"');
+        expect(indexContent).not.toContain('id="fragment-shader"');
+        
+        // Check that effects-engine.js contains the essential shader uniforms
+        const enginePath = path.join(pluginDir, 'renderer', 'effects-engine.js');
+        const engineContent = fs.readFileSync(enginePath, 'utf8');
+        expect(engineContent).toContain('uTime');
+        expect(engineContent).toContain('uFlameColor');
+        expect(engineContent).toContain('uFlameSpeed');
+        expect(engineContent).toContain('uFlameIntensity');
+        expect(engineContent).toContain('uFrameThickness');
     });
     
     test('flame.js has WebGL setup', () => {
