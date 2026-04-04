@@ -2102,7 +2102,12 @@ app.post('/api/hud-config/element/:elementId/toggle', apiLimiter, (req, res) => 
 
 app.get('/api/flows', apiLimiter, (req, res) => {
     const flows = db.getFlows();
-    res.json(flows);
+    // Enrich each flow with its cooldown setting
+    const enriched = flows.map(flow => ({
+        ...flow,
+        cooldown: parseInt(db.getSetting(`flow_cooldown_${flow.id}`)) || 0
+    }));
+    res.json(enriched);
 });
 
 app.get('/api/flows/:id', apiLimiter, (req, res) => {
@@ -2110,7 +2115,10 @@ app.get('/api/flows/:id', apiLimiter, (req, res) => {
     if (!flow) {
         return res.status(404).json({ success: false, error: 'Flow not found' });
     }
-    res.json(flow);
+    res.json({
+        ...flow,
+        cooldown: parseInt(db.getSetting(`flow_cooldown_${flow.id}`)) || 0
+    });
 });
 
 app.post('/api/flows', apiLimiter, (req, res) => {
@@ -2125,6 +2133,10 @@ app.post('/api/flows', apiLimiter, (req, res) => {
 
     try {
         const id = db.createFlow(flow);
+        // Store cooldown setting if provided
+        if (flow.cooldown !== undefined && flow.cooldown !== null) {
+            db.setSetting(`flow_cooldown_${id}`, String(parseInt(flow.cooldown) || 0));
+        }
         logger.info(`➕ Created flow: ${flow.name}`);
         res.json({ success: true, id });
     } catch (error) {
@@ -2138,6 +2150,10 @@ app.put('/api/flows/:id', apiLimiter, (req, res) => {
 
     try {
         db.updateFlow(req.params.id, flow);
+        // Update cooldown setting if provided
+        if (flow.cooldown !== undefined && flow.cooldown !== null) {
+            db.setSetting(`flow_cooldown_${req.params.id}`, String(parseInt(flow.cooldown) || 0));
+        }
         logger.info(`✏️ Updated flow: ${req.params.id}`);
         res.json({ success: true });
     } catch (error) {
@@ -2149,6 +2165,8 @@ app.put('/api/flows/:id', apiLimiter, (req, res) => {
 app.delete('/api/flows/:id', apiLimiter, (req, res) => {
     try {
         db.deleteFlow(req.params.id);
+        // Clean up cooldown setting
+        db.setSetting(`flow_cooldown_${req.params.id}`, '0');
         logger.info(`🗑️ Deleted flow: ${req.params.id}`);
         res.json({ success: true });
     } catch (error) {
