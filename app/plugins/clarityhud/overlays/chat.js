@@ -10,6 +10,10 @@
  * - Color engine based on team levels
  */
 
+// ==================== MODULE-LEVEL COUNTER (P3) ====================
+// Monotonic counter for collision-safe message IDs at high event rates.
+let _eventCounter = 0;
+
 // ==================== STATE MANAGEMENT ====================
 const STATE = {
   settings: {
@@ -240,53 +244,70 @@ function detectSystemPreferences() {
 }
 
 // ==================== INITIALIZATION ====================
+// P6: Retry wrapper – up to 3 attempts with 2-second delays.
 async function init() {
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 2000;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await _initOnce();
+      return; // success
+    } catch (error) {
+      console.error(`[CHAT HUD] Init attempt ${attempt}/${MAX_RETRIES} failed:`, error);
+      updateDebugStatus(`Init error (attempt ${attempt}/${MAX_RETRIES}): ${error.message}`);
+
+      if (attempt < MAX_RETRIES) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      } else {
+        updateDebugStatus(`Failed after ${MAX_RETRIES} attempts. Check console.`);
+      }
+    }
+  }
+}
+
+async function _initOnce() {
   console.log('[CHAT HUD] 📡 Loading settings from server...');
   updateDebugStatus('Loading settings...');
   
-  try {
-    // Load settings
-    const settingsResponse = await fetch('/api/clarityhud/settings/chat');
-    const settingsData = await settingsResponse.json();
+  // Load settings
+  const settingsResponse = await fetch('/api/clarityhud/settings/chat');
+  const settingsData = await settingsResponse.json();
 
-    console.log('[CHAT HUD] Settings response:', settingsData);
+  console.log('[CHAT HUD] Settings response:', settingsData);
 
-    if (settingsData.success && settingsData.settings) {
-      console.log('[CHAT HUD] ✅ Settings loaded successfully');
-      applySettings(settingsData.settings);
-    } else {
-      console.warn('[CHAT HUD] ⚠️ Settings response not successful, using defaults');
-    }
-
-    // Load initial state (existing messages)
-    try {
-      const stateResponse = await fetch('/api/clarityhud/state/chat');
-      const stateData = await stateResponse.json();
-      
-      if (stateData.success && stateData.events && stateData.events.chat) {
-        console.log('[CHAT HUD] ✅ Loading initial messages:', stateData.events.chat.length);
-        // Add existing messages to the display
-        stateData.events.chat.forEach(msg => {
-          addMessage(msg);
-        });
-      }
-    } catch (error) {
-      console.warn('[CHAT HUD] ⚠️ Could not load initial state:', error);
-      // Continue without initial messages
-    }
-
-    // Initialize virtual scrolling if enabled
-    if (STATE.settings.useVirtualScrolling) {
-      console.log('[CHAT HUD] Initializing virtual scrolling...');
-      initializeVirtualScrolling();
-    }
-
-    console.log('[CHAT HUD] ✅ Chat overlay initialized and ready to receive events');
-    updateDebugStatus('Ready - Waiting for events');
-  } catch (error) {
-    console.error('[CHAT HUD] ❌ Error initializing overlay:', error);
-    updateDebugStatus(`Error: ${error.message}`);
+  if (settingsData.success && settingsData.settings) {
+    console.log('[CHAT HUD] ✅ Settings loaded successfully');
+    applySettings(settingsData.settings);
+  } else {
+    console.warn('[CHAT HUD] ⚠️ Settings response not successful, using defaults');
   }
+
+  // Load initial state (existing messages)
+  try {
+    const stateResponse = await fetch('/api/clarityhud/state/chat');
+    const stateData = await stateResponse.json();
+    
+    if (stateData.success && stateData.events && stateData.events.chat) {
+      console.log('[CHAT HUD] ✅ Loading initial messages:', stateData.events.chat.length);
+      // Add existing messages to the display
+      stateData.events.chat.forEach(msg => {
+        addMessage(msg);
+      });
+    }
+  } catch (error) {
+    console.warn('[CHAT HUD] ⚠️ Could not load initial state:', error);
+    // Continue without initial messages
+  }
+
+  // Initialize virtual scrolling if enabled
+  if (STATE.settings.useVirtualScrolling) {
+    console.log('[CHAT HUD] Initializing virtual scrolling...');
+    initializeVirtualScrolling();
+  }
+
+  console.log('[CHAT HUD] ✅ Chat overlay initialized and ready to receive events');
+  updateDebugStatus('Ready - Waiting for events');
 }
 
 /**
@@ -430,7 +451,7 @@ function addMessage(chatData) {
     emotes: [],
     raw: chatData.raw || chatData,
     timestamp: Date.now(),
-    id: `chat_${Date.now()}_${Math.random()}`
+    id: `chat_${Date.now()}_${++_eventCounter}`
   };
 
   console.log('[CHAT HUD] Normalized data:', normalizedData);

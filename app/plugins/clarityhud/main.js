@@ -74,74 +74,36 @@ class ClarityHUDPlugin {
       res.sendFile(uiPath);
     });
 
-    // Serve library files
-    this.api.registerRoute('GET', '/plugins/clarityhud/lib/animations.js', (req, res) => {
-      const libPath = path.join(__dirname, 'lib', 'animations.js');
-      setNoCacheHeaders(res);
-      res.sendFile(libPath);
-    });
+    // P8: Single wildcard handler for all static plugin files.
+    // Validates against allowed subdirectories and file extensions to block
+    // path traversal attacks.
+    const ALLOWED_DIRS = new Set(['lib', 'overlays', 'ui', 'assets']);
+    const ALLOWED_EXTS = new Set(['.js', '.css', '.png', '.svg', '.woff2']);
 
-    this.api.registerRoute('GET', '/plugins/clarityhud/lib/accessibility.js', (req, res) => {
-      const libPath = path.join(__dirname, 'lib', 'accessibility.js');
-      setNoCacheHeaders(res);
-      res.sendFile(libPath);
-    });
+    this.api.registerRoute('GET', '/plugins/clarityhud/*', (req, res) => {
+      // req.params[0] contains everything after '/plugins/clarityhud/'
+      const requestedPath = req.params[0] || '';
 
-    this.api.registerRoute('GET', '/plugins/clarityhud/lib/layout-engine.js', (req, res) => {
-      const libPath = path.join(__dirname, 'lib', 'layout-engine.js');
-      setNoCacheHeaders(res);
-      res.sendFile(libPath);
-    });
+      // Block path traversal
+      if (requestedPath.includes('..')) {
+        return res.status(400).json({ error: 'Invalid path' });
+      }
 
-    this.api.registerRoute('GET', '/plugins/clarityhud/lib/emoji-parser.js', (req, res) => {
-      const libPath = path.join(__dirname, 'lib', 'emoji-parser.js');
-      setNoCacheHeaders(res);
-      res.sendFile(libPath);
-    });
+      const parts = requestedPath.split('/');
+      const subDir = parts[0];
+      const ext = path.extname(parts[parts.length - 1]).toLowerCase();
 
-    this.api.registerRoute('GET', '/plugins/clarityhud/lib/badge-renderer.js', (req, res) => {
-      const libPath = path.join(__dirname, 'lib', 'badge-renderer.js');
-      setNoCacheHeaders(res);
-      res.sendFile(libPath);
-    });
+      if (!ALLOWED_DIRS.has(subDir) || !ALLOWED_EXTS.has(ext)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
 
-    this.api.registerRoute('GET', '/plugins/clarityhud/lib/message-parser.js', (req, res) => {
-      const libPath = path.join(__dirname, 'lib', 'message-parser.js');
+      const filePath = path.join(__dirname, ...parts);
       setNoCacheHeaders(res);
-      res.sendFile(libPath);
-    });
-
-    this.api.registerRoute('GET', '/plugins/clarityhud/lib/virtual-scroller.js', (req, res) => {
-      const libPath = path.join(__dirname, 'lib', 'virtual-scroller.js');
-      setNoCacheHeaders(res);
-      res.sendFile(libPath);
-    });
-
-    // Serve overlay JavaScript files
-    this.api.registerRoute('GET', '/plugins/clarityhud/overlays/chat.js', (req, res) => {
-      const jsPath = path.join(__dirname, 'overlays', 'chat.js');
-      setNoCacheHeaders(res);
-      res.sendFile(jsPath);
-    });
-
-    this.api.registerRoute('GET', '/plugins/clarityhud/overlays/full.js', (req, res) => {
-      const jsPath = path.join(__dirname, 'overlays', 'full.js');
-      setNoCacheHeaders(res);
-      res.sendFile(jsPath);
-    });
-
-    // Serve multi-stream overlay JavaScript
-    this.api.registerRoute('GET', '/plugins/clarityhud/overlays/multi.js', (req, res) => {
-      const jsPath = path.join(__dirname, 'overlays', 'multi.js');
-      setNoCacheHeaders(res);
-      res.sendFile(jsPath);
-    });
-
-    // Serve UI JavaScript files
-    this.api.registerRoute('GET', '/plugins/clarityhud/ui/main.js', (req, res) => {
-      const jsPath = path.join(__dirname, 'ui', 'main.js');
-      setNoCacheHeaders(res);
-      res.sendFile(jsPath);
+      res.sendFile(filePath, (err) => {
+        if (err) {
+          res.status(404).json({ error: 'File not found' });
+        }
+      });
     });
 
     // API routes handled by backend

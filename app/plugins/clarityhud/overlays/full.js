@@ -2,6 +2,10 @@
  * ClarityHUD - Full Overlay
  */
 
+// ==================== MODULE-LEVEL COUNTER (P3) ====================
+// Monotonic counter for collision-safe event IDs at high event rates.
+let _eventCounter = 0;
+
 // ==================== STATE MANAGEMENT ====================
 const STATE = {
   settings: {},
@@ -16,6 +20,9 @@ const STATE = {
     join: []
   },
   eventIds: new Set(), // Track event IDs to prevent duplicates
+  // P2: buffering flag + queue to handle events arriving before initial state load
+  _buffering: false,
+  _eventBuffer: [],
   layoutEngine: null,
   animationRegistry: null,
   animationRenderer: null,
@@ -41,7 +48,38 @@ const EVENT_TYPES = {
 };
 
 // ==================== INITIALIZATION ====================
+// P6: Retry wrapper – up to 3 attempts with 2-second delays.
 async function init() {
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 2000;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await _initOnce();
+      return; // success
+    } catch (error) {
+      console.error(`[CLARITY FULL] Init attempt ${attempt}/${MAX_RETRIES} failed:`, error);
+
+      if (STATE.container) {
+        STATE.container.innerHTML = '';
+        const msg = document.createElement('div');
+        msg.style.cssText = 'color:#f88;padding:16px;font-family:monospace;font-size:14px;';
+        if (attempt < MAX_RETRIES) {
+          msg.textContent = `ClarityHUD init error (attempt ${attempt}/${MAX_RETRIES}). Retrying in ${RETRY_DELAY_MS / 1000}s… ${error.message}`;
+        } else {
+          msg.textContent = `ClarityHUD failed to initialize after ${MAX_RETRIES} attempts. Check the browser console for details.`;
+        }
+        STATE.container.appendChild(msg);
+      }
+
+      if (attempt < MAX_RETRIES) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
+  }
+}
+
+async function _initOnce() {
   console.log('Initializing ClarityHUD Full Overlay...');
 
   STATE.container = document.getElementById('overlay-container');
@@ -62,15 +100,25 @@ async function init() {
   // Initialize message parser
   STATE.messageParser = new MessageParser();
 
+  // P2: Connect socket FIRST (buffering enabled) so no events are lost while
+  // the REST call for initial state is in-flight.
+  STATE._buffering = true;
+  STATE._eventBuffer = [];
+  connectSocket();
+
   // Load settings and initial state
   await loadSettings();
   await loadInitialState();
 
+  // Disable buffering and flush any events that arrived during the REST call
+  STATE._buffering = false;
+  for (const { type, data } of STATE._eventBuffer) {
+    addEvent(type, data);
+  }
+  STATE._eventBuffer = [];
+
   // Initialize layout engine
   STATE.layoutEngine = new LayoutEngine(STATE.container, STATE.settings);
-
-  // Connect to socket
-  connectSocket();
 
   // Apply initial render
   render();
@@ -118,7 +166,7 @@ async function loadInitialState() {
             type: eventType,
             data: eventData,
             timestamp: timestamp,
-            id: `${eventType}_${timestamp}_${Math.random()}`
+            id: `${eventType}_${timestamp}_${++_eventCounter}`
           };
         });
       }
@@ -301,48 +349,56 @@ function connectSocket() {
   // Listen for event updates
   STATE.socket.on('clarityhud.update.chat', (data) => {
     if (STATE.settings.showChat !== false) {
+      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'chat', data }); return; }
       addEvent('chat', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.follow', (data) => {
     if (STATE.settings.showFollows !== false) {
+      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'follow', data }); return; }
       addEvent('follow', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.share', (data) => {
     if (STATE.settings.showShares !== false) {
+      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'share', data }); return; }
       addEvent('share', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.like', (data) => {
     if (STATE.settings.showLikes !== false) {
+      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'like', data }); return; }
       addEvent('like', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.gift', (data) => {
     if (STATE.settings.showGifts !== false) {
+      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'gift', data }); return; }
       addEvent('gift', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.subscribe', (data) => {
     if (STATE.settings.showSubs !== false) {
+      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'sub', data }); return; }
       addEvent('sub', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.treasure', (data) => {
     if (STATE.settings.showTreasureChests !== false) {
+      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'treasure', data }); return; }
       addEvent('treasure', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.join', (data) => {
     if (STATE.settings.showJoins !== false) {
+      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'join', data }); return; }
       addEvent('join', data);
     }
   });
@@ -355,7 +411,7 @@ function addEvent(type, data) {
     type,
     data,
     timestamp: timestamp,
-    id: `${type}_${timestamp}_${Math.random()}`
+    id: `${type}_${timestamp}_${++_eventCounter}`
   };
 
   // Check for duplicate events using a composite key
