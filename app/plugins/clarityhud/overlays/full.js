@@ -324,6 +324,19 @@ function applyAccessibilityPreset(preset) {
 }
 
 // ==================== SOCKET CONNECTION ====================
+
+/**
+ * Helper: if init buffering is still active, queue the event for later
+ * processing; otherwise add it directly to the feed.
+ */
+function bufferOrAddEvent(type, data) {
+  if (STATE._buffering) {
+    STATE._eventBuffer.push({ type, data });
+  } else {
+    addEvent(type, data);
+  }
+}
+
 function connectSocket() {
   STATE.socket = io();
 
@@ -349,57 +362,49 @@ function connectSocket() {
   // Listen for event updates
   STATE.socket.on('clarityhud.update.chat', (data) => {
     if (STATE.settings.showChat !== false) {
-      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'chat', data }); return; }
-      addEvent('chat', data);
+      bufferOrAddEvent('chat', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.follow', (data) => {
     if (STATE.settings.showFollows !== false) {
-      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'follow', data }); return; }
-      addEvent('follow', data);
+      bufferOrAddEvent('follow', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.share', (data) => {
     if (STATE.settings.showShares !== false) {
-      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'share', data }); return; }
-      addEvent('share', data);
+      bufferOrAddEvent('share', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.like', (data) => {
     if (STATE.settings.showLikes !== false) {
-      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'like', data }); return; }
-      addEvent('like', data);
+      bufferOrAddEvent('like', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.gift', (data) => {
     if (STATE.settings.showGifts !== false) {
-      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'gift', data }); return; }
-      addEvent('gift', data);
+      bufferOrAddEvent('gift', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.subscribe', (data) => {
     if (STATE.settings.showSubs !== false) {
-      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'sub', data }); return; }
-      addEvent('sub', data);
+      bufferOrAddEvent('sub', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.treasure', (data) => {
     if (STATE.settings.showTreasureChests !== false) {
-      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'treasure', data }); return; }
-      addEvent('treasure', data);
+      bufferOrAddEvent('treasure', data);
     }
   });
 
   STATE.socket.on('clarityhud.update.join', (data) => {
     if (STATE.settings.showJoins !== false) {
-      if (STATE._buffering) { STATE._eventBuffer.push({ type: 'join', data }); return; }
-      addEvent('join', data);
+      bufferOrAddEvent('join', data);
     }
   });
 }

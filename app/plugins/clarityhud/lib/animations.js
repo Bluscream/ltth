@@ -283,11 +283,10 @@ class AnimationRenderer {
       return;
     }
 
-    // P4: only promote to a GPU layer when below the concurrent-layer limit
+    // P4: only promote to a GPU layer when below the concurrent-layer limit.
+    // Let the animation handler run normally; override will-change only if we
+    // are at the layer limit (post-handler reset is sufficient).
     const throttleWillChange = this._timeoutIds.size >= this.maxConcurrentLayers;
-    if (throttleWillChange) {
-      element.style.willChange = 'auto';
-    }
 
     const duration = animation.in(element, speed);
 
@@ -336,11 +335,10 @@ class AnimationRenderer {
       return;
     }
 
-    // P4: only promote to a GPU layer when below the concurrent-layer limit
+    // P4: only promote to a GPU layer when below the concurrent-layer limit.
+    // Let the animation handler run normally; override will-change only if we
+    // are at the layer limit (post-handler reset is sufficient).
     const throttleWillChange = this._timeoutIds.size >= this.maxConcurrentLayers;
-    if (throttleWillChange) {
-      element.style.willChange = 'auto';
-    }
 
     const duration = animation.out(element, speed);
 

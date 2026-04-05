@@ -648,13 +648,16 @@ class ClarityHUDBackend {
     const { count, userCount } = this._likeBuffer;
 
     if (count > 0) {
+      // Resolve the single-user display name once to avoid calling the iterator twice
+      const singleUser = userCount === 1
+        ? `${this._likeBuffer.users.values().next().value}`
+        : `${userCount} viewers`;
+
       const aggregatedEvent = {
         // Use a synthetic aggregate user so the overlay renders correctly
         user: {
           uniqueId: 'aggregate',
-          nickname: userCount === 1
-            ? `${this._likeBuffer.users.values().next().value}`
-            : `${userCount} viewers`,
+          nickname: singleUser,
           profilePictureUrl: null,
           badge: null
         },
@@ -662,9 +665,7 @@ class ClarityHUDBackend {
         userCount,
         totalLikeCount: 0,
         uniqueId: 'aggregate',
-        username: userCount === 1
-          ? `${this._likeBuffer.users.values().next().value}`
-          : `${userCount} viewers`,
+        username: singleUser,
         isAggregated: true
       };
 
@@ -1057,10 +1058,11 @@ class ClarityHUDBackend {
       // Disconnect multi-stream connectors
       await this.disconnectMultiStreams();
 
-      // Flush any pending like buffer before cleanup
+      // Flush any pending like buffer before cleanup to emit accumulated events
       if (this._likeBuffer.flushTimer) {
         clearTimeout(this._likeBuffer.flushTimer);
         this._likeBuffer.flushTimer = null;
+        this._flushLikeBuffer();
       }
 
       // Clear all queues
