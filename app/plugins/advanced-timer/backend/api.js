@@ -441,7 +441,7 @@ class TimerAPI {
             }
         });
 
-        // ── TikFinity-style flat interaction endpoints ─────────────────────────
+        // ── Flat interaction endpoints ─────────────────────────────────────────
 
         // Update per-interaction seconds (per_coin, per_follow, per_share, per_subscribe, per_like, per_chat)
         this.api.registerRoute('put', '/api/advanced-timer/timers/:id/interactions', (req, res) => {

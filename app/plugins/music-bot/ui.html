@@ -71,7 +71,18 @@
       })();
     </script>
 
-    <section class="card player-card">
+    <nav class="tab-bar" id="tab-bar">
+      <button class="tab active" data-tab="player">🎵 Player</button>
+      <button class="tab" data-tab="queue">📋 Queue</button>
+      <button class="tab" data-tab="settings">⚙️ Einstellungen</button>
+      <button class="tab" data-tab="autodj">🤖 Auto-DJ</button>
+      <button class="tab" data-tab="aliases">💬 Aliases</button>
+      <button class="tab" data-tab="moderation">🛡️ Moderation</button>
+      <button class="tab" data-tab="overlay">📺 Overlay</button>
+      <button class="tab" data-tab="history">📜 History</button>
+    </nav>
+
+    <section class="card player-card tab-content active" data-tab-content="player">
       <div class="card-header">
         <div>
           <h2>Player &amp; Suche</h2>
@@ -98,6 +109,15 @@
 
       <div id="now-playing" class="now-playing empty">
         <p>Aktuell läuft nichts.</p>
+      </div>
+      <div class="np-progress-wrapper" id="np-progress-wrapper" style="display:none">
+        <div class="np-progress-bar">
+          <div class="np-progress-fill" id="np-progress-fill"></div>
+        </div>
+        <div class="np-time">
+          <span id="np-elapsed">0:00</span>
+          <span id="np-duration">0:00</span>
+        </div>
       </div>
 
       <div class="player-bottom">
@@ -131,7 +151,7 @@
       </form>
     </section>
 
-    <section class="card">
+    <section class="card tab-content" data-tab-content="settings">
       <div class="card-header">
         <div>
           <h2>Einstellungen</h2>
@@ -169,9 +189,13 @@
           <span>Nur Superfans dürfen Songs anfragen 🌟</span>
         </label>
       </div>
+      <div class="actions">
+        <button id="settings-save" class="btn primary">Einstellungen speichern</button>
+        <div id="settings-feedback" class="feedback"></div>
+      </div>
     </section>
 
-    <section class="card">
+    <section class="card tab-content" data-tab-content="overlay">
       <div class="card-header">
         <div>
           <h2>📺 OBS Overlay</h2>
@@ -220,7 +244,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card tab-content" data-tab-content="autodj">
       <div class="card-header">
         <div>
           <h2>Auto-DJ</h2>
@@ -260,7 +284,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card tab-content" data-tab-content="aliases">
       <div class="card-header">
         <div>
           <h2>Command Aliases</h2>
@@ -306,7 +330,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card tab-content" data-tab-content="queue">
       <div class="card-header">
         <div>
           <h2>Queue</h2>
@@ -319,7 +343,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card tab-content" data-tab-content="moderation">
       <div class="card-header">
         <div>
           <h2>Moderation</h2>
@@ -339,6 +363,10 @@
           <span>Geblockte Keywords (eine Zeile pro Keyword)</span>
           <textarea id="blocked-keywords" rows="3" placeholder="keyword1&#10;keyword2"></textarea>
         </label>
+      </div>
+      <div class="actions">
+        <button id="moderation-save" class="btn primary">Moderation speichern</button>
+        <div id="moderation-feedback" class="feedback"></div>
       </div>
 
       <div class="card-header">
@@ -385,7 +413,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card tab-content" data-tab-content="history">
       <div class="card-header">
         <div>
           <h2>History</h2>

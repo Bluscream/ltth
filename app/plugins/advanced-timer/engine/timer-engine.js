@@ -203,6 +203,14 @@ class Timer extends EventEmitter {
             source: source 
         });
 
+        // Emit a tick so overlays and UI update immediately,
+        // even when the timer is not in 'running' state.
+        this.emit('tick', {
+            id: this.id,
+            currentValue: this.currentValue,
+            state: this.state
+        });
+
         this.api.log(`Added ${seconds}s to timer ${this.name} (source: ${source})`, 'info');
     }
 
@@ -219,6 +227,14 @@ class Timer extends EventEmitter {
             currentValue: this.currentValue,
             oldValue: oldValue,
             source: source 
+        });
+
+        // Emit a tick so overlays and UI update immediately,
+        // even when the timer is not in 'running' state.
+        this.emit('tick', {
+            id: this.id,
+            currentValue: this.currentValue,
+            state: this.state
         });
 
         this.api.log(`Removed ${seconds}s from timer ${this.name} (source: ${source})`, 'info');

@@ -753,11 +753,11 @@ class MusicBotPlugin extends EventEmitter {
       case 'remove': {
         const queue = this.queueManager.getQueue();
         const lowerUser = (chatData.username || '').toLowerCase();
-        const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
-        if (idx === -1) {
-          this._emitChatResponse('Du hast keinen Song in der Queue.', chatData.username);
-        } else {
-          const result = this.queueManager.removeSong(idx);
+        const isPrivileged = await this._isPrivilegedUser(chatData.username, chatData);
+
+        if (command.index !== null && command.index !== undefined && isPrivileged) {
+          // Mod/Streamer: remove specific song by 0-based index
+          const result = this.queueManager.removeSong(command.index);
           if (result.success) {
             this._emitChatResponse(
               `"${result.song.title}" wurde aus der Queue entfernt.`,
@@ -765,7 +765,24 @@ class MusicBotPlugin extends EventEmitter {
             );
             this._emitQueue();
           } else {
-            this._emitChatResponse('Fehler beim Entfernen.', chatData.username);
+            this._emitChatResponse('Song nicht gefunden.', chatData.username);
+          }
+        } else {
+          // Remove user's own song
+          const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
+          if (idx === -1) {
+            this._emitChatResponse('Du hast keinen Song in der Queue.', chatData.username);
+          } else {
+            const result = this.queueManager.removeSong(idx);
+            if (result.success) {
+              this._emitChatResponse(
+                `"${result.song.title}" wurde aus der Queue entfernt.`,
+                chatData.username
+              );
+              this._emitQueue();
+            } else {
+              this._emitChatResponse('Fehler beim Entfernen.', chatData.username);
+            }
           }
         }
         return;
@@ -773,6 +790,17 @@ class MusicBotPlugin extends EventEmitter {
       default:
         break;
     }
+  }
+
+  async _isPrivilegedUser(username, chatData) {
+    if (chatData?.isModerator === true) return true;
+    if (Number.isFinite(chatData?.teamMemberLevel) && chatData.teamMemberLevel >= 1) return true;
+    try {
+      const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get('tiktok_username');
+      const streamer = row?.value;
+      if (streamer && streamer.toLowerCase() === (username || '').toLowerCase()) return true;
+    } catch (_) { /* ignore db errors */ }
+    return false;
   }
 
   async _handleDashboardRequest(query, username) {
@@ -1122,17 +1150,22 @@ class MusicBotPlugin extends EventEmitter {
     if (this.playbackSyncTimer) {
       clearInterval(this.playbackSyncTimer);
     }
-    this.playbackSyncTimer = setInterval(() => {
+    this.playbackSyncTimer = setInterval(async () => {
       const nowPlaying = this.playbackEngine.getNowPlaying();
       if (!nowPlaying) return;
-      const elapsed = nowPlaying.startedAt ? Math.max(0, Math.floor((Date.now() - nowPlaying.startedAt) / 1000)) : null;
+      let position = 0;
+      try {
+        position = await this.playbackEngine.getPosition();
+      } catch (_) {
+        position = nowPlaying.startedAt ? Math.max(0, Math.floor((Date.now() - nowPlaying.startedAt) / 1000)) : 0;
+      }
       this.api.emit('musicbot:playback-sync', {
         title: nowPlaying.title,
         artist: nowPlaying.artist,
         requestedBy: nowPlaying.requestedBy,
         thumbnail: nowPlaying.thumbnail,
         duration: nowPlaying.duration,
-        position: elapsed,
+        position,
         startedAt: nowPlaying.startedAt,
         state: this.playbackEngine.getState()
       });

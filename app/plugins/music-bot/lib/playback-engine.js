@@ -140,6 +140,33 @@ class PlaybackEngine extends EventEmitter {
     return this.state;
   }
 
+  async getPosition() {
+    if (!this.socket || this.state !== 'playing') return 0;
+    return new Promise((resolve) => {
+      const requestId = Date.now();
+      const handler = (chunk) => {
+        try {
+          const lines = chunk.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+            const msg = JSON.parse(line);
+            if (msg.request_id === requestId && msg.data !== undefined) {
+              clearTimeout(timeout);
+              this.socket.removeListener('data', handler);
+              resolve(Number(msg.data) || 0);
+              return;
+            }
+          }
+        } catch (_) { /* ignore parse errors */ }
+      };
+      const timeout = setTimeout(() => {
+        this.socket.removeListener('data', handler);
+        resolve(0);
+      }, 500);
+      this.socket.on('data', handler);
+      this.socket.write(`${JSON.stringify({ command: ['get_property', 'time-pos'], request_id: requestId })}\n`);
+    });
+  }
+
   async _ensureProcess() {
     if (this.process && this.process.exitCode === null) return;
 

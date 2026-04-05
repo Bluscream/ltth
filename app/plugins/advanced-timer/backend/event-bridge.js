@@ -58,11 +58,15 @@ class TimerEventBridge {
     /**
      * Update a single timer entry in the cache without a full rebuild.
      * Used by interaction/multiplier endpoints for efficiency.
+     * Falls back to a full rebuildCache() when the timer is not yet cached.
      */
     updateCacheEntry(timerId, fields) {
         const existing = this.cache.get(timerId);
         if (existing) {
             Object.assign(existing, fields);
+        } else {
+            this.api.log(`EventBridge: timer ${timerId} not found in cache — triggering full rebuild`, 'debug');
+            this.rebuildCache();
         }
     }
 
@@ -92,8 +96,13 @@ class TimerEventBridge {
      * @param {string} logMsg  - human-readable description
      */
     _applyFlat(field, units, source, logType, userId, logMsg) {
+        if (this.cache.size === 0) {
+            this.api.log(`EventBridge _applyFlat: no timers in cache for ${logType} event — skipping`, 'debug');
+            return;
+        }
         for (const [timerId, cached] of this.cache.entries()) {
             const perUnit = cached[field];
+            this.api.log(`EventBridge _applyFlat: timer=${timerId} ${field}=${perUnit} units=${units} source=${source}`, 'debug');
             if (perUnit === 0) continue;
 
             const timer = this.plugin.engine.getTimer(timerId);

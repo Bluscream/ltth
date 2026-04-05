@@ -1,5 +1,5 @@
 /**
- * Advanced Timer Plugin UI - TikFinity-style flat layout
+ * Advanced Timer Plugin UI
  */
 
 const socket = io();
