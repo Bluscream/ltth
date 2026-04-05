@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "PupCid's Little TikTool Helper",
-    "tagline": "Alternativa gratuita de código abierto a Tikfinity y Tiktory"
+    "tagline": "Herramienta gratuita de código abierto para streaming en TikTok LIVE"
   },
   "navigation": {
     "dashboard": "Panel",

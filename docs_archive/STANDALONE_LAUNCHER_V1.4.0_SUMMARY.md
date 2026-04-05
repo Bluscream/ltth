@@ -67,7 +67,7 @@ All requirements from the problem statement have been successfully implemented a
 
 **5 Tabs:**
 1. **Status** - Progress bar, logo, version, real-time updates
-2. **API & Systeme** - TikTok, GitHub, Node.js, npm, TikFinity, OBS status cards
+2. **API & Systeme** - TikTok, GitHub, Node.js, npm, OBS status cards
 3. **Funktionen** - Plugin System, Goals, TTS, Emoji Rain, Audio, HUD, etc.
 4. **Profile** - Profile selector with load/save functionality
 5. **Einstellungen** - Auto-update toggle, version info, update check

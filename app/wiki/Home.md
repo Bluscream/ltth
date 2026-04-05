@@ -20,7 +20,7 @@
 
 Welcome to **PupCid's Little TikTool Helper**!
 
-This is a free, open-source alternative to Tikfinity and Tiktory for professional TikTok LIVE streaming with comprehensive features for content creators.
+This is a free, open-source tool for professional TikTok LIVE streaming with comprehensive features for content creators.
 
 ### Quick Links
 - [Getting Started](Getting-Started.md#english)
@@ -165,7 +165,7 @@ This project is licensed under the **Creative Commons Attribution-NonCommercial 
 
 Willkommen bei **PupCid's Little TikTool Helper**!
 
-Dies ist eine kostenlose Open-Source-Alternative zu Tikfinity und Tiktory für professionelles TikTok LIVE-Streaming mit umfangreichen Features für Content-Creator.
+Dies ist ein kostenloses Open-Source-Tool für professionelles TikTok LIVE-Streaming mit umfangreichen Features für Content-Creator.
 
 ### Schnellzugriff
 - [Erste Schritte](Getting-Started.md#deutsch)
@@ -310,7 +310,7 @@ Dieses Projekt ist unter der **Creative Commons Attribution-NonCommercial 4.0 In
 
 ¡Bienvenido a **PupCid's Little TikTool Helper**!
 
-Esta es una alternativa gratuita y de código abierto a Tikfinity y Tiktory para transmisiones profesionales en TikTok LIVE con características completas para creadores de contenido.
+Esta es una herramienta gratuita y de código abierto para transmisiones profesionales en TikTok LIVE con características completas para creadores de contenido.
 
 ### Enlaces Rápidos
 - [Primeros Pasos](Getting-Started.md#español)
@@ -455,7 +455,7 @@ Este proyecto está licenciado bajo la licencia **Creative Commons Attribution-N
 
 Bienvenue sur **PupCid's Little TikTool Helper** !
 
-Il s'agit d'une alternative gratuite et open source à Tikfinity et Tiktory pour le streaming professionnel TikTok LIVE avec des fonctionnalités complètes pour les créateurs de contenu.
+Il s'agit d'un outil gratuit et open source pour le streaming professionnel TikTok LIVE avec des fonctionnalités complètes pour les créateurs de contenu.
 
 ### Liens Rapides
 - [Démarrage](Getting-Started.md#français)
