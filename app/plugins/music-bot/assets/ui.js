@@ -1,4 +1,16 @@
 (() => {
+  // ── Tab switching ──
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
+      tab.classList.add('active');
+      const target = tab.getAttribute('data-tab');
+      const content = document.querySelector(`[data-tab-content="${target}"]`);
+      if (content) content.classList.add('active');
+    });
+  });
+
   const socket = io();
   const stateEl = document.getElementById('playback-state');
   const nowPlayingEl = document.getElementById('now-playing');
@@ -50,6 +62,19 @@
   const overlayUrl = document.getElementById('overlay-url');
   const overlayCopy = document.getElementById('overlay-copy');
   const overlayOpen = document.getElementById('overlay-open');
+  const settingsSave = document.getElementById('settings-save');
+  const settingsFeedback = document.getElementById('settings-feedback');
+  const moderationSave = document.getElementById('moderation-save');
+  const moderationFeedback = document.getElementById('moderation-feedback');
+  const npProgressWrapper = document.getElementById('np-progress-wrapper');
+  const npProgressFill = document.getElementById('np-progress-fill');
+  const npElapsed = document.getElementById('np-elapsed');
+  const npDuration = document.getElementById('np-duration');
+
+  // Progress timer state
+  let progressTimer = null;
+  let progressCurrentPos = 0;
+  let progressDuration = 0;
 
   // Client-side YouTube ID extraction (no server call needed for direct links)
   function extractYouTubeId(url) {
@@ -272,6 +297,21 @@
     await post('/config', { resolver: { ytdlpPath: value || 'yt-dlp' } });
   });
 
+  settingsSave?.addEventListener('click', async () => {
+    const payload = {
+      queue: {
+        duplicateDetection: duplicateDetection.value,
+        cooldownPerUserSeconds: Math.max(0, Number(cooldownSecondsInput.value) || 0),
+        cooldownBypassForGifts: cooldownBypassGifts.checked
+      },
+      resolver: { ytdlpPath: (ytdlpPathInput?.value || '').trim() || 'yt-dlp' },
+      giftIntegration: { skipImmunityGifts: parseList(skipImmunityGifts.value) },
+      permissions: { requireSuperfanForRequest: requireSuperfan?.checked || false }
+    };
+    const result = await post('/config', payload);
+    showFeedback(settingsFeedback, result?.success ? '✅ Gespeichert' : '❌ Fehler');
+  });
+
   rejectAge?.addEventListener('change', async () => {
     await post('/config', { moderation: { rejectAgeRestricted: rejectAge.checked } });
   });
@@ -283,6 +323,18 @@
   blockedKeywords?.addEventListener('blur', async () => {
     const keywords = parseList(blockedKeywords.value, true);
     await post('/config', { moderation: { blockedKeywords: keywords } });
+  });
+
+  moderationSave?.addEventListener('click', async () => {
+    const keywords = parseList(blockedKeywords.value, true);
+    const result = await post('/config', {
+      moderation: {
+        rejectAgeRestricted: rejectAge.checked,
+        rejectExplicit: rejectExplicit.checked,
+        blockedKeywords: keywords
+      }
+    });
+    showFeedback(moderationFeedback, result?.success ? '✅ Gespeichert' : '❌ Fehler');
   });
 
   banAdd?.addEventListener('click', async () => {
@@ -342,9 +394,29 @@
     }
   });
 
-  socket.on('musicbot:paused', () => updateState('Paused'));
-  socket.on('musicbot:resumed', () => updateState('Playing'));
-  socket.on('musicbot:playback-stopped', () => updateState('Idle'));
+  socket.on('musicbot:paused', () => {
+    updateState('Paused');
+    stopProgressTimer();
+  });
+  socket.on('musicbot:resumed', () => {
+    updateState('Playing');
+    startProgressTimer();
+  });
+  socket.on('musicbot:playback-stopped', () => {
+    updateState('Idle');
+    stopProgressTimer();
+    if (npProgressWrapper) npProgressWrapper.style.display = 'none';
+  });
+  socket.on('musicbot:playback-sync', (payload) => {
+    if (typeof payload.position === 'number') {
+      progressCurrentPos = payload.position;
+      updateProgressBar();
+    }
+    if (typeof payload.duration === 'number') {
+      progressDuration = payload.duration;
+      if (npDuration) npDuration.textContent = formatDuration(payload.duration);
+    }
+  });
   socket.on('musicbot:song-skipped', () => refreshHistory());
 
   async function init() {
@@ -470,6 +542,8 @@
       nowPlayingEl.classList.add('empty');
       nowPlayingEl.innerHTML = '<p>Aktuell läuft nichts.</p>';
       updateState('Idle');
+      stopProgressTimer();
+      if (npProgressWrapper) npProgressWrapper.style.display = 'none';
       return;
     }
     nowPlayingEl.classList.remove('empty');
@@ -479,6 +553,16 @@
       <p class="meta">${track.artist || ''} • Angefragt von <strong>${track.requestedBy || 'Viewer'}</strong>${dur !== '—' ? ' • ' + dur : ''}</p>
     `;
     updateState('Playing');
+
+    if (npProgressWrapper && track.duration) {
+      npProgressWrapper.style.display = 'block';
+      progressDuration = track.duration;
+      progressCurrentPos = track.startedAt
+        ? Math.max(0, Math.floor((Date.now() - track.startedAt) / 1000))
+        : 0;
+      if (npDuration) npDuration.textContent = formatDuration(track.duration);
+      startProgressTimer();
+    }
   }
 
   function renderQueue(queue = [], length = 0) {
@@ -494,10 +578,22 @@
         const thumb = item.youtubeId
           ? `<img src="https://i.ytimg.com/vi/${item.youtubeId}/default.jpg" class="queue-thumb" alt="">`
           : '<span class="queue-thumb-placeholder">🎵</span>';
+        const dur = item.duration ? ` • ${formatDuration(item.duration)}` : '';
+        const giftBadge = item.isGiftRequest ? ' <span class="gift-badge">🎁</span>' : '';
+        const isFirst = idx === 0;
+        const isLast = idx === queue.length - 1;
         return `<div class="item queue-item">
+          <span class="queue-pos">#${idx + 1}</span>
           ${thumb}
-          <span class="queue-title"><strong>#${idx + 1}</strong> ${item.title}</span>
-          <span class="text-secondary queue-by">${item.requestedBy || 'Viewer'}</span>
+          <div class="queue-info">
+            <span class="queue-title"><strong>${item.title}</strong>${giftBadge}</span>
+            <span class="queue-meta">${item.requestedBy || 'Viewer'}${dur}</span>
+          </div>
+          <div class="queue-actions">
+            <button class="btn ghost small" data-queue-action="up" data-idx="${idx}" ${isFirst ? 'disabled' : ''} title="Nach oben">▲</button>
+            <button class="btn ghost small" data-queue-action="down" data-idx="${idx}" ${isLast ? 'disabled' : ''} title="Nach unten">▼</button>
+            <button class="btn danger small" data-queue-action="remove" data-idx="${idx}" title="Entfernen">✕</button>
+          </div>
         </div>`;
       })
       .join('');
@@ -508,6 +604,53 @@
     if (queueData?.queue) {
       renderQueue(queueData.queue, queueData.queue.length);
     }
+  }
+
+  queueListEl?.addEventListener('click', async (event) => {
+    const btn = event.target.closest('[data-queue-action]');
+    if (!btn || btn.disabled) return;
+    const action = btn.dataset.queueAction;
+    const idx = Number(btn.dataset.idx);
+    if (!Number.isFinite(idx)) return;
+    if (action === 'remove') {
+      await del(`/queue/${idx}`);
+      await renderQueueFromServer();
+    } else if (action === 'up') {
+      await post('/queue/reorder', { fromIndex: idx, toIndex: idx - 1 });
+      await renderQueueFromServer();
+    } else if (action === 'down') {
+      await post('/queue/reorder', { fromIndex: idx, toIndex: idx + 1 });
+      await renderQueueFromServer();
+    }
+  });
+
+  function startProgressTimer() {
+    stopProgressTimer();
+    progressTimer = setInterval(() => {
+      progressCurrentPos = Math.min(progressCurrentPos + 1, progressDuration || Infinity);
+      updateProgressBar();
+    }, 1000);
+    updateProgressBar();
+  }
+
+  function stopProgressTimer() {
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+    }
+  }
+
+  function updateProgressBar() {
+    if (!npProgressFill || !npElapsed) return;
+    const pct = progressDuration > 0 ? Math.min(100, (progressCurrentPos / progressDuration) * 100) : 0;
+    npProgressFill.style.width = `${pct}%`;
+    npElapsed.textContent = formatDuration(progressCurrentPos);
+  }
+
+  function showFeedback(el, message) {
+    if (!el) return;
+    el.textContent = message;
+    setTimeout(() => { el.textContent = ''; }, 4000);
   }
 
   function updatePreviewFrame(song) {

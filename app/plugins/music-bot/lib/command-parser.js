@@ -79,8 +79,14 @@ class CommandParser {
       case 'clear':
       case 'mysong':
       case 'help':
-      case 'remove':
         return { type };
+      case 'remove': {
+        const indexArg = Number(args[0]);
+        if (Number.isFinite(indexArg) && indexArg > 0) {
+          return { type, index: indexArg - 1 }; // User gibt 1-basiert ein, intern 0-basiert
+        }
+        return { type, index: null }; // null = remove eigenen Song
+      }
       default:
         return null;
     }
