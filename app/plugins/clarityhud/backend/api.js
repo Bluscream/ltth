@@ -28,6 +28,16 @@ class ClarityHUDBackend {
     this.multiStreamConnectors = [];
     this.multiStreamMaxMessages = 300;
 
+    // P7: Like aggregation buffer (5-second window)
+    // Accumulates individual like events and emits a single batched event per window.
+    this._likeBuffer = {
+      count: 0,
+      userCount: 0,
+      users: new Set(),
+      flushTimer: null
+    };
+    this._likeFlushInterval = 5000; // ms
+
     // Default settings for Chat HUD
     this.defaultChatSettings = {
       fontSize: '48px',
@@ -574,7 +584,9 @@ class ClarityHUDBackend {
 
   /**
    * Handle like event
-   * Broadcasts to full HUD only
+   * P7: Aggregates individual likes over a 5-second window and emits a single
+   * batched event so the Full HUD feed stays readable during like floods.
+   * The internal queue and all other consumers are not affected.
    */
   async handleLikeEvent(data) {
     try {
@@ -583,17 +595,20 @@ class ClarityHUDBackend {
         return;
       }
 
+      const likeCount = data.likeCount || data.count || 1;
+      const userId = data.username || data.uniqueId || 'unknown';
+
       const likeEvent = {
         user: {
-          uniqueId: data.username || data.uniqueId || 'unknown',
+          uniqueId: userId,
           nickname: data.nickname || data.username || 'Anonymous',
           profilePictureUrl: data.profilePictureUrl || null,
           badge: data.badge || null
         },
-        likeCount: data.likeCount || data.count || 1,
+        likeCount,
         totalLikeCount: data.totalLikeCount || 0,
         // Include old format fields for backward compatibility
-        uniqueId: data.username || data.uniqueId || 'unknown',
+        uniqueId: userId,
         username: data.nickname || data.username || 'Anonymous',
         raw: data
       };
@@ -605,13 +620,64 @@ class ClarityHUDBackend {
         ...likeEvent
       });
 
-      // Broadcast to full HUD (without type/timestamp - overlay will add them)
-      this.api.emit('clarityhud.update.like', likeEvent);
+      // P7: Accumulate into the aggregation buffer instead of emitting immediately.
+      this._likeBuffer.count += likeCount;
+      if (!this._likeBuffer.users.has(userId)) {
+        this._likeBuffer.users.add(userId);
+        this._likeBuffer.userCount++;
+      }
 
-      this.api.log(`Like event from ${likeEvent.user.nickname} (count: ${likeEvent.likeCount})`, 'debug');
+      // Schedule flush if not already pending
+      if (!this._likeBuffer.flushTimer) {
+        this._likeBuffer.flushTimer = setTimeout(() => {
+          this._flushLikeBuffer();
+        }, this._likeFlushInterval);
+      }
+
+      this.api.log(`Like event buffered from ${likeEvent.user.nickname} (count: ${likeCount}, buffer total: ${this._likeBuffer.count})`, 'debug');
     } catch (error) {
       this.api.log(`Error handling like event: ${error.message}`, 'error');
     }
+  }
+
+  /**
+   * Flush the like aggregation buffer and emit a single aggregated like event
+   * to the clarityhud.update.like channel.
+   */
+  _flushLikeBuffer() {
+    const { count, userCount } = this._likeBuffer;
+
+    if (count > 0) {
+      // Resolve the single-user display name once to avoid calling the iterator twice
+      const singleUser = userCount === 1
+        ? `${this._likeBuffer.users.values().next().value}`
+        : `${userCount} viewers`;
+
+      const aggregatedEvent = {
+        // Use a synthetic aggregate user so the overlay renders correctly
+        user: {
+          uniqueId: 'aggregate',
+          nickname: singleUser,
+          profilePictureUrl: null,
+          badge: null
+        },
+        likeCount: count,
+        userCount,
+        totalLikeCount: 0,
+        uniqueId: 'aggregate',
+        username: singleUser,
+        isAggregated: true
+      };
+
+      this.api.emit('clarityhud.update.like', aggregatedEvent);
+      this.api.log(`Flushed like buffer: ${count} likes from ${userCount} user(s)`, 'debug');
+    }
+
+    // Reset buffer
+    this._likeBuffer.count = 0;
+    this._likeBuffer.userCount = 0;
+    this._likeBuffer.users.clear();
+    this._likeBuffer.flushTimer = null;
   }
 
   /**
@@ -991,6 +1057,13 @@ class ClarityHUDBackend {
     try {
       // Disconnect multi-stream connectors
       await this.disconnectMultiStreams();
+
+      // Flush any pending like buffer before cleanup to emit accumulated events
+      if (this._likeBuffer.flushTimer) {
+        clearTimeout(this._likeBuffer.flushTimer);
+        this._likeBuffer.flushTimer = null;
+        this._flushLikeBuffer();
+      }
 
       // Clear all queues
       this.clearAllQueues();

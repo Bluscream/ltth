@@ -247,11 +247,22 @@ class AnimationRegistry {
 
 /**
  * Animation Renderer
+ *
+ * Uses WeakMap for element-keyed animation state so that DOM elements removed
+ * from the document before their animation completes can be garbage-collected
+ * immediately.  A companion Set tracks the numeric timeout IDs so that
+ * cancelAll() can still clear every pending timer without needing to iterate
+ * the WeakMap.
  */
 class AnimationRenderer {
   constructor(registry) {
     this.registry = registry || new AnimationRegistry();
-    this.activeAnimations = new Map();
+    // WeakMap: element → { timeoutId, resolve }  (does not prevent GC)
+    this.activeAnimations = new WeakMap();
+    // Set of active timeout IDs for cancelAll() and layer-count throttling
+    this._timeoutIds = new Set();
+    // Maximum simultaneous GPU layers promoted via will-change (P4)
+    this.maxConcurrentLayers = 10;
   }
 
   /**
@@ -272,18 +283,30 @@ class AnimationRenderer {
       return;
     }
 
+    // P4: only promote to a GPU layer when below the concurrent-layer limit.
+    // Let the animation handler run normally; override will-change only if we
+    // are at the layer limit (post-handler reset is sufficient).
+    const throttleWillChange = this._timeoutIds.size >= this.maxConcurrentLayers;
+
     const duration = animation.in(element, speed);
+
+    // If willChange was suppressed, undo any value the animation handler set
+    if (throttleWillChange) {
+      element.style.willChange = 'auto';
+    }
 
     // Track animation
     if (duration > 0) {
       const promise = new Promise(resolve => {
         const timeoutId = setTimeout(() => {
+          this._timeoutIds.delete(timeoutId);
           this.activeAnimations.delete(element);
           // Clean up will-change for performance
           element.style.willChange = 'auto';
           resolve();
         }, duration);
 
+        this._timeoutIds.add(timeoutId);
         this.activeAnimations.set(element, { timeoutId, resolve });
       });
 
@@ -312,18 +335,30 @@ class AnimationRenderer {
       return;
     }
 
+    // P4: only promote to a GPU layer when below the concurrent-layer limit.
+    // Let the animation handler run normally; override will-change only if we
+    // are at the layer limit (post-handler reset is sufficient).
+    const throttleWillChange = this._timeoutIds.size >= this.maxConcurrentLayers;
+
     const duration = animation.out(element, speed);
+
+    // If willChange was suppressed, undo any value the animation handler set
+    if (throttleWillChange) {
+      element.style.willChange = 'auto';
+    }
 
     // Track animation
     if (duration > 0) {
       const promise = new Promise(resolve => {
         const timeoutId = setTimeout(() => {
+          this._timeoutIds.delete(timeoutId);
           this.activeAnimations.delete(element);
           // Clean up will-change for performance
           element.style.willChange = 'auto';
           resolve();
         }, duration);
 
+        this._timeoutIds.add(timeoutId);
         this.activeAnimations.set(element, { timeoutId, resolve });
       });
 
@@ -341,20 +376,24 @@ class AnimationRenderer {
     if (this.activeAnimations.has(element)) {
       const { timeoutId, resolve } = this.activeAnimations.get(element);
       clearTimeout(timeoutId);
+      this._timeoutIds.delete(timeoutId);
       this.activeAnimations.delete(element);
+      // Always reset will-change on cancel
+      element.style.willChange = 'auto';
       if (resolve) resolve();
     }
   }
 
   /**
-   * Cancel all active animations
+   * Cancel all active animations (clears all pending timeouts)
    */
   cancelAll() {
-    for (const { timeoutId, resolve } of this.activeAnimations.values()) {
+    for (const timeoutId of this._timeoutIds) {
       clearTimeout(timeoutId);
-      if (resolve) resolve();
     }
-    this.activeAnimations.clear();
+    this._timeoutIds.clear();
+    // activeAnimations entries will be GC'd with their elements;
+    // we cannot iterate WeakMap, so we only clear the timeout set.
   }
 
   /**
