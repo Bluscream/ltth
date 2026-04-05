@@ -23,6 +23,12 @@ class FlameOverlayPlugin {
         // Register routes
         this.registerRoutes();
 
+        // Register TikTok event handlers
+        this.registerTikTokEventHandlers();
+
+        // Register flow actions
+        this.registerFlowActions();
+
         this.api.log('✅ [FLAME OVERLAY] Plugin initialized successfully', 'info');
         this.logRoutes();
     }
@@ -197,6 +203,64 @@ class FlameOverlayPlugin {
             }
         });
 
+        // GET /api/flame-overlay/presets - Load all presets
+        this.api.registerRoute('get', '/api/flame-overlay/presets', (req, res) => {
+            try {
+                const presets = this.api.getConfig('presets') || {};
+                res.json({ success: true, presets });
+            } catch (error) {
+                this.api.log(`❌ [FLAME OVERLAY] Error loading presets: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // POST /api/flame-overlay/presets/:name - Save preset
+        this.api.registerRoute('post', '/api/flame-overlay/presets/:name', (req, res) => {
+            try {
+                const presets = this.api.getConfig('presets') || {};
+                presets[req.params.name] = {
+                    config: { ...this.config },
+                    createdAt: new Date().toISOString()
+                };
+                this.api.setConfig('presets', presets);
+                res.json({ success: true, message: `Preset "${req.params.name}" saved` });
+            } catch (error) {
+                this.api.log(`❌ [FLAME OVERLAY] Error saving preset: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // POST /api/flame-overlay/presets/:name/load - Load preset
+        this.api.registerRoute('post', '/api/flame-overlay/presets/:name/load', (req, res) => {
+            try {
+                const presets = this.api.getConfig('presets') || {};
+                if (!presets[req.params.name]) {
+                    return res.status(404).json({ success: false, error: 'Preset not found' });
+                }
+                this.config = { ...this.config, ...presets[req.params.name].config };
+                this.saveConfig();
+                this.api.emit('flame-overlay:config-update', { config: this.config });
+                res.json({ success: true, message: `Preset "${req.params.name}" loaded` });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // DELETE /api/flame-overlay/presets/:name - Delete preset
+        this.api.registerRoute('delete', '/api/flame-overlay/presets/:name', (req, res) => {
+            try {
+                const presets = this.api.getConfig('presets') || {};
+                if (!presets[req.params.name]) {
+                    return res.status(404).json({ success: false, error: 'Preset not found' });
+                }
+                delete presets[req.params.name];
+                this.api.setConfig('presets', presets);
+                res.json({ success: true, message: `Preset "${req.params.name}" deleted` });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
         // Serve texture files
         const express = require('express');
         const textureDir = path.join(__dirname, 'textures');
@@ -205,6 +269,80 @@ class FlameOverlayPlugin {
         // Serve renderer directory for flame.js
         const rendererDir = path.join(__dirname, 'renderer');
         this.api.getApp().use('/flame-overlay', express.static(rendererDir));
+    }
+
+    /**
+     * Register TikTok event handlers for dynamic effect reactions
+     */
+    registerTikTokEventHandlers() {
+        // Gift → briefly boost flame intensity
+        this.api.registerTikTokEvent('gift', (data) => {
+            const coins = data.diamondCount || data.coins || 1;
+            const boostIntensity = Math.min(2.5, 1.0 + (coins / 100));
+            const boostDuration = Math.min(15000, 3000 + (coins * 50));
+            
+            this.api.emit('flame-overlay:effect-burst', {
+                type: 'intensity-boost',
+                intensity: boostIntensity,
+                duration: boostDuration,
+                effectType: coins >= 500 ? 'lightning' : this.config.effectType,
+                color: coins >= 100 ? '#ff0000' : this.config.flameColor
+            });
+            
+            this.api.log(`🔥 [FLAME OVERLAY] Gift burst: ${data.uniqueId} sent ${coins} coins → intensity ${boostIntensity}`, 'debug');
+        });
+
+        // Like → pulse burst on many likes
+        this.api.registerTikTokEvent('like', (data) => {
+            const likeCount = data.likeCount || data.totalLikeCount || 1;
+            if (likeCount >= 50) {
+                this.api.emit('flame-overlay:effect-burst', {
+                    type: 'pulse-burst',
+                    pulseAmount: Math.min(0.8, likeCount / 500),
+                    duration: 5000
+                });
+            }
+        });
+
+        // Subscribe → temporary effect switch to particles
+        this.api.registerTikTokEvent('subscribe', (data) => {
+            this.api.emit('flame-overlay:effect-burst', {
+                type: 'effect-switch',
+                effectType: 'particles',
+                duration: 10000,
+                color: '#ffdd00'
+            });
+        });
+
+        // Follow → short glow burst
+        this.api.registerTikTokEvent('follow', (data) => {
+            this.api.emit('flame-overlay:effect-burst', {
+                type: 'intensity-boost',
+                intensity: 1.5,
+                duration: 3000,
+                color: '#00ffaa'
+            });
+        });
+
+        this.api.log('🔥 [FLAME OVERLAY] TikTok event handlers registered', 'info');
+    }
+
+    /**
+     * Register flow system action handlers
+     */
+    registerFlowActions() {
+        this.api.registerSocket('flow:flame-overlay:trigger', (data) => {
+            this.api.emit('flame-overlay:effect-burst', {
+                type: data.burstType || 'intensity-boost',
+                effectType: data.effectType || this.config.effectType,
+                intensity: data.intensity || 2.0,
+                color: data.color || this.config.flameColor,
+                duration: data.duration || 5000
+            });
+            this.api.log(`🔥 [FLAME OVERLAY] Flow triggered: ${data.burstType || 'intensity-boost'}`, 'debug');
+        });
+        
+        this.api.log('🔥 [FLAME OVERLAY] Flow actions registered', 'info');
     }
 
     /**
@@ -217,6 +355,10 @@ class FlameOverlayPlugin {
         this.api.log('   - GET  /api/flame-overlay/config', 'info');
         this.api.log('   - POST /api/flame-overlay/config', 'info');
         this.api.log('   - GET  /api/flame-overlay/status', 'info');
+        this.api.log('   - GET  /api/flame-overlay/presets', 'info');
+        this.api.log('   - POST /api/flame-overlay/presets/:name', 'info');
+        this.api.log('   - POST /api/flame-overlay/presets/:name/load', 'info');
+        this.api.log('   - DELETE /api/flame-overlay/presets/:name', 'info');
     }
 
     /**

@@ -22,8 +22,8 @@ describe('Flame Overlay Plugin', () => {
         
         // Validate required fields
         expect(pluginJson.id).toBe('flame-overlay');
-        expect(pluginJson.name).toBe('TikTok Flame Overlay');
-        expect(pluginJson.version).toBe('1.0.0');
+        expect(pluginJson.name).toBe('TikTok Visual Effects Overlay');
+        expect(pluginJson.version).toBe('2.3.0');
         expect(pluginJson.entry).toBe('main.js');
         expect(pluginJson.author).toBe('Pup Cid');
         
@@ -191,6 +191,8 @@ describe('Flame Overlay Plugin', () => {
             getConfig: jest.fn(() => null),
             setConfig: jest.fn(),
             registerRoute: jest.fn(),
+            registerSocket: jest.fn(),
+            registerTikTokEvent: jest.fn(),
             emit: jest.fn(),
             getApp: jest.fn(() => ({
                 use: jest.fn()
@@ -205,6 +207,8 @@ describe('Flame Overlay Plugin', () => {
         expect(typeof plugin.loadConfig).toBe('function');
         expect(typeof plugin.saveConfig).toBe('function');
         expect(typeof plugin.getResolution).toBe('function');
+        expect(typeof plugin.registerTikTokEventHandlers).toBe('function');
+        expect(typeof plugin.registerFlowActions).toBe('function');
     });
     
     test('default configuration is valid', () => {
@@ -268,6 +272,8 @@ describe('Flame Overlay Plugin', () => {
             getConfig: jest.fn(() => null),
             setConfig: jest.fn(),
             registerRoute: jest.fn(),
+            registerSocket: jest.fn(),
+            registerTikTokEvent: jest.fn(),
             emit: jest.fn(),
             getApp: jest.fn(() => mockApp)
         };
@@ -297,5 +303,6 @@ describe('Flame Overlay Plugin', () => {
         expect(content).toContain('onclick="saveConfig()"');
         expect(content).toContain('onclick="loadConfig()"');
         expect(content).toContain('onclick="openOverlay()"');
+        expect(content).toContain('onclick="savePreset()"');
     });
 });

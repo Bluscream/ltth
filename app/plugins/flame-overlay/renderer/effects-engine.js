@@ -144,6 +144,41 @@ class EffectsEngine {
                         this.postProcessor.resize(this.canvas.width, this.canvas.height);
                     }
                 });
+                
+                socket.on('flame-overlay:effect-burst', (data) => {
+                    const originalConfig = { ...this.config };
+                    
+                    switch (data.type) {
+                        case 'intensity-boost':
+                            this.config.flameIntensity = data.intensity || 2.0;
+                            if (data.color) this.config.flameColor = data.color;
+                            if (data.effectType && data.effectType !== this.config.effectType) {
+                                this.switchEffect(data.effectType);
+                            }
+                            this.updateUniforms();
+                            break;
+                            
+                        case 'pulse-burst':
+                            this.config.pulseEnabled = true;
+                            this.config.pulseAmount = data.pulseAmount || 0.5;
+                            this.config.pulseSpeed = 2.0;
+                            this.updateUniforms();
+                            break;
+                            
+                        case 'effect-switch':
+                            if (data.color) this.config.flameColor = data.color;
+                            this.switchEffect(data.effectType || 'particles');
+                            this.updateUniforms();
+                            break;
+                    }
+                    
+                    // Reset to original config after duration
+                    setTimeout(() => {
+                        Object.assign(this.config, originalConfig);
+                        this.switchEffect(originalConfig.effectType || 'flames');
+                        this.updateUniforms();
+                    }, data.duration || 5000);
+                });
             } catch (error) {
                 console.error('Failed to setup socket listener:', error);
             }
@@ -153,11 +188,24 @@ class EffectsEngine {
     }
     
     initPostProcessor() {
-        if (typeof PostProcessor !== 'undefined') {
+        if (typeof PostProcessor === 'undefined') {
+            console.warn('[EffectsEngine] PostProcessor class not available – bloom disabled');
+            this.postProcessor = null;
+            this.config.bloomEnabled = false;
+            return;
+        }
+        
+        try {
             this.postProcessor = new PostProcessor(this.gl);
-            // Framebuffers are created by handleResize() once canvas has valid dimensions
-        } else {
-            console.warn('PostProcessor not available - bloom effects disabled');
+            const width = this.gl.canvas.width || 720;
+            const height = this.gl.canvas.height || 1280;
+            if (width > 0 && height > 0) {
+                this.postProcessor.resize(width, height);
+            }
+        } catch (error) {
+            console.error('[EffectsEngine] PostProcessor init failed:', error);
+            this.postProcessor = null;
+            this.config.bloomEnabled = false;
         }
     }
     
