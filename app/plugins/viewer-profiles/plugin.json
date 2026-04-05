@@ -1,7 +1,7 @@
 {
   "id": "viewer-profiles",
   "name": "Viewer Profiles",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Comprehensive viewer tracking and analytics system with VIP management, birthday tracking, activity heatmaps, and detailed profile management.",
   "author": "Pup Cid",
   "entry": "main.js",

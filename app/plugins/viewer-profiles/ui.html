@@ -757,18 +757,34 @@
     let currentSearch = '';
     let currentViewer = null;
     let currentTags = [];
+    let searchDebounceTimer;
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
 
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       loadStats();
       loadBirthdays();
       loadViewers();
+      loadTTSVoices();
 
       // Event listeners
       document.getElementById('searchBox').addEventListener('input', (e) => {
-        currentSearch = e.target.value;
-        currentPage = 1;
-        loadViewers();
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+          currentSearch = e.target.value;
+          currentPage = 1;
+          loadViewers();
+        }, 300);
       });
 
       document.getElementById('filterSelect').addEventListener('change', (e) => {
@@ -872,7 +888,7 @@
               const daysText = isToday ? 'Today' : `In ${Math.round(b.days_until)} days`;
               return `
                 <li class="birthday-item ${isToday ? 'today' : ''}">
-                  <span>${b.display_name || b.tiktok_username}</span>
+                  <span>${escapeHtml(b.display_name || b.tiktok_username)}</span>
                   <span>${daysText}</span>
                 </li>
               `;
@@ -881,6 +897,22 @@
         }
       } catch (error) {
         console.error('Error loading birthdays:', error);
+      }
+    }
+
+    // Load TTS voices dynamically
+    async function loadTTSVoices() {
+      try {
+        const response = await fetch('/api/viewer-profiles/tts/voices');
+        const result = await response.json();
+        if (result.success && result.data && result.data.length > 0) {
+          const select = document.getElementById('ttsVoice');
+          select.innerHTML = result.data.map(v =>
+            `<option value="${escapeHtml(v.value)}">${escapeHtml(v.label)}</option>`
+          ).join('');
+        }
+      } catch (error) {
+        console.error('Error loading TTS voices:', error);
       }
     }
 
@@ -919,21 +951,21 @@
       }
 
       tbody.innerHTML = viewers.map(v => `
-        <tr onclick="openViewerModal('${v.tiktok_username}')">
+        <tr onclick="openViewerModal('${escapeHtml(v.tiktok_username)}')">
           <td>
-            <img class="avatar" src="${v.profile_picture_url || '/assets/default-avatar.png'}" alt="${v.display_name}">
+            <img class="avatar" src="${escapeHtml(v.profile_picture_url || '/assets/default-avatar.png')}" alt="${escapeHtml(v.display_name)}">
           </td>
-          <td>@${v.tiktok_username}</td>
-          <td>${v.display_name || v.tiktok_username}</td>
-          <td>${v.is_vip && v.vip_tier ? `<span class="vip-badge vip-${v.vip_tier.toLowerCase()}">${v.vip_tier}</span>` : '-'}</td>
+          <td>@${escapeHtml(v.tiktok_username)}</td>
+          <td>${escapeHtml(v.display_name || v.tiktok_username)}</td>
+          <td>${v.is_vip && v.vip_tier ? `<span class="vip-badge vip-${escapeHtml(v.vip_tier.toLowerCase())}">${escapeHtml(v.vip_tier)}</span>` : '-'}</td>
           <td>${formatDate(v.last_seen_at)}</td>
           <td>${v.total_visits}</td>
           <td>${formatDuration(v.total_watchtime_seconds)}</td>
           <td>${v.total_coins_spent.toLocaleString()}</td>
           <td onclick="event.stopPropagation()">
             <div class="action-btns">
-              <button class="icon-btn favorite ${v.is_favorite ? 'active' : ''}" onclick="toggleFavorite('${v.tiktok_username}', ${!v.is_favorite})" title="Favorite">⭐</button>
-              <button class="icon-btn" onclick="openViewerModal('${v.tiktok_username}')" title="Details">👤</button>
+              <button class="icon-btn favorite ${v.is_favorite ? 'active' : ''}" onclick="toggleFavorite('${escapeHtml(v.tiktok_username)}', ${!v.is_favorite})" title="Favorite">⭐</button>
+              <button class="icon-btn" onclick="openViewerModal('${escapeHtml(v.tiktok_username)}')" title="Details">👤</button>
             </div>
           </td>
         </tr>
@@ -969,17 +1001,28 @@
 
     // Open viewer modal
     async function openViewerModal(username) {
+      // Show modal immediately with loading state
+      const modal = document.getElementById('viewerModal');
+      modal.classList.add('active');
+      document.getElementById('modalDisplayName').textContent = 'Loading...';
+      document.getElementById('modalUsername').textContent = username;
+      document.getElementById('modalAvatar').src = '/assets/default-avatar.png';
+
       try {
-        const response = await fetch(`/api/viewer-profiles/${username}`);
+        const response = await fetch(`/api/viewer-profiles/${encodeURIComponent(username)}`);
         const result = await response.json();
 
         if (result.success) {
           currentViewer = result.data;
           displayViewerModal(currentViewer);
-          document.getElementById('viewerModal').classList.add('active');
+        } else {
+          showNotification('❌ Error loading viewer profile');
+          closeModal();
         }
       } catch (error) {
         console.error('Error loading viewer details:', error);
+        showNotification('❌ Error loading viewer details');
+        closeModal();
       }
     }
 
@@ -992,7 +1035,7 @@
       // VIP badge
       const vipBadge = document.getElementById('modalVipBadge');
       if (viewer.is_vip && viewer.vip_tier) {
-        vipBadge.innerHTML = `<span class="vip-badge vip-${viewer.vip_tier.toLowerCase()}">${viewer.vip_tier} VIP since ${formatDate(viewer.vip_since)}</span>`;
+        vipBadge.innerHTML = `<span class="vip-badge vip-${escapeHtml(viewer.vip_tier.toLowerCase())}">${escapeHtml(viewer.vip_tier)} VIP since ${formatDate(viewer.vip_since)}</span>`;
       } else {
         vipBadge.innerHTML = '';
       }
@@ -1012,7 +1055,7 @@
       if (viewer.topGifts && viewer.topGifts.length > 0) {
         topGiftsList.innerHTML = viewer.topGifts.map(g => `
           <li>
-            <span>${g.gift_name} (x${g.total_quantity})</span>
+            <span>${escapeHtml(g.gift_name)} (x${g.total_quantity})</span>
             <strong>${g.total_coins.toLocaleString()} coins</strong>
           </li>
         `).join('');
