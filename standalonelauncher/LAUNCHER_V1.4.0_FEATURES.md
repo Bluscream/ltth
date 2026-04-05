@@ -23,7 +23,7 @@ Interactive cards showing the status of integrated services:
 - **GitHub API** - Release checking and updates
 - **Node.js Runtime** - Version detection and installation
 - **npm Registry** - Dependency management
-- **TikFinity API** - Integration status
+- **TikTok Live API** - Integration status
 - **OBS WebSocket** - Stream control connectivity
 
 Each card displays:

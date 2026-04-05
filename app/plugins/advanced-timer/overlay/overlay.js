@@ -101,6 +101,20 @@ function setupSocketListeners() {
             updateTimerState();
         }
     });
+
+    socket.on('advanced-timer:time-added', (data) => {
+        if (data.id === timerId) {
+            timer.current_value = data.currentValue;
+            updateTimerDisplay();
+        }
+    });
+
+    socket.on('advanced-timer:time-removed', (data) => {
+        if (data.id === timerId) {
+            timer.current_value = data.currentValue;
+            updateTimerDisplay();
+        }
+    });
 }
 
 /**
