@@ -144,7 +144,6 @@ class PlaybackEngine extends EventEmitter {
     if (!this.socket || this.state !== 'playing') return 0;
     return new Promise((resolve) => {
       const requestId = Date.now();
-      const timeout = setTimeout(() => resolve(0), 500);
       const handler = (chunk) => {
         try {
           const lines = chunk.toString().split('\n').filter(Boolean);
@@ -159,6 +158,10 @@ class PlaybackEngine extends EventEmitter {
           }
         } catch (_) { /* ignore parse errors */ }
       };
+      const timeout = setTimeout(() => {
+        this.socket.removeListener('data', handler);
+        resolve(0);
+      }, 500);
       this.socket.on('data', handler);
       this.socket.write(`${JSON.stringify({ command: ['get_property', 'time-pos'], request_id: requestId })}\n`);
     });

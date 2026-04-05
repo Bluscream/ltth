@@ -626,8 +626,9 @@
 
   function startProgressTimer() {
     stopProgressTimer();
+    if (!progressDuration) return;
     progressTimer = setInterval(() => {
-      progressCurrentPos = Math.min(progressCurrentPos + 1, progressDuration || Infinity);
+      progressCurrentPos = Math.min(progressCurrentPos + 1, progressDuration);
       updateProgressBar();
     }, 1000);
     updateProgressBar();
