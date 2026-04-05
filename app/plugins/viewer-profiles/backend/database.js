@@ -421,6 +421,7 @@ class ViewerProfilesDatabase {
       }
 
       if (fields.length === 0) {
+        this.api.log(`updateViewer: no valid fields provided for '${username}', skipping update`, 'info');
         return this.db.prepare('SELECT * FROM viewer_profiles WHERE tiktok_username = ?').get(username);
       }
 
@@ -473,7 +474,13 @@ class ViewerProfilesDatabase {
     } = options;
 
     const safeSortBy = ALLOWED_SORT_FIELDS.includes(sortBy) ? sortBy : 'total_coins_spent';
+    if (!ALLOWED_SORT_FIELDS.includes(sortBy)) {
+      this.api.log(`getViewers: invalid sortBy '${sortBy}', falling back to 'total_coins_spent'`, 'debug');
+    }
     const safeOrder = ALLOWED_ORDERS.includes((order || '').toUpperCase()) ? order.toUpperCase() : 'DESC';
+    if (!ALLOWED_ORDERS.includes((order || '').toUpperCase())) {
+      this.api.log(`getViewers: invalid order '${order}', falling back to 'DESC'`, 'debug');
+    }
 
     const offset = (page - 1) * limit;
     let whereConditions = [];
