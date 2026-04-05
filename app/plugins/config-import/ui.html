@@ -439,45 +439,73 @@
         };
 
         try {
-            const resp = await fetch('/api/config-backup/export', {
+            // Step 1: Request a one-time download token from the server
+            const tokenResp = await fetch('/api/config-backup/export-token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(opts)
             });
 
-            if (!resp.ok) {
-                const err = await resp.json().catch(() => ({ error: resp.statusText }));
-                throw new Error(err.error || `HTTP ${resp.status}`);
+            if (!tokenResp.ok) {
+                const err = await tokenResp.json().catch(() => ({ error: tokenResp.statusText }));
+                throw new Error(err.error || `HTTP ${tokenResp.status}`);
             }
 
-            // Trigger download
-            const blob = await resp.blob();
-            const cd = resp.headers.get('Content-Disposition') || '';
-            const match = cd.match(/filename="([^"]+)"/);
-            const filename = match ? match[1] : 'ltth-backup.zip';
+            const tokenData = await tokenResp.json();
+            if (!tokenData.success) {
+                throw new Error(tokenData.error || 'Failed to prepare backup');
+            }
 
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = filename;
-            document.body.appendChild(a); a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            const { downloadUrl, filename } = tokenData;
 
-            // Show result card
-            document.getElementById('exportResultMsg').innerHTML =
-                `<div class="alert alert-success">✅ Backup <strong>${escHtml(filename)}</strong> downloaded successfully.</div>`;
+            // Step 2: Attempt download – primary method: window.open in top context
+            // (bypasses iframe download restrictions in browsers)
+            let opened = false;
+            try {
+                const win = window.open(downloadUrl, '_blank');
+                if (win) {
+                    opened = true;
+                }
+            } catch { /* popup blocked or not available */ }
 
-            const rawWarnings = resp.headers.get('X-Backup-Warnings');
-            if (rawWarnings) {
+            // Fallback 1: window.top.location / window.parent.open
+            if (!opened) {
                 try {
-                    const warns = JSON.parse(rawWarnings);
-                    if (warns.length > 0) {
-                        document.getElementById('exportWarnings').innerHTML =
-                            '<p class="section-title">Warnings</p>' +
-                            warns.map(w => `<div class="alert alert-warn" style="margin-bottom:6px;">${escHtml(w)}</div>`).join('');
+                    if (window.parent && window.parent !== window) {
+                        const pwin = window.parent.open(downloadUrl, '_blank');
+                        if (pwin) opened = true;
                     }
-                } catch { /* ignore */ }
+                } catch { /* cross-origin guard */ }
             }
+
+            // Fallback 2: Blob download via current window – only when window.open was blocked
+            // (may silently fail inside sandboxed iframes, but worth trying)
+            if (!opened) {
+                const blobResp = await fetch(downloadUrl).catch(() => null);
+                if (blobResp && blobResp.ok) {
+                    try {
+                        const blob = await blobResp.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = blobUrl; a.download = filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a);
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+                        opened = true;
+                    } catch { /* ignore */ }
+                }
+            }
+
+            // Step 3: Show result card with manual download link
+            const safeFilename = escHtml(filename);
+            const safeUrl = escHtml(downloadUrl);
+            document.getElementById('exportResultMsg').innerHTML =
+                `<div class="alert alert-success">` +
+                `✅ Backup ready! &nbsp;` +
+                `📥 <a href="${safeUrl}" download="${safeFilename}" target="_blank" rel="noopener noreferrer"><strong>${safeFilename}</strong></a>` +
+                `<br><small style="opacity:0.8;">If the download did not start automatically, click the link above or right-click → "Save as…"</small>` +
+                `</div>`;
+
             showEl(exportResultCard);
         } catch (e) {
             showAlert(exportAlert, '❌ Export failed: ' + e.message, 'error');

@@ -14,7 +14,11 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const Database = require('better-sqlite3');
+
+const TOKEN_TTL_MS = 60000;          // One-time download tokens expire after 60 s
+const TOKEN_CLEANUP_TTL_MS = 120000; // Remove stale tokens after 120 s
 
 class ConfigImportPlugin {
     constructor(api) {
@@ -138,6 +142,9 @@ class ConfigImportPlugin {
         const multer = require('multer');
         const os = require('os');
 
+        // Map of one-time download tokens: token -> { opts, timestamp, filename }
+        this._exportTokens = new Map();
+
         // Store uploads in the OS temp directory
         const upload = multer({
             dest: os.tmpdir(),
@@ -218,6 +225,104 @@ class ConfigImportPlugin {
                 stream.pipe(res);
             } catch (error) {
                 this.api.log(`Export error: ${error.message}`, 'error');
+                if (!res.headersSent) {
+                    res.status(500).json({ success: false, error: error.message });
+                }
+            }
+        });
+
+        // POST /api/config-backup/export-token  – issue a one-time download token
+        this.api.registerRoute('POST', '/api/config-backup/export-token', async (req, res) => {
+            try {
+                const backupManager = this.getBackupManager();
+                if (!backupManager) {
+                    return res.status(503).json({ success: false, error: 'Backup system not available' });
+                }
+
+                const {
+                    includeGlobalSettings = true,
+                    includePluginSettings = true,
+                    includePluginData = true,
+                    includeUploads = false,
+                    includeUserData = false,
+                    pluginFilter = null
+                } = req.body || {};
+
+                const opts = {
+                    includeGlobalSettings: Boolean(includeGlobalSettings),
+                    includePluginSettings: Boolean(includePluginSettings),
+                    includePluginData: Boolean(includePluginData),
+                    includeUploads: Boolean(includeUploads),
+                    includeUserData: Boolean(includeUserData),
+                    pluginFilter: Array.isArray(pluginFilter) && pluginFilter.length > 0 ? pluginFilter : null
+                };
+
+                // Clean up expired tokens on each request
+                const now = Date.now();
+                for (const [t, entry] of this._exportTokens) {
+                    if (now - entry.timestamp > TOKEN_CLEANUP_TTL_MS) {
+                        this._exportTokens.delete(t);
+                    }
+                }
+
+                const token = crypto.randomBytes(16).toString('hex');
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `ltth-backup-${timestamp}.zip`;
+                this._exportTokens.set(token, { opts, timestamp: now, filename });
+
+                const downloadUrl = `/api/config-backup/download?token=${token}`;
+                res.json({ success: true, token, downloadUrl, filename });
+            } catch (error) {
+                this.api.log(`Export token error: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // GET /api/config-backup/download?token=<token>  – one-time token-based download
+        this.api.registerRoute('GET', '/api/config-backup/download', async (req, res) => {
+            try {
+                const backupManager = this.getBackupManager();
+                if (!backupManager) {
+                    return res.status(503).json({ success: false, error: 'Backup system not available' });
+                }
+
+                const token = req.query.token;
+                if (!token || typeof token !== 'string') {
+                    return res.status(400).json({ success: false, error: 'Missing or invalid token' });
+                }
+
+                const entry = this._exportTokens.get(token);
+                if (!entry) {
+                    return res.status(404).json({ success: false, error: 'Invalid or already-used download token' });
+                }
+
+                // One-time use: remove immediately
+                this._exportTokens.delete(token);
+
+                // Validate TTL (60 seconds)
+                if (Date.now() - entry.timestamp > TOKEN_TTL_MS) {
+                    return res.status(400).json({ success: false, error: 'Download token has expired' });
+                }
+
+                res.setHeader('Content-Type', 'application/zip');
+                res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
+
+                const { stream, warnings } = await backupManager.export(entry.opts);
+
+                if (warnings && warnings.length > 0) {
+                    res.setHeader('X-Backup-Warnings', JSON.stringify(warnings.slice(0, 10)));
+                }
+
+                stream.on('error', err => {
+                    this.api.log(`Export stream error: ${err.message}`, 'error');
+                    if (!res.headersSent) {
+                        res.status(500).json({ success: false, error: err.message });
+                    }
+                });
+
+                stream.pipe(res);
+            } catch (error) {
+                this.api.log(`Download error: ${error.message}`, 'error');
                 if (!res.headersSent) {
                     res.status(500).json({ success: false, error: error.message });
                 }
