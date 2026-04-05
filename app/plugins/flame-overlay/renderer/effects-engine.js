@@ -27,6 +27,11 @@ class EffectsEngine {
         this.lightningSegments = [];
         this.postProcessor = null;
         
+        // Trigger system (v3.0.0)
+        this.activeTriggers = [];
+        this.baseConfig = null;
+        this.triggerQueue = [];
+        
         this.init();
     }
     
@@ -144,12 +149,173 @@ class EffectsEngine {
                         this.postProcessor.resize(this.canvas.width, this.canvas.height);
                     }
                 });
+
+                socket.on('flame-overlay:trigger', (data) => {
+                    this.handleTrigger(data);
+                });
             } catch (error) {
                 console.error('Failed to setup socket listener:', error);
             }
         } else {
             console.warn('Socket.io not available - config updates disabled');
         }
+    }
+
+    /**
+     * Handle an incoming trigger from the backend
+     * @param {object} trigger - Trigger object with type, duration, etc.
+     */
+    handleTrigger(trigger) {
+        if (!trigger || !trigger.type) return;
+
+        // Snapshot base config on first trigger
+        if (!this.baseConfig) {
+            this.baseConfig = JSON.parse(JSON.stringify(this.config));
+        }
+
+        const triggerEntry = {
+            id: trigger.id || (Date.now() + Math.random()),
+            ...trigger,
+            startTime: Date.now(),
+            endTime: trigger.duration ? Date.now() + trigger.duration : null,
+            prevEffect: this.config.effectType
+        };
+
+        this.activeTriggers.push(triggerEntry);
+        this.applyTrigger(triggerEntry);
+
+        // Auto-revert after duration
+        if (trigger.duration && trigger.revert !== false) {
+            setTimeout(() => {
+                this.removeTrigger(triggerEntry.id);
+            }, trigger.duration);
+        }
+    }
+
+    /**
+     * Apply a trigger's visual effect to the current config
+     * @param {object} trigger - Trigger entry
+     */
+    applyTrigger(trigger) {
+        const base = this.baseConfig || this.config;
+
+        switch (trigger.type) {
+            case 'intensity-boost':
+                this.config.flameIntensity = Math.min(
+                    (base.flameIntensity || 1.3) + (trigger.amount || 0.5),
+                    3.0
+                );
+                break;
+
+            case 'color-change':
+            case 'color-flash':
+                if (trigger.color) this.config.flameColor = trigger.color;
+                if (trigger.bloom) {
+                    this.config.bloomEnabled = true;
+                    this.config.bloomIntensity = Math.max(this.config.bloomIntensity || 0, 1.2);
+                }
+                break;
+
+            case 'effect-switch':
+                if (trigger.effect) this.switchEffect(trigger.effect);
+                break;
+
+            case 'dramatic':
+                if (trigger.effect) this.switchEffect(trigger.effect);
+                this.config.flameIntensity = Math.min(
+                    (base.flameIntensity || 1.3) + (trigger.intensityBoost || 0.5),
+                    3.0
+                );
+                if (trigger.bloomOverride) {
+                    this.config.bloomEnabled = trigger.bloomOverride.enabled;
+                    this.config.bloomIntensity = trigger.bloomOverride.intensity || 1.0;
+                }
+                break;
+
+            case 'pulse':
+                this.config.pulseEnabled = true;
+                this.config.pulseAmount = trigger.intensity || 0.5;
+                break;
+
+            case 'flash':
+                this.config.flameBrightness = Math.min(
+                    (base.flameBrightness || 0.25) + 0.8,
+                    2.0
+                );
+                break;
+
+            default:
+                break;
+        }
+
+        this.updateUniforms();
+    }
+
+    /**
+     * Remove an active trigger and revert config if no triggers remain
+     * @param {string|number} triggerId - ID of the trigger to remove
+     */
+    removeTrigger(triggerId) {
+        this.activeTriggers = this.activeTriggers.filter(t => t.id !== triggerId);
+
+        if (this.activeTriggers.length === 0 && this.baseConfig) {
+            const oldEffect = this.config.effectType;
+            const targetEffect = this.baseConfig.effectType;
+
+            this.smoothRevert(500);
+
+            if (oldEffect !== targetEffect) {
+                setTimeout(() => {
+                    this.switchEffect(targetEffect);
+                }, 250);
+            }
+        }
+    }
+
+    /**
+     * Smoothly interpolate config values back to baseConfig over duration
+     * @param {number} duration - Duration in ms
+     */
+    smoothRevert(duration) {
+        if (!this.baseConfig) return;
+
+        const startConfig = JSON.parse(JSON.stringify(this.config));
+        const targetConfig = this.baseConfig;
+        const startTime = Date.now();
+
+        const numericFields = [
+            'flameIntensity', 'flameBrightness', 'flameSpeed',
+            'bloomIntensity', 'bloomThreshold', 'pulseAmount'
+        ];
+
+        const interpolate = () => {
+            const elapsed = Date.now() - startTime;
+            const t = Math.min(elapsed / duration, 1.0);
+            // Quadratic ease-in-out: accelerates then decelerates
+            const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+            for (const field of numericFields) {
+                if (startConfig[field] !== undefined && targetConfig[field] !== undefined) {
+                    this.config[field] = startConfig[field] + (targetConfig[field] - startConfig[field]) * ease;
+                }
+            }
+
+            // Restore boolean / string fields immediately at end
+            if (t >= 1.0) {
+                this.config.flameColor = targetConfig.flameColor;
+                this.config.bloomEnabled = targetConfig.bloomEnabled;
+                this.config.pulseEnabled = targetConfig.pulseEnabled;
+                this.baseConfig = null;
+            }
+
+            this.updateUniforms();
+
+            if (t < 1.0) {
+                requestAnimationFrame(interpolate);
+            }
+        };
+
+        requestAnimationFrame(interpolate);
     }
     
     initPostProcessor() {

@@ -22,8 +22,8 @@ describe('Flame Overlay Plugin', () => {
         
         // Validate required fields
         expect(pluginJson.id).toBe('flame-overlay');
-        expect(pluginJson.name).toBe('TikTok Flame Overlay');
-        expect(pluginJson.version).toBe('1.0.0');
+        expect(pluginJson.name).toBe('TikTok Visual Effects Overlay');
+        expect(pluginJson.version).toBe('3.0.0');
         expect(pluginJson.entry).toBe('main.js');
         expect(pluginJson.author).toBe('Pup Cid');
         
