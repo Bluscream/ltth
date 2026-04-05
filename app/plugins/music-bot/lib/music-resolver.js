@@ -53,15 +53,6 @@ class MusicResolver {
 
     const isUrl = /^https?:\/\//i.test(trimmed);
 
-    if (isUrl && this._isSpotifyUrl(trimmed)) {
-      try {
-        return await this._resolveSpotifyToYouTube(trimmed);
-      } catch (spotifyError) {
-        this.api.log(`[music-bot] Spotify resolve failed: ${spotifyError.message}`, 'warn');
-        throw new Error(`Spotify-Link konnte nicht aufgelöst werden: ${spotifyError.message}`);
-      }
-    }
-
     const target = isUrl ? trimmed : `ytsearch1:${trimmed}`;
 
     const args = [
@@ -339,51 +330,6 @@ class MusicResolver {
         reject(new Error('oEmbed request timed out'));
       });
     });
-  }
-
-  _isSpotifyUrl(url) {
-    try {
-      const parsed = new URL(url);
-      return parsed.hostname === 'open.spotify.com' || parsed.hostname === 'spotify.link';
-    } catch (e) {
-      return false;
-    }
-  }
-
-  async _resolveSpotifyToYouTube(url) {
-    const oembedUrl = `https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`;
-    const oembedData = await new Promise((resolve, reject) => {
-      const req = https.get(oembedUrl, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`Spotify oEmbed HTTP ${res.statusCode}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            reject(new Error(`Spotify oEmbed parse error: ${e.message}`));
-          }
-        });
-      });
-      req.on('error', (e) => reject(new Error(`Spotify oEmbed request failed: ${e.message}`)));
-      req.setTimeout(8000, () => {
-        req.destroy();
-        reject(new Error('Spotify oEmbed request timed out'));
-      });
-    });
-
-    // Extract track title from oEmbed title (format: "Track Name - Artist Name")
-    const title = oembedData.title || '';
-    if (!title) {
-      throw new Error('Could not extract track info from Spotify');
-    }
-
-    this.api.log(`[music-bot] Spotify link detected, searching YouTube for: ${title}`, 'info');
-    // Re-resolve via YouTube search
-    return this.resolve(title);
   }
 
   _isSoundCloudUrl(url) {
