@@ -144,6 +144,57 @@ const FLOW_PRESETS = [
             enabled: true,
             cooldown: 3
         }
+    },
+    {
+        id: 'gift-flame-burst',
+        name: 'Geschenk → Flammen-Burst',
+        description: 'Große Geschenke (100+ Coins) lösen einen Flammen-Burst aus',
+        category: 'gift',
+        icon: '🔥',
+        flow: {
+            name: 'Großes Geschenk → Flammen Burst',
+            trigger_type: 'tiktok:gift',
+            trigger_condition: { field: 'coins', operator: 'greaterThan', value: '100' },
+            actions: [
+                { type: 'flame-overlay:trigger', burstType: 'intensity-boost', intensity: 2.0, duration: 8000, color: '#ff0000' }
+            ],
+            enabled: true,
+            cooldown: 10
+        }
+    },
+    {
+        id: 'sub-flame-particles',
+        name: 'Abo → Partikel-Feuerwerk',
+        description: 'Neues Abonnement löst Partikel-Effekt im Flame Overlay aus',
+        category: 'subscribe',
+        icon: '✨',
+        flow: {
+            name: 'Neues Abo → Partikel Overlay',
+            trigger_type: 'tiktok:subscribe',
+            trigger_condition: null,
+            actions: [
+                { type: 'flame-overlay:trigger', burstType: 'effect-switch', effectType: 'particles', duration: 10000, color: '#ffdd00' }
+            ],
+            enabled: true,
+            cooldown: 15
+        }
+    },
+    {
+        id: 'follow-flame-glow',
+        name: 'Follow → Flammen-Glow',
+        description: 'Neue Follower lösen kurzen Flammen-Glow aus',
+        category: 'follow',
+        icon: '🔥',
+        flow: {
+            name: 'Neuer Follow → Flammen Glow',
+            trigger_type: 'tiktok:follow',
+            trigger_condition: null,
+            actions: [
+                { type: 'flame-overlay:trigger', burstType: 'intensity-boost', intensity: 1.5, duration: 3000, color: '#00ffaa' }
+            ],
+            enabled: true,
+            cooldown: 5
+        }
     }
 ];
 

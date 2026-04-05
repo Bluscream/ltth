@@ -947,6 +947,26 @@
             </div>
         </div>
         
+        <!-- Presets Section -->
+        <div class="section">
+            <h2 class="section-title">💾 Presets</h2>
+            
+            <div class="form-group">
+                <label>Aktuelle Einstellungen als Preset speichern:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="presetName" placeholder="Preset-Name (z.B. Hype Mode)" style="flex: 1;">
+                    <button class="btn" onclick="savePreset()">💾 Speichern</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Gespeicherte Presets:</label>
+                <div id="presetList" style="margin-top: 10px;">
+                    <p style="color: #888; font-size: 13px;">Lade Presets...</p>
+                </div>
+            </div>
+        </div>
+        
         <!-- Trigger System (v3.0.0) -->
         <div class="section">
             <h2 class="section-title">🎮 Triggers</h2>
@@ -1851,6 +1871,9 @@
                     document.getElementById('resolutionPreset').dispatchEvent(new Event('change'));
                     
                     showStatus('Konfiguration geladen', 'success');
+                    
+                    // Refresh preset list
+                    loadPresets();
                 }
             } catch (error) {
                 showStatus('Fehler beim Laden: ' + error.message, 'error');
@@ -1897,6 +1920,134 @@
             setTimeout(() => {
                 statusEl.style.display = 'none';
             }, 3000);
+        }
+        
+        // ===== Preset Management =====
+        
+        // Safely escape HTML to prevent XSS when inserting preset names into innerHTML
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+        
+        // Load and display presets
+        async function loadPresets() {
+            try {
+                const response = await fetch('/api/flame-overlay/presets');
+                const data = await response.json();
+                if (data.success) {
+                    renderPresetList(data.presets);
+                }
+            } catch (error) {
+                console.error('Error loading presets:', error);
+            }
+        }
+        
+        function renderPresetList(presets) {
+            const container = document.getElementById('presetList');
+            const names = Object.keys(presets);
+            
+            if (names.length === 0) {
+                container.innerHTML = '<p style="color: #888; font-size: 13px;">Noch keine Presets gespeichert.</p>';
+                return;
+            }
+            
+            container.innerHTML = names.map(name => {
+                const preset = presets[name];
+                const date = new Date(preset.createdAt).toLocaleDateString('de-DE');
+                const escapedName = escapeHtml(name);
+                return `
+                    <div style="display: flex; align-items: center; justify-content: space-between; background: #333; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px;">
+                        <div>
+                            <strong style="color: #ff9933;">${escapedName}</strong>
+                            <span style="color: #666; font-size: 12px; margin-left: 10px;">Gespeichert am ${escapeHtml(date)}</span>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn preset-load-btn" data-preset-name="${escapedName}" style="padding: 6px 12px; font-size: 12px;">📂 Laden</button>
+                            <button class="btn btn-secondary preset-delete-btn" data-preset-name="${escapedName}" style="padding: 6px 12px; font-size: 12px;">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Attach event listeners via delegation
+            container.querySelectorAll('.preset-load-btn').forEach(btn => {
+                btn.addEventListener('click', () => loadPreset(btn.dataset.presetName));
+            });
+            container.querySelectorAll('.preset-delete-btn').forEach(btn => {
+                btn.addEventListener('click', () => deletePreset(btn.dataset.presetName));
+            });
+        }
+        
+        async function savePreset() {
+            const name = document.getElementById('presetName').value.trim();
+            if (!name) {
+                showStatus('❌ Bitte gib einen Preset-Namen ein!', 'error');
+                return;
+            }
+            
+            try {
+                // Save current config first
+                await saveConfigSilent();
+                
+                const response = await fetch(`/api/flame-overlay/presets/${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showStatus(`✅ Preset "${name}" gespeichert!`, 'success');
+                    document.getElementById('presetName').value = '';
+                    loadPresets();
+                } else {
+                    showStatus('❌ ' + (data.error || 'Fehler'), 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Fehler: ' + error.message, 'error');
+            }
+        }
+        
+        async function loadPreset(name) {
+            try {
+                const response = await fetch(`/api/flame-overlay/presets/${encodeURIComponent(name)}/load`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showStatus(`✅ Preset "${name}" geladen!`, 'success');
+                    loadConfig();
+                } else {
+                    showStatus('❌ ' + (data.error || 'Fehler'), 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Fehler: ' + error.message, 'error');
+            }
+        }
+        
+        async function deletePreset(name) {
+            if (!confirm(`Preset "${name}" wirklich löschen?`)) return;
+            
+            try {
+                const response = await fetch(`/api/flame-overlay/presets/${encodeURIComponent(name)}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showStatus(`✅ Preset "${name}" gelöscht!`, 'success');
+                    loadPresets();
+                } else {
+                    showStatus('❌ ' + (data.error || 'Fehler'), 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Fehler: ' + error.message, 'error');
+            }
         }
         
         // Update overlay URL based on current location

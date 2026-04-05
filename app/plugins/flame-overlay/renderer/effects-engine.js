@@ -319,11 +319,24 @@ class EffectsEngine {
     }
     
     initPostProcessor() {
-        if (typeof PostProcessor !== 'undefined') {
+        if (typeof PostProcessor === 'undefined') {
+            console.warn('[EffectsEngine] PostProcessor class not available – bloom disabled');
+            this.postProcessor = null;
+            this.config.bloomEnabled = false;
+            return;
+        }
+        
+        try {
             this.postProcessor = new PostProcessor(this.gl);
-            // Framebuffers are created by handleResize() once canvas has valid dimensions
-        } else {
-            console.warn('PostProcessor not available - bloom effects disabled');
+            const width = this.gl.canvas.width || 720;
+            const height = this.gl.canvas.height || 1280;
+            if (width > 0 && height > 0) {
+                this.postProcessor.resize(width, height);
+            }
+        } catch (error) {
+            console.error('[EffectsEngine] PostProcessor init failed:', error);
+            this.postProcessor = null;
+            this.config.bloomEnabled = false;
         }
     }
     

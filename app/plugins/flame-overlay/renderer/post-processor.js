@@ -81,8 +81,8 @@ class PostProcessor {
             }
         `;
         
-        // Separable Gaussian blur (horizontal)
-        const blurHorizontalFragmentSource = `
+        // Dual Kawase Blur: only 4 texture fetches per pass instead of 21 (Gaussian)
+        const kawaseBlurFragmentSource = `
             precision highp float;
             uniform sampler2D uTexture;
             uniform vec2 uResolution;
@@ -91,51 +91,20 @@ class PostProcessor {
             
             void main() {
                 vec2 texelSize = 1.0 / uResolution;
-                vec4 result = vec4(0.0);
-                float totalWeight = 0.0;
+                float offset = uRadius;
                 
-                int iRadius = int(uRadius);
-                for (int i = -10; i <= 10; i++) {
-                    if (abs(i) > iRadius) continue;
-                    float weight = exp(-float(i * i) / (2.0 * uRadius * uRadius));
-                    vec2 offset = vec2(float(i) * texelSize.x, 0.0);
-                    result += texture2D(uTexture, vTexCoord + offset) * weight;
-                    totalWeight += weight;
-                }
+                vec4 color = vec4(0.0);
+                color += texture2D(uTexture, vTexCoord + vec2(-offset, -offset) * texelSize);
+                color += texture2D(uTexture, vTexCoord + vec2( offset, -offset) * texelSize);
+                color += texture2D(uTexture, vTexCoord + vec2(-offset,  offset) * texelSize);
+                color += texture2D(uTexture, vTexCoord + vec2( offset,  offset) * texelSize);
                 
-                gl_FragColor = result / totalWeight;
-            }
-        `;
-        
-        // Separable Gaussian blur (vertical)
-        const blurVerticalFragmentSource = `
-            precision highp float;
-            uniform sampler2D uTexture;
-            uniform vec2 uResolution;
-            uniform float uRadius;
-            varying vec2 vTexCoord;
-            
-            void main() {
-                vec2 texelSize = 1.0 / uResolution;
-                vec4 result = vec4(0.0);
-                float totalWeight = 0.0;
-                
-                int iRadius = int(uRadius);
-                for (int i = -10; i <= 10; i++) {
-                    if (abs(i) > iRadius) continue;
-                    float weight = exp(-float(i * i) / (2.0 * uRadius * uRadius));
-                    vec2 offset = vec2(0.0, float(i) * texelSize.y);
-                    result += texture2D(uTexture, vTexCoord + offset) * weight;
-                    totalWeight += weight;
-                }
-                
-                gl_FragColor = result / totalWeight;
+                gl_FragColor = color * 0.25;
             }
         `;
         
         this.programs.extractBright = this.createProgram(vertexShaderSource, extractFragmentSource);
-        this.programs.blurHorizontal = this.createProgram(vertexShaderSource, blurHorizontalFragmentSource);
-        this.programs.blurVertical = this.createProgram(vertexShaderSource, blurVerticalFragmentSource);
+        this.programs.kawaseBlur = this.createProgram(vertexShaderSource, kawaseBlurFragmentSource);
     }
     
     createCompositeShader() {
@@ -266,15 +235,27 @@ class PostProcessor {
     resize(width, height) {
         if (width <= 0 || height <= 0) return;
         
-        // Recreate framebuffers with new size
-        const fbNames = ['scene', 'bright', 'blur1', 'blur2'];
-        fbNames.forEach(name => {
-            if (this.framebuffers[name]) {
-                this.gl.deleteFramebuffer(this.framebuffers[name]);
-                this.gl.deleteTexture(this.textures[name]);
-            }
-            this.createFramebuffer(width, height, name);
-        });
+        // Scene FB stays at full resolution
+        this.deleteAndRecreate('scene', width, height);
+        
+        // Bloom FBs at half resolution → 75% less VRAM
+        // Math.max(1, ...) prevents 0x0 framebuffers which are invalid in WebGL
+        const bloomWidth = Math.max(1, Math.floor(width / 2));
+        const bloomHeight = Math.max(1, Math.floor(height / 2));
+        this.deleteAndRecreate('bright', bloomWidth, bloomHeight);
+        this.deleteAndRecreate('blur1', bloomWidth, bloomHeight);
+        this.deleteAndRecreate('blur2', bloomWidth, bloomHeight);
+        
+        this.bloomWidth = bloomWidth;
+        this.bloomHeight = bloomHeight;
+    }
+    
+    deleteAndRecreate(name, width, height) {
+        if (this.framebuffers[name]) {
+            this.gl.deleteFramebuffer(this.framebuffers[name]);
+            this.gl.deleteTexture(this.textures[name]);
+        }
+        this.createFramebuffer(width, height, name);
     }
     
     isReady() {
@@ -283,8 +264,7 @@ class PostProcessor {
                this.framebuffers.blur1 && 
                this.framebuffers.blur2 &&
                this.programs.extractBright &&
-               this.programs.blurHorizontal &&
-               this.programs.blurVertical &&
+               this.programs.kawaseBlur &&
                this.programs.composite;
     }
     
@@ -297,10 +277,11 @@ class PostProcessor {
     
     applyBloom(sceneTexture, config) {
         const gl = this.gl;
-        const width = gl.canvas.width;
-        const height = gl.canvas.height;
+        const bloomWidth = this.bloomWidth || Math.max(1, Math.floor(gl.canvas.width / 2));
+        const bloomHeight = this.bloomHeight || Math.max(1, Math.floor(gl.canvas.height / 2));
+        const passCount = Math.max(1, config.bloomRadius || 4);
         
-        // Extract bright areas
+        // Extract bright areas into 'bright' FB (at bloom resolution)
         this.renderToFramebuffer('bright', () => {
             gl.useProgram(this.programs.extractBright);
             gl.activeTexture(gl.TEXTURE0);
@@ -314,39 +295,37 @@ class PostProcessor {
             this.drawQuad(this.programs.extractBright);
         });
         
-        // Horizontal blur
-        this.renderToFramebuffer('blur1', () => {
-            gl.useProgram(this.programs.blurHorizontal);
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, this.textures.bright);
-            
-            const uTexture = gl.getUniformLocation(this.programs.blurHorizontal, 'uTexture');
-            const uResolution = gl.getUniformLocation(this.programs.blurHorizontal, 'uResolution');
-            const uRadius = gl.getUniformLocation(this.programs.blurHorizontal, 'uRadius');
-            gl.uniform1i(uTexture, 0);
-            gl.uniform2f(uResolution, width, height);
-            gl.uniform1f(uRadius, config.bloomRadius || 4.0);
-            
-            this.drawQuad(this.programs.blurHorizontal);
-        });
+        // Kawase multi-pass blur: ping-pong between blur1 and blur2
+        // Each pass uses offset = i + 0.5 (standard Kawase offsets: 0.5, 1.5, 2.5, ...)
+        let srcName = 'bright';
+        let dstName = 'blur1';
         
-        // Vertical blur
-        this.renderToFramebuffer('blur2', () => {
-            gl.useProgram(this.programs.blurVertical);
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, this.textures.blur1);
+        for (let i = 0; i < passCount; i++) {
+            const offset = i + 0.5;
+            const finalDstName = dstName;
+            const finalSrcName = srcName;
             
-            const uTexture = gl.getUniformLocation(this.programs.blurVertical, 'uTexture');
-            const uResolution = gl.getUniformLocation(this.programs.blurVertical, 'uResolution');
-            const uRadius = gl.getUniformLocation(this.programs.blurVertical, 'uRadius');
-            gl.uniform1i(uTexture, 0);
-            gl.uniform2f(uResolution, width, height);
-            gl.uniform1f(uRadius, config.bloomRadius || 4.0);
+            this.renderToFramebuffer(finalDstName, () => {
+                gl.useProgram(this.programs.kawaseBlur);
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, this.textures[finalSrcName]);
+                
+                const uTexture = gl.getUniformLocation(this.programs.kawaseBlur, 'uTexture');
+                const uResolution = gl.getUniformLocation(this.programs.kawaseBlur, 'uResolution');
+                const uRadius = gl.getUniformLocation(this.programs.kawaseBlur, 'uRadius');
+                gl.uniform1i(uTexture, 0);
+                gl.uniform2f(uResolution, bloomWidth, bloomHeight);
+                gl.uniform1f(uRadius, offset);
+                
+                this.drawQuad(this.programs.kawaseBlur);
+            });
             
-            this.drawQuad(this.programs.blurVertical);
-        });
+            // Swap ping-pong buffers (skip 'bright' after first pass)
+            srcName = dstName;
+            dstName = (dstName === 'blur1') ? 'blur2' : 'blur1';
+        }
         
-        return this.textures.blur2;
+        return this.textures[srcName];
     }
     
     composite(originalTexture, bloomTexture, config, time) {

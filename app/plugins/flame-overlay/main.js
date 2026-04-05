@@ -107,6 +107,9 @@ class FlameOverlayPlugin {
             this.registerTikTokEventHandlers();
         }
 
+        // Register flow actions
+        this.registerFlowActions();
+
         this.api.log('✅ [FLAME OVERLAY] Plugin initialized successfully', 'info');
         this.logRoutes();
     }
@@ -284,6 +287,64 @@ class FlameOverlayPlugin {
                     config: this.config,
                     resolution: resolution
                 });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // GET /api/flame-overlay/presets - Load all presets
+        this.api.registerRoute('get', '/api/flame-overlay/presets', (req, res) => {
+            try {
+                const presets = this.api.getConfig('presets') || {};
+                res.json({ success: true, presets });
+            } catch (error) {
+                this.api.log(`❌ [FLAME OVERLAY] Error loading presets: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // POST /api/flame-overlay/presets/:name - Save preset
+        this.api.registerRoute('post', '/api/flame-overlay/presets/:name', (req, res) => {
+            try {
+                const presets = this.api.getConfig('presets') || {};
+                presets[req.params.name] = {
+                    config: { ...this.config },
+                    createdAt: new Date().toISOString()
+                };
+                this.api.setConfig('presets', presets);
+                res.json({ success: true, message: `Preset "${req.params.name}" saved` });
+            } catch (error) {
+                this.api.log(`❌ [FLAME OVERLAY] Error saving preset: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // POST /api/flame-overlay/presets/:name/load - Load preset
+        this.api.registerRoute('post', '/api/flame-overlay/presets/:name/load', (req, res) => {
+            try {
+                const presets = this.api.getConfig('presets') || {};
+                if (!presets[req.params.name]) {
+                    return res.status(404).json({ success: false, error: 'Preset not found' });
+                }
+                this.config = { ...this.config, ...presets[req.params.name].config };
+                this.saveConfig();
+                this.api.emit('flame-overlay:config-update', { config: this.config });
+                res.json({ success: true, message: `Preset "${req.params.name}" loaded` });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // DELETE /api/flame-overlay/presets/:name - Delete preset
+        this.api.registerRoute('delete', '/api/flame-overlay/presets/:name', (req, res) => {
+            try {
+                const presets = this.api.getConfig('presets') || {};
+                if (!presets[req.params.name]) {
+                    return res.status(404).json({ success: false, error: 'Preset not found' });
+                }
+                delete presets[req.params.name];
+                this.api.setConfig('presets', presets);
+                res.json({ success: true, message: `Preset "${req.params.name}" deleted` });
             } catch (error) {
                 res.status(500).json({ success: false, error: error.message });
             }
@@ -584,6 +645,26 @@ class FlameOverlayPlugin {
     }
 
     /**
+     * Register flow system action handlers
+     */
+    registerFlowActions() {
+        this.api.registerSocket('flow:flame-overlay:trigger', (data) => {
+            this.dispatchTrigger({
+                type: data.burstType || 'intensity-boost',
+                effect: data.effectType,
+                intensity: data.intensity || 2.0,
+                color: data.color,
+                duration: data.duration || 5000,
+                revert: true,
+                source: 'flow'
+            });
+            this.api.log(`🔥 [FLAME OVERLAY] Flow triggered: ${data.burstType || 'intensity-boost'}`, 'debug');
+        });
+        
+        this.api.log('🔥 [FLAME OVERLAY] Flow actions registered', 'info');
+    }
+
+    /**
      * Log registered routes
      */
     logRoutes() {
@@ -593,6 +674,10 @@ class FlameOverlayPlugin {
         this.api.log('   - GET  /api/flame-overlay/config', 'info');
         this.api.log('   - POST /api/flame-overlay/config', 'info');
         this.api.log('   - GET  /api/flame-overlay/status', 'info');
+        this.api.log('   - GET  /api/flame-overlay/presets', 'info');
+        this.api.log('   - POST /api/flame-overlay/presets/:name', 'info');
+        this.api.log('   - POST /api/flame-overlay/presets/:name/load', 'info');
+        this.api.log('   - DELETE /api/flame-overlay/presets/:name', 'info');
         this.api.log('   - POST /api/flame-overlay/trigger', 'info');
         this.api.log('   - GET  /api/flame-overlay/triggers', 'info');
         this.api.log('   - POST /api/flame-overlay/triggers', 'info');
