@@ -396,13 +396,33 @@ class ViewerProfilesDatabase {
    * Update viewer profile
    */
   updateViewer(username, updates) {
+    const ALLOWED_UPDATE_FIELDS = [
+      'tiktok_user_id', 'display_name', 'profile_picture_url', 'bio',
+      'age', 'gender', 'country', 'language', 'verified',
+      'follower_count', 'following_count', 'last_seen_at',
+      'total_visits', 'total_watchtime_seconds', 'total_coins_spent',
+      'total_gifts_sent', 'total_comments', 'total_likes', 'total_shares',
+      'tts_voice', 'discord_username', 'birthday', 'notes', 'tags',
+      'is_vip', 'vip_since', 'vip_tier', 'loyalty_points',
+      'is_blocked', 'is_favorite', 'is_moderator'
+    ];
+
     try {
       const fields = [];
       const values = [];
 
       for (const [key, value] of Object.entries(updates)) {
+        if (!ALLOWED_UPDATE_FIELDS.includes(key)) {
+          this.api.log(`updateViewer: ignoring disallowed field '${key}'`, 'warn');
+          continue;
+        }
         fields.push(`${key} = ?`);
         values.push(value);
+      }
+
+      if (fields.length === 0) {
+        this.api.log(`updateViewer: no valid fields provided for '${username}', skipping update`, 'info');
+        return this.db.prepare('SELECT * FROM viewer_profiles WHERE tiktok_username = ?').get(username);
       }
 
       fields.push('updated_at = CURRENT_TIMESTAMP');
@@ -436,6 +456,14 @@ class ViewerProfilesDatabase {
    * Get all viewers with pagination and filtering
    */
   getViewers(options = {}) {
+    const ALLOWED_SORT_FIELDS = [
+      'total_coins_spent', 'total_watchtime_seconds', 'total_visits',
+      'last_seen_at', 'tiktok_username', 'display_name', 'created_at',
+      'total_gifts_sent', 'total_comments', 'total_likes', 'total_shares',
+      'first_seen_at', 'updated_at', 'is_vip', 'loyalty_points'
+    ];
+    const ALLOWED_ORDERS = ['ASC', 'DESC'];
+
     const {
       page = 1,
       limit = 50,
@@ -444,6 +472,15 @@ class ViewerProfilesDatabase {
       search = '',
       filter = 'all'
     } = options;
+
+    const safeSortBy = ALLOWED_SORT_FIELDS.includes(sortBy) ? sortBy : 'total_coins_spent';
+    if (!ALLOWED_SORT_FIELDS.includes(sortBy)) {
+      this.api.log(`getViewers: invalid sortBy '${sortBy}', falling back to 'total_coins_spent'`, 'debug');
+    }
+    const safeOrder = ALLOWED_ORDERS.includes((order || '').toUpperCase()) ? order.toUpperCase() : 'DESC';
+    if (!ALLOWED_ORDERS.includes((order || '').toUpperCase())) {
+      this.api.log(`getViewers: invalid order '${order}', falling back to 'DESC'`, 'debug');
+    }
 
     const offset = (page - 1) * limit;
     let whereConditions = [];
@@ -475,7 +512,7 @@ class ViewerProfilesDatabase {
     const sql = `
       SELECT * FROM viewer_profiles
       ${whereClause}
-      ORDER BY ${sortBy} ${order}
+      ORDER BY ${safeSortBy} ${safeOrder}
       LIMIT ? OFFSET ?
     `;
 
@@ -656,6 +693,11 @@ class ViewerProfilesDatabase {
    * Get leaderboard
    */
   getLeaderboard(type = 'coins', limit = 10) {
+    const ALLOWED_LEADERBOARD_FIELDS = [
+      'total_coins_spent', 'total_watchtime_seconds', 'total_visits',
+      'total_gifts_sent', 'total_comments'
+    ];
+
     const sortMap = {
       'coins': 'total_coins_spent',
       'watchtime': 'total_watchtime_seconds',
@@ -664,7 +706,8 @@ class ViewerProfilesDatabase {
       'comments': 'total_comments'
     };
 
-    const sortBy = sortMap[type] || 'total_coins_spent';
+    const mappedField = sortMap[type] || 'total_coins_spent';
+    const sortBy = ALLOWED_LEADERBOARD_FIELDS.includes(mappedField) ? mappedField : 'total_coins_spent';
 
     return this.db.prepare(`
       SELECT * FROM viewer_profiles

@@ -138,6 +138,16 @@ class ViewerProfilesPlugin extends EventEmitter {
       // Stop birthday checker
       this.birthdayManager.stop();
 
+      // Remove socket connection listener to prevent memory leak
+      try {
+        const io = this.api.getSocketIO();
+        if (this._socketConnectionHandler) {
+          io.removeListener('connection', this._socketConnectionHandler);
+        }
+      } catch (e) {
+        this.api.log(`Error removing socket listener: ${e.message}`, 'warn');
+      }
+
       this.api.log('✅ Viewer Profiles Plugin destroyed', 'info');
     } catch (error) {
       this.api.log(`Error destroying plugin: ${error.message}`, 'error');
@@ -186,8 +196,8 @@ class ViewerProfilesPlugin extends EventEmitter {
   registerWebSocketHandlers() {
     const io = this.api.getSocketIO();
 
-    // Listen for socket connections
-    io.on('connection', (socket) => {
+    // Store handler reference so it can be removed in destroy()
+    this._socketConnectionHandler = (socket) => {
       // Get viewer profile
       socket.on('viewer-profiles:get', (username, callback) => {
         try {
@@ -241,7 +251,10 @@ class ViewerProfilesPlugin extends EventEmitter {
           }
         }
       });
-    });
+    };
+
+    // Listen for socket connections
+    io.on('connection', this._socketConnectionHandler);
 
     this.api.log('WebSocket handlers registered', 'info');
   }
