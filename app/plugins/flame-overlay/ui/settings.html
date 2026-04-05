@@ -1221,6 +1221,16 @@
         
         // ===== Preset Management =====
         
+        // Safely escape HTML to prevent XSS when inserting preset names into innerHTML
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+        
         // Load and display presets
         async function loadPresets() {
             try {
@@ -1246,12 +1256,12 @@
             container.innerHTML = names.map(name => {
                 const preset = presets[name];
                 const date = new Date(preset.createdAt).toLocaleDateString('de-DE');
-                const escapedName = name.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+                const escapedName = escapeHtml(name);
                 return `
                     <div style="display: flex; align-items: center; justify-content: space-between; background: #333; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px;">
                         <div>
                             <strong style="color: #ff9933;">${escapedName}</strong>
-                            <span style="color: #666; font-size: 12px; margin-left: 10px;">Gespeichert am ${date}</span>
+                            <span style="color: #666; font-size: 12px; margin-left: 10px;">Gespeichert am ${escapeHtml(date)}</span>
                         </div>
                         <div style="display: flex; gap: 8px;">
                             <button class="btn preset-load-btn" data-preset-name="${escapedName}" style="padding: 6px 12px; font-size: 12px;">📂 Laden</button>

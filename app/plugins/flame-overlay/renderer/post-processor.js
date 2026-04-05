@@ -239,6 +239,7 @@ class PostProcessor {
         this.deleteAndRecreate('scene', width, height);
         
         // Bloom FBs at half resolution → 75% less VRAM
+        // Math.max(1, ...) prevents 0x0 framebuffers which are invalid in WebGL
         const bloomWidth = Math.max(1, Math.floor(width / 2));
         const bloomHeight = Math.max(1, Math.floor(height / 2));
         this.deleteAndRecreate('bright', bloomWidth, bloomHeight);
