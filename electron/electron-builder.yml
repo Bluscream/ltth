@@ -1,0 +1,17 @@
+appId: app.ltth.desktop
+productName: LTTH
+copyright: Copyright © 2026 PupCid
+directories:
+  output: bin
+  buildResources: resources
+files:
+  - dist/**/*
+  - node_modules/**/*
+  - package.json
+win:
+  target:
+    - portable
+  artifactName: "ltth.${ext}"
+  icon: source/backend/ltthappicon.png
+portable:
+  artifactName: "ltth.exe"
