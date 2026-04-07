@@ -5,6 +5,7 @@ app/node_modules/
 # Build outputs
 dist/
 build/
+bin/
 *.log
 
 # Build artifacts (Go executables in build-src)
@@ -37,7 +38,9 @@ app/user_data/
 app/data/
 
 # Logs and runtime files
-app/logs/
+logs/
+**/logs/
+*.log
 app/plugins/plugins_state.json
 
 # Database files
@@ -59,3 +62,6 @@ build-src/installer/*.exe
 LTTH-Setup-*.exe
 test-quiz-timing.js
 test-new-voices.js
+
+# Custom
+*.log
