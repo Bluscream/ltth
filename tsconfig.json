@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "CommonJS",
+    "lib": ["ESNext", "DOM"],
+    "allowJs": true,
+    "checkJs": false,
+    "jsx": "react",
+    "declaration": false,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "source",
+    "strict": false,
+    "noImplicitAny": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "include": ["source/**/*.ts", "source/**/*.js"],
+  "exclude": ["node_modules", "dist", "source/backend/public", "source/backend/test"]
+}
