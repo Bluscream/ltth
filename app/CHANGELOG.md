@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### 🏆 **Top Tier Plugin** (`toptier`): Live-Leaderboard für TikTok LIVE Likes & Geschenke
+- Zwei unabhängige Boards: Likes-Board und Gifts-Board
+- 5 Decay-Modi: none, linear, percentage, idle, step
+- 7 OBS-Overlay-Varianten: Classic List, Animated Race, Spotlight, Podium, Ticker, Holographic, Scoreboard
+- Echtzeit Rang-Wechsel- und New-Leader-Animationen
+- All-Time Hall of Fame über alle Sessions
+- Geschenk-Multiplikator-Regeln pro Geschenk-Name/ID
+- Chat-Command `!rank` für Zuschauer-Rang-Abfrage
+- Session-Management mit Auto-Reset bei Reconnect
+- Vollständige Admin-UI mit Live-Preview und OBS-URL-Generator
+
 ### Fixed
 
 #### 🎰 **Plinko – Board-aware gift trigger flow** (PR #222)
