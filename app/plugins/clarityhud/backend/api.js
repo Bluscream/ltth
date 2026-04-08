@@ -98,6 +98,46 @@ class ClarityHUDBackend {
       giftImageSize: 'medium' // 'small', 'medium', 'large'
     };
 
+    // Default settings for Stream Overlay (viewer-facing broadcast overlay)
+    this.defaultStreamSettings = {
+      orientation: 'landscape',
+      showChat: false,
+      showFollows: true,
+      showShares: true,
+      showLikes: false,
+      showGifts: true,
+      showSubs: true,
+      showTreasureChests: true,
+      showJoins: false,
+      slotChat: 'slot-right-rail',
+      slotFollow: 'slot-bottom-right',
+      slotShare: 'slot-bottom-right',
+      slotLike: 'slot-bottom-right',
+      slotGift: 'slot-top-center',
+      slotSub: 'slot-top-center',
+      slotTreasure: 'slot-top-center',
+      slotJoin: 'slot-bottom-right',
+      highlightGiftThreshold: 100,
+      highlightAlwaysSub: true,
+      highlightAlwaysTreasure: true,
+      ttlChat: 8000,
+      ttlFollow: 7000,
+      ttlShare: 7000,
+      ttlLike: 5000,
+      ttlGift: 9000,
+      ttlSub: 10000,
+      ttlTreasure: 10000,
+      ttlJoin: 4000,
+      animIn: 'auto',
+      animOut: 'auto',
+      reduceMotion: false,
+      opacity: 1,
+      dyslexiaFont: false,
+      tickerEnabled: false,
+      tickerSpeed: 60,
+      tickerLabel: '🔴 LIVE',
+    };
+
     // Default settings for Multi-Stream HUD
     this.defaultMultiSettings = {
       enabled: false,
@@ -145,7 +185,8 @@ class ClarityHUDBackend {
     this.settings = {
       chat: { ...this.defaultChatSettings },
       full: { ...this.defaultFullSettings },
-      multi: { ...this.defaultMultiSettings }
+      multi: { ...this.defaultMultiSettings },
+      stream: { ...this.defaultStreamSettings }
     };
   }
 
@@ -172,6 +213,12 @@ class ClarityHUDBackend {
         this.settings.multi = { ...this.defaultMultiSettings, ...multiSettings };
       }
 
+      // Load stream overlay settings
+      const streamSettings = await this.api.getConfig('clarityhud.settings.stream');
+      if (streamSettings) {
+        this.settings.stream = { ...this.defaultStreamSettings, ...streamSettings };
+      }
+
       this.api.log('ClarityHUD backend initialized with settings loaded', 'info');
     } catch (error) {
       this.api.log(`Error initializing ClarityHUD backend: ${error.message}`, 'error');
@@ -179,6 +226,7 @@ class ClarityHUDBackend {
       this.settings.chat = { ...this.defaultChatSettings };
       this.settings.full = { ...this.defaultFullSettings };
       this.settings.multi = { ...this.defaultMultiSettings };
+      this.settings.stream = { ...this.defaultStreamSettings };
     }
   }
 
@@ -207,10 +255,10 @@ class ClarityHUDBackend {
       try {
         const { dock } = req.params;
 
-        if (dock !== 'chat' && dock !== 'full' && dock !== 'multi') {
+        if (dock !== 'chat' && dock !== 'full' && dock !== 'multi' && dock !== 'stream') {
           return res.status(400).json({
             success: false,
-            error: 'Invalid dock. Must be "chat", "full", or "multi"'
+            error: 'Invalid dock. Must be "chat", "full", "multi", or "stream"'
           });
         }
 
@@ -234,16 +282,17 @@ class ClarityHUDBackend {
         const { dock } = req.params;
         const newSettings = req.body;
 
-        if (dock !== 'chat' && dock !== 'full' && dock !== 'multi') {
+        if (dock !== 'chat' && dock !== 'full' && dock !== 'multi' && dock !== 'stream') {
           return res.status(400).json({
             success: false,
-            error: 'Invalid dock. Must be "chat", "full", or "multi"'
+            error: 'Invalid dock. Must be "chat", "full", "multi", or "stream"'
           });
         }
 
         // Merge with existing settings
-        const defaults = dock === 'chat' ? this.defaultChatSettings : 
-                        dock === 'full' ? this.defaultFullSettings : 
+        const defaults = dock === 'chat' ? this.defaultChatSettings :
+                        dock === 'full' ? this.defaultFullSettings :
+                        dock === 'stream' ? this.defaultStreamSettings :
                         this.defaultMultiSettings;
         this.settings[dock] = { ...defaults, ...this.settings[dock], ...newSettings };
 
@@ -279,10 +328,10 @@ class ClarityHUDBackend {
       try {
         const { dock } = req.params;
 
-        if (dock !== 'chat' && dock !== 'full' && dock !== 'multi') {
+        if (dock !== 'chat' && dock !== 'full' && dock !== 'multi' && dock !== 'stream') {
           return res.status(400).json({
             success: false,
-            error: 'Invalid dock. Must be "chat", "full", or "multi"'
+            error: 'Invalid dock. Must be "chat", "full", "multi", or "stream"'
           });
         }
 
@@ -305,6 +354,13 @@ class ClarityHUDBackend {
               multi: this.multiStreamQueue
             },
             settings: this.settings.multi
+          });
+        } else if (dock === 'stream') {
+          res.json({
+            success: true,
+            dock: 'stream',
+            events: {},
+            settings: this.settings.stream
           });
         } else {
           // For full dock, return all event queues
@@ -329,16 +385,17 @@ class ClarityHUDBackend {
       try {
         const { dock } = req.params;
 
-        if (dock !== 'chat' && dock !== 'full' && dock !== 'multi') {
+        if (dock !== 'chat' && dock !== 'full' && dock !== 'multi' && dock !== 'stream') {
           return res.status(400).json({
             success: false,
-            error: 'Invalid dock. Must be "chat", "full", or "multi"'
+            error: 'Invalid dock. Must be "chat", "full", "multi", or "stream"'
           });
         }
 
         // Reset to defaults
-        const defaults = dock === 'chat' ? this.defaultChatSettings : 
-                        dock === 'full' ? this.defaultFullSettings : 
+        const defaults = dock === 'chat' ? this.defaultChatSettings :
+                        dock === 'full' ? this.defaultFullSettings :
+                        dock === 'stream' ? this.defaultStreamSettings :
                         this.defaultMultiSettings;
         this.settings[dock] = { ...defaults };
 
@@ -457,6 +514,45 @@ class ClarityHUDBackend {
           success: false,
           error: error.message
         });
+      }
+    });
+
+    // Test event endpoint for stream overlay
+    this.api.registerRoute('post', '/api/clarityhud/test/stream', async (req, res) => {
+      try {
+        const { type } = req.body || {};
+
+        const testEvents = {
+          follow:   async () => this.handleFollowEvent({ uniqueId: 'TestViewer', nickname: 'TestViewer', profilePictureUrl: null }),
+          share:    async () => this.handleShareEvent({ uniqueId: 'TestSharer', nickname: 'TestSharer', profilePictureUrl: null }),
+          like:     async () => this.handleLikeEvent({ uniqueId: 'TestLiker', nickname: 'TestLiker', likeCount: 5 }),
+          join:     async () => this.handleJoinEvent({ uniqueId: 'NewViewer', nickname: 'NewViewer', profilePictureUrl: null }),
+          chat:     async () => this.handleChatEvent({ uniqueId: 'ChatUser', nickname: 'ChatUser', message: 'Hello stream! 🎉' }),
+          gift:     async () => this.handleGiftEvent({
+            uniqueId: 'GenerousGifter', nickname: 'GenerousGifter',
+            giftName: 'Rose', repeatCount: 5, coins: 250, diamondCount: 50, giftPictureUrl: null, giftType: 0
+          }),
+          sub:      async () => this.handleSubscribeEvent({ uniqueId: 'NewSub', nickname: 'NewSub', subscribeType: 'subscribe' }),
+          treasure: async () => this.handleGiftEvent({
+            uniqueId: 'TreasureHunter', nickname: 'TreasureHunter',
+            giftName: 'Treasure Chest', repeatCount: 1, coins: 1000, diamondCount: 1000, giftPictureUrl: null, giftType: 1
+          }),
+        };
+
+        if (type && testEvents[type]) {
+          await testEvents[type]();
+        } else {
+          // Send all if no type specified
+          for (const fn of Object.values(testEvents)) {
+            await fn();
+            await new Promise(r => setTimeout(r, 300));
+          }
+        }
+
+        res.json({ success: true, message: `Test stream event${type ? ` (${type})` : 's'} sent` });
+      } catch (error) {
+        this.api.log(`Error sending test stream event: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
       }
     });
 
@@ -1072,6 +1168,7 @@ class ClarityHUDBackend {
       await this.api.setConfig('clarityhud.settings.chat', this.settings.chat);
       await this.api.setConfig('clarityhud.settings.full', this.settings.full);
       await this.api.setConfig('clarityhud.settings.multi', this.settings.multi);
+      await this.api.setConfig('clarityhud.settings.stream', this.settings.stream);
 
       this.api.log('ClarityHUD backend cleaned up', 'info');
     } catch (error) {

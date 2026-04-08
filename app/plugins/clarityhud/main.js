@@ -67,6 +67,13 @@ class ClarityHUDPlugin {
       res.sendFile(overlayPath);
     });
 
+    // Serve stream overlay
+    this.api.registerRoute('GET', '/overlay/clarity/stream', (req, res) => {
+      const overlayPath = path.join(__dirname, 'overlays', 'stream.html');
+      setNoCacheHeaders(res);
+      res.sendFile(overlayPath);
+    });
+
     // Serve plugin UI
     this.api.registerRoute('GET', '/clarityhud/ui', (req, res) => {
       const uiPath = path.join(__dirname, 'ui', 'main.html');

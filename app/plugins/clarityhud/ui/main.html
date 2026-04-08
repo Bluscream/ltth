@@ -787,6 +787,41 @@
           </div>
         </div>
       </div>
+
+      <!-- Stream Overlay Section -->
+      <div class="hud-section">
+        <div class="hud-header">
+          <h2>Stream Overlay</h2>
+          <p>OBS-seitiges Overlay – Alerts, Highlights und Ticker für dein Publikum</p>
+        </div>
+        <div class="hud-content">
+          <div class="preview-container">
+            <iframe id="stream-preview" class="preview-frame" src="/overlay/clarity/stream"></iframe>
+          </div>
+
+          <div class="url-section">
+            <div class="url-label">Overlay URL</div>
+            <div class="url-display">
+              <div class="url-text" id="stream-url">Loading...</div>
+              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="stream" title="Copy URL">
+                📋
+              </button>
+            </div>
+          </div>
+
+          <div class="button-group">
+            <button class="btn btn-primary" data-action="open-settings" data-type="stream">
+              ⚙️ Settings
+            </button>
+            <button class="btn btn-success" data-action="test-event" data-type="stream">
+              🧪 Test All
+            </button>
+            <button class="btn btn-secondary" data-action="refresh-preview" data-type="stream">
+              🔄 Refresh
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -827,6 +862,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/plugins/clarityhud/ui/stream-settings.js"></script>
   <script src="/plugins/clarityhud/ui/main.js"></script>
 </body>
 </html>
