@@ -8,6 +8,16 @@
 
 // ==================== CONSTANTS ====================
 
+/** Maximum characters shown for chat messages in AlertCards */
+const MAX_CHAT_MESSAGE_LENGTH = 80;
+
+/** Fallback timeout (ms) to clean up a card if animationend never fires */
+const ANIM_FALLBACK_MS = 600;
+
+/** Init retry configuration */
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
+
 const EVENT_CONFIG = {
   chat:     { icon: '💬', label: 'Chat',       cssType: 'chat',     isHighlight: false, defaultSlot: 'slot-bottom-right', ttl: 8000  },
   follow:   { icon: '❤️',  label: 'Followed',   cssType: 'follow',   isHighlight: false, defaultSlot: 'slot-bottom-right', ttl: 7000  },
@@ -244,7 +254,7 @@ function showAlertCard(type, data, slotId, ttl) {
     if (msgText) {
       const detail = document.createElement('div');
       detail.className = 'alert-detail';
-      detail.textContent = msgText.length > 80 ? msgText.slice(0, 80) + '…' : msgText;
+      detail.textContent = msgText.length > MAX_CHAT_MESSAGE_LENGTH ? msgText.slice(0, MAX_CHAT_MESSAGE_LENGTH) + '…' : msgText;
       content.appendChild(detail);
     }
   }
@@ -422,7 +432,7 @@ function animateCardOut(element, slotId, onDone) {
   // Fallback timeout in case animationend never fires (e.g. display:none)
   const fallback = setTimeout(() => {
     if (onDone) onDone();
-  }, 600);
+  }, ANIM_FALLBACK_MS);
 
   element.addEventListener('animationend', () => {
     clearTimeout(fallback);
@@ -511,9 +521,6 @@ async function _initOnce() {
 }
 
 async function init() {
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY_MS = 2000;
-
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       await _initOnce();

@@ -21,6 +21,7 @@
       --accent: #00d4ff;
       --border-radius: 10px;
       --card-bg: rgba(0, 0, 0, 0.82);
+      --highlight-username-size: 56px;
 
       /* Accent colors per event type */
       --color-chat: #4caf50;
@@ -278,7 +279,7 @@
     }
 
     .highlight-username {
-      font-size: 56px;
+      font-size: var(--highlight-username-size);
       font-weight: 800;
       color: #ffffff;
       text-shadow: 0 0 20px var(--accent), 0 2px 8px rgba(0,0,0,0.8);
@@ -451,6 +452,7 @@
     body.portrait {
       --safe-zone-h: 32px;
       --safe-zone-v: 28px;
+      --highlight-username-size: 40px;
       font-size: 13.6px; /* ~15% smaller */
     }
 
@@ -462,10 +464,6 @@
     body.portrait .highlight-card {
       min-width: 80vw;
       max-width: 92vw;
-    }
-
-    body.portrait .highlight-username {
-      font-size: 40px;
     }
 
     body.portrait #slot-top-center,
@@ -481,12 +479,10 @@
         --safe-zone-h: 120px;
         --safe-zone-v: 80px;
         --border-radius: 18px;
+        --highlight-username-size: 84px;
       }
       body {
         font-size: 24px;
-      }
-      .highlight-username {
-        font-size: 84px;
       }
       .alert-icon {
         font-size: 3em;
@@ -506,26 +502,22 @@
         --safe-zone-h: 90px;
         --safe-zone-v: 60px;
         --border-radius: 14px;
+        --highlight-username-size: 70px;
       }
       body {
         font-size: 20px;
-      }
-      .highlight-username {
-        font-size: 70px;
       }
     }
 
     /* 720p and below */
     @media (max-height: 768px) {
-      body {
-        font-size: 12.8px; /* 16 * 0.8 = 12.8 */
-      }
-      .highlight-username {
-        font-size: 44px;
-      }
       :root {
         --safe-zone-h: 40px;
         --safe-zone-v: 24px;
+        --highlight-username-size: 44px;
+      }
+      body {
+        font-size: 12.8px; /* 16 * 0.8 = 12.8 */
       }
     }
   </style>
