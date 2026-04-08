@@ -133,6 +133,9 @@ class ClarityHUDBackend {
       reduceMotion: false,
       opacity: 1,
       dyslexiaFont: false,
+      tickerEnabled: false,
+      tickerSpeed: 60,
+      tickerLabel: '🔴 LIVE',
     };
 
     // Default settings for Multi-Stream HUD

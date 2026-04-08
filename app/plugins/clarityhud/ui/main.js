@@ -9,6 +9,7 @@ function init() {
   document.getElementById('chat-url').textContent = `${origin}/overlay/clarity/chat`;
   document.getElementById('full-url').textContent = `${origin}/overlay/clarity/full`;
   document.getElementById('multi-url').textContent = `${origin}/overlay/clarity/multi`;
+  document.getElementById('stream-url').textContent = `${origin}/overlay/clarity/stream`;
 
   // Initialize Socket.IO for live updates
   socket = io();
@@ -70,8 +71,33 @@ async function openSettings(dock) {
   currentDock = dock;
   const dockTitle = dock === 'chat' ? 'Chat HUD' : 
                    dock === 'full' ? 'Full Activity HUD' : 
+                   dock === 'stream' ? 'Stream Overlay' :
                    'Multi-Stream HUD';
   document.getElementById('modal-title').textContent = dockTitle;
+
+  // Stream settings use dedicated StreamSettingsTab module
+  if (dock === 'stream' && window.StreamSettingsTab) {
+    try {
+      const settings = await window.StreamSettingsTab.loadStreamSettings();
+      currentSettings = settings;
+
+      // Render single-tab layout for stream
+      document.getElementById('settings-tabs').innerHTML =
+        '<div class="tab active" data-tab-id="stream-main">Stream Settings</div>';
+      document.getElementById('tab-contents').innerHTML =
+        '<div class="tab-content active" id="tab-stream-main">' +
+        window.StreamSettingsTab.getStreamTabHTML(settings) +
+        '</div>';
+
+      window.StreamSettingsTab.initStreamTab(settings);
+
+      document.getElementById('settings-modal').classList.add('active');
+    } catch (error) {
+      console.error('Error loading stream settings:', error);
+      showToast('Error loading stream settings', 'error');
+    }
+    return;
+  }
 
   // Load current settings
   try {
@@ -886,6 +912,25 @@ async function saveSettings() {
   const originalText = saveBtn.innerHTML;
   saveBtn.innerHTML = '<span class="spinner"></span> Saving...';
   saveBtn.disabled = true;
+
+  // Stream uses dedicated module
+  if (currentDock === 'stream' && window.StreamSettingsTab) {
+    try {
+      const newSettings = window.StreamSettingsTab.collectStreamSettings();
+      const saved = await window.StreamSettingsTab.saveStreamSettings(newSettings);
+      currentSettings = saved;
+      showToast('Stream settings saved successfully!', 'success');
+      closeSettings();
+      setTimeout(() => { refreshPreview('stream'); }, 500);
+    } catch (error) {
+      console.error('Error saving stream settings:', error);
+      showToast('Error saving stream settings', 'error');
+    } finally {
+      saveBtn.innerHTML = originalText;
+      saveBtn.disabled = false;
+    }
+    return;
+  }
 
   // Collect settings based on dock type
   let newSettings = {};

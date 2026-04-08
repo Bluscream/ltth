@@ -520,6 +520,94 @@
         font-size: 12.8px; /* 16 * 0.8 = 12.8 */
       }
     }
+
+    /* ==================== TICKER BAR ==================== */
+    .ticker-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 36px;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      z-index: 100;
+      overflow: hidden;
+      border-top: 2px solid rgba(255, 255, 255, 0.08);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    .ticker-bar.active {
+      opacity: 1;
+    }
+
+    .ticker-label {
+      flex-shrink: 0;
+      padding: 0 14px;
+      font-size: 0.82em;
+      font-weight: 700;
+      color: #ff4444;
+      letter-spacing: 0.5px;
+      background: rgba(255, 68, 68, 0.1);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .ticker-track {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      height: 100%;
+    }
+
+    .ticker-inner {
+      display: flex;
+      align-items: center;
+      height: 100%;
+      white-space: nowrap;
+      will-change: transform;
+    }
+
+    .ticker-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 20px;
+      font-size: 0.78em;
+      color: rgba(255, 255, 255, 0.85);
+      flex-shrink: 0;
+    }
+
+    .ticker-item .ticker-icon {
+      font-size: 1.1em;
+    }
+
+    .ticker-item .ticker-name {
+      font-weight: 700;
+      color: var(--accent, #00d4ff);
+    }
+
+    .ticker-sep {
+      display: inline-block;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.25);
+      flex-shrink: 0;
+    }
+
+    body.reduce-motion .ticker-inner {
+      animation: none !important;
+    }
+
+    @keyframes tickerScroll {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-50%); }
+    }
   </style>
 </head>
 <body>
@@ -532,6 +620,14 @@
     <div id="slot-bottom-right"></div>
     <div id="slot-left-rail"></div>
     <div id="slot-right-rail"></div>
+  </div>
+
+  <!-- Ticker Bar -->
+  <div class="ticker-bar" id="ticker-bar">
+    <div class="ticker-label" id="ticker-label">🔴 LIVE</div>
+    <div class="ticker-track">
+      <div class="ticker-inner" id="ticker-inner"></div>
+    </div>
   </div>
 
   <!-- Socket.io -->

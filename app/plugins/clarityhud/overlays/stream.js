@@ -39,6 +39,9 @@ const STATE = {
   activeCards: new Map(),   // cardId → { element, slotId, timerId }
   _cardCounter: 0,
   _initialized: false,
+  // Ticker state
+  _tickerItems: [],
+  _tickerAnimId: null,
 };
 
 // ==================== DEFAULTS ====================
@@ -78,6 +81,9 @@ function getDefaultSettings() {
     reduceMotion: false,
     opacity: 1,
     dyslexiaFont: false,
+    tickerEnabled: false,
+    tickerSpeed: 60,
+    tickerLabel: '🔴 LIVE',
   };
 }
 
@@ -88,6 +94,9 @@ function applySettings(settings) {
   document.body.classList.toggle('reduce-motion', !!settings.reduceMotion);
   document.body.classList.toggle('dyslexia-font', !!settings.dyslexiaFont);
   document.documentElement.style.setProperty('--overlay-opacity', settings.opacity != null ? settings.opacity : 1);
+
+  // Ticker
+  applyTickerSettings(settings);
 }
 
 async function loadSettings() {
@@ -206,6 +215,9 @@ function handleEvent(type, data) {
   } else {
     showAlertCard(type, data, slotId, ttl);
   }
+
+  // Feed ticker
+  addTickerItem(type, data);
 }
 
 // ==================== ALERT CARD ====================
@@ -493,6 +505,131 @@ function resolveUrlParams() {
       STATE.settings['slot' + capitalize(type)] = slotParam;
     }
   }
+
+  // Ticker override: ?ticker=true / ?ticker=false
+  const ticker = params.get('ticker');
+  if (ticker === 'true') STATE.settings.tickerEnabled = true;
+  if (ticker === 'false') STATE.settings.tickerEnabled = false;
+}
+
+// ==================== TICKER ====================
+
+/** Maximum number of ticker items kept in memory */
+const TICKER_MAX_ITEMS = 40;
+
+/**
+ * Apply ticker-related settings (show/hide bar, label, speed).
+ */
+function applyTickerSettings(settings) {
+  const bar = document.getElementById('ticker-bar');
+  if (!bar) return;
+
+  if (settings.tickerEnabled) {
+    bar.classList.add('active');
+  } else {
+    bar.classList.remove('active');
+  }
+
+  const labelEl = document.getElementById('ticker-label');
+  if (labelEl && settings.tickerLabel) {
+    labelEl.textContent = settings.tickerLabel;
+  }
+
+  // Restart scroll animation with updated speed
+  restartTickerScroll();
+}
+
+/**
+ * Add a new item to the ticker from an event.
+ */
+function addTickerItem(type, data) {
+  if (!STATE.settings.tickerEnabled) return;
+
+  const cfg = EVENT_CONFIG[type];
+  if (!cfg) return;
+
+  const username = data.user?.nickname || data.nickname || data.username || 'Anonymous';
+  let text = cfg.label;
+
+  if (type === 'gift') {
+    const giftName = data.gift?.name || data.giftName || '';
+    const coins = data.gift?.coins || data.coins || 0;
+    if (giftName) {
+      text = `${giftName}` + (coins > 0 ? ` (${coins} 🪙)` : '');
+    }
+  } else if (type === 'chat') {
+    const msg = data.message || data.comment || '';
+    if (msg) {
+      text = msg.length > 40 ? msg.slice(0, 40) + '…' : msg;
+    }
+  }
+
+  STATE._tickerItems.push({ icon: cfg.icon, username, text });
+  if (STATE._tickerItems.length > TICKER_MAX_ITEMS) {
+    STATE._tickerItems.shift();
+  }
+
+  renderTicker();
+}
+
+/**
+ * Render all ticker items into the ticker-inner element and
+ * duplicate them for seamless looping.
+ */
+function renderTicker() {
+  const inner = document.getElementById('ticker-inner');
+  if (!inner) return;
+
+  // Build item HTML
+  const itemsHTML = STATE._tickerItems.map(function (item) {
+    return '<span class="ticker-item">' +
+      '<span class="ticker-icon">' + escapeHTML(item.icon) + '</span>' +
+      '<span class="ticker-name">' + escapeHTML(item.username) + '</span>' +
+      ' ' + escapeHTML(item.text) +
+      '</span><span class="ticker-sep"></span>';
+  }).join('');
+
+  // Duplicate for seamless loop
+  inner.innerHTML = itemsHTML + itemsHTML;
+
+  restartTickerScroll();
+}
+
+/**
+ * (Re)start the CSS scroll animation based on content width and speed.
+ */
+function restartTickerScroll() {
+  const inner = document.getElementById('ticker-inner');
+  if (!inner) return;
+
+  // Reset animation
+  inner.style.animation = 'none';
+
+  if (STATE._tickerItems.length === 0) return;
+  if (document.body.classList.contains('reduce-motion')) return;
+
+  // Half-width = one copy of items (we duplicate, so scrolling 50% loops)
+  const halfWidth = inner.scrollWidth / 2;
+  if (halfWidth <= 0) return;
+
+  const speed = STATE.settings.tickerSpeed || 60; // px per second
+  const duration = halfWidth / speed;
+
+  // Force reflow before restarting animation
+  void inner.offsetWidth;
+  inner.style.animation = `tickerScroll ${duration}s linear infinite`;
+}
+
+/**
+ * Escape basic HTML special characters.
+ */
+function escapeHTML(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // ==================== UTILITIES ====================
