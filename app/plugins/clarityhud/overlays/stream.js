@@ -356,6 +356,14 @@ function showHighlightCard(type, data, slotId, ttl) {
 
   animateCardIn(card, slotId, true);
 
+  // Play enhanced highlight effects (particles, confetti, flash, etc.)
+  if (typeof StreamAnimations !== 'undefined') {
+    // Delay effects slightly so the card entry animation is visible first
+    setTimeout(() => {
+      StreamAnimations.playHighlightEffects(card, type, data);
+    }, 200);
+  }
+
   // Schedule removal
   const timerId = setTimeout(() => {
     removeCard(cardId);
@@ -502,6 +510,11 @@ function capitalize(str) {
 
 async function _initOnce() {
   console.log('[CLARITY STREAM] Initializing stream overlay...');
+
+  // Inject StreamAnimations CSS
+  if (typeof StreamAnimations !== 'undefined') {
+    StreamAnimations.injectStyles();
+  }
 
   // Initialize parsers if available
   if (typeof EmojiParser !== 'undefined') {
