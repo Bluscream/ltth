@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🔌 **Adapter Architecture for TikTok Data Sources** (`app/modules/adapters/`)
+- `BaseAdapter.js`: Abstract base class for all data source adapters. Extends `EventEmitter`. Provides shared state (`isConnected`, `currentUsername`, `streamStartTime`, `stats`), broadcast helpers (`broadcastStats`, `broadcastStatus`), event routing (`handleEvent`), and duration interval management.
+- `EulerstreamAdapter.js`: Eulerstream WebSocket logic extracted from `tiktok.js` with zero behaviour change. All original event handling, deduplication, gift catalog, room info fetching, diagnostics, and heartbeat logic are fully preserved.
+- `TikFinityAdapter.js`: New adapter for TikFinity Desktop App local WebSocket API (`ws://localhost:21213`). Supports gift, chat, follow, like, share, subscribe, join, viewer-count, room-stats events. Configurable port via `tikfinity_ws_port` DB setting. Includes auto-reconnect with exponential back-off, ping keep-alive, and stats persistence.
+
 #### 🏆 **Top Tier Plugin** (`toptier`): Live-Leaderboard für TikTok LIVE Likes & Geschenke
 - Zwei unabhängige Boards: Likes-Board und Gifts-Board
 - 5 Decay-Modi: none, linear, percentage, idle, step
@@ -29,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Trigger-Tab-only fallback (`useDefaults=true`) and disabled-board handling are fully preserved.
 - Improved log output: logs now show which board was targeted, which mapping key matched, whether defaults were applied, and the reason when spawning is skipped.
 - Added 4 regression tests: non-default board path, fall-through-to-all-boards warning, `handleGiftTrigger` boardId propagation, Trigger-Tab null-boardId contract.
+
+### Changed
+
+- **`app/modules/tiktok.js`**: Refactored to Facade/Router class. Public API 100% unchanged. Delegates to the active adapter based on the `tiktok_data_source` DB setting (`'eulerstream'` default, `'tikfinity'` optional). The setting is re-evaluated on every `connect()` call so no server restart is needed after changing it.
 
 ## [1.3.3] - 2026-03-26
 
