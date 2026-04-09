@@ -509,6 +509,22 @@
             background-color: var(--color-accent-danger);
             box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
         }
+
+        /* Shutdown Button */
+        .topbar-shutdown-btn {
+            color: var(--color-text-secondary);
+            transition: color 0.2s ease, background 0.2s ease;
+        }
+
+        .topbar-shutdown-btn:hover {
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.15);
+        }
+
+        .topbar-shutdown-btn.shutdown-pending {
+            color: #ef4444;
+            animation: pulse 1s infinite;
+        }
         
     </style>
     <script src="/js/lucide.min.js"></script>
@@ -806,6 +822,10 @@
                     </button>
                     <button id="topbar-settings-btn" class="topbar-icon-btn" data-i18n-title="settings.global_settings" title="Global Settings">
                         <i data-lucide="settings"></i>
+                    </button>
+                    <!-- Shutdown Button -->
+                    <button id="topbar-shutdown-btn" class="topbar-icon-btn topbar-shutdown-btn" title="Server herunterfahren und App schließen">
+                        <i data-lucide="power"></i>
                     </button>
                     <!-- Window Controls for frameless window -->
                     <div class="window-controls">

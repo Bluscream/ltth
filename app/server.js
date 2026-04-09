@@ -3524,6 +3524,16 @@ const pluginCacheControl = (req, res, next) => {
         initState.addError('plugin-loader', 'Failed to load plugins', error);
     }
 
+    // Graceful Shutdown via HTTP (für Dashboard Shutdown-Button)
+    app.post('/api/shutdown', (req, res) => {
+        logger.info('🛑 Shutdown requested via API');
+        res.json({ success: true, message: 'Shutting down...' });
+        // Kurze Verzögerung damit die Response den Client erreicht
+        setTimeout(() => {
+            process.emit('SIGINT');
+        }, 300);
+    });
+
     // Jetzt Server starten
     server.listen(PORT, BIND_ADDRESS, async () => {
         initState.setServerStarted();
