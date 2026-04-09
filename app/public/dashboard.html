@@ -482,6 +482,33 @@
             overflow-y: auto;
             flex: 1;
         }
+
+        /* Plugin Card Status Dot */
+        .plugin-status-dot {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 2px solid var(--color-bg-card);
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .plugin-status-dot.status-active {
+            background-color: var(--color-accent-success);
+            box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+        }
+
+        .plugin-status-dot.status-inactive {
+            background-color: var(--color-bg-tertiary);
+            box-shadow: none;
+        }
+
+        .plugin-status-dot.status-error {
+            background-color: var(--color-accent-danger);
+            box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+        }
         
     </style>
     <script src="/js/lucide.min.js"></script>
@@ -534,15 +561,15 @@
                         <i class="sidebar-category-toggle" data-lucide="chevron-down"></i>
                     </div>
                     <div class="sidebar-category-items">
-                        <a href="#" class="sidebar-item active" data-view="dashboard">
+                        <a href="#" class="sidebar-item active" data-view="dashboard" data-tooltip="Dashboard">
                             <i data-lucide="layout-dashboard"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.dashboard">Dashboard</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="clarityhud" data-plugin="clarityhud">
+                        <a href="#" class="sidebar-item" data-view="clarityhud" data-plugin="clarityhud" data-tooltip="ClarityHUD">
                             <i data-lucide="layout"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.clarityhud">ClarityHUD</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="lastevent-spotlight" data-plugin="lastevent-spotlight">
+                        <a href="#" class="sidebar-item" data-view="lastevent-spotlight" data-plugin="lastevent-spotlight" data-tooltip="LastEvent">
                             <i data-lucide="eye"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.lastevent">LastEvent</span>
                         </a>
@@ -556,19 +583,19 @@
                         <i class="sidebar-category-toggle" data-lucide="chevron-down"></i>
                     </div>
                     <div class="sidebar-category-items">
-                        <a href="#" class="sidebar-item" data-view="events">
+                        <a href="#" class="sidebar-item" data-view="events" data-tooltip="Events">
                             <i data-lucide="activity"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.events">Events</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="flows">
+                        <a href="#" class="sidebar-item" data-view="flows" data-tooltip="Flows">
                             <i data-lucide="git-branch"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.flows">Flows</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="goals" data-plugin="goals">
+                        <a href="#" class="sidebar-item" data-view="goals" data-plugin="goals" data-tooltip="Goals">
                             <i data-lucide="target"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.goals">Goals</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="advanced-timer" data-plugin="advanced-timer">
+                        <a href="#" class="sidebar-item" data-view="advanced-timer" data-plugin="advanced-timer" data-tooltip="Advanced Timer">
                             <i data-lucide="timer"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.advanced_timer">Advanced Timer</span>
                         </a>
@@ -582,19 +609,19 @@
                         <i class="sidebar-category-toggle" data-lucide="chevron-down"></i>
                     </div>
                     <div class="sidebar-category-items">
-                        <a href="#" class="sidebar-item" data-view="tts" data-plugin="tts">
+                        <a href="#" class="sidebar-item" data-view="tts" data-plugin="tts" data-tooltip="TTS">
                             <i data-lucide="mic"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.tts">TTS</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="music-bot" data-plugin="music-bot">
+                        <a href="#" class="sidebar-item" data-view="music-bot" data-plugin="music-bot" data-tooltip="Music Bot">
                             <i data-lucide="headphones"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.music_bot">Music Bot</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="soundboard" data-plugin="soundboard">
+                        <a href="#" class="sidebar-item" data-view="soundboard" data-plugin="soundboard" data-tooltip="Soundboard">
                             <i data-lucide="music"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.soundboard">Soundboard</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="talking-heads" data-plugin="talking-heads">
+                        <a href="#" class="sidebar-item" data-view="talking-heads" data-plugin="talking-heads" data-tooltip="Talking Heads">
                             <i data-lucide="user-circle-2"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.talking_heads">Talking Heads</span>
                         </a>
@@ -608,15 +635,15 @@
                         <i class="sidebar-category-toggle" data-lucide="chevron-down"></i>
                     </div>
                     <div class="sidebar-category-items">
-                        <a href="#" class="sidebar-item" data-view="webgpu-emoji-rain" data-plugin="webgpu-emoji-rain">
+                        <a href="#" class="sidebar-item" data-view="webgpu-emoji-rain" data-plugin="webgpu-emoji-rain" data-tooltip="WebGPU Emoji Rain">
                             <i data-lucide="zap"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.webgpu_emoji_rain">WebGPU Emoji Rain</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="fireworks" data-plugin="fireworks">
+                        <a href="#" class="sidebar-item" data-view="fireworks" data-plugin="fireworks" data-tooltip="Fireworks">
                             <i data-lucide="sparkles"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.fireworks">Fireworks</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="flame-overlay" data-plugin="flame-overlay">
+                        <a href="#" class="sidebar-item" data-view="flame-overlay" data-plugin="flame-overlay" data-tooltip="Flame Overlay">
                             <i data-lucide="flame"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.flame_overlay">Flame Overlay</span>
                         </a>
@@ -630,31 +657,31 @@
                         <i class="sidebar-category-toggle" data-lucide="chevron-down"></i>
                     </div>
                     <div class="sidebar-category-items">
-                        <a href="#" class="sidebar-item" data-view="quiz-show" data-plugin="quiz-show">
+                        <a href="#" class="sidebar-item" data-view="quiz-show" data-plugin="quiz-show" data-tooltip="Quiz Show">
                             <i data-lucide="help-circle"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.quiz_show">Quiz Show</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="interactive-story" data-plugin="interactive-story">
+                        <a href="#" class="sidebar-item" data-view="interactive-story" data-plugin="interactive-story" data-tooltip="Interactive Story">
                             <i data-lucide="book-open"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.interactive_story">Interactive Story</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="coinbattle" data-plugin="coinbattle">
+                        <a href="#" class="sidebar-item" data-view="coinbattle" data-plugin="coinbattle" data-tooltip="CoinBattle">
                             <i data-lucide="coins"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.coinbattle">CoinBattle</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="game-engine" data-plugin="game-engine">
+                        <a href="#" class="sidebar-item" data-view="game-engine" data-plugin="game-engine" data-tooltip="Game Engine">
                             <i data-lucide="gamepad-2"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.game_engine">Game Engine</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="viewer-leaderboard" data-plugin="viewer-leaderboard">
+                        <a href="#" class="sidebar-item" data-view="viewer-leaderboard" data-plugin="viewer-leaderboard" data-tooltip="Viewer XP &amp; Leaderboard">
                             <i data-lucide="trophy"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.viewer_leaderboard">Viewer XP & Leaderboard</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="viewer-profiles" data-plugin="viewer-profiles">
+                        <a href="#" class="sidebar-item" data-view="viewer-profiles" data-plugin="viewer-profiles" data-tooltip="Viewer Profiles">
                             <i data-lucide="users"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.viewer_profiles">Viewer Profiles</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="gift-milestone" data-plugin="gift-milestone">
+                        <a href="#" class="sidebar-item" data-view="gift-milestone" data-plugin="gift-milestone" data-tooltip="Gift Milestone">
                             <i data-lucide="gift"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.gift_milestone">Gift Milestone</span>
                         </a>
@@ -668,55 +695,55 @@
                         <i class="sidebar-category-toggle" data-lucide="chevron-down"></i>
                     </div>
                     <div class="sidebar-category-items">
-                        <a href="#" class="sidebar-item" data-view="multi-guest" data-plugin="vdoninja">
+                        <a href="#" class="sidebar-item" data-view="multi-guest" data-plugin="vdoninja" data-tooltip="VDO.Ninja">
                             <i data-lucide="users"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.vdoninja">VDO.Ninja</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="multicam" data-plugin="multicam">
+                        <a href="#" class="sidebar-item" data-view="multicam" data-plugin="multicam" data-tooltip="Multi-Cam">
                             <i data-lucide="video"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.multi_cam">Multi-Cam</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="osc-bridge" data-plugin="osc-bridge">
+                        <a href="#" class="sidebar-item" data-view="osc-bridge" data-plugin="osc-bridge" data-tooltip="OSC-Bridge">
                             <i data-lucide="gamepad-2"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.osc_bridge">OSC-Bridge</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="openshock" data-plugin="openshock">
+                        <a href="#" class="sidebar-item" data-view="openshock" data-plugin="openshock" data-tooltip="OpenShock">
                             <i data-lucide="zap"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.openshock">OpenShock</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="weather-control" data-plugin="weather-control">
+                        <a href="#" class="sidebar-item" data-view="weather-control" data-plugin="weather-control" data-tooltip="Weather Control">
                             <i data-lucide="cloud-rain"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.weather_control">Weather Control</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="minecraft-connect" data-plugin="minecraft-connect">
+                        <a href="#" class="sidebar-item" data-view="minecraft-connect" data-plugin="minecraft-connect" data-tooltip="Minecraft Connect">
                             <i data-lucide="box"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.minecraft_connect">Minecraft Connect</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="streamalchemy" data-plugin="streamalchemy">
+                        <a href="#" class="sidebar-item" data-view="streamalchemy" data-plugin="streamalchemy" data-tooltip="Stream Alchemy">
                             <i data-lucide="flask-conical"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.streamalchemy">Stream Alchemy</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="gcce" data-plugin="gcce">
+                        <a href="#" class="sidebar-item" data-view="gcce" data-plugin="gcce" data-tooltip="Global Chat Command Engine">
                             <i data-lucide="terminal"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.gcce">Global Chat Command Engine</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="gcce-hud" data-plugin="gcce-hud">
+                        <a href="#" class="sidebar-item" data-view="gcce-hud" data-plugin="gcce-hud" data-tooltip="GCCE HUD Overlay">
                             <i data-lucide="layers"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.gcce_hud">GCCE HUD Overlay</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="thermal-printer" data-plugin="thermal-printer">
+                        <a href="#" class="sidebar-item" data-view="thermal-printer" data-plugin="thermal-printer" data-tooltip="Thermal Printer">
                             <i data-lucide="printer"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.thermal_printer">Thermal Printer</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="chatango" data-plugin="chatango">
+                        <a href="#" class="sidebar-item" data-view="chatango" data-plugin="chatango" data-tooltip="Chatango">
                             <i data-lucide="message-circle"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.chatango">Chatango</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="animazingpal" data-plugin="animazingpal">
+                        <a href="#" class="sidebar-item" data-view="animazingpal" data-plugin="animazingpal" data-tooltip="AnimazingPal">
                             <i data-lucide="brain"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.animazingpal">AnimazingPal</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="config-import" data-plugin="config-import">
+                        <a href="#" class="sidebar-item" data-view="config-import" data-plugin="config-import" data-tooltip="Config Import">
                             <i data-lucide="download"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.config_import">Config Import</span>
                         </a>
@@ -730,15 +757,15 @@
                         <i class="sidebar-category-toggle" data-lucide="chevron-down"></i>
                     </div>
                     <div class="sidebar-category-items">
-                        <a href="#" class="sidebar-item" data-view="plugins">
+                        <a href="#" class="sidebar-item" data-view="plugins" data-tooltip="Plugin Manager">
                             <i data-lucide="plug"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.plugins">Plugin Manager</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="wiki">
+                        <a href="#" class="sidebar-item" data-view="wiki" data-tooltip="Wiki">
                             <i data-lucide="book-open"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.wiki">Wiki</span>
                         </a>
-                        <a href="#" class="sidebar-item" data-view="settings">
+                        <a href="#" class="sidebar-item" data-view="settings" data-tooltip="Settings">
                             <i data-lucide="settings"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.settings">Settings</span>
                         </a>
@@ -850,47 +877,58 @@
                         <div id="connection-info" class="connection-info"></div>
                         
                         <!-- Manual Session Import Modal -->
-                        <div id="session-import-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
-                            <div style="background: var(--bg-secondary); border-radius: 12px; padding: 2rem; max-width: 600px; margin: 1rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);">
-                                <h3 style="margin: 0 0 1rem 0; color: var(--text-primary);" data-i18n="dashboard.import_session_title">SessionID aus Browser importieren</h3>
-                                <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1.5rem;" data-i18n="dashboard.import_session_desc">
-                                    So finden Sie Ihre SessionID in Ihrem Browser:
-                                    <br>1. Öffnen Sie TikTok.com in Ihrem Browser und loggen Sie sich ein
-                                    <br>2. Drücken Sie F12 (oder Rechtsklick → Untersuchen)
-                                    <br>3. Gehen Sie zum "Application" oder "Speicher" Tab
-                                    <br>4. Unter "Cookies" → "https://www.tiktok.com" finden Sie "sessionid"
-                                    <br>5. Kopieren Sie den Wert und fügen Sie ihn unten ein
-                                </p>
-                                <div style="margin-bottom: 1rem;">
-                                    <label style="display: block; margin-bottom: 0.5rem; color: var(--text-primary); font-weight: 600;">
-                                        SessionID: <span style="color: #ef4444;">*</span>
-                                    </label>
-                                    <input type="text" id="import-sessionid-input" placeholder="Beispiel: 1234567890abcdef1234567890abcdef" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-family: monospace; font-size: 0.9rem;">
+                        <div id="session-import-modal" class="modal-overlay">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h3 data-i18n="dashboard.import_session_title">SessionID aus Browser importieren</h3>
+                                    <button class="modal-close" id="cancel-import-btn" data-i18n="dashboard.cancel">&times;</button>
                                 </div>
-                                <div style="margin-bottom: 1.5rem;">
-                                    <label style="display: block; margin-bottom: 0.5rem; color: var(--text-primary); font-weight: 600;">
-                                        tt-target-idc: <span style="font-size: 0.8rem; color: var(--text-tertiary);">(Optional)</span>
-                                    </label>
-                                    <input type="text" id="import-tttargetidc-input" placeholder="Optional: z.B. useast2a" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-family: monospace; font-size: 0.9rem;">
-                                </div>
-                                <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
-                                    <button id="cancel-import-btn" class="btn" style="background: var(--bg-primary); color: var(--text-primary);" data-i18n="dashboard.cancel">Abbrechen</button>
-                                    <button id="confirm-import-btn" class="btn btn-primary" data-i18n="dashboard.import_now">Jetzt importieren</button>
+                                <div class="modal-body">
+                                    <p style="font-size: 0.9rem; color: var(--color-text-secondary); margin-bottom: 1.5rem;" data-i18n="dashboard.import_session_desc">
+                                        So finden Sie Ihre SessionID in Ihrem Browser:
+                                        <br>1. Öffnen Sie TikTok.com in Ihrem Browser und loggen Sie sich ein
+                                        <br>2. Drücken Sie F12 (oder Rechtsklick → Untersuchen)
+                                        <br>3. Gehen Sie zum "Application" oder "Speicher" Tab
+                                        <br>4. Unter "Cookies" → "https://www.tiktok.com" finden Sie "sessionid"
+                                        <br>5. Kopieren Sie den Wert und fügen Sie ihn unten ein
+                                    </p>
+                                    <div style="margin-bottom: 1rem;">
+                                        <label style="display: block; margin-bottom: 0.5rem; color: var(--color-text-primary); font-weight: 600;">
+                                            SessionID: <span style="color: #ef4444;">*</span>
+                                        </label>
+                                        <input type="text" id="import-sessionid-input" placeholder="Beispiel: 1234567890abcdef1234567890abcdef" style="width: 100%; padding: 0.75rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-primary); color: var(--color-text-primary); font-family: monospace; font-size: 0.9rem;">
+                                    </div>
+                                    <div style="margin-bottom: 1.5rem;">
+                                        <label style="display: block; margin-bottom: 0.5rem; color: var(--color-text-primary); font-weight: 600;">
+                                            tt-target-idc: <span style="font-size: 0.8rem; color: var(--color-text-muted);">(Optional)</span>
+                                        </label>
+                                        <input type="text" id="import-tttargetidc-input" placeholder="Optional: z.B. useast2a" style="width: 100%; padding: 0.75rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-primary); color: var(--color-text-primary); font-family: monospace; font-size: 0.9rem;">
+                                    </div>
+                                    <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                                        <button id="confirm-import-btn" class="btn btn-primary" data-i18n="dashboard.import_now">Jetzt importieren</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                         
+                        <details id="connection-details-panel" class="connection-details-accordion">
+                            <summary class="connection-details-summary">
+                                <i data-lucide="info"></i>
+                                <span data-i18n="dashboard.connection_details">Connection Details &amp; Diagnostics</span>
+                                <i data-lucide="chevron-down" class="accordion-chevron"></i>
+                            </summary>
+
                         <!-- SessionID Status Panel -->
                         <div id="session-status-panel" style="margin-top: 1rem; padding: 0.75rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; display: none;">
                             <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
                                 <i data-lucide="shield-check" style="width: 16px; height: 16px; color: #3b82f6;"></i>
                                 <span style="font-weight: 600; color: #60a5fa;" data-i18n="dashboard.session_status">TikTok SessionID Status</span>
                             </div>
-                            <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6;">
+                            <div style="font-size: 0.85rem; color: var(--color-text-secondary); line-height: 1.6;">
                                 <div><strong data-i18n="dashboard.session_method">Extraction Method:</strong> <span id="session-method">--</span></div>
                                 <div><strong data-i18n="dashboard.session_extracted">Extracted At:</strong> <span id="session-extracted-at">--</span></div>
                                 <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
-                                    <p style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-tertiary);" data-i18n="dashboard.extract_session_help">
+                                    <p style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--color-text-muted);" data-i18n="dashboard.extract_session_help">
                                         Nutzen Sie "Extract SessionID" für automatische Extraktion, oder "Import SessionID" um die SessionID direkt aus Ihrem Browser zu kopieren (empfohlen bei Login-Problemen).
                                     </p>
                                 </div>
@@ -903,7 +941,7 @@
                                 <i data-lucide="clock" style="width: 16px; height: 16px; color: #3b82f6;"></i>
                                 <span style="font-weight: 600; color: #60a5fa;" data-i18n="dashboard.stream_time_debug_info">Stream Time Debug Info</span>
                             </div>
-                            <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6;">
+                            <div style="font-size: 0.85rem; color: var(--color-text-secondary); line-height: 1.6;">
                                 <div><strong data-i18n="dashboard.stream_start_time">Stream Start Time:</strong> <span id="debug-stream-start">--</span></div>
                                 <div><strong data-i18n="dashboard.current_duration">Current Duration:</strong> <span id="debug-stream-duration">--</span></div>
                                 <div><strong data-i18n="dashboard.detection_method">Detection Method:</strong> <span id="debug-detection-method">--</span></div>
@@ -920,19 +958,21 @@
                                 <span data-i18n="dashboard.run_diagnostics">Run Connection Diagnostics</span>
                             </button>
                             <div id="diagnostics-result" style="margin-top: 1rem; display: none;">
-                                <h3 style="font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--text-secondary);" data-i18n="dashboard.diagnostics_result">
+                                <h3 style="font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--color-text-secondary);" data-i18n="dashboard.diagnostics_result">
                                     Diagnostics Result
                                 </h3>
-                                <div id="diagnostics-content" style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; font-size: 0.85rem;"></div>
+                                <div id="diagnostics-content" style="background: var(--color-bg-secondary); padding: 1rem; border-radius: 8px; font-size: 0.85rem;"></div>
                             </div>
                             <div id="connection-health" style="margin-top: 1rem; padding: 0.75rem; border-radius: 8px; display: none;">
                                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                                     <i data-lucide="heart-pulse" style="width: 16px; height: 16px;"></i>
                                     <span id="health-status" style="font-weight: 600;"></span>
                                 </div>
-                                <div id="health-details" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);"></div>
+                                <div id="health-details" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--color-text-secondary);"></div>
                             </div>
                         </div>
+
+                        </details>
                     </section>
 
                     <!-- 2. Quick Actions Section (Compact Button Grid) -->

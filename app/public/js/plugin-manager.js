@@ -452,6 +452,7 @@ class PluginManager {
 
         return `
             <div class="plugin-card" style="background: ${devStatusBackground}; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 1.5rem; transition: all 0.3s ease; position: relative; overflow: hidden;">
+                <span class="plugin-status-dot ${plugin.enabled ? 'status-active' : 'status-inactive'}"></span>
                 <!-- Subtle gradient overlay -->
                 <div style="position: absolute; top: 0; right: 0; width: 200px; height: 200px; background: radial-gradient(circle at top right, rgba(59, 130, 246, 0.1) 0%, transparent 70%); pointer-events: none;"></div>
                 

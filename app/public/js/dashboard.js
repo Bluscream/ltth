@@ -4084,7 +4084,7 @@ document.getElementById('extract-session-btn')?.addEventListener('click', async 
 document.getElementById('import-session-btn')?.addEventListener('click', () => {
     const modal = document.getElementById('session-import-modal');
     if (modal) {
-        modal.style.display = 'flex';
+        modal.classList.add('active');
         document.getElementById('import-sessionid-input').value = '';
         document.getElementById('import-tttargetidc-input').value = '';
         document.getElementById('import-sessionid-input').focus();
@@ -4095,7 +4095,7 @@ document.getElementById('import-session-btn')?.addEventListener('click', () => {
 document.getElementById('cancel-import-btn')?.addEventListener('click', () => {
     const modal = document.getElementById('session-import-modal');
     if (modal) {
-        modal.style.display = 'none';
+        modal.classList.remove('active');
     }
 });
 
@@ -4131,7 +4131,7 @@ document.getElementById('confirm-import-btn')?.addEventListener('click', async (
         if (result.success) {
             showNotification('✅ Session-ID erfolgreich importiert!', 'success');
             await loadSessionStatus();
-            document.getElementById('session-import-modal').style.display = 'none';
+            document.getElementById('session-import-modal').classList.remove('active');
         } else {
             showNotification(`❌ Fehler: ${result.message}`, 'error');
         }
@@ -4149,8 +4149,8 @@ document.getElementById('confirm-import-btn')?.addEventListener('click', async (
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         const modal = document.getElementById('session-import-modal');
-        if (modal && modal.style.display === 'flex') {
-            modal.style.display = 'none';
+        if (modal && modal.classList.contains('active')) {
+            modal.classList.remove('active');
         }
     }
 });
