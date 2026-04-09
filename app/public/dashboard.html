@@ -525,6 +525,161 @@
             color: #ef4444;
             animation: pulse 1s infinite;
         }
+
+        /* ===== SHUTDOWN MODAL ===== */
+        .shutdown-modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+            z-index: 100000;
+            align-items: center;
+            justify-content: center;
+        }
+        .shutdown-modal-backdrop.active {
+            display: flex;
+        }
+        .shutdown-modal-box {
+            background: var(--color-bg-card, #1e293b);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 16px;
+            padding: 2rem 2.5rem;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 0 40px rgba(239, 68, 68, 0.2);
+            animation: shutdown-modal-in 0.2s ease;
+        }
+        @keyframes shutdown-modal-in {
+            from { opacity: 0; transform: scale(0.92) translateY(-12px); }
+            to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .shutdown-modal-icon {
+            font-size: 3rem;
+            margin-bottom: 0.75rem;
+            animation: pulse-icon 2s infinite;
+        }
+        @keyframes pulse-icon {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        .shutdown-modal-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--color-text-primary, #e2e8f0);
+            margin-bottom: 0.5rem;
+        }
+        .shutdown-modal-text {
+            color: var(--color-text-secondary, #94a3b8);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .shutdown-modal-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+        .shutdown-btn-cancel {
+            padding: 0.6rem 1.4rem;
+            border-radius: 8px;
+            border: 1px solid var(--color-border, #334155);
+            background: var(--color-bg-secondary, #0f172a);
+            color: var(--color-text-secondary, #94a3b8);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .shutdown-btn-cancel:hover {
+            background: var(--color-bg-hover, #1e293b);
+            color: var(--color-text-primary, #e2e8f0);
+        }
+        .shutdown-btn-confirm {
+            padding: 0.6rem 1.4rem;
+            border-radius: 8px;
+            border: none;
+            background: #dc2626;
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .shutdown-btn-confirm:hover {
+            background: #b91c1c;
+            transform: scale(1.03);
+        }
+        .shutdown-btn-confirm:active {
+            transform: scale(0.97);
+        }
+        .shutdown-btn-confirm:disabled {
+            background: #7f1d1d;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ===== GOODBYE SPLASHSCREEN ===== */
+        .shutdown-goodbye-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: var(--color-bg-primary, #0f172a);
+            z-index: 200000;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        .shutdown-goodbye-backdrop.active {
+            display: flex;
+        }
+        .shutdown-goodbye-content {
+            text-align: center;
+            animation: goodbye-in 0.5s ease;
+        }
+        @keyframes goodbye-in {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .shutdown-goodbye-img {
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
+            margin-bottom: 1.5rem;
+            animation: goodbye-logo-pulse 2s ease-in-out infinite;
+            filter: drop-shadow(0 0 20px rgba(239, 68, 68, 0.4));
+        }
+        @keyframes goodbye-logo-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50%       { opacity: 0.7; transform: scale(0.95); }
+        }
+        .shutdown-goodbye-title {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: var(--color-text-primary, #e2e8f0);
+            margin-bottom: 0.5rem;
+        }
+        .shutdown-goodbye-subtitle {
+            color: #ef4444;
+            font-size: 1rem;
+            margin-bottom: 2rem;
+        }
+        .shutdown-goodbye-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(239, 68, 68, 0.2);
+            border-top-color: #ef4444;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 1.5rem;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .shutdown-goodbye-hint {
+            color: var(--color-text-muted, #475569);
+            font-size: 0.8rem;
+        }
         
     </style>
     <script src="/js/lucide.min.js"></script>
