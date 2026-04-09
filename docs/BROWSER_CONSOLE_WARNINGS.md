@@ -55,17 +55,17 @@ error: Error Code: NS_ERROR_DOM_MEDIA_METADATA_ERR (0x806e0006)
 **Impact:** Could prevent TTS and soundboard features from working until fixed.
 
 **Can it be fixed?** ✅ **YES - FIXED**
-- Replaced invalid base64 MP3 with a minimal valid 32-byte silent MP3
-- Changed MIME type from `audio/mp3` to `audio/mpeg` (standard)
-- File: `app/public/js/dashboard.js` line ~3247
+- Replaced invalid base64 MP3 with a minimal valid 1-sample silent WAV
+- Changed MIME type from `audio/mpeg` to `audio/wav` (fully supported across all browsers)
+- File: `app/public/js/dashboard.js` line ~3278
 
 **Fix Applied:**
 ```javascript
-// OLD (invalid - truncated for readability, was 800+ bytes)
-audio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2...'; 
+// OLD (invalid - caused NS_ERROR_DOM_MEDIA_METADATA_ERR in Firefox)
+audio.src = 'data:audio/mpeg;base64,//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='; 
 
-// NEW (valid - complete 32 bytes)
-audio.src = 'data:audio/mpeg;base64,//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+// NEW (valid 1-sample silent WAV, identical to dashboard-soundboard.js)
+audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 ```
 
 ---

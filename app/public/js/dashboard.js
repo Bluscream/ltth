@@ -3274,8 +3274,8 @@ function unlockAudio() {
         
         // Play and immediately pause a silent audio to unlock
         // This must happen in response to user interaction
-        // Using a minimal valid silent MP3 (32 bytes) to avoid media decode errors
-        audio.src = 'data:audio/mpeg;base64,//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+        // Using a minimal valid silent WAV (1 sample) to avoid media decode errors
+        audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
         audio.volume = 0.01; // Very quiet
         
         const playPromise = audio.play();
