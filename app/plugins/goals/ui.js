@@ -5,6 +5,14 @@ let editingGoalId = null;
 let editingMultiGoalId = null;
 let previewUpdateTimer = null;
 
+(function injectGoalSelectorStyles() {
+    if (document.getElementById('goal-selector-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'goal-selector-styles';
+    style.textContent = `.goal-selector-label:hover { background: var(--color-bg-tertiary); }`;
+    document.head.appendChild(style);
+})();
+
 // Initialize
 function init() {
     socket = io();
@@ -696,12 +704,10 @@ function loadGoalsSelector() {
         : [];
 
     selector.innerHTML = goals.map(goal => `
-        <label style="display: flex; align-items: center; padding: 8px; cursor: pointer; border-radius: 6px; margin-bottom: 6px;" 
-               onmouseover="this.style.background='var(--color-bg-tertiary)'" 
-               onmouseout="this.style.background='transparent'">
+        <label class="goal-selector-label" style="display: flex; align-items: center; padding: 8px; cursor: pointer; border-radius: 6px; margin-bottom: 6px;">
             <input type="checkbox" 
                    class="multigoal-goal-checkbox" 
-                   value="${goal.id}" 
+                   value="${escapeHtml(goal.id)}" 
                    ${selectedGoals.includes(goal.id) ? 'checked' : ''}
                    style="margin-right: 12px; width: 18px; height: 18px; cursor: pointer;">
             <div style="flex: 1;">
@@ -800,6 +806,42 @@ function renderMultiGoals() {
     }
 
     container.innerHTML = multigoals.map(mg => renderMultiGoalCard(mg)).join('');
+    setupMultiGoalCardEventListeners();
+}
+
+// Setup delegated event listeners for multigoal cards
+function setupMultiGoalCardEventListeners() {
+    const container = document.getElementById('multigoals-container');
+    if (!container) return;
+
+    if (container._mgListener) {
+        container.removeEventListener('click', container._mgListener);
+    }
+
+    const listener = function(event) {
+        if (event.target.matches('[data-action="select-url"]')) {
+            event.target.select();
+            return;
+        }
+
+        const btn = event.target.closest('[data-action]');
+        if (!btn) return;
+
+        switch (btn.dataset.action) {
+            case 'copy-multigoal-url':
+                copyToClipboard(btn.dataset.url, btn);
+                break;
+            case 'edit-multigoal':
+                editMultiGoal(btn.dataset.id);
+                break;
+            case 'delete-multigoal':
+                deleteMultiGoal(btn.dataset.id, btn.dataset.name);
+                break;
+        }
+    };
+
+    container.addEventListener('click', listener);
+    container._mgListener = listener;
 }
 
 // Render single multigoal card
@@ -864,10 +906,10 @@ function renderMultiGoalCard(multigoal) {
                            value="${overlayUrl}" 
                            readonly 
                            style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg-card); color: var(--color-text-primary); font-size: 0.85rem;"
-                           onclick="this.select()">
+                           data-action="select-url">
                     <button class="btn btn-secondary" 
                             style="padding: 8px 16px;"
-                            onclick="copyToClipboard('${overlayUrl}', this)">
+                            data-action="copy-multigoal-url" data-url="${escapeHtml(overlayUrl)}">
                         📋 Copy
                     </button>
                 </div>
@@ -876,12 +918,12 @@ function renderMultiGoalCard(multigoal) {
             <div class="multigoal-actions">
                 <button class="btn btn-primary" 
                         style="flex: 1;"
-                        onclick="editMultiGoal('${multigoal.id}')">
+                        data-action="edit-multigoal" data-id="${escapeHtml(multigoal.id)}">
                     ✏️ Edit
                 </button>
                 <button class="btn btn-danger" 
                         style="flex: 1;"
-                        onclick="deleteMultiGoal('${multigoal.id}', '${multigoal.name}')">
+                        data-action="delete-multigoal" data-id="${escapeHtml(multigoal.id)}" data-name="${escapeHtml(multigoal.name)}">
                     🗑️ Delete
                 </button>
             </div>
