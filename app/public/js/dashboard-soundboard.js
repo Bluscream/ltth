@@ -2,7 +2,7 @@
  * Soundboard UI JavaScript
  * Works both as standalone version for /soundboard/ui page and when included in main dashboard
  */
-
+{
 // Structured logger for this module.
 /* global FrontendLogger */
 const log = (typeof FrontendLogger !== 'undefined')
@@ -2797,4 +2797,5 @@ function initializeEventAnimationSliders() {
             });
         }
     });
+}
 }

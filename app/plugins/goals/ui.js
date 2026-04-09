@@ -864,10 +864,10 @@ function renderMultiGoalCard(multigoal) {
                            value="${overlayUrl}" 
                            readonly 
                            style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg-card); color: var(--color-text-primary); font-size: 0.85rem;"
-                           onclick="this.select()">
+                           data-action="url-select">
                     <button class="btn btn-secondary" 
                             style="padding: 8px 16px;"
-                            onclick="copyToClipboard('${overlayUrl}', this)">
+                            data-action="copy-overlay-url" data-url="${overlayUrl}">
                         📋 Copy
                     </button>
                 </div>
@@ -876,12 +876,12 @@ function renderMultiGoalCard(multigoal) {
             <div class="multigoal-actions">
                 <button class="btn btn-primary" 
                         style="flex: 1;"
-                        onclick="editMultiGoal('${multigoal.id}')">
+                        data-action="edit-multigoal" data-id="${multigoal.id}">
                     ✏️ Edit
                 </button>
                 <button class="btn btn-danger" 
                         style="flex: 1;"
-                        onclick="deleteMultiGoal('${multigoal.id}', '${multigoal.name}')">
+                        data-action="delete-multigoal" data-id="${multigoal.id}" data-name="${escapeHtml(multigoal.name)}">
                     🗑️ Delete
                 </button>
             </div>
@@ -942,5 +942,29 @@ window.copyToClipboard = copyToClipboard;
 window.addEventListener('DOMContentLoaded', () => {
     switchTab('goals');
     document.getElementById('create-goal-btn').style.display = 'block';
+
+    // Event delegation for multigoal card buttons
+    const multigoalsContainer = document.getElementById('multigoals-container');
+    if (multigoalsContainer) {
+        multigoalsContainer.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            const action = btn.dataset.action;
+            switch (action) {
+                case 'url-select':
+                    btn.select();
+                    break;
+                case 'copy-overlay-url':
+                    copyToClipboard(btn.dataset.url, btn);
+                    break;
+                case 'edit-multigoal':
+                    editMultiGoal(btn.dataset.id);
+                    break;
+                case 'delete-multigoal':
+                    deleteMultiGoal(btn.dataset.id, btn.dataset.name);
+                    break;
+            }
+        });
+    }
 });
 
