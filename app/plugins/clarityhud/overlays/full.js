@@ -812,11 +812,11 @@ function createEventElement(event, layoutMode) {
 }
 
 function animateElement(element, direction, skipAnimation = false) {
-  if (!element || !STATE.animationRenderer) {
+  if (!element) {
     return Promise.resolve();
   }
 
-  if (skipAnimation || STATE.settings.reduceMotion || STATE.settings.animationIn === 'none') {
+  if (!STATE.animationRenderer || skipAnimation || STATE.settings.reduceMotion || STATE.settings.animationIn === 'none') {
     element.style.opacity = '1';
     return Promise.resolve();
   }
