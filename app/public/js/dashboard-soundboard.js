@@ -656,7 +656,7 @@ async function loadGiftSounds() {
         
         const tbody = document.getElementById('gift-sounds-list');
         if (!tbody) {
-            log.warn('gift-sounds-list element not found');
+            log.debug('gift-sounds-list element not found in current view, skipping render');
             return;
         }
         tbody.innerHTML = '';
@@ -1302,17 +1302,17 @@ function clearGiftSoundForm() {
 
 // ========== GIFT CATALOG ==========
 async function loadGiftCatalog() {
+    // SYNCHRON vor dem fetch: Guard prüfen
+    const infoDiv = document.getElementById('gift-catalog-info');
+    const catalogDiv = document.getElementById('gift-catalog-list');
+    if (!infoDiv || !catalogDiv) {
+        log.debug('Gift catalog DOM elements not found in current view, skipping render');
+        return;
+    }
+
     try {
         const response = await fetch('/api/gift-catalog');
         const data = await response.json();
-        
-        const infoDiv = document.getElementById('gift-catalog-info');
-        const catalogDiv = document.getElementById('gift-catalog-list');
-
-        if (!infoDiv || !catalogDiv) {
-            log.warn('Gift catalog DOM elements not found in current view, skipping render');
-            return;
-        }
 
         if (!data.success) {
             infoDiv.innerHTML = '<span class="text-red-400">Error loading gift catalog</span>';
@@ -1367,10 +1367,7 @@ async function loadGiftCatalog() {
         
     } catch (error) {
         log.error('Error loading gift catalog', { error: error.message });
-        const infoDiv = document.getElementById('gift-catalog-info');
-        if (infoDiv) {
-            infoDiv.innerHTML = '<span class="text-red-400">Error loading catalog</span>';
-        }
+        infoDiv.innerHTML = '<span class="text-red-400">Error loading catalog</span>';
         logAudioEvent('error', `Failed to load gift catalog: ${error.message}`, null);
     }
 }
@@ -1713,7 +1710,7 @@ async function loadCategories() {
             availableCategories = data.results;
             renderCategoryButtons();
         } else {
-            log.warn('No categories returned from API, using defaults');
+            log.warn('No categories returned from API, using defaults', { responseData: data });
             availableCategories = [
                 { name: 'Memes', slug: 'memes' },
                 { name: 'Games', slug: 'games' },
