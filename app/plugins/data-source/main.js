@@ -149,6 +149,13 @@ class DataSourcePlugin {
           newSource: source,
           timestamp: new Date().toISOString()
         });
+
+        socket.emit('datasource:switched', {
+          success: true,
+          previousSource,
+          newSource: source,
+          timestamp: new Date().toISOString()
+        });
       } catch (error) {
         this.api.log(`[DataSource] Socket switch error: ${error.message}`, 'error');
         socket.emit('datasource:error', { error: error.message });

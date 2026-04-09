@@ -1756,6 +1756,26 @@ async function handleDataSourceChange(e) {
     const source = e.target.value;
     if (!source) return;
 
+    // If switching to tikfinity, auto-save the current port value first so the
+    // adapter uses the value currently visible in the UI, not a potentially stale DB value.
+    if (source === 'tikfinity') {
+        const portInput = document.getElementById('tikfinity-ws-port');
+        if (portInput) {
+            const port = parseInt(portInput.value, 10);
+            if (!isNaN(port) && port >= 1 && port <= 65535) {
+                try {
+                    await fetch('/api/data-source/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tikfinity_ws_port: port })
+                    });
+                } catch (portSaveErr) { /* non-fatal – proceed with switch anyway */
+                    console.error('Error auto-saving TikFinity port before switch:', portSaveErr);
+                }
+            }
+        }
+    }
+
     try {
         const response = await fetch('/api/data-source/switch', {
             method: 'POST',

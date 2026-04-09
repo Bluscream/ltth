@@ -44,6 +44,9 @@ class TikFinityAdapter extends BaseAdapter {
     /** @type {boolean} set to true when disconnect() is called intentionally */
     this._intentionalDisconnect = false;
 
+    /** @type {boolean} true during _openWebSocket() – after error event no reconnect should start */
+    this._initialConnectFailed = false;
+
     /** @type {NodeJS.Timeout|null} */
     this._pingInterval = null;
 
@@ -91,6 +94,11 @@ class TikFinityAdapter extends BaseAdapter {
    * @returns {Promise<void>}
    */
   async connect(username, options = {}) {
+    // Cancel any pending reconnect from a previous session
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
     this._intentionalDisconnect = false;
     this._reconnectAttempts = 0;
     this.currentUsername = username;
@@ -127,12 +135,24 @@ class TikFinityAdapter extends BaseAdapter {
         this.ws = null;
       }
 
+      // Reset per-attempt flags
+      this._initialConnectFailed = false;
+
       this.ws = new WebSocket(this._getWsUrl());
 
       // 10-second connection timeout
       const connectTimeout = setTimeout(() => {
-        this.ws.terminate();
+        // Prevent the close-handler from starting an uncontrolled reconnect loop.
+        // _intentionalDisconnect will be reset to false on the next connect() call.
+        this._intentionalDisconnect = true;
+        const wsRef = this.ws;
+        this.ws = null;
+        // Reject before terminating so the promise settles before any close events fire
         reject(new Error(`[TikFinity] Connection timeout after 10s – is TikFinity running at ${this._getWsUrl()}?`));
+        if (wsRef) {
+          wsRef.removeAllListeners();
+          try { wsRef.terminate(); } catch (_) {}
+        }
       }, 10000);
 
       this.ws.once('open', () => {
@@ -154,6 +174,7 @@ class TikFinityAdapter extends BaseAdapter {
 
       this.ws.once('error', (err) => {
         clearTimeout(connectTimeout);
+        this._initialConnectFailed = true;
         this.isConnected = false;
         this.logger.error(`[TikFinity] ❌ WebSocket error: ${err.message}`);
         this.broadcastStatus('error', {
@@ -179,14 +200,28 @@ class TikFinityAdapter extends BaseAdapter {
           reason: reasonText || 'Code ' + code
         });
 
-        if (!this._intentionalDisconnect && this._reconnectAttempts < this._maxReconnectAttempts) {
+        if (!this._intentionalDisconnect && !this._initialConnectFailed && this._reconnectAttempts < this._maxReconnectAttempts) {
           this._reconnectAttempts++;
           const delay = Math.min(this._reconnectDelay * this._reconnectAttempts, 30000);
           this.logger.info(`[TikFinity] 🔄 Reconnect attempt ${this._reconnectAttempts}/${this._maxReconnectAttempts} in ${delay / 1000}s…`);
           this._reconnectTimer = setTimeout(() => {
-            this._openWebSocket().catch((err) => {
-              this.logger.error(`[TikFinity] Reconnect attempt ${this._reconnectAttempts} failed: ${err.message}`);
-            });
+            this._openWebSocket()
+              .then(() => {
+                // Restore session state if it was lost during an initial connect failure
+                if (!this.streamStartTime) {
+                  this.streamStartTime = Date.now();
+                  this._startDurationInterval();
+                }
+                if (!this.statsPersistenceInterval) {
+                  this.statsPersistenceInterval = setInterval(
+                    () => this.db.saveStreamStats(this.stats),
+                    30000
+                  );
+                }
+              })
+              .catch((err) => {
+                this.logger.error(`[TikFinity] Reconnect attempt ${this._reconnectAttempts} failed: ${err.message}`);
+              });
           }, delay);
         } else if (!this._intentionalDisconnect && this._reconnectAttempts >= this._maxReconnectAttempts) {
           this.logger.warn(`[TikFinity] ⚠️  Max reconnect attempts (${this._maxReconnectAttempts}) reached.`);
