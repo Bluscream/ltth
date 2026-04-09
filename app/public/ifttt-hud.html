@@ -5,19 +5,8 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IFTTT HUD Overlay - TikTok Stream Tool</title>
+    <link rel="stylesheet" href="/css/overlay-base.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            background: transparent;
-            overflow: hidden;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
         #hud-container {
             position: fixed;
             top: 0;
@@ -300,65 +289,18 @@
             }
         }
 
-        /* Connection status indicator */
+        /* Connection status indicator and debug panel are provided by overlay-base.css */
+        /* Map legacy ID selectors to shared class styles */
         #connection-status {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #4caf50;
-            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
-            pointer-events: none;
-            opacity: 0.7;
-            transition: background 0.3s;
-        }
-
-        #connection-status.disconnected {
-            background: #f44336;
-            box-shadow: 0 0 10px rgba(244, 67, 54, 0.5);
-        }
-
-        /* Debug info */
-        #debug-info {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.8);
-            color: #00ff00;
-            padding: 12px;
-            border-radius: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 11px;
-            display: none;
-            pointer-events: none;
-            max-width: 400px;
-            z-index: 10001;
-        }
-
-        #debug-info.visible {
-            display: block;
-        }
-
-        .debug-title {
-            color: #00ffff;
-            font-weight: bold;
-            margin-bottom: 8px;
-        }
-
-        .debug-entry {
-            margin: 4px 0;
-            padding: 2px 0;
-            border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+            transition: background 0.3s ease, box-shadow 0.3s ease;
         }
     </style>
 </head>
 <body>
     <div id="hud-container"></div>
-    <div id="connection-status"></div>
-    <div id="debug-info">
-        <div class="debug-title">IFTTT HUD Debug</div>
+    <div id="connection-status" class="overlay-connection-dot"></div>
+    <div id="debug-info" class="overlay-debug-panel">
+        <div class="overlay-debug-title">IFTTT HUD Debug</div>
         <div id="debug-log"></div>
     </div>
 
@@ -478,7 +420,7 @@
 
                 if (state.debugMode) {
                     const entry = document.createElement('div');
-                    entry.className = 'debug-entry';
+                    entry.className = 'overlay-debug-entry';
                     entry.style.color = level === 'error' ? '#ff4444' : level === 'warn' ? '#ffaa00' : '#00ff00';
                     entry.textContent = `[${timestamp}] ${message}`;
                     debugLog.insertBefore(entry, debugLog.firstChild);
