@@ -314,6 +314,9 @@
         // Window control buttons (for frameless Electron window)
         initializeWindowControls();
 
+        // Shutdown button (works in all environments, not only Electron)
+        initializeShutdownButton();
+
         // Check for hash-based navigation first (e.g., #soundboard)
         const hash = window.location.hash.substring(1); // Remove the #
         if (hash) {
@@ -731,40 +734,109 @@
             });
         }
 
-        // ========== SHUTDOWN BUTTON ==========
+    }
+
+    // ========== SHUTDOWN BUTTON (independent of Electron) ==========
+    function initializeShutdownButton() {
         const shutdownBtn = document.getElementById('topbar-shutdown-btn');
-        if (shutdownBtn) {
-            shutdownBtn.addEventListener('click', async () => {
-                // Bestätigungsdialog
-                const confirmed = window.confirm(
-                    '⚠️ Server wirklich herunterfahren?\n\nDie App wird vollständig beendet. Zum erneuten Starten den Launcher neu starten.'
-                );
-                if (!confirmed) return;
+        if (!shutdownBtn) return;
 
-                shutdownBtn.classList.add('shutdown-pending');
-                shutdownBtn.disabled = true;
-                shutdownBtn.title = 'Wird heruntergefahren...';
+        shutdownBtn.addEventListener('click', () => {
+            showShutdownConfirmModal();
+        });
+    }
 
-                try {
-                    const response = await fetch('/api/shutdown', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
-                    });
+    let _shutdownEscHandler = null;
 
-                    if (response.ok) {
-                        // Zeige Feedback im UI
-                        document.body.style.opacity = '0.5';
-                        document.body.style.pointerEvents = 'none';
-                        const overlay = document.createElement('div');
-                        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:99999;color:white;font-size:1.5rem;font-weight:600;';
-                        overlay.textContent = '🛑 Server wird heruntergefahren...';
-                        document.body.appendChild(overlay);
-                    }
-                } catch (err) {
-                    // Fetch wirft, wenn Server bereits weg ist – das ist OK
-                    console.info('[Shutdown] Server connection closed (expected):', err.message);
-                }
+    function showShutdownConfirmModal() {
+        let modal = document.getElementById('shutdown-confirm-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'shutdown-confirm-modal';
+            modal.className = 'shutdown-modal-backdrop';
+            modal.innerHTML = `
+                <div class="shutdown-modal-box">
+                    <div class="shutdown-modal-icon">⚡</div>
+                    <h2 class="shutdown-modal-title">Server herunterfahren?</h2>
+                    <p class="shutdown-modal-text">
+                        Die App wird vollständig beendet.<br>
+                        Zum erneuten Starten den Launcher neu starten.
+                    </p>
+                    <div class="shutdown-modal-actions">
+                        <button id="shutdown-cancel-btn" class="shutdown-btn-cancel">Abbrechen</button>
+                        <button id="shutdown-confirm-btn" class="shutdown-btn-confirm">🛑 Herunterfahren</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            document.getElementById('shutdown-cancel-btn').addEventListener('click', hideShutdownConfirmModal);
+            document.getElementById('shutdown-confirm-btn').addEventListener('click', performShutdown);
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) hideShutdownConfirmModal();
             });
+        }
+
+        _shutdownEscHandler = (e) => {
+            if (e.key === 'Escape') hideShutdownConfirmModal();
+        };
+        document.addEventListener('keydown', _shutdownEscHandler);
+
+        modal.classList.add('active');
+    }
+
+    function hideShutdownConfirmModal() {
+        const modal = document.getElementById('shutdown-confirm-modal');
+        if (modal) modal.classList.remove('active');
+        if (_shutdownEscHandler) {
+            document.removeEventListener('keydown', _shutdownEscHandler);
+            _shutdownEscHandler = null;
+        }
+    }
+
+    function showGoodbyeScreen() {
+        hideShutdownConfirmModal();
+
+        let goodbye = document.getElementById('shutdown-goodbye-screen');
+        if (!goodbye) {
+            goodbye = document.createElement('div');
+            goodbye.id = 'shutdown-goodbye-screen';
+            goodbye.className = 'shutdown-goodbye-backdrop';
+            goodbye.innerHTML = `
+                <div class="shutdown-goodbye-content">
+                    <div class="shutdown-goodbye-logo">
+                        <img src="/ltthmini_nightmode.png" alt="LTTH" class="shutdown-goodbye-img">
+                    </div>
+                    <h1 class="shutdown-goodbye-title">Auf Wiedersehen! 👋</h1>
+                    <p class="shutdown-goodbye-subtitle">Der Server wird heruntergefahren...</p>
+                    <div class="shutdown-goodbye-spinner"></div>
+                    <p class="shutdown-goodbye-hint">Du kannst dieses Fenster jetzt schließen.</p>
+                </div>
+            `;
+            document.body.appendChild(goodbye);
+        }
+
+        goodbye.classList.add('active');
+    }
+
+    async function performShutdown() {
+        const confirmBtn = document.getElementById('shutdown-confirm-btn');
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Wird beendet...';
+        }
+
+        showGoodbyeScreen();
+
+        try {
+            await fetch('/api/shutdown', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+        } catch (err) {
+            // Fetch wirft, wenn Server bereits weg ist – das ist OK und erwartet
+            console.info('[Shutdown] Server connection closed (expected):', err.message);
         }
     }
 
