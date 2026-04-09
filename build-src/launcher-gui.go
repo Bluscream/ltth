@@ -12,9 +12,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -49,6 +51,8 @@ type Launcher struct {
 	selectedProfile string
 	locale          string
 	translations    map[string]interface{}
+	nodeCmd         *exec.Cmd  // Referenz auf laufenden Node-Prozess
+	nodeMu          sync.Mutex // Schützt nodeCmd-Zugriff
 }
 
 var allowedLocales = []string{"de", "en", "es", "fr"}
@@ -667,12 +671,46 @@ func (l *Launcher) startTool() (*exec.Cmd, error) {
 	l.logAndSync("OPEN_BROWSER environment variable set to: false")
 	l.logAndSync("--- Node.js Server Output Start ---")
 
+	setSysProcAttr(cmd)
+
 	err := cmd.Start()
 	if err != nil {
 		return nil, err
 	}
 
+	l.nodeMu.Lock()
+	l.nodeCmd = cmd
+	l.nodeMu.Unlock()
+
 	return cmd, nil
+}
+
+// killNodeProcess beendet den Node-Child-Prozess sauber.
+// Auf Windows: taskkill /T um auch Child-Prozesse von Node zu beenden.
+// Auf Unix: SIGTERM an die Prozessgruppe, dann SIGKILL-Fallback nach 3s.
+func (l *Launcher) killNodeProcess() {
+	l.nodeMu.Lock()
+	cmd := l.nodeCmd
+	l.nodeMu.Unlock()
+
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+
+	pid := cmd.Process.Pid
+	if l.logger != nil {
+		l.logger.Printf("[INFO] Terminating Node.js process (PID: %d)...\n", pid)
+	}
+
+	killNodeProcessOS(cmd, pid)
+
+	l.nodeMu.Lock()
+	l.nodeCmd = nil
+	l.nodeMu.Unlock()
+
+	if l.logger != nil {
+		l.logger.Printf("[INFO] Node.js process (PID: %d) terminated.\n", pid)
+	}
 }
 
 // checkServerHealth checks if the server is responding
@@ -1077,8 +1115,19 @@ func (l *Launcher) runLauncher() {
 	time.Sleep(500 * time.Millisecond)
 	l.sendRedirect()
 
-	// Keep server running to allow redirect to complete
-	time.Sleep(3 * time.Second)
+	// Warte bis Node-Prozess endet (bleibt offen solange App läuft).
+	// Das verhindert, dass der Launcher-Prozess einfach stirbt und Node als Zombie weiterläuft.
+	if l.logger != nil {
+		l.logger.Println("[INFO] Server running. Launcher stays alive to manage Node process lifecycle.")
+		l.logger.Println("[INFO] Close this launcher window to also stop the Node.js server.")
+	}
+
+	// Blockiere hier bis Node sich selbst beendet (z.B. nach Restart/Exit-Code 75)
+	exitStatus := <-processDied
+	if l.logger != nil {
+		l.logger.Printf("[INFO] Node.js process exited: %v\n", exitStatus)
+	}
+
 	l.closeLogging()
 	os.Exit(0)
 }
@@ -1460,6 +1509,19 @@ func main() {
 
 	// Run launcher
 	go launcher.runLauncher()
+
+	// Signal-Handler: Node-Prozess beim Beenden des Launchers sauber terminieren
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		if launcher.logger != nil {
+			launcher.logger.Printf("[INFO] Signal received (%v) – shutting down Node.js...\n", sig)
+		}
+		launcher.killNodeProcess()
+		launcher.closeLogging()
+		os.Exit(0)
+	}()
 
 	// Keep running
 	select {}
