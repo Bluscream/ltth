@@ -135,11 +135,30 @@ class TikTokConnector extends EventEmitter {
     if (newSource !== this._currentSource) {
       this.logger.info(`[TikTokConnector] Data source changed: ${this._currentSource} -> ${newSource}`);
       if (this._adapter && this._adapter.isActive()) {
-        this._adapter.disconnect();
+        // Promise.resolve() safely handles both sync and async disconnect() implementations
+        await Promise.resolve(this._adapter.disconnect());
       }
       this._switchAdapter(newSource);
     }
     return this._adapter.connect(username, options);
+  }
+
+  /**
+   * Switches the active adapter immediately.
+   * If currently connected, disconnects first, then switches.
+   * Does NOT reconnect automatically – caller is responsible.
+   * @param {string} source - 'eulerstream' | 'tikfinity'
+   * @returns {Promise<void>}
+   */
+  async switchSourceNow(source) {
+    const normalized = source === 'tikfinity' ? 'tikfinity' : 'eulerstream';
+    if (normalized === this._currentSource) return;
+    this.logger.info(`[TikTokConnector] Live source switch: ${this._currentSource} → ${normalized}`);
+    if (this._adapter && this._adapter.isActive()) {
+      // Promise.resolve() safely handles both sync and async disconnect() implementations
+      await Promise.resolve(this._adapter.disconnect());
+    }
+    this._switchAdapter(normalized);
   }
 
   disconnect() {
