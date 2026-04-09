@@ -436,12 +436,20 @@ class Launcher {
                 this.log.separator();
                 this.log.info('Server wird beendet...');
                 serverProcess.kill('SIGINT');
-                process.exit(0);
+                // Wait for child to exit so port is released before launcher exits
+                serverProcess.once('exit', () => process.exit(0));
+                // Fallback: force exit after 6s (child has a 5s shutdown timeout)
+                const forceTimer = setTimeout(() => process.exit(0), 6000);
+                forceTimer.unref();
             });
 
             process.once('SIGTERM', () => {
                 serverProcess.kill('SIGTERM');
-                process.exit(0);
+                // Wait for child to exit so port is released before launcher exits
+                serverProcess.once('exit', () => process.exit(0));
+                // Fallback: force exit after 6s (child has a 5s shutdown timeout)
+                const forceTimer = setTimeout(() => process.exit(0), 6000);
+                forceTimer.unref();
             });
         };
 
