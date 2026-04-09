@@ -440,9 +440,11 @@ class TikTokConnector extends EventEmitter {
         // WebSocket connection events
         this.ws.on('open', () => {
             this.logger.info('🟢 Eulerstream WebSocket connected');
+            this._startHeartbeat();
         });
 
         this.ws.on('close', (code, reason) => {
+            this._stopHeartbeat();
             const reasonText = Buffer.isBuffer(reason) ? reason.toString('utf-8') : (reason || '');
             this.logger.info(`🔴 Eulerstream WebSocket disconnected: ${code} - ${ClientCloseCode[code] || reasonText}`);
 
@@ -1763,7 +1765,60 @@ class TikTokConnector extends EventEmitter {
         }
     }
 
+    /**
+     * Starts the Ping/Pong heartbeat to prevent idle timeouts from load balancers (e.g. Cloudflare)
+     * @private
+     */
+    _startHeartbeat() {
+        this._stopHeartbeat();
+        this.isAlive = true;
+
+        this._onPong = () => {
+            this.isAlive = true;
+            this.logger.debug('💓 WebSocket Pong received');
+        };
+        this.ws.on('pong', this._onPong);
+
+        this.pingInterval = setInterval(() => {
+            if (!this.isConnected || !this.ws) {
+                this._stopHeartbeat();
+                return;
+            }
+
+            if (this.isAlive === false) {
+                this.logger.warn('⚠️ WebSocket heartbeat timeout - connection unresponsive. Forcing clean reconnect...');
+                this._stopHeartbeat();
+                this.ws.terminate();
+                return;
+            }
+
+            this.isAlive = false;
+            try {
+                this.ws.ping();
+                this.logger.debug('↗️ WebSocket Ping sent');
+            } catch (err) {
+                this.logger.error('Error sending WebSocket ping:', err.message);
+            }
+        }, TikTokConnector.PING_INTERVAL_MS);
+    }
+
+    /**
+     * Stops the active heartbeat timer and removes the pong listener
+     * @private
+     */
+    _stopHeartbeat() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+        if (this.ws && this._onPong) {
+            this.ws.removeListener('pong', this._onPong);
+        }
+        this._onPong = null;
+    }
+
     disconnect() {
+        this._stopHeartbeat();
         if (this.ws) {
             this.ws.removeAllListeners();
             if (typeof this.ws.close === 'function') {
@@ -2398,5 +2453,7 @@ class TikTokConnector extends EventEmitter {
         };
     }
 }
+
+TikTokConnector.PING_INTERVAL_MS = 30000;
 
 module.exports = TikTokConnector;
