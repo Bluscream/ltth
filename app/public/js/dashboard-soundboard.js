@@ -1308,7 +1308,12 @@ async function loadGiftCatalog() {
         
         const infoDiv = document.getElementById('gift-catalog-info');
         const catalogDiv = document.getElementById('gift-catalog-list');
-        
+
+        if (!infoDiv || !catalogDiv) {
+            log.warn('Gift catalog DOM elements not found in current view, skipping render');
+            return;
+        }
+
         if (!data.success) {
             infoDiv.innerHTML = '<span class="text-red-400">Error loading gift catalog</span>';
             catalogDiv.innerHTML = '';
@@ -1362,7 +1367,10 @@ async function loadGiftCatalog() {
         
     } catch (error) {
         log.error('Error loading gift catalog', { error: error.message });
-        document.getElementById('gift-catalog-info').innerHTML = '<span class="text-red-400">Error loading catalog</span>';
+        const infoDiv = document.getElementById('gift-catalog-info');
+        if (infoDiv) {
+            infoDiv.innerHTML = '<span class="text-red-400">Error loading catalog</span>';
+        }
         logAudioEvent('error', `Failed to load gift catalog: ${error.message}`, null);
     }
 }
