@@ -6,6 +6,10 @@
 (function() {
     'use strict';
 
+    const log = (typeof FrontendLogger !== 'undefined')
+        ? FrontendLogger.createLogger('CloudSync')
+        : { debug: Function.prototype, info: Function.prototype, warn: Function.prototype, error: Function.prototype };
+
     let cloudSyncStatus = null;
 
     // DOM Elements
@@ -22,7 +26,7 @@
     
     // Check if elements exist before proceeding
     if (!choosePathBtn) {
-        console.warn('[Cloud Sync] Cloud sync UI elements not found in current view');
+        log.warn('Cloud sync UI elements not found in current view');
         return;
     }
 
@@ -49,7 +53,7 @@
                 showError('Fehler beim Laden des Cloud-Sync-Status: ' + (data.error || 'Unbekannter Fehler'));
             }
         } catch (error) {
-            console.error('Error loading cloud sync status:', error);
+            log.error('Error loading cloud sync status:', error);
             showError('Verbindungsfehler beim Laden des Cloud-Sync-Status');
         }
     }
@@ -192,7 +196,7 @@
                     showError('Ungültiger Cloud-Pfad: ' + (data.error || 'Unbekannter Fehler'));
                 }
             } catch (error) {
-                console.error('Error validating path:', error);
+                log.error('Error validating path:', error);
                 showError('Fehler bei der Pfad-Validierung');
                 enableBtn.disabled = true;
             }
@@ -233,7 +237,7 @@
                 enableBtn.disabled = false;
             }
         } catch (error) {
-            console.error('Error enabling cloud sync:', error);
+            log.error('Error enabling cloud sync:', error);
             showError('Verbindungsfehler beim Aktivieren');
             enableBtn.disabled = false;
         } finally {
@@ -272,7 +276,7 @@
                 disableBtn.disabled = false;
             }
         } catch (error) {
-            console.error('Error disabling cloud sync:', error);
+            log.error('Error disabling cloud sync:', error);
             showError('Verbindungsfehler beim Deaktivieren');
             disableBtn.disabled = false;
         } finally {
@@ -306,7 +310,7 @@
                 showError('Fehler bei der Synchronisation: ' + (data.error || 'Unbekannter Fehler'));
             }
         } catch (error) {
-            console.error('Error during manual sync:', error);
+            log.error('Error during manual sync:', error);
             showError('Verbindungsfehler bei der Synchronisation');
         } finally {
             manualSyncBtn.disabled = false;
