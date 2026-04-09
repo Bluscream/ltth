@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### 🔌 **EulerstreamAdapter – Token-Drain & ~60s-Disconnect-Loop**
+- EulerstreamAdapter: 4404 (Not Live) retry no longer runs unbounded – now consumes autoReconnectCount and stops at maxAutoReconnects
+- EulerstreamAdapter: 4429 (Too Many Connections) retry no longer runs unbounded – now consumes autoReconnectCount and stops at maxAutoReconnects
+- EulerstreamAdapter: Heartbeat timeout no longer causes ~60s reconnect loop – ws.removeAllListeners() is called before terminate() to prevent the close handler from triggering an uncontrolled reconnect chain
+
 #### 🎰 **Plinko – Board-aware gift trigger flow** (PR #222)
 - Fixed root cause: gifts configured on non-default Plinko boards were never recognized because `handlePlinkoGiftTrigger()` always loaded the first/default board config via `getConfig()` without a board ID, ignoring the board already identified by `findBoardByGiftTrigger()`.
 - `handleGiftTrigger()` now passes `matchingPlinkoBoard.id` into `handlePlinkoGiftTrigger()` so the correct board's config is used directly.
