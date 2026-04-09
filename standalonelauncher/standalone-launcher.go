@@ -13,10 +13,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pkg/browser"
@@ -76,6 +79,8 @@ type StandaloneLauncher struct {
 	updateChoiceChan  chan bool
 	pendingRelease    *GitHubRelease
 	settings          *Settings
+	nodeCmd           *exec.Cmd  // Reference to running Node.js child process
+	nodeMu            sync.Mutex // Protects nodeCmd access
 }
 
 // VersionInfo stores version information
@@ -1634,6 +1639,42 @@ func (sl *StandaloneLauncher) installDependencies(appDir string) error {
 	return nil
 }
 
+// killNodeProcess terminates the Node.js child process cleanly.
+// On Windows: taskkill /T to also kill child processes of Node.
+// On Unix: SIGTERM to the process, then SIGKILL fallback after 3s.
+func (sl *StandaloneLauncher) killNodeProcess() {
+	sl.nodeMu.Lock()
+	cmd := sl.nodeCmd
+	sl.nodeMu.Unlock()
+
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+
+	pid := cmd.Process.Pid
+	sl.logger.Printf("[INFO] Terminating Node.js process (PID: %d)...\n", pid)
+
+	if runtime.GOOS == "windows" {
+		killCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F", "/T")
+		killCmd.Run() //nolint:errcheck
+	} else {
+		cmd.Process.Signal(syscall.SIGTERM) //nolint:errcheck
+		// 3s fallback: if SIGTERM is not enough, send SIGKILL
+		time.AfterFunc(3*time.Second, func() {
+			// Check if process is still running
+			if err := cmd.Process.Signal(syscall.Signal(0)); err == nil {
+				cmd.Process.Signal(syscall.SIGKILL) //nolint:errcheck
+			}
+		})
+	}
+
+	sl.nodeMu.Lock()
+	sl.nodeCmd = nil
+	sl.nodeMu.Unlock()
+
+	sl.logger.Printf("[INFO] Node.js process (PID: %d) terminated.\n", pid)
+}
+
 // Start the application
 func (sl *StandaloneLauncher) startApplication(nodePath, appDir string) error {
 	sl.updateProgress(95, "Starte Anwendung...")
@@ -1651,6 +1692,11 @@ func (sl *StandaloneLauncher) startApplication(nodePath, appDir string) error {
 	if err != nil {
 		return fmt.Errorf("Anwendungsstart fehlgeschlagen: %v", err)
 	}
+	
+	// Store reference for signal handler cleanup
+	sl.nodeMu.Lock()
+	sl.nodeCmd = cmd
+	sl.nodeMu.Unlock()
 	
 	sl.updateProgress(100, "Anwendung gestartet!")
 	
@@ -2082,6 +2128,16 @@ func (sl *StandaloneLauncher) run() error {
 
 func main() {
 	sl := NewStandaloneLauncher()
+
+	// Signal handler: kill Node.js child process on launcher termination
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		sl.logger.Printf("[INFO] Signal received (%v) – shutting down Node.js...\n", sig)
+		sl.killNodeProcess()
+		os.Exit(0)
+	}()
 	
 	if err := sl.run(); err != nil {
 		sl.logger.Printf("❌ FEHLER: %v\n", err)
