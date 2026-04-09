@@ -3955,20 +3955,39 @@ const pluginCacheControl = (req, res, next) => {
     });
 
     // CRITICAL: Error handler for the HTTP server (e.g. race condition after port resolution)
-    server.on('error', (err) => {
-        if (err.code === 'EADDRINUSE') {
-            logger.error(`❌ Port ${PORT} is unexpectedly in use (race condition after port resolution). Exiting.`);
-            logger.error('   This should not happen after port resolution. Check for concurrent starts.');
+    let _eaddrinuseRetried = false;
+    server.on('error', async (err) => {
+        if (err.code === 'EADDRINUSE' && !_eaddrinuseRetried) {
+            _eaddrinuseRetried = true;
+            logger.warn(`⚠️  Port ${PORT} is unexpectedly in use (race condition after port resolution). Retrying...`);
+            try {
+                const retryResult = await portManager.resolvePort();
+                PORT = retryResult.port;
+                ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
+                logger.info(`♻️  Retry resolved to port ${PORT} (action: ${retryResult.action})`);
+                server.listen(PORT, BIND_ADDRESS);
+            } catch (retryErr) {
+                logger.error(`❌ Retry failed: ${retryErr.message}. Exiting.`);
+                process.exit(1);
+            }
+        } else if (err.code === 'EADDRINUSE') {
+            logger.error(`❌ Port ${PORT} still in use after retry. Exiting.`);
+            process.exit(1);
         } else {
             logger.error(`❌ Server error: ${err.message}`);
+            process.exit(1);
         }
-        process.exit(1);
     });
 })(); // Schließe async IIFE
 
-// Graceful Shutdown
-process.on('SIGINT', async () => {
-    logger.info('\n\n🛑 Shutting down gracefully...');
+// Graceful Shutdown (shared handler for SIGINT and SIGTERM)
+let _isShuttingDown = false;
+async function gracefulShutdown(signal) {
+    // Prevent multiple invocations (e.g. SIGINT + SIGTERM arriving close together)
+    if (_isShuttingDown) return;
+    _isShuttingDown = true;
+
+    logger.info(`\n\n🛑 Shutting down gracefully (${signal})...`);
 
     // Force-Exit nach 5 Sekunden falls server.close() hängt
     const forceExitTimer = setTimeout(() => {
@@ -4013,7 +4032,10 @@ process.on('SIGINT', async () => {
         logger.info('✅ Server closed');
         process.exit(0);
     });
-});
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 // Error Handling
 process.on('uncaughtException', (error) => {
