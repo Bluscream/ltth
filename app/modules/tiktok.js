@@ -226,6 +226,22 @@ class TikTokConnector extends EventEmitter {
     return { activeKey: null, activeSource: null, configured: false };
   }
 
+  /**
+   * Returns information about the currently active adapter and data source.
+   * @returns {{ dataSource: string, isConnected: boolean, currentUsername: string|null, adapterInfo: object }}
+   */
+  getActiveAdapterInfo() {
+    const adapterInfo = (this._adapter && typeof this._adapter.getAdapterInfo === 'function')
+      ? this._adapter.getAdapterInfo()
+      : {};
+    return {
+      dataSource: this._currentSource,
+      isConnected: this.isActive(),
+      currentUsername: this.currentUsername,
+      adapterInfo
+    };
+  }
+
   async runDiagnostics(username) {
     if (this._adapter && typeof this._adapter.runDiagnostics === 'function') {
       return this._adapter.runDiagnostics(username);
