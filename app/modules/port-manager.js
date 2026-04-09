@@ -280,36 +280,44 @@ class PortManager {
 
     logger.warn(`⚠️  Port ${preferred} is in use, investigating...`);
 
-    const { isLTTH } = await this.checkIfLTTHInstance(preferred);
-    const pid = this.findPIDOnPort(preferred);
+    // PID lookup mit bis zu 3 Retries (Race-Condition-Schutz)
+    let pid = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      pid = this.findPIDOnPort(preferred);
+      if (pid) break;
+      if (attempt < 2) await new Promise(r => setTimeout(r, 300));
+    }
 
-    if (isLTTH && pid) {
-      logger.info(`🔄 Old LTTH instance detected on port ${preferred} (PID: ${pid})`);
+    const { isLTTH } = await this.checkIfLTTHInstance(preferred);
+
+    // Wenn PID bekannt: immer versuchen zu killen.
+    // Beim Neustart nach Absturz ist es garantiert eine alte LTTH-Instanz.
+    if (pid && pid !== process.pid) {
+      logger.info(`🔄 Stale process on port ${preferred} (PID: ${pid}) – killing...`);
       const killed = await this.killProcess(pid);
 
       if (killed) {
-        const nowFree = await this.isPortFree(preferred);
+        const nowFree = await this._waitForPortFree(preferred, this.killTimeout);
         if (nowFree) {
-          logger.info(`✅ Port ${preferred} freed after killing old instance`);
+          logger.info(`✅ Port ${preferred} freed after killing stale process`);
           return { port: preferred, action: 'killed_old_instance' };
-        } else {
-          logger.warn(`⚠️  Port ${preferred} still in use after kill attempt`);
         }
+        logger.warn(`⚠️  Port ${preferred} still blocked after kill – using fallback`);
       } else {
-        logger.warn(`⚠️  Could not kill old LTTH instance (PID: ${pid})`);
+        logger.warn(`⚠️  Kill of PID ${pid} failed – using fallback`);
       }
     } else if (isLTTH && !pid) {
-      logger.warn(`⚠️  LTTH instance detected on port ${preferred} but PID could not be determined`);
-      logger.warn('   → Searching for alternative port');
+      // LTTH erkannt aber PID nicht ermittelbar (andere User, Berechtigungen)
+      logger.warn(`⚠️  LTTH instance on port ${preferred} detected but PID unknown – using fallback port`);
     } else {
-      logger.info(`ℹ️  Port ${preferred} is used by another application (PID: ${pid || 'unknown'})`);
-      logger.info('   → Searching for alternative port');
+      logger.warn(`⚠️  Port ${preferred} blocked by unknown process, PID not determinable – using fallback`);
     }
 
+    // Fallback-Ports durchsuchen
     for (const fallbackPort of this.fallbackPorts) {
       const fallbackFree = await this.isPortFree(fallbackPort);
       if (fallbackFree) {
-        logger.info(`✅ Using alternative port ${fallbackPort}`);
+        logger.info(`✅ Using fallback port ${fallbackPort}`);
         return { port: fallbackPort, action: 'fallback' };
       }
       logger.debug(`Port ${fallbackPort} also in use, trying next...`);
