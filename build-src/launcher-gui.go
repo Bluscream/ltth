@@ -842,10 +842,9 @@ func (l *Launcher) autoFixPort() {
 	}
 
 	l.logger.Println("[WARNING] Port 3000 is already in use")
-	l.updateProgressLocalized(87, "status.port_in_use", "⚠️ Port 3000 belegt - Server wird alternativen Port nutzen")
-	time.Sleep(2 * time.Second)
+	l.updateProgressLocalized(87, "status.port_in_use", "⚠️ Port 3000 belegt - prüfe ob Instanz läuft...")
 
-	// Check if server is already running on 3000
+	// Check if an LTTH server is actually responding on port 3000
 	if l.checkServerHealthOnPort(3000) {
 		l.logger.Println("[INFO] Server is already running on port 3000")
 		l.updateProgressLocalized(88, "status.server_already_running", "ℹ️ Server läuft bereits auf Port 3000")
@@ -853,8 +852,26 @@ func (l *Launcher) autoFixPort() {
 		return
 	}
 
-	// Find first available alternative port (3001-3009) and store it so
-	// startTool() can pass it via the PORT environment variable.
+	// Port is occupied but no server responds.
+	// This usually means the OS is holding the port in TCP TIME_WAIT after a recent shutdown.
+	// Wait up to 15 seconds for the port to be released before falling back to an alternative.
+	l.logger.Println("[INFO] Port in use but no server responding - waiting for port release (TIME_WAIT)...")
+	l.updateProgressLocalized(87, "status.port_wait", "⏳ Warte auf Port-Freigabe nach Shutdown...")
+
+	for i := 0; i < 15; i++ {
+		time.Sleep(1 * time.Second)
+		if l.checkPortAvailable(3000) {
+			l.logger.Println("[SUCCESS] Port 3000 is now available after waiting")
+			l.updateProgressLocalized(88, "status.port_freed", "✅ Port 3000 ist wieder frei")
+			return
+		}
+		l.logger.Printf("[INFO] Waiting for port 3000... (%d/15s)\n", i+1)
+	}
+
+	// Still occupied after 15s → fall back to alternative port
+	l.logger.Println("[WARNING] Port 3000 still in use after 15s, trying alternative ports...")
+	time.Sleep(2 * time.Second)
+
 	for _, altPort := range []int{3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009} {
 		if l.checkPortAvailable(altPort) {
 			l.alternativePort = altPort

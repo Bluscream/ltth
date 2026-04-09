@@ -827,6 +827,18 @@
             confirmBtn.textContent = 'Wird beendet...';
         }
 
+        // Disable Socket.io auto-reconnect BEFORE showing goodbye screen.
+        // Without this, the socket reconnect loop fires after server shutdown and
+        // overwrites the UI state, causing the goodbye screen to be hidden or blocked.
+        if (window.socket) {
+            try {
+                window.socket.io.opts.reconnection = false;
+                window.socket.disconnect();
+            } catch (e) {
+                // ignore – socket may already be gone
+            }
+        }
+
         showGoodbyeScreen();
 
         try {
@@ -835,7 +847,7 @@
                 headers: { 'Content-Type': 'application/json' }
             });
         } catch (err) {
-            // Fetch wirft, wenn Server bereits weg ist – das ist OK und erwartet
+            // Fetch throws when server is already gone – expected
             console.info('[Shutdown] Server connection closed (expected):', err.message);
         }
     }

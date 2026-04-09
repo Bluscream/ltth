@@ -3528,10 +3528,11 @@ const pluginCacheControl = (req, res, next) => {
     app.post('/api/shutdown', (req, res) => {
         logger.info('🛑 Shutdown requested via API');
         res.json({ success: true, message: 'Shutting down...' });
-        // Kurze Verzögerung damit die Response den Client erreicht
+        // Increased delay to 500ms to ensure the HTTP response reaches the client
+        // before the process starts shutting down
         setTimeout(() => {
             process.emit('SIGINT');
-        }, 300);
+        }, 500);
     });
 
     // Jetzt Server starten
