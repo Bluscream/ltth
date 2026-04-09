@@ -1,6 +1,12 @@
 const socket = io();
 let currentConfig = {};
 
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+
 // Status-Updates empfangen
 socket.on('osc:status', (status) => {
     updateStatus(status);
@@ -1294,6 +1300,21 @@ if (typeof window !== 'undefined') {
         if (btnRefreshActions) {
             btnRefreshActions.addEventListener('click', refreshAvailableActions);
         }
+        
+        // Single delegated listener for available actions (std-action, emote-slot, custom-param, physbone)
+        const actionsRoot = document.getElementById('available-actions-container');
+        if (actionsRoot) {
+            actionsRoot.addEventListener('click', function(event) {
+                const btn = event.target.closest('[data-action]');
+                if (!btn || btn.disabled) return;
+                switch (btn.dataset.action) {
+                    case 'std-action':   sendVRChatParam(btn.dataset.param); break;
+                    case 'emote-slot':   sendVRChatParam('emote', parseInt(btn.dataset.slot)); break;
+                    case 'custom-param': sendCustomParameter(btn.dataset.path, 1); break;
+                    case 'physbone':     triggerPhysBone(btn.dataset.bone); break;
+                }
+            });
+        }
     });
 }
 
@@ -1450,7 +1471,8 @@ function displayStandardActions(standardActions) {
         return `
             <button class="param-btn ${statusClass}" 
                     ${available ? '' : 'disabled'}
-                    onclick="${available ? `sendVRChatParam('${name.toLowerCase()}')` : 'return false'}">
+                    data-action="std-action"
+                    data-param="${name.toLowerCase()}">
                 ${emoji} ${name}${statusText}
             </button>
         `;
@@ -1469,7 +1491,8 @@ function displayEmoteSlots(emoteSlots) {
         return `
             <button class="param-btn ${statusClass}" 
                     ${available ? '' : 'disabled'}
-                    onclick="${available ? `sendVRChatParam('emote', ${slotNum})` : 'return false'}">
+                    data-action="emote-slot"
+                    data-slot="${slotNum}">
                 😀 Emote ${slotNum}${statusText}
             </button>
         `;
@@ -1496,8 +1519,9 @@ function displayCustomParameters(customParams) {
         
         return `
             <button class="param-btn available" 
-                    onclick="sendCustomParameter('${paramPath}', 1)"
-                    title="${paramPath} (${paramType})">
+                    data-action="custom-param"
+                    data-path="${escapeHtml(paramPath)}"
+                    title="${escapeHtml(paramPath)} (${escapeHtml(paramType)})">
                 🎯 ${paramName}
                 <small style="display: block; font-size: 0.8em; opacity: 0.7;">${paramType}</small>
             </button>
@@ -1523,8 +1547,9 @@ function displayPhysBones(physbones) {
         
         return `
             <button class="param-btn available" 
-                    onclick="triggerPhysBone('${boneName}')"
-                    title="${bone.basePath}">
+                    data-action="physbone"
+                    data-bone="${escapeHtml(boneName)}"
+                    title="${escapeHtml(bone.basePath || '')}">
                 🦴 ${boneName}
             </button>
         `;
