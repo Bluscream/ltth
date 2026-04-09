@@ -730,6 +730,42 @@
                 }
             });
         }
+
+        // ========== SHUTDOWN BUTTON ==========
+        const shutdownBtn = document.getElementById('topbar-shutdown-btn');
+        if (shutdownBtn) {
+            shutdownBtn.addEventListener('click', async () => {
+                // Bestätigungsdialog
+                const confirmed = window.confirm(
+                    '⚠️ Server wirklich herunterfahren?\n\nDie App wird vollständig beendet. Zum erneuten Starten den Launcher neu starten.'
+                );
+                if (!confirmed) return;
+
+                shutdownBtn.classList.add('shutdown-pending');
+                shutdownBtn.disabled = true;
+                shutdownBtn.title = 'Wird heruntergefahren...';
+
+                try {
+                    const response = await fetch('/api/shutdown', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+
+                    if (response.ok) {
+                        // Zeige Feedback im UI
+                        document.body.style.opacity = '0.5';
+                        document.body.style.pointerEvents = 'none';
+                        const overlay = document.createElement('div');
+                        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:99999;color:white;font-size:1.5rem;font-weight:600;';
+                        overlay.textContent = '🛑 Server wird heruntergefahren...';
+                        document.body.appendChild(overlay);
+                    }
+                } catch (err) {
+                    // Fetch wirft, wenn Server bereits weg ist – das ist OK
+                    console.info('[Shutdown] Server connection closed (expected):', err.message);
+                }
+            });
+        }
     }
 
     // ========== MOBILE MENU TOGGLE ==========
