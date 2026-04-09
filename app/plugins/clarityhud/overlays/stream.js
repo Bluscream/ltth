@@ -526,8 +526,10 @@ function applyTickerSettings(settings) {
 
   if (settings.tickerEnabled) {
     bar.classList.add('active');
+    document.body.classList.add('ticker-active');
   } else {
     bar.classList.remove('active');
+    document.body.classList.remove('ticker-active');
   }
 
   const labelEl = document.getElementById('ticker-label');
