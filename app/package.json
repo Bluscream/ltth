@@ -33,7 +33,7 @@
     "@msgpack/msgpack": "^3.0.0",
     "archiver": "^7.0.1",
     "auto-launch": "^5.0.6",
-    "axios": "^1.13.5",
+    "axios": "^1.15.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.9.0",
     "bootstrap": "^5.1.3",
