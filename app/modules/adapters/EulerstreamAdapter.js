@@ -491,34 +491,53 @@ class EulerstreamAdapter extends BaseAdapter {
                 return;
             }
 
-            // 4404 – Not live → soft retry with long delay, does NOT consume autoReconnectCount
+            // 4404 – Not live → soft retry with long delay, consumes autoReconnectCount
             if (code === 4404) {
                 this.logger.warn('⚠️  User Not Live: The requested TikTok user is not currently streaming.');
                 this.broadcastStatus('not_live');
                 emitDisconnect('User not live');
-                if (this.currentUsername) {
+
+                if (this.currentUsername && this.autoReconnectCount < this.maxAutoReconnects) {
+                    this.autoReconnectCount++;
                     const notLiveDelay = 30000;
-                    this.logger.info(`⏳ Retrying in ${notLiveDelay / 1000}s (stream may be starting soon)...`);
+                    const savedUsername = this.currentUsername;
+                    this.logger.info(`⏳ Not-live retry ${this.autoReconnectCount}/${this.maxAutoReconnects} in ${notLiveDelay / 1000}s (stream may be starting soon)...`);
                     setTimeout(() => {
-                        this.connect(this.currentUsername).catch(err => {
-                            this.logger.error('Not-live retry failed:', err.message);
+                        this.connect(savedUsername).catch(err => {
+                            this.logger.error(`Not-live retry ${this.autoReconnectCount}/${this.maxAutoReconnects} failed:`, err.message);
                         });
                     }, notLiveDelay);
+                } else {
+                    this.logger.warn(`⚠️ Max retry attempts (${this.maxAutoReconnects}) reached or no username set. Manual reconnect required.`);
+                    this.broadcastStatus('max_reconnects_reached', {
+                        maxReconnects: this.maxAutoReconnects,
+                        message: 'User nicht live – bitte manuell neu verbinden'
+                    });
                 }
                 return;
             }
 
-            // 4429 – Too many connections → wait 30s then single retry
+            // 4429 – Too many connections → wait 30s then retry (consumes autoReconnectCount)
             if (code === 4429) {
                 this.logger.warn('⚠️  Too many connections. Waiting 30s before retry...');
                 this.broadcastStatus('disconnected');
                 emitDisconnect('Too many connections');
-                if (this.currentUsername) {
+
+                if (this.currentUsername && this.autoReconnectCount < this.maxAutoReconnects) {
+                    this.autoReconnectCount++;
+                    const savedUsername = this.currentUsername;
+                    this.logger.info(`⏳ 4429 retry ${this.autoReconnectCount}/${this.maxAutoReconnects} in 30s...`);
                     setTimeout(() => {
-                        this.connect(this.currentUsername).catch(err => {
-                            this.logger.error('4429 retry failed:', err.message);
+                        this.connect(savedUsername).catch(err => {
+                            this.logger.error(`4429 retry ${this.autoReconnectCount}/${this.maxAutoReconnects} failed:`, err.message);
                         });
                     }, 30000);
+                } else {
+                    this.logger.warn(`⚠️ Max retry attempts (${this.maxAutoReconnects}) reached or no username set. Manual reconnect required.`);
+                    this.broadcastStatus('max_reconnects_reached', {
+                        maxReconnects: this.maxAutoReconnects,
+                        message: 'Zu viele Verbindungen – bitte manuell neu verbinden'
+                    });
                 }
                 return;
             }
@@ -1781,7 +1800,46 @@ class EulerstreamAdapter extends BaseAdapter {
             if (this.isAlive === false) {
                 this.logger.warn('⚠️ WebSocket heartbeat timeout - connection unresponsive. Forcing clean reconnect...');
                 this._stopHeartbeat();
-                this.ws.terminate();
+
+                // Save username before nulling out state
+                const savedUsername = this.currentUsername;
+
+                // Remove ALL listeners BEFORE terminate() so the 'close' event does NOT
+                // trigger the auto-reconnect handler in _setupWebSocketHandlers().
+                // Without this, terminate() → close(1006) → reconnect-loop (~60s rhythm).
+                if (this.ws) {
+                    this.ws.removeAllListeners();
+                    this.ws.terminate();
+                    this.ws = null;
+                }
+                this.isConnected = false;
+
+                // Emit disconnected event for IFTTT engine and plugins
+                this.emit('disconnected', {
+                    username: savedUsername,
+                    timestamp: new Date().toISOString(),
+                    reason: 'Heartbeat timeout',
+                    code: 1006
+                });
+                this.broadcastStatus('disconnected');
+
+                // Controlled reconnect using the same counter as other reconnects
+                if (savedUsername && this.autoReconnectCount < this.maxAutoReconnects) {
+                    this.autoReconnectCount++;
+                    const delay = Math.min(5000 * this.autoReconnectCount, 30000);
+                    this.logger.info(`🔄 Heartbeat reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} in ${delay / 1000}s...`);
+                    setTimeout(() => {
+                        this.connect(savedUsername).catch(err => {
+                            this.logger.error(`Heartbeat reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} failed:`, err.message);
+                        });
+                    }, delay);
+                } else {
+                    this.logger.warn(`⚠️ Max auto-reconnect attempts (${this.maxAutoReconnects}) reached after heartbeat timeout. Manual reconnect required.`);
+                    this.broadcastStatus('max_reconnects_reached', {
+                        maxReconnects: this.maxAutoReconnects,
+                        message: 'Heartbeat-Timeout – bitte manuell neu verbinden'
+                    });
+                }
                 return;
             }
 
