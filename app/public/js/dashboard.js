@@ -516,6 +516,12 @@ function setupEventDelegation() {
             case 'open-preset-wizard':
                 openPresetInWizard(target.dataset.presetId);
                 break;
+            case 'alias-set-primary':
+                setAliasAsPrimary(target.dataset.username);
+                break;
+            case 'alias-remove':
+                removeUsernameAlias(target.dataset.username);
+                break;
         }
     });
 
@@ -4746,7 +4752,7 @@ function renderUsernameAliases(aliases) {
                 <button
                     class="alias-star-btn text-lg flex-shrink-0 transition-colors ${isPrimary ? 'text-yellow-400' : 'text-gray-500 hover:text-yellow-300'}"
                     title="${isPrimary ? 'Haupt-Username (aktiv)' : 'Als Haupt-Username setzen'}"
-                    onclick="setAliasAsPrimary('${escapeHtml(alias.username)}')"
+                    data-action="alias-set-primary" data-username="${escapeHtml(alias.username)}"
                     ${isPrimary ? 'disabled' : ''}
                 >⭐</button>
                 <div class="flex-1 min-w-0">
@@ -4763,7 +4769,7 @@ function renderUsernameAliases(aliases) {
                 <button
                     class="alias-delete-btn text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 p-1 rounded hover:bg-red-500/10"
                     title="Alias entfernen"
-                    onclick="removeUsernameAlias('${escapeHtml(alias.username)}')"
+                    data-action="alias-remove" data-username="${escapeHtml(alias.username)}"
                 >
                     <i data-lucide="trash-2" style="width:16px;height:16px;"></i>
                 </button>
