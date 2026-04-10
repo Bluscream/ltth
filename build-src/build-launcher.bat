@@ -34,7 +34,7 @@ echo.
 
 REM Build for Windows
 echo Building launcher.exe (Windows GUI)...
-go build -o "%PROJECT_ROOT%\launcher.exe" -ldflags "-H windowsgui -s -w" launcher-gui.go
+go build -o "%PROJECT_ROOT%\launcher.exe" -ldflags "-H windowsgui -s -w" launcher-gui.go sysproc_windows.go
 if %errorlevel% neq 0 (
     echo Error building launcher.exe
     pause
