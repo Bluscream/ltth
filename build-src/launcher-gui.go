@@ -41,7 +41,7 @@ type Launcher struct {
 	statusFallback  string
 	statusArgs      []interface{}
 	clients         map[chan string]bool
-	clientsMu       sync.Mutex // Schützt concurrent map access auf clients
+	clientsMu       sync.Mutex // Protects concurrent map access to clients
 	logFile         *os.File
 	logger          *log.Logger
 	envFileFixed    bool // Track if we auto-created .env file
@@ -1523,12 +1523,12 @@ func main() {
 	// Bind HTTP server – try fixed port first, fall back to any available port
 	listener, err := net.Listen("tcp", "127.0.0.1:58734")
 	if err != nil {
-		launcher.logAndSync("[WARNING] Port 58734 in use, using a random available port")
 		listener, err = net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			launcher.logAndSync("[ERROR] Cannot bind launcher UI server: %v", err)
 			os.Exit(1)
 		}
+		launcher.logAndSync("[WARNING] Port 58734 in use, falling back to port %s", listener.Addr().String())
 	}
 	launcherAddr := listener.Addr().String()
 	launcherURL := fmt.Sprintf("http://%s", launcherAddr)
