@@ -1,0 +1,135 @@
+{
+  "app_name": "PupCid's Little TikTool Helper",
+  "tabs": {
+    "changelog": "Registro de cambios",
+    "api_keys": "Claves API",
+    "community": "Comunidad",
+    "logging": "Logs"
+  },
+  "profile": {
+    "title": "Perfil de usuario",
+    "select": "Seleccionar perfil",
+    "no_profiles": "No hay perfiles de usuario disponibles",
+    "selected": "Seleccionado"
+  },
+  "status": {
+    "initializing": "Iniciando...",
+    "checking_nodejs": "Comprobando instalación de Node.js...",
+    "nodejs_missing": "ERROR: ¡Node.js no está instalado!",
+    "nodejs_found": "Node.js encontrado...",
+    "nodejs_version": "Versión de Node.js: %s",
+    "checking_app_dir": "Comprobando directorio de la app...",
+    "app_dir_missing": "ERROR: directorio app no encontrado",
+    "app_dir_found": "Directorio de la app encontrado...",
+    "checking_dependencies": "Comprobando dependencias...",
+    "installing_dependencies": "Instalando dependencias...",
+    "installation_hint": "NOTA: npm install puede tardar varios minutos, por favor mantén la ventana abierta y espera",
+    "installation_failed": "ERROR: %v",
+    "installation_done": "¡Instalación completada!",
+    "dependencies_installed": "Dependencias ya instaladas...",
+    "npm_install_start": "Iniciando npm install...",
+    "npm_install_delay_notice": "NOTA: npm install puede tardar varios minutos, especialmente con conexión lenta. Espera por favor...",
+    "npm_install_line": "npm install: %s",
+    "npm_install_running": "npm install en ejecución... (%ds) - Las descargas pueden tardar varios minutos",
+    "checking_config": "Comprobando configuración...",
+    "config_ok": "¡Configuración verificada!",
+    "starting_tool": "Iniciando herramienta...",
+    "start_error": "ERROR al iniciar: %v",
+    "check_logs": "Consulta el archivo de logs en app/logs/ para más detalles.",
+    "waiting_for_server_start": "Esperando inicio del servidor...",
+    "env_restart": "🔄 .env creado - reiniciando servidor...",
+    "server_restart_wait": "🔄 Servidor reiniciado - esperando respuesta...",
+    "server_failed_start": "⚠️ ¡El servidor no pudo iniciar!",
+    "auto_fixes_done": "📋 Se intentaron todos los auto-fixes",
+    "check_launcher_logs": "💡 Revisa app/logs/launcher_*.log para más detalles",
+    "manual_install_hint": "💡 O ejecuta manualmente: cd app && npm install",
+    "port_check_hint": "💡 O comprueba si el puerto 3000 está libre",
+    "closing": "❌ El lanzador se cerrará en 15 segundos...",
+    "waiting_attempt": "Esperando al servidor... (intento %d)",
+    "server_timeout": "⏱️ Tiempo de espera de inicio del servidor (60s)",
+    "server_no_response": "📋 El servidor no responde - revisa app/logs/",
+    "server_maybe_running": "💡 El servidor podría seguir ejecutándose en segundo plano",
+    "wait_manual_open": "💡 Espera 2-3 minutos y abre localhost:3000",
+    "server_started": "¡Servidor iniciado correctamente!",
+    "redirecting_dashboard": "Redirigiendo al panel...",
+    "progress": "Progreso",
+    "env_creating": "🔧 Auto-Fix: Creando archivo .env...",
+    "env_created": "✅ Archivo .env creado!",
+    "port_in_use": "⚠️ Puerto 3000 en uso: el servidor usará un puerto alternativo",
+    "server_already_running": "ℹ️ El servidor ya se está ejecutando en el puerto 3000"
+  },
+  "api_keys": {
+    "title": "Información de claves API",
+    "intro": "Para usar todas las funciones de LTTH, necesitas claves API de varios proveedores:",
+    "elevenlabs": {
+      "name": "ElevenLabs (Text-to-Speech)",
+      "url": "https://elevenlabs.io",
+      "type": "Freemium",
+      "description": "10,000 caracteres/mes gratis, luego de pago",
+      "mandatory": true
+    },
+    "openai": {
+      "name": "OpenAI (GPT para Historia Interactiva)",
+      "url": "https://platform.openai.com",
+      "type": "De pago",
+      "description": "Modelo de precios de pago por uso, clave API requerida"
+    },
+    "siliconflow": {
+      "name": "SiliconFlow (IA Alternativa)",
+      "url": "https://siliconflow.com",
+      "type": "Freemium",
+      "description": "Nivel gratuito disponible"
+    },
+    "fishAudio": {
+      "name": "Fish Audio (TTS Alternativo)",
+      "url": "https://fish.audio",
+      "type": "Freemium",
+      "description": "Servicio TTS freemium"
+    },
+    "mandatory_warning": "⚠️ IMPORTANTE: ¡La clave API de ElevenLabs es obligatoria!",
+    "fallback_warning": "La clave de respaldo integrada no está garantizada para funcionar con un uso intensivo por todos los usuarios.",
+    "where_to_get": "¿Dónde obtengo las claves?"
+  },
+  "community": {
+    "title": "Comunidad y contribución",
+    "intro": "¡LTTH es un proyecto de código abierto y prospera con la comunidad!",
+    "help_appreciated": "¡Tu ayuda con las pruebas y el desarrollo es muy bienvenida! 🎉",
+    "links": {
+      "repo": "Repositorio de GitHub",
+      "discussions": "Discusiones y preguntas",
+      "issues": "Informes de errores y solicitudes de funciones",
+      "discord": "Servidor de Discord"
+    },
+    "contribute": "¿Cómo puedo ayudar?",
+    "contribute_text": "¡Prueba nuevas funciones, informa errores, sugiere mejoras o desarrolla tus propios plugins!"
+  },
+  "footer": {
+    "powered_by": "Desarrollado por LTTH Launcher",
+    "version": "Versión"
+  },
+  "changelog": {
+    "title": "Últimos cambios",
+    "loading": "Cargando registro de cambios...",
+    "error": "No se pudo cargar el registro de cambios."
+  },
+  "logs": {
+    "title": "Logs del servidor",
+    "intro": "Aquí puedes ver los logs actuales del lanzador y del servidor.",
+    "loading": "Cargando logs...",
+    "empty": "No hay entradas de log disponibles.",
+    "error": "No se pudieron cargar los logs."
+  },
+  "theme": {
+    "label": "Modo de tema",
+    "daymode": "Día",
+    "nightmode": "Noche",
+    "highcontrast": "Alto contraste"
+  },
+  "options": {
+    "keep_open": "Mantener lanzador abierto",
+    "keep_open_hint": "Muestra el registro completo del servidor en el lanzador",
+    "open_app": "Abrir aplicación",
+    "app_not_ready": "El servidor se está iniciando...",
+    "app_ready": "Haga clic aquí si la aplicación no se abre automáticamente"
+  }
+}

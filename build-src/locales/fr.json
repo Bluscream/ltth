@@ -1,0 +1,135 @@
+{
+  "app_name": "PupCid's Little TikTool Helper",
+  "tabs": {
+    "changelog": "Journal des modifications",
+    "api_keys": "Clés API",
+    "community": "Communauté",
+    "logging": "Logs"
+  },
+  "profile": {
+    "title": "Profil utilisateur",
+    "select": "Sélectionner le profil",
+    "no_profiles": "Aucun profil utilisateur disponible",
+    "selected": "Sélectionné"
+  },
+  "status": {
+    "initializing": "Initialisation...",
+    "checking_nodejs": "Vérification de l'installation de Node.js...",
+    "nodejs_missing": "ERREUR : Node.js n'est pas installé !",
+    "nodejs_found": "Node.js trouvé...",
+    "nodejs_version": "Version de Node.js : %s",
+    "checking_app_dir": "Vérification du dossier de l'application...",
+    "app_dir_missing": "ERREUR : dossier app introuvable",
+    "app_dir_found": "Dossier de l'application trouvé...",
+    "checking_dependencies": "Vérification des dépendances...",
+    "installing_dependencies": "Installation des dépendances...",
+    "installation_hint": "NOTE : npm install peut prendre plusieurs minutes, merci de laisser la fenêtre ouverte et d'attendre",
+    "installation_failed": "ERREUR : %v",
+    "installation_done": "Installation terminée !",
+    "dependencies_installed": "Dépendances déjà installées...",
+    "npm_install_start": "Démarrage de npm install...",
+    "npm_install_delay_notice": "NOTE : npm install peut prendre plusieurs minutes, surtout avec une connexion lente. Merci de patienter...",
+    "npm_install_line": "npm install : %s",
+    "npm_install_running": "npm install en cours... (%ds) - Merci de patienter, les téléchargements peuvent prendre plusieurs minutes",
+    "checking_config": "Vérification de la configuration...",
+    "config_ok": "Configuration vérifiée !",
+    "starting_tool": "Démarrage de l'outil...",
+    "start_error": "ERREUR au démarrage : %v",
+    "check_logs": "Consulte le fichier de log dans app/logs/ pour plus de détails.",
+    "waiting_for_server_start": "En attente du démarrage du serveur...",
+    "env_restart": "🔄 .env créé - redémarrage du serveur...",
+    "server_restart_wait": "🔄 Serveur redémarré - attente de la réponse...",
+    "server_failed_start": "⚠️ Le serveur n'a pas pu démarrer !",
+    "auto_fixes_done": "📋 Tous les auto-fixes ont été tentés",
+    "check_launcher_logs": "💡 Consulte app/logs/launcher_*.log pour plus de détails",
+    "manual_install_hint": "💡 Ou exécute manuellement : cd app && npm install",
+    "port_check_hint": "💡 Ou vérifie que le port 3000 est libre",
+    "closing": "❌ Le launcher se fermera dans 15 secondes...",
+    "waiting_attempt": "En attente du serveur... (tentative %d)",
+    "server_timeout": "⏱️ Délai de démarrage du serveur dépassé (60s)",
+    "server_no_response": "📋 Le serveur ne répond pas - vérifie app/logs/",
+    "server_maybe_running": "💡 Le serveur tourne peut-être encore en arrière-plan",
+    "wait_manual_open": "💡 Attends 2-3 minutes et ouvre localhost:3000",
+    "server_started": "Serveur démarré avec succès !",
+    "redirecting_dashboard": "Redirection vers le tableau de bord...",
+    "progress": "Progression",
+    "env_creating": "🔧 Auto-Fix : création du fichier .env...",
+    "env_created": "✅ Fichier .env créé !",
+    "port_in_use": "⚠️ Le port 3000 est occupé - le serveur utilisera un port alternatif",
+    "server_already_running": "ℹ️ Le serveur fonctionne déjà sur le port 3000"
+  },
+  "api_keys": {
+    "title": "Informations sur les clés API",
+    "intro": "Pour utiliser toutes les fonctionnalités de LTTH, vous avez besoin de clés API de différents fournisseurs:",
+    "elevenlabs": {
+      "name": "ElevenLabs (Text-to-Speech)",
+      "url": "https://elevenlabs.io",
+      "type": "Freemium",
+      "description": "10 000 caractères/mois gratuits, puis payant",
+      "mandatory": true
+    },
+    "openai": {
+      "name": "OpenAI (GPT pour Histoire Interactive)",
+      "url": "https://platform.openai.com",
+      "type": "Payant",
+      "description": "Modèle de tarification à l'usage, clé API requise"
+    },
+    "siliconflow": {
+      "name": "SiliconFlow (IA Alternative)",
+      "url": "https://siliconflow.com",
+      "type": "Freemium",
+      "description": "Niveau gratuit disponible"
+    },
+    "fishAudio": {
+      "name": "Fish Audio (TTS Alternatif)",
+      "url": "https://fish.audio",
+      "type": "Freemium",
+      "description": "Service TTS freemium"
+    },
+    "mandatory_warning": "⚠️ IMPORTANT: La clé API ElevenLabs est obligatoire!",
+    "fallback_warning": "La clé de secours intégrée n'est pas garantie de fonctionner en cas d'utilisation intensive par tous les utilisateurs.",
+    "where_to_get": "Où obtenir les clés?"
+  },
+  "community": {
+    "title": "Communauté et contribution",
+    "intro": "LTTH est un projet open-source qui vit grâce à la communauté!",
+    "help_appreciated": "Votre aide pour les tests et le développement est très appréciée! 🎉",
+    "links": {
+      "repo": "Dépôt GitHub",
+      "discussions": "Discussions et questions",
+      "issues": "Rapports de bogues et demandes de fonctionnalités",
+      "discord": "Serveur Discord"
+    },
+    "contribute": "Comment puis-je aider?",
+    "contribute_text": "Testez de nouvelles fonctionnalités, signalez des bogues, suggérez des améliorations ou développez vos propres plugins!"
+  },
+  "footer": {
+    "powered_by": "Propulsé par LTTH Launcher",
+    "version": "Version"
+  },
+  "changelog": {
+    "title": "Dernières modifications",
+    "loading": "Chargement du journal des modifications...",
+    "error": "Impossible de charger le journal des modifications."
+  },
+  "logs": {
+    "title": "Logs du serveur",
+    "intro": "Consulte ici les logs actuels du launcher et du serveur.",
+    "loading": "Chargement des logs...",
+    "empty": "Aucune entrée de log disponible.",
+    "error": "Impossible de charger les logs."
+  },
+  "theme": {
+    "label": "Mode de thème",
+    "daymode": "Jour",
+    "nightmode": "Nuit",
+    "highcontrast": "Contraste élevé"
+  },
+  "options": {
+    "keep_open": "Garder le lanceur ouvert",
+    "keep_open_hint": "Affiche la journalisation complète du serveur dans le lanceur",
+    "open_app": "Ouvrir l'application",
+    "app_not_ready": "Le serveur démarre...",
+    "app_ready": "Cliquez ici si l'application ne s'ouvre pas automatiquement"
+  }
+}
