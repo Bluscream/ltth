@@ -41,6 +41,7 @@ type Launcher struct {
 	statusFallback  string
 	statusArgs      []interface{}
 	clients         map[chan string]bool
+	clientsMu       sync.Mutex // Protects concurrent map access to clients
 	logFile         *os.File
 	logger          *log.Logger
 	envFileFixed    bool // Track if we auto-created .env file
@@ -400,12 +401,14 @@ func (l *Launcher) updateProgressRaw(value int, status string) {
 	l.status = status
 
 	msg := fmt.Sprintf(`{"progress": %d, "status": "%s"}`, value, status)
+	l.clientsMu.Lock()
 	for client := range l.clients {
 		select {
 		case client <- msg:
 		default:
 		}
 	}
+	l.clientsMu.Unlock()
 }
 
 func (l *Launcher) updateProgress(value int, status string) {
@@ -429,12 +432,14 @@ func (l *Launcher) sendRedirect() {
 		port = 3000
 	}
 	msg := fmt.Sprintf(`{"redirect": "http://localhost:%d/dashboard.html", "serverReady": true}`, port)
+	l.clientsMu.Lock()
 	for client := range l.clients {
 		select {
 		case client <- msg:
 		default:
 		}
 	}
+	l.clientsMu.Unlock()
 }
 
 func (l *Launcher) checkNodeJS() error {
@@ -1487,7 +1492,9 @@ func main() {
 		w.Header().Set("Connection", "keep-alive")
 
 		client := make(chan string, 10)
+		launcher.clientsMu.Lock()
 		launcher.clients[client] = true
+		launcher.clientsMu.Unlock()
 
 		// Send initial state
 		msg := fmt.Sprintf(`{"progress": %d, "status": "%s"}`, launcher.progress, launcher.currentStatus())
@@ -1505,16 +1512,32 @@ func main() {
 					f.Flush()
 				}
 			case <-r.Context().Done():
+				launcher.clientsMu.Lock()
 				delete(launcher.clients, client)
+				launcher.clientsMu.Unlock()
 				return
 			}
 		}
 	})
 
+	// Bind HTTP server – try fixed port first, fall back to any available port
+	listener, err := net.Listen("tcp", "127.0.0.1:58734")
+	if err != nil {
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			launcher.logAndSync("[ERROR] Cannot bind launcher UI server: %v", err)
+			os.Exit(1)
+		}
+		launcher.logAndSync("[WARNING] Port 58734 in use, falling back to port %s", listener.Addr().String())
+	}
+	launcherAddr := listener.Addr().String()
+	launcherURL := fmt.Sprintf("http://%s", launcherAddr)
+	launcher.logAndSync("[INFO] Launcher UI listening on %s", launcherAddr)
+
 	// Start HTTP server
 	go func() {
-		if err := http.ListenAndServe("127.0.0.1:58734", nil); err != nil {
-			log.Fatal(err)
+		if err := http.Serve(listener, nil); err != nil {
+			launcher.logAndSync("[ERROR] Launcher HTTP server stopped: %v", err)
 		}
 	}()
 
@@ -1522,7 +1545,7 @@ func main() {
 	time.Sleep(500 * time.Millisecond)
 
 	// Open browser
-	browser.OpenURL("http://127.0.0.1:58734")
+	browser.OpenURL(launcherURL)
 
 	// Run launcher
 	go launcher.runLauncher()

@@ -38,7 +38,7 @@ echo ""
 
 # Build for Windows
 echo -e "${YELLOW}Building launcher.exe (Windows GUI)...${NC}"
-GOOS=windows GOARCH=amd64 go build -o "$PROJECT_ROOT/launcher.exe" -ldflags "-H windowsgui -s -w" launcher-gui.go
+GOOS=windows GOARCH=amd64 go build -o "$PROJECT_ROOT/launcher.exe" -ldflags "-H windowsgui -s -w" launcher-gui.go sysproc_windows.go
 echo -e "${GREEN}✓ Built launcher.exe${NC}"
 
 echo -e "${YELLOW}Building launcher-console.exe (Windows CLI)...${NC}"
