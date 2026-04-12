@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,33 +29,92 @@ const (
 	// CREATE_NO_WINDOW flag for Windows to hide console window
 	createNoWindow = 0x08000000
 	maxLogBytes    = 100000
+
+	// Node.js settings
+	nodeVersionFallback = "22.14.0"
+
+	// GitHub API settings for auto-update
+	githubOwner    = "Loggableim"
+	githubRepo     = "ltth_desktop2"
+	githubAPIURL   = "https://api.github.com"
+	updateInterval = 24 * time.Hour
+
+	// Version / update state files (relative to exeDir)
+	versionFile     = "runtime/version.txt"
+	updateCheckFile = "runtime/last_update_check.txt"
 )
 
+// NodeRelease represents a single entry from https://nodejs.org/dist/index.json
+type NodeRelease struct {
+	Version string      `json:"version"` // "v22.14.0"
+	LTS     interface{} `json:"lts"`     // false or a string like "Jod"
+}
+
+// GitHubRelease represents a GitHub release API response
+type GitHubRelease struct {
+	TagName     string    `json:"tag_name"`
+	Name        string    `json:"name"`
+	Body        string    `json:"body"`
+	PublishedAt time.Time `json:"published_at"`
+	ZipballURL  string    `json:"zipball_url"`
+	Assets      []struct {
+		Name               string `json:"name"`
+		Size               int64  `json:"size"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+		ContentType        string `json:"content_type"`
+	} `json:"assets"`
+}
+
+// loggedWriteCounter tracks download progress and logs to a *log.Logger every 2 seconds.
+type loggedWriteCounter struct {
+	Total      int64
+	Downloaded int64
+	lastLog    time.Time
+	logger     *log.Logger
+}
+
+func (wc *loggedWriteCounter) Write(p []byte) (int, error) {
+	n := len(p)
+	wc.Downloaded += int64(n)
+	if wc.logger != nil && time.Since(wc.lastLog) >= 2*time.Second {
+		pct := float64(0)
+		if wc.Total > 0 {
+			pct = float64(wc.Downloaded) / float64(wc.Total) * 100
+		}
+		wc.logger.Printf("[DOWNLOAD] %.1f MB / %.1f MB (%.0f%%)\n",
+			float64(wc.Downloaded)/1024/1024,
+			float64(wc.Total)/1024/1024, pct)
+		wc.lastLog = time.Now()
+	}
+	return n, nil
+}
+
 type Launcher struct {
-	nodePath        string
-	appDir          string
-	exeDir          string
-	configDir       string
-	userConfigsDir  string
-	progress        int
-	status          string
-	statusKey       string
-	statusFallback  string
-	statusArgs      []interface{}
-	clients         map[chan string]bool
-	clientsMu       sync.Mutex // Protects concurrent map access to clients
-	logFile         *os.File
-	logger          *log.Logger
-	envFileFixed    bool // Track if we auto-created .env file
-	alternativePort int  // Alternative port when 3000 is in use
-	serverPort      int  // Actual port the server responded on
-	profiles        []ProfileInfo
-	profilesLoaded  time.Time // Last time profiles were loaded
-	selectedProfile string
-	locale          string
-	translations    map[string]interface{}
-	nodeCmd         *exec.Cmd  // Referenz auf laufenden Node-Prozess
-	nodeMu          sync.Mutex // Schützt nodeCmd-Zugriff
+	nodePath            string
+	appDir              string
+	exeDir              string
+	configDir           string
+	userConfigsDir      string
+	progress            int
+	status              string
+	statusKey           string
+	statusFallback      string
+	statusArgs          []interface{}
+	clients             map[chan string]bool
+	clientsMu           sync.Mutex // Protects concurrent map access to clients
+	logFile             *os.File
+	logger              *log.Logger
+	envFileFixed        bool // Track if we auto-created .env file
+	alternativePort     int  // Alternative port when 3000 is in use
+	serverPort          int  // Actual port the server responded on
+	profiles            []ProfileInfo
+	profilesLoaded      time.Time // Last time profiles were loaded
+	selectedProfile     string
+	locale              string
+	translations        map[string]interface{}
+	nodeCmd             *exec.Cmd  // Referenz auf laufenden Node-Prozess
+	nodeMu              sync.Mutex // Schützt nodeCmd-Zugriff
+	resolvedNodeVersion string     // Node.js LTS version resolved at startup
 }
 
 var allowedLocales = []string{"de", "en", "es", "fr"}
@@ -400,7 +461,8 @@ func (l *Launcher) updateProgressRaw(value int, status string) {
 	l.progress = value
 	l.status = status
 
-	msg := fmt.Sprintf(`{"progress": %d, "status": "%s"}`, value, status)
+	statusJSON, _ := json.Marshal(status) // properly escaped
+	msg := fmt.Sprintf(`{"progress": %d, "status": %s}`, value, string(statusJSON))
 	l.clientsMu.Lock()
 	for client := range l.clients {
 		select {
@@ -443,9 +505,18 @@ func (l *Launcher) sendRedirect() {
 }
 
 func (l *Launcher) checkNodeJS() error {
-	nodePath, err := exec.LookPath("node")
+	// 1. Check portable installation first
+	portableNode := l.getNodeExecutable()
+	if portableNode != "" {
+		l.nodePath = portableNode
+		return nil
+	}
+
+	// 2. No node found → install portable version
+	l.logAndSync("[INFO] Node.js not found – installing portable version...")
+	nodePath, err := l.installNodePortable()
 	if err != nil {
-		return fmt.Errorf("Node.js ist nicht installiert")
+		return fmt.Errorf("Node.js Installation fehlgeschlagen: %v", err)
 	}
 	l.nodePath = nodePath
 	return nil
@@ -478,15 +549,18 @@ func (l *Launcher) installDependencies() error {
 	l.updateProgressLocalized(45, "status.npm_install_delay_notice", "HINWEIS: npm install kann mehrere Minuten dauern, besonders bei langsamer Internetverbindung. Bitte warten...")
 	time.Sleep(2 * time.Second)
 
+	npmPath := l.resolveNpmPath()
+	l.logAndSync("[INFO] Using npm: %s", npmPath)
+
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", "npm", "install", "--cache", "false")
+		cmd = exec.Command("cmd", "/C", npmPath, "install", "--cache", "false")
 		// Hide the npm install window on Windows using CREATE_NO_WINDOW flag
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			CreationFlags: createNoWindow,
 		}
 	} else {
-		cmd = exec.Command("npm", "install", "--cache", "false")
+		cmd = exec.Command(npmPath, "install", "--cache", "false")
 	}
 
 	cmd.Dir = l.appDir
@@ -605,12 +679,12 @@ func (l *Launcher) installDependencies() error {
 
 		var retryCmd *exec.Cmd
 		if runtime.GOOS == "windows" {
-			retryCmd = exec.Command("cmd", "/C", "npm", "install")
+			retryCmd = exec.Command("cmd", "/C", npmPath, "install")
 			retryCmd.SysProcAttr = &syscall.SysProcAttr{
 				CreationFlags: createNoWindow,
 			}
 		} else {
-			retryCmd = exec.Command("npm", "install")
+			retryCmd = exec.Command(npmPath, "install")
 		}
 		retryCmd.Dir = l.appDir
 		retryCmd.Env = append(os.Environ(),
@@ -797,7 +871,7 @@ func (l *Launcher) autoFixEnvFile() error {
 
 // checkPortAvailable checks if a port is available
 func (l *Launcher) checkPortAvailable(port int) bool {
-	address := fmt.Sprintf("localhost:%d", port)
+	address := fmt.Sprintf("127.0.0.1:%d", port)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return false
@@ -890,51 +964,717 @@ func (l *Launcher) autoFixPort() {
 	l.logger.Println("[WARNING] No alternative port found in range 3001-3009")
 }
 
+// ============================================================
+// Node.js portable install / update helpers
+// ============================================================
+
+// fetchNodeLTSVersion fetches the latest LTS version string from nodejs.org.
+// Falls back to nodeVersionFallback on any error.
+func fetchNodeLTSVersion(logger *log.Logger) string {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://nodejs.org/dist/index.json")
+	if err != nil {
+		if logger != nil {
+			logger.Printf("[WARNING] Could not fetch Node.js LTS version: %v - using fallback %s\n", err, nodeVersionFallback)
+		}
+		return nodeVersionFallback
+	}
+	defer resp.Body.Close()
+
+	var releases []NodeRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		if logger != nil {
+			logger.Printf("[WARNING] Could not parse nodejs.org index.json: %v - using fallback %s\n", err, nodeVersionFallback)
+		}
+		return nodeVersionFallback
+	}
+
+	for _, r := range releases {
+		if _, isBool := r.LTS.(bool); !isBool {
+			// LTS is a string like "Jod" → this is an active LTS release
+			version := strings.TrimPrefix(r.Version, "v")
+			if logger != nil {
+				logger.Printf("[INFO] Resolved Node.js LTS version: %s\n", version)
+			}
+			return version
+		}
+	}
+
+	if logger != nil {
+		logger.Printf("[WARNING] No LTS release found in nodejs.org index - using fallback %s\n", nodeVersionFallback)
+	}
+	return nodeVersionFallback
+}
+
+// buildNodeDownloadURL returns the download URL for the given Node.js version on the
+// current platform and architecture (including ARM64 support).
+func buildNodeDownloadURL(version string) string {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	archStr := "x64"
+	if goarch == "arm64" {
+		archStr = "arm64"
+	}
+	switch goos {
+	case "windows":
+		return fmt.Sprintf("https://nodejs.org/dist/v%s/node-v%s-win-%s.zip", version, version, archStr)
+	case "linux":
+		return fmt.Sprintf("https://nodejs.org/dist/v%s/node-v%s-linux-%s.tar.xz", version, version, archStr)
+	case "darwin":
+		return fmt.Sprintf("https://nodejs.org/dist/v%s/node-v%s-darwin-%s.tar.gz", version, version, archStr)
+	default:
+		return fmt.Sprintf("https://nodejs.org/dist/v%s/node-v%s-win-x64.zip", version, version)
+	}
+}
+
+// getNodeExecutable returns the path to the node executable, checking the portable
+// runtime/node directory first and then the system PATH.
+func (l *Launcher) getNodeExecutable() string {
+	// Portable installation
+	var portableNode string
+	if runtime.GOOS == "windows" {
+		portableNode = filepath.Join(l.exeDir, "runtime", "node", "node.exe")
+	} else {
+		portableNode = filepath.Join(l.exeDir, "runtime", "node", "node")
+	}
+	if _, err := os.Stat(portableNode); err == nil {
+		return portableNode
+	}
+
+	// Global installation
+	nodePath, err := exec.LookPath("node")
+	if err == nil {
+		return nodePath
+	}
+	return ""
+}
+
+// downloadFileHTTP downloads a URL to dest with a 10-minute timeout and loggedWriteCounter logging.
+func (l *Launcher) downloadFileHTTP(url, dest string) error {
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
+	}
+
+	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	counter := &loggedWriteCounter{
+		Total:  resp.ContentLength,
+		logger: l.logger,
+	}
+	_, err = io.Copy(out, io.TeeReader(resp.Body, counter))
+	return err
+}
+
+// extractZipWithFlatStructure extracts a ZIP archive into destDir, stripping the
+// single top-level directory that GitHub and nodejs.org archives typically contain.
+func extractZipWithFlatStructure(zipPath, destDir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	// Find the root directory prefix (e.g. "node-v22.14.0-win-x64/")
+	var rootDir string
+	if len(r.File) > 0 {
+		rootDir = strings.Split(r.File[0].Name, "/")[0] + "/"
+	}
+
+	for _, f := range r.File {
+		if f.Name == rootDir {
+			continue
+		}
+
+		targetPath := strings.TrimPrefix(f.Name, rootDir)
+		if targetPath == "" {
+			continue
+		}
+
+		fpath := filepath.Join(destDir, filepath.FromSlash(targetPath))
+
+		// Guard against ZipSlip
+		if !strings.HasPrefix(filepath.Clean(fpath)+string(os.PathSeparator), filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("illegal file path in archive: %s", fpath)
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(fpath, 0755)
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(fpath), 0755); err != nil {
+			return err
+		}
+
+		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			outFile.Close()
+			return err
+		}
+
+		_, err = io.Copy(outFile, rc)
+		rc.Close()
+		outFile.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// extractTar extracts a .tar.xz or .tar.gz archive using the system tar command,
+// stripping the top-level directory (--strip-components=1).
+func extractTar(tarPath, destDir string) error {
+	var cmd *exec.Cmd
+	if strings.HasSuffix(tarPath, ".tar.xz") {
+		cmd = exec.Command("tar", "-xJf", tarPath, "-C", destDir, "--strip-components=1")
+	} else if strings.HasSuffix(tarPath, ".tar.gz") {
+		cmd = exec.Command("tar", "-xzf", tarPath, "-C", destDir, "--strip-components=1")
+	} else {
+		return fmt.Errorf("unsupported archive format: %s", tarPath)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("tar extraction failed: %v, output: %s", err, string(output))
+	}
+	return nil
+}
+
+// installNodePortable downloads and installs a portable Node.js into runtime/node/.
+// Returns the path to the node executable on success.
+func (l *Launcher) installNodePortable() (string, error) {
+	version := l.resolvedNodeVersion
+	if version == "" {
+		version = nodeVersionFallback
+	}
+
+	runtimeDir := filepath.Join(l.exeDir, "runtime")
+	nodeDir := filepath.Join(runtimeDir, "node")
+
+	if err := os.MkdirAll(nodeDir, 0755); err != nil {
+		return "", fmt.Errorf("cannot create runtime/node: %v", err)
+	}
+
+	downloadURL := buildNodeDownloadURL(version)
+	l.logAndSync("[INFO] Downloading Node.js %s from %s", version, downloadURL)
+	l.updateProgressLocalized(15, "status.nodejs_downloading", "Lade Node.js %s herunter...", version)
+
+	var archiveExt string
+	switch runtime.GOOS {
+	case "windows":
+		archiveExt = ".zip"
+	case "linux":
+		archiveExt = ".tar.xz"
+	default:
+		archiveExt = ".tar.gz"
+	}
+
+	archivePath := filepath.Join(runtimeDir, "node_download"+archiveExt)
+
+	// Download with retry logic (max 3 attempts)
+	var downloadErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if attempt > 1 {
+			l.logAndSync("[INFO] Download attempt %d of 3...", attempt)
+			l.updateProgressLocalized(15, "status.nodejs_download_retry", "Download-Versuch %d von 3...", attempt)
+		}
+		downloadErr = l.downloadFileHTTP(downloadURL, archivePath)
+		if downloadErr == nil {
+			break
+		}
+		os.Remove(archivePath)
+	}
+	if downloadErr != nil {
+		return "", fmt.Errorf("Node.js download failed after 3 attempts: %v", downloadErr)
+	}
+	defer os.Remove(archivePath)
+
+	l.logAndSync("[INFO] Extracting Node.js archive...")
+	l.updateProgressLocalized(22, "status.nodejs_extracting", "Extrahiere Node.js...")
+
+	if err := os.MkdirAll(nodeDir, 0755); err != nil {
+		return "", fmt.Errorf("cannot create node dir: %v", err)
+	}
+
+	var extractErr error
+	if runtime.GOOS == "windows" {
+		extractErr = extractZipWithFlatStructure(archivePath, nodeDir)
+	} else {
+		extractErr = extractTar(archivePath, nodeDir)
+	}
+	if extractErr != nil {
+		os.RemoveAll(nodeDir)
+		return "", fmt.Errorf("extraction failed: %v", extractErr)
+	}
+
+	// Write version file
+	versionFilePath := filepath.Join(nodeDir, "version.txt")
+	if err := os.WriteFile(versionFilePath, []byte(version), 0644); err != nil {
+		l.logAndSync("[WARNING] Could not write node version.txt: %v", err)
+	}
+
+	// Validate
+	var nodeExe string
+	if runtime.GOOS == "windows" {
+		nodeExe = filepath.Join(nodeDir, "node.exe")
+	} else {
+		nodeExe = filepath.Join(nodeDir, "node")
+	}
+	if _, err := os.Stat(nodeExe); os.IsNotExist(err) {
+		return "", fmt.Errorf("node executable not found after installation")
+	}
+
+	l.logAndSync("[SUCCESS] Node.js %s installed at %s", version, nodeExe)
+	return nodeExe, nil
+}
+
+// getInstalledNodeVersion reads the version from runtime/node/version.txt.
+func (l *Launcher) getInstalledNodeVersion() string {
+	data, err := os.ReadFile(filepath.Join(l.exeDir, "runtime", "node", "version.txt"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// checkAndUpdateNodePortable checks if the portable Node.js installation matches
+// l.resolvedNodeVersion and performs an in-place update if it does not.
+// Returns true if an update was performed.
+func (l *Launcher) checkAndUpdateNodePortable() (bool, error) {
+	installed := l.getInstalledNodeVersion()
+	target := l.resolvedNodeVersion
+	if target == "" {
+		target = nodeVersionFallback
+	}
+
+	if installed == target {
+		return false, nil
+	}
+
+	l.logAndSync("[INFO] Node.js update available: %s → %s", installed, target)
+	l.updateProgressLocalized(18, "status.nodejs_updating", "Node.js Update: %s → %s", installed, target)
+
+	runtimeDir := filepath.Join(l.exeDir, "runtime")
+	nodeDir := filepath.Join(runtimeDir, "node")
+	nodeNewDir := filepath.Join(runtimeDir, "node_new")
+	nodeBackupDir := filepath.Join(runtimeDir, "node.backup")
+
+	// Download new version into node_new/
+	if err := os.MkdirAll(nodeNewDir, 0755); err != nil {
+		return false, fmt.Errorf("cannot create node_new dir: %v", err)
+	}
+
+	downloadURL := buildNodeDownloadURL(target)
+	var archiveExt string
+	switch runtime.GOOS {
+	case "windows":
+		archiveExt = ".zip"
+	case "linux":
+		archiveExt = ".tar.xz"
+	default:
+		archiveExt = ".tar.gz"
+	}
+	archivePath := filepath.Join(runtimeDir, "node_update"+archiveExt)
+
+	if err := l.downloadFileHTTP(downloadURL, archivePath); err != nil {
+		os.RemoveAll(nodeNewDir)
+		return false, fmt.Errorf("Node.js update download failed: %v", err)
+	}
+	defer os.Remove(archivePath)
+
+	var extractErr error
+	if runtime.GOOS == "windows" {
+		extractErr = extractZipWithFlatStructure(archivePath, nodeNewDir)
+	} else {
+		extractErr = extractTar(archivePath, nodeNewDir)
+	}
+	if extractErr != nil {
+		os.RemoveAll(nodeNewDir)
+		return false, fmt.Errorf("Node.js update extraction failed: %v", extractErr)
+	}
+
+	// Backup old installation
+	os.RemoveAll(nodeBackupDir)
+	if err := os.Rename(nodeDir, nodeBackupDir); err != nil {
+		os.RemoveAll(nodeNewDir)
+		return false, fmt.Errorf("Node.js backup failed: %v", err)
+	}
+
+	// Move new into place
+	if err := os.Rename(nodeNewDir, nodeDir); err != nil {
+		// Restore backup
+		_ = os.Rename(nodeBackupDir, nodeDir)
+		return false, fmt.Errorf("Node.js install failed: %v", err)
+	}
+
+	// Write version file
+	versionFilePath := filepath.Join(nodeDir, "version.txt")
+	if err := os.WriteFile(versionFilePath, []byte(target), 0644); err != nil {
+		l.logAndSync("[WARNING] Could not write node version.txt: %v", err)
+	}
+
+	// Clean up backup
+	os.RemoveAll(nodeBackupDir)
+
+	// Update nodePath
+	l.nodePath = l.getNodeExecutable()
+	l.logAndSync("[SUCCESS] Node.js updated to %s", target)
+	return true, nil
+}
+
+// resolveNpmPath returns the path to npm/npm.cmd, preferring the portable
+// installation when the node executable lives inside runtime/node.
+func (l *Launcher) resolveNpmPath() string {
+	if strings.Contains(l.nodePath, filepath.Join("runtime", "node")) {
+		nodeDir := filepath.Dir(l.nodePath)
+		if runtime.GOOS == "windows" {
+			return filepath.Join(nodeDir, "npm.cmd")
+		}
+		return filepath.Join(nodeDir, "bin", "npm")
+	}
+	if runtime.GOOS == "windows" {
+		return "npm.cmd"
+	}
+	return "npm"
+}
+
+// rebuildNativeModules runs `npm rebuild better-sqlite3` in the app directory.
+func (l *Launcher) rebuildNativeModules() error {
+	npmPath := l.resolveNpmPath()
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", npmPath, "rebuild", "better-sqlite3")
+		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	} else {
+		cmd = exec.Command(npmPath, "rebuild", "better-sqlite3")
+	}
+	cmd.Dir = l.appDir
+	cmd.Env = append(os.Environ(), "PUPPETEER_SKIP_DOWNLOAD=true")
+
+	var buf bytes.Buffer
+	cmd.Stderr = &buf
+	if err := cmd.Run(); err != nil {
+		l.logAndSync("[WARNING] better-sqlite3 rebuild failed: %v\n%s", err, buf.String())
+		return err
+	}
+	l.logAndSync("[SUCCESS] better-sqlite3 rebuilt successfully")
+	return nil
+}
+
+// ============================================================
+// Auto-Update (GitHub Releases)
+// ============================================================
+
+// getVersionFilePath returns the absolute path to runtime/version.txt.
+func getVersionFilePath() string {
+	exePath, _ := os.Executable()
+	return filepath.Join(filepath.Dir(exePath), versionFile)
+}
+
+// getLocalVersion reads the current app version from runtime/version.txt.
+func getLocalVersion() (string, error) {
+	data, err := os.ReadFile(getVersionFilePath())
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// writeLocalVersion writes the given version string to runtime/version.txt.
+func writeLocalVersion(version string) error {
+	runtimeDir := filepath.Join(filepath.Dir(getVersionFilePath()))
+	os.MkdirAll(runtimeDir, 0755)
+	return os.WriteFile(getVersionFilePath(), []byte(version), 0644)
+}
+
+// shouldCheckForUpdates returns true if enough time has passed since the last
+// update check (rate-limiting based on runtime/last_update_check.txt).
+func shouldCheckForUpdates() bool {
+	exePath, err := os.Executable()
+	if err != nil {
+		return true
+	}
+	checkFilePath := filepath.Join(filepath.Dir(exePath), updateCheckFile)
+	data, err := os.ReadFile(checkFilePath)
+	if err != nil {
+		return true
+	}
+	lastCheck, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil {
+		return true
+	}
+	return time.Since(lastCheck) >= updateInterval
+}
+
+// updateLastCheckTime saves the current timestamp to runtime/last_update_check.txt.
+func updateLastCheckTime() {
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	exeDir := filepath.Dir(exePath)
+	runtimeDir := filepath.Join(exeDir, "runtime")
+	os.MkdirAll(runtimeDir, 0755)
+	checkFilePath := filepath.Join(exeDir, updateCheckFile)
+	os.WriteFile(checkFilePath, []byte(time.Now().Format(time.RFC3339)), 0644)
+}
+
+// fetchLatestRelease fetches the latest release metadata from the GitHub API.
+func fetchLatestRelease() (*GitHubRelease, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", githubAPIURL, githubOwner, githubRepo)
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "LTTH-Launcher/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("no releases found")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+
+	var release GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil, err
+	}
+	return &release, nil
+}
+
+// compareVersions compares two semantic version strings.
+// Returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal.
+func compareVersions(v1, v2 string) int {
+	v1 = strings.TrimPrefix(v1, "v")
+	v2 = strings.TrimPrefix(v2, "v")
+
+	parts1 := strings.Split(v1, ".")
+	parts2 := strings.Split(v2, ".")
+
+	maxLen := len(parts1)
+	if len(parts2) > maxLen {
+		maxLen = len(parts2)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		var n1, n2 int
+		if i < len(parts1) {
+			numStr := strings.Split(parts1[i], "-")[0]
+			n1, _ = strconv.Atoi(numStr)
+		}
+		if i < len(parts2) {
+			numStr := strings.Split(parts2[i], "-")[0]
+			n2, _ = strconv.Atoi(numStr)
+		}
+		if n1 > n2 {
+			return 1
+		}
+		if n1 < n2 {
+			return -1
+		}
+	}
+	return 0
+}
+
+// downloadAndApplyUpdate downloads the zipball of the given release and applies
+// it by replacing the app/ directory (with backup + rollback on failure).
+func (l *Launcher) downloadAndApplyUpdate(release *GitHubRelease) error {
+	runtimeDir := filepath.Join(l.exeDir, "runtime")
+	os.MkdirAll(runtimeDir, 0755)
+
+	zipDest := filepath.Join(runtimeDir, "update_download.zip")
+	l.logAndSync("[INFO] Downloading update %s from %s", release.TagName, release.ZipballURL)
+	l.updateProgressLocalized(6, "status.update_downloading", "Lade Update %s herunter...", release.TagName)
+
+	if err := l.downloadFileHTTP(release.ZipballURL, zipDest); err != nil {
+		return fmt.Errorf("update download failed: %v", err)
+	}
+	defer os.Remove(zipDest)
+
+	l.logAndSync("[INFO] Applying update %s...", release.TagName)
+	l.updateProgressLocalized(8, "status.update_applying", "Installiere Update %s...", release.TagName)
+
+	appDir := l.appDir
+	backupDir := filepath.Join(l.exeDir, "app_backup")
+
+	// Backup existing app/
+	os.RemoveAll(backupDir)
+	if _, err := os.Stat(appDir); err == nil {
+		if err := os.Rename(appDir, backupDir); err != nil {
+			return fmt.Errorf("backup of app/ failed: %v", err)
+		}
+	}
+
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		_ = os.Rename(backupDir, appDir)
+		return fmt.Errorf("cannot create app/ dir: %v", err)
+	}
+
+	if err := extractZipWithFlatStructure(zipDest, appDir); err != nil {
+		os.RemoveAll(appDir)
+		_ = os.Rename(backupDir, appDir)
+		return fmt.Errorf("update extraction failed: %v", err)
+	}
+
+	// Success – remove backup
+	os.RemoveAll(backupDir)
+
+	// Write version
+	if err := writeLocalVersion(release.TagName); err != nil {
+		l.logAndSync("[WARNING] Could not write version file: %v", err)
+	}
+
+	// Re-run npm install if node_modules is missing
+	if _, err := os.Stat(filepath.Join(appDir, "node_modules")); os.IsNotExist(err) {
+		l.logAndSync("[INFO] node_modules missing after update, running npm install...")
+		l.updateProgressLocalized(9, "status.update_npm_install", "npm install nach Update...")
+		if err := l.installDependencies(); err != nil {
+			l.logAndSync("[WARNING] npm install after update failed: %v", err)
+		}
+	}
+
+	l.logAndSync("[SUCCESS] Update %s applied", release.TagName)
+	return nil
+}
+
+// createDesktopShortcut creates a .lnk shortcut on the Windows Desktop (once).
+func (l *Launcher) createDesktopShortcut() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	desktop := filepath.Join(os.Getenv("USERPROFILE"), "Desktop", "LTTH.lnk")
+	if _, err := os.Stat(desktop); err == nil {
+		return // already exists
+	}
+	script := fmt.Sprintf(`
+$s = (New-Object -COM WScript.Shell).CreateShortcut('%s')
+$s.TargetPath = '%s'
+$s.WorkingDirectory = '%s'
+$s.Description = "PupCid's Little TikTool Helper"
+$s.Save()
+`, desktop, exePath, filepath.Dir(exePath))
+	tmp := filepath.Join(l.exeDir, "_sc.ps1")
+	if err := os.WriteFile(tmp, []byte(script), 0644); err != nil {
+		return
+	}
+	exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-NonInteractive", "-File", tmp).Run()
+	os.Remove(tmp)
+	l.logAndSync("[INFO] Desktop shortcut created: %s", desktop)
+}
+
 func (l *Launcher) runLauncher() {
 	time.Sleep(1 * time.Second) // Give browser time to load
 
-	// Phase 1: Check Node.js (0-20%)
-	l.updateProgressLocalized(0, "status.checking_nodejs", "Prüfe Node.js Installation...")
+	// Phase 0: Update Check (0–10%)
+	l.updateProgressLocalized(0, "status.checking_updates", "Prüfe auf Updates...")
+	l.logAndSync("[Phase 0] Checking for app updates...")
+	time.Sleep(300 * time.Millisecond)
+
+	if shouldCheckForUpdates() {
+		release, err := fetchLatestRelease()
+		if err != nil {
+			l.logAndSync("[WARNING] Update check failed: %v – continuing with installed version", err)
+		} else {
+			localVer, _ := getLocalVersion()
+			if compareVersions(release.TagName, localVer) > 0 {
+				l.logAndSync("[INFO] Update available: %s (installed: %s)", release.TagName, localVer)
+				l.updateProgressLocalized(5, "status.update_available", "Update %s verfügbar – wird installiert...", release.TagName)
+				if err := l.downloadAndApplyUpdate(release); err != nil {
+					l.logAndSync("[WARNING] Update failed: %v – continuing with installed version", err)
+				}
+			} else {
+				l.logAndSync("[INFO] App is up to date (%s)", localVer)
+				l.updateProgressLocalized(5, "status.up_to_date", "App ist aktuell (%s)", localVer)
+			}
+		}
+		updateLastCheckTime()
+	} else {
+		l.logAndSync("[INFO] Skipping update check (checked recently)")
+		l.updateProgressLocalized(5, "status.update_skipped", "Update-Check übersprungen (kürzlich geprüft)")
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Phase 1: Check / Install / Update Node.js (10–30%)
+	l.updateProgressLocalized(10, "status.checking_nodejs", "Prüfe Node.js Installation...")
 	l.logAndSync("[Phase 1] Checking Node.js installation...")
 	time.Sleep(500 * time.Millisecond)
 
 	err := l.checkNodeJS()
 	if err != nil {
-		l.logAndSync("[ERROR] Node.js check failed: %v", err)
-		l.updateProgressLocalized(0, "status.nodejs_missing", "FEHLER: Node.js ist nicht installiert!")
+		l.logAndSync("[ERROR] Node.js check/install failed: %v", err)
+		l.updateProgressLocalized(10, "status.nodejs_missing", "FEHLER: Node.js konnte nicht installiert werden!")
 		time.Sleep(5 * time.Second)
 		l.closeLogging()
 		os.Exit(1)
 	}
 
-	l.updateProgressLocalized(10, "status.nodejs_found", "Node.js gefunden...")
+	l.updateProgressLocalized(20, "status.nodejs_found", "Node.js gefunden...")
 	l.logAndSync("[SUCCESS] Node.js found at: %s", l.nodePath)
 	time.Sleep(300 * time.Millisecond)
 
+	// Check for portable Node.js update
+	nodeWasUpdated := false
+	if strings.Contains(l.nodePath, filepath.Join("runtime", "node")) {
+		updated, updateErr := l.checkAndUpdateNodePortable()
+		if updateErr != nil {
+			l.logAndSync("[WARNING] Node.js update check failed: %v", updateErr)
+		}
+		nodeWasUpdated = updated
+	}
+
 	version := l.getNodeVersion()
-	l.updateProgressLocalized(20, "status.nodejs_version", "Node.js Version: %s", version)
+	l.updateProgressLocalized(29, "status.nodejs_version", "Node.js Version: %s", version)
 	l.logger.Printf("[INFO] Node.js version: %s\n", version)
 	time.Sleep(300 * time.Millisecond)
 
-	// Phase 2: Find directories (20-30%)
-	l.updateProgressLocalized(25, "status.checking_app_dir", "Prüfe App-Verzeichnis...")
+	// Phase 2: Find directories (30–35%)
+	l.updateProgressLocalized(30, "status.checking_app_dir", "Prüfe App-Verzeichnis...")
 	l.logger.Printf("[Phase 2] Checking app directory: %s\n", l.appDir)
 	time.Sleep(300 * time.Millisecond)
 
 	if _, err := os.Stat(l.appDir); os.IsNotExist(err) {
 		l.logger.Printf("[ERROR] App directory not found: %s\n", l.appDir)
-		l.updateProgressLocalized(25, "status.app_dir_missing", "FEHLER: app Verzeichnis nicht gefunden")
+		l.updateProgressLocalized(30, "status.app_dir_missing", "FEHLER: app Verzeichnis nicht gefunden")
 		time.Sleep(5 * time.Second)
 		l.closeLogging()
 		os.Exit(1)
 	}
 
-	l.updateProgressLocalized(30, "status.app_dir_found", "App-Verzeichnis gefunden...")
+	l.updateProgressLocalized(35, "status.app_dir_found", "App-Verzeichnis gefunden...")
 	l.logger.Printf("[SUCCESS] App directory exists: %s\n", l.appDir)
 	time.Sleep(300 * time.Millisecond)
 
-	// Phase 3: Check and install dependencies (30-80%)
-	l.updateProgressLocalized(30, "status.checking_dependencies", "Prüfe Abhängigkeiten...")
+	// Phase 3: Check and install dependencies (35–80%)
+	l.updateProgressLocalized(35, "status.checking_dependencies", "Prüfe Abhängigkeiten...")
 	l.logger.Println("[Phase 3] Checking dependencies...")
 	time.Sleep(300 * time.Millisecond)
 
@@ -955,6 +1695,14 @@ func (l *Launcher) runLauncher() {
 
 		l.updateProgressLocalized(80, "status.installation_done", "Installation abgeschlossen!")
 		l.logger.Println("[SUCCESS] Dependencies installed successfully")
+	} else if nodeWasUpdated {
+		// Node.js was updated → rebuild native modules
+		l.updateProgressLocalized(40, "status.rebuilding_native", "Baue native Module neu (better-sqlite3)...")
+		l.logger.Println("[INFO] Node.js was updated, rebuilding native modules...")
+		if err := l.rebuildNativeModules(); err != nil {
+			l.logger.Printf("[WARNING] Native module rebuild failed: %v\n", err)
+		}
+		l.updateProgressLocalized(80, "status.dependencies_installed", "Abhängigkeiten geprüft...")
 	} else {
 		l.updateProgressLocalized(80, "status.dependencies_installed", "Abhängigkeiten bereits installiert...")
 		l.logger.Println("[INFO] Dependencies already installed")
@@ -980,7 +1728,7 @@ func (l *Launcher) runLauncher() {
 	l.updateProgressLocalized(89, "status.config_ok", "Konfiguration geprüft!")
 	time.Sleep(300 * time.Millisecond)
 
-	// Phase 4: Start tool (90-100%)
+	// Phase 4: Start tool (89-100%)
 	l.updateProgressLocalized(90, "status.starting_tool", "Starte Tool...")
 	l.logger.Println("[Phase 4] Starting Node.js server...")
 	time.Sleep(500 * time.Millisecond)
@@ -1259,7 +2007,12 @@ func main() {
 	exeDir := filepath.Dir(exePath)
 	launcher.exeDir = exeDir
 	launcher.appDir = filepath.Join(exeDir, "app")
+
+	// Template path with fallback (development vs. installed)
 	templatePath := filepath.Join(exeDir, "build-src", "assets", "launcher.html")
+	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
+		templatePath = filepath.Join(exeDir, "assets", "launcher.html")
+	}
 
 	// Setup logging immediately
 	if err := launcher.setupLogging(launcher.appDir); err != nil {
@@ -1271,6 +2024,10 @@ func main() {
 	launcher.logAndSync("Launcher started successfully")
 	launcher.logAndSync("Executable directory: %s", exeDir)
 	launcher.logAndSync("App directory: %s", launcher.appDir)
+
+	// Resolve the current LTS version once at startup
+	launcher.resolvedNodeVersion = fetchNodeLTSVersion(launcher.logger)
+	launcher.logAndSync("[INFO] Node.js LTS version resolved: %s", launcher.resolvedNodeVersion)
 
 	// Resolve persistent config paths and ensure user_configs exists
 	launcher.initConfigPaths()
@@ -1331,11 +2088,15 @@ func main() {
 		}
 
 		// Prepare template data
+		localVer, err := getLocalVersion()
+		if err != nil || localVer == "" {
+			localVer = "–"
+		}
 		data := map[string]interface{}{
 			"AppName":            launcher.getTranslation("app_name"),
 			"TagLine":            "Open-Source TikTok LIVE Tool",
 			"Locale":             lang,
-			"Version":            "1.2.1",
+			"Version":            localVer,
 			"HasProfiles":        len(launcher.profiles) > 0,
 			"Profiles":           launcher.profiles,
 			"ProfileLabel":       launcher.getTranslation("profile.title"),
@@ -1497,7 +2258,9 @@ func main() {
 		launcher.clientsMu.Unlock()
 
 		// Send initial state
-		msg := fmt.Sprintf(`{"progress": %d, "status": "%s"}`, launcher.progress, launcher.currentStatus())
+		initialStatus := launcher.currentStatus()
+		initialStatusJSON, _ := json.Marshal(initialStatus)
+		msg := fmt.Sprintf(`{"progress": %d, "status": %s}`, launcher.progress, string(initialStatusJSON))
 		fmt.Fprintf(w, "data: %s\n\n", msg)
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
@@ -1546,6 +2309,9 @@ func main() {
 
 	// Open browser
 	browser.OpenURL(launcherURL)
+
+	// Create desktop shortcut (Windows, once)
+	launcher.createDesktopShortcut()
 
 	// Run launcher
 	go launcher.runLauncher()
