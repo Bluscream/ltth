@@ -10,7 +10,7 @@ description: |
 # Project Overview
 overview:
   stack:
-    - Node.js (>=18.0.0 <24.0.0)
+    - Node.js (>=18.0.0 <25.0.0)
     - Express.js
     - Socket.io
     - SQLite (WAL mode)
@@ -32,7 +32,7 @@ setup:
   # 1. Prerequisites
   prerequisites:
     - step: Install Node.js
-      description: Node.js version 18.x, 20.x, or 22.x is required
+      description: Node.js version 18.x, 20.x, 22.x, or 24.x is required
       verification: node --version
       
     - step: Install npm dependencies
@@ -43,15 +43,15 @@ setup:
   # 2. Quick Start
   quick_start:
     windows:
-      - Double-click start.exe OR run start.bat
+      - Double-click launcher.exe (GUI mode) or launcher-console.exe (console mode)
       - The launcher automatically installs dependencies and starts the server
       
     linux:
-      - Run ./start-linux OR ./start.sh
+      - Run ./launcher
       - The launcher automatically installs dependencies and starts the server
       
     mac:
-      - Run ./start-mac OR ./start.sh
+      - Run ./launcher
       - The launcher automatically installs dependencies and starts the server
       
   # 3. Development Environment
@@ -81,12 +81,11 @@ setup:
 # Key Files and Directories
 structure:
   root:
-    - launcher.go: Go-based launcher that checks Node.js and manages dependencies
-    - start.exe: Compiled launcher for Windows
-    - start-linux: Compiled launcher for Linux
-    - start-mac: Compiled launcher for macOS
-    - start.bat: Fallback batch script for Windows
-    - start.sh: Fallback shell script for Linux/Mac
+    - build-src/launcher-gui.go: Go-based GUI launcher source (compiled to launcher.exe)
+    - launcher.exe: Compiled GUI launcher for Windows
+    - launcher-console.exe: Compiled console launcher for Windows (with visible terminal)
+    - build-src/build-launcher.bat: Build script for Windows
+    - build-src/build-launcher.sh: Build script for Linux/macOS
     
   app:
     description: Main Node.js application
@@ -199,7 +198,7 @@ guidelines:
 
 # Important Notes
 notes:
-  - The launcher.go file handles dependency installation automatically
+  - The build-src/launcher-gui.go file handles dependency installation automatically
   - Database is created automatically on first run
   - Plugins can be hot-loaded/reloaded without server restart
   - OBS Browser Source overlays are served from /overlay.html
@@ -218,9 +217,9 @@ commands:
     start: npm start
     
   launcher:
-    compile_windows: go build -o start.exe launcher.go
-    compile_linux: GOOS=linux go build -o start-linux launcher.go
-    compile_mac: GOOS=darwin go build -o start-mac launcher.go
+    compile_windows: cd build-src && go build -ldflags "-H windowsgui" -o ../launcher.exe launcher-gui.go sysproc_windows.go
+    compile_linux: cd build-src && GOOS=linux go build -o ../launcher launcher-gui.go sysproc_unix.go
+    compile_mac: cd build-src && GOOS=darwin go build -o ../launcher launcher-gui.go sysproc_unix.go
     
   testing:
     run_plugin_tests: node plugins/<plugin-name>/test/*.test.js
@@ -254,3 +253,4 @@ ci_cd:
     - 18.x
     - 20.x
     - 22.x
+    - 24.x
