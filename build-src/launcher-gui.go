@@ -554,13 +554,13 @@ func (l *Launcher) installDependencies() error {
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", npmPath, "install", "--cache", "false")
+		cmd = exec.Command("cmd", "/C", npmPath, "install")
 		// Hide the npm install window on Windows using CREATE_NO_WINDOW flag
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			CreationFlags: createNoWindow,
 		}
 	} else {
-		cmd = exec.Command(npmPath, "install", "--cache", "false")
+		cmd = exec.Command(npmPath, "install")
 	}
 
 	cmd.Dir = l.appDir

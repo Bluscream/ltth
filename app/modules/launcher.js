@@ -22,7 +22,7 @@ class Launcher {
         this.log = new TTYLogger();
         this.projectRoot = path.join(__dirname, '..');
         this.minNodeVersion = 18;
-        this.maxNodeVersion = 23;
+        this.maxNodeVersion = 24;
         this._envCache = null;
     }
     
@@ -201,7 +201,11 @@ class Launcher {
             'express',
             'socket.io',
             'better-sqlite3',
-            'winston'
+            'winston',
+            '@eulerstream/euler-websocket-sdk',
+            'jsonwebtoken',
+            'axios',
+            'ws'
         ];
 
         const missingDeps = [];
