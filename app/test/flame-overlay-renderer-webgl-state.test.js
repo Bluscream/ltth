@@ -10,7 +10,8 @@ describe('Flame Overlay renderer WebGL state management', () => {
         const content = fs.readFileSync(postProcessorPath, 'utf8');
         
         expect(content).toContain('const fb = this.framebuffers[framebufferName];');
-        expect(content).toContain('if (!fb) return;');
+        expect(content).toContain('if (!fb) {');
+        expect(content).toContain('console.warn(`[PostProcessor] Missing framebuffer: ${framebufferName}`);');
         expect(content).toContain('const isBloom = framebufferName !== \'scene\';');
         expect(content).toContain('gl.viewport(0, 0, width, height);');
         expect(content).toContain('gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);');

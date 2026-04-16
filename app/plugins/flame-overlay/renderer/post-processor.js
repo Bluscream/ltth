@@ -271,7 +271,10 @@ class PostProcessor {
     renderToFramebuffer(framebufferName, renderCallback) {
         const gl = this.gl;
         const fb = this.framebuffers[framebufferName];
-        if (!fb) return;
+        if (!fb) {
+            console.warn(`[PostProcessor] Missing framebuffer: ${framebufferName}`);
+            return;
+        }
         
         const isBloom = framebufferName !== 'scene';
         const width = isBloom ? this.bloomWidth : gl.canvas.width;
