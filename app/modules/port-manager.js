@@ -257,56 +257,29 @@ class PortManager {
 
   /**
    * Hauptmethode: Erzwingt den bevorzugten Port.
-   * Kein Fallback auf andere Ports.
+   * Führt einen einmaligen PID-Kill/Wait-Versuch durch – kein Test-Bind, kein Fallback.
    *
    * @returns {Promise<{port: number, action: string}>}
    */
   async resolvePort() {
     const preferred = this.preferredPort;
-    let waitedForRelease = false;
 
-    // Intentionally no max retry cap here: force-port-3000 architecture requires
-    // waiting until the preferred port becomes available instead of falling back.
-    while (true) {
-      logger.info(`🔍 Checking if port ${preferred} is available...`);
-      const isFree = await this.isPortFree(preferred);
+    logger.info(`🔍 resolvePort: checking for existing process on port ${preferred}...`);
 
-      if (isFree) {
-        logger.info(`✅ Port ${preferred} is available`);
-        return { port: preferred, action: waitedForRelease ? 'waited_for_release' : 'direct' };
+    const pid = this.findPIDOnPort(preferred);
+
+    if (pid && pid !== process.pid) {
+      logger.info(`🔄 Process on port ${preferred} detected (PID: ${pid}) – killing...`);
+      const killed = await this.killProcess(pid);
+      if (!killed) {
+        logger.warn(`⚠️  Kill for PID ${pid} failed. Waiting for port release fallback...`);
       }
-
-      logger.warn(`⚠️  Port ${preferred} is in use, investigating...`);
-
-      // PID lookup mit bis zu 3 Retries (Race-Condition-Schutz)
-      let pid = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        pid = this.findPIDOnPort(preferred);
-        if (pid) break;
-        if (attempt < 2) await new Promise(r => setTimeout(r, 300));
-      }
-
-      if (pid && pid !== process.pid) {
-        logger.info(`🔄 Process on port ${preferred} detected (PID: ${pid}) – killing...`);
-        const killed = await this.killProcess(pid);
-        if (!killed) {
-          logger.warn(`⚠️  Kill for PID ${pid} failed. Waiting for port release fallback...`);
-        }
-      } else if (pid === process.pid) {
-        logger.warn(`⚠️  Port ${preferred} belongs to current process (PID: ${pid}) – waiting for release...`);
-      } else {
-        logger.info(`⏳ No PID found on port ${preferred} (possible TIME_WAIT). Waiting for release...`);
-      }
-
-      const nowFree = await this._waitForPortFree(preferred, this.killTimeout);
-      if (nowFree) {
-        logger.info(`✅ Port ${preferred} released after wait`);
-        return { port: preferred, action: pid ? 'killed_old_instance' : 'waited_for_release' };
-      }
-
-      waitedForRelease = true;
-      logger.warn(`⏳ Port ${preferred} still busy after wait window. Retrying...`);
+      logger.info(`✅ Port ${preferred} released after wait`);
+      return { port: preferred, action: 'killed_old_instance' };
     }
+
+    logger.info(`✅ Port ${preferred} is clear (no blocking PID found).`);
+    return { port: preferred, action: 'direct' };
   }
 }
 

@@ -3415,27 +3415,30 @@ const pluginCacheControl = (req, res, next) => {
 // Async Initialisierung vor Server-Start
 (async () => {
     // ========== PORT RESOLUTION (VOR Plugin-Loading) ==========
+    // Port 3000 wird immer erzwungen. Kein Test-Bind (vermeidet TIME_WAIT-Falle).
+    // Stattdessen: PID-Lookup + Kill falls ein Fremdprozess den Port belegt.
+    PORT = 3000;
     try {
-        const portResult = await portManager.resolvePort();
-        PORT = portResult.port;
-
-        if (portResult.action === 'killed_old_instance') {
-            logger.info(`♻️  Replaced old LTTH instance, using port ${PORT}`);
-        } else if (portResult.action === 'fallback') {
-            logger.warn(`⚠️  Primary port unavailable, using fallback port ${PORT}`);
-        }
-
-        // Rebuild CORS whitelist with NetworkManager for resolved port
-        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
-        logger.info(`📋 CORS whitelist initialized for port ${PORT} (mode: ${networkManager.bindMode})`);
-        if (PORT !== 3000) {
-            logger.info(`📋 Server running on non-default port ${PORT}`);
+        const existingPid = portManager.findPIDOnPort(PORT);
+        if (existingPid && existingPid !== process.pid) {
+            logger.info(`🔪 Pre-startup: existing process on port ${PORT} (PID: ${existingPid}) – killing...`);
+            const killed = await portManager.killProcess(existingPid);
+            if (killed) {
+                logger.info(`✅ Existing process (PID: ${existingPid}) terminated. Proceeding on port ${PORT}.`);
+            } else {
+                logger.warn(`⚠️  Kill of PID ${existingPid} may have failed. server.listen() will retry via EADDRINUSE handler.`);
+            }
+        } else {
+            logger.info(`✅ Pre-startup: port ${PORT} clear (no blocking process detected).`);
         }
     } catch (portError) {
-        logger.error(`❌ Port resolution failed: ${portError.message}`);
-        logger.error('   All configured ports are in use. Exiting.');
-        process.exit(1);
+        // Non-fatal: log and let server.listen() handle any remaining conflict
+        logger.warn(`⚠️  Pre-startup port check failed: ${portError.message}. Proceeding anyway.`);
     }
+
+    // Rebuild CORS whitelist with NetworkManager for resolved port
+    ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
+    logger.info(`📋 CORS whitelist initialized for port ${PORT} (mode: ${networkManager.bindMode})`);
 
     // Plugins laden VOR Server-Start, damit alle Routen verfügbar sind
     logger.info('🔌 Loading plugins...');
