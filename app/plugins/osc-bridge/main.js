@@ -2256,7 +2256,11 @@ class OSCBridgePlugin {
 
             this.api.emit('osc:oscquery-discovered', result);
         } catch (error) {
-            this.logger.error('OSCQuery auto-discovery failed:', error);
+            const errorMessage = error?.message || String(error);
+            this.logger.error(`OSCQuery auto-discovery failed: ${errorMessage}`);
+            if (error?.stack) {
+                this.logger.error(`OSCQuery auto-discovery stack: ${error.stack}`);
+            }
         }
     }
 

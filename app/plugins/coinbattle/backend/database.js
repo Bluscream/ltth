@@ -176,6 +176,20 @@ class CoinBattleDatabase {
         )
       `).run();
 
+      // Archived matches table - used by cleanup scheduler
+      this.db.prepare(`
+        CREATE TABLE IF NOT EXISTS coinbattle_archived_matches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          match_id INTEGER NOT NULL,
+          match_uuid TEXT NOT NULL,
+          end_time INTEGER NOT NULL,
+          total_coins INTEGER DEFAULT 0,
+          total_gifts INTEGER DEFAULT 0,
+          participant_count INTEGER DEFAULT 0,
+          archived_at INTEGER DEFAULT (strftime('%s', 'now'))
+        )
+      `).run();
+
       // Create indexes for performance
       this.db.prepare('CREATE INDEX IF NOT EXISTS idx_matches_status ON coinbattle_matches(status)').run();
       this.db.prepare('CREATE INDEX IF NOT EXISTS idx_matches_start ON coinbattle_matches(start_time)').run();
@@ -194,6 +208,7 @@ class CoinBattleDatabase {
       this.db.prepare('CREATE INDEX IF NOT EXISTS idx_event_cache_expires ON coinbattle_event_cache(expires_at)').run();
       this.db.prepare('CREATE INDEX IF NOT EXISTS idx_seasons_dates ON coinbattle_seasons(start_date, end_date)').run();
       this.db.prepare('CREATE INDEX IF NOT EXISTS idx_seasons_active ON coinbattle_seasons(is_active)').run();
+      this.db.prepare('CREATE INDEX IF NOT EXISTS idx_archived_matches_match_id ON coinbattle_archived_matches(match_id)').run();
 
       // Initialize default badges
       this.initializeDefaultBadges();

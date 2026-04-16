@@ -80,7 +80,11 @@ class OSCQueryClient {
             };
 
         } catch (error) {
-            this.logger.error('OSCQuery discovery failed:', error);
+            const errorMessage = error?.message || String(error);
+            this.logger.error(`OSCQuery discovery failed: ${errorMessage}`);
+            if (error?.stack) {
+                this.logger.error(`OSCQuery discovery stack: ${error.stack}`);
+            }
             throw error;
         }
     }
@@ -159,12 +163,20 @@ class OSCQueryClient {
                     this._handleUpdate(update);
                     if (callback) callback(update);
                 } catch (error) {
-                    this.logger.error('OSCQuery message parse error:', error);
+                    const errorMessage = error?.message || String(error);
+                    this.logger.error(`OSCQuery message parse error: ${errorMessage}`);
+                    if (error?.stack) {
+                        this.logger.error(`OSCQuery message parse stack: ${error.stack}`);
+                    }
                 }
             });
 
             this.ws.on('error', (error) => {
-                this.logger.error('OSCQuery WebSocket error:', error);
+                const errorMessage = error?.message || String(error);
+                this.logger.error(`OSCQuery WebSocket error: ${errorMessage}`);
+                if (error?.stack) {
+                    this.logger.error(`OSCQuery WebSocket stack: ${error.stack}`);
+                }
                 this._emit('error', { error: error.message });
             });
 
@@ -180,7 +192,11 @@ class OSCQueryClient {
             return true;
 
         } catch (error) {
-            this.logger.error('OSCQuery subscribe failed:', error);
+            const errorMessage = error?.message || String(error);
+            this.logger.error(`OSCQuery subscribe failed: ${errorMessage}`);
+            if (error?.stack) {
+                this.logger.error(`OSCQuery subscribe stack: ${error.stack}`);
+            }
             return false;
         }
     }
