@@ -22,6 +22,10 @@ const PlaybackEngine = require('./lib/playback-engine');
 const BanList = require('./lib/ban-list');
 const AutoDJ = require('./lib/auto-dj');
 
+const DEFAULT_PRECACHE_LOOKAHEAD = 2;
+const MAX_PRECACHE_LOOKAHEAD = 5;
+const PRECACHE_KILL_TIMEOUT_MS = 1500;
+
 const DEFAULT_CONFIG = {
   enabled: true,
   commandPrefix: '!',
@@ -162,6 +166,7 @@ class MusicBotPlugin extends EventEmitter {
     this.pluginDataDir = this.api.ensurePluginDataDir();
     this.cacheDir = path.join(this.pluginDataDir, 'cache');
     await fsp.mkdir(this.cacheDir, { recursive: true });
+    await this._pruneCacheDir();
 
     await this._ensureYtDlp();
     await this._ensureMpv();
@@ -739,7 +744,11 @@ class MusicBotPlugin extends EventEmitter {
     };
 
     this._ttsDuckingHandlers = { ttsStarted, alertShown };
-    this.api.pluginLoader?.on('tts:playback:started', ttsStarted);
+    if (this.api.pluginLoader?.on) {
+      this.api.pluginLoader.on('tts:playback:started', ttsStarted);
+    } else {
+      this.api.log('[music-bot] pluginLoader unavailable: TTS ducking listener not registered', 'warn');
+    }
 
     if (this.io && typeof this.io.emit === 'function') {
       this._ioEmitOriginal = this.io.emit.bind(this.io);
@@ -1087,7 +1096,14 @@ class MusicBotPlugin extends EventEmitter {
     try {
       const cfg = this.config.preCache || {};
       if (!cfg.enabled) return;
-      const lookahead = Math.max(0, Math.min(Number(cfg.lookahead) || 2, 5));
+      const requestedLookahead = Number(cfg.lookahead);
+      const lookahead = Math.max(
+        0,
+        Math.min(
+          Number.isFinite(requestedLookahead) ? requestedLookahead : DEFAULT_PRECACHE_LOOKAHEAD,
+          MAX_PRECACHE_LOOKAHEAD
+        )
+      );
       if (!lookahead) return;
       const upcoming = this.queueManager.getQueue().slice(0, lookahead);
       upcoming.forEach((song) => this._startPreCache(song));
@@ -1103,19 +1119,24 @@ class MusicBotPlugin extends EventEmitter {
 
     const cacheState = this._precacheState.get(song.id);
     if (cacheState?.path && fs.existsSync(cacheState.path)) {
-      song.localPath = cacheState.path;
+      if (!this.queueManager.setSongLocalPath(song.id, cacheState.path)) {
+        this._precacheState.delete(song.id);
+      }
       return;
     }
 
     const isHttpUrl = /^https?:\/\//i.test(song.url);
     if (!isHttpUrl) {
       if (fs.existsSync(song.url)) {
-        song.localPath = song.url;
+        if (!this.queueManager.setSongLocalPath(song.id, song.url)) {
+          this._precacheState.delete(song.id);
+        }
       }
       return;
     }
 
-    const outputTemplate = path.join(this.cacheDir, `${song.id}-%(id)s.%(ext)s`);
+    const cacheKey = this._safeCacheKey(song.id);
+    const outputTemplate = path.join(this.cacheDir, `${cacheKey}-%(id)s.%(ext)s`);
     const args = [
       '--no-warnings',
       '--ignore-errors',
@@ -1129,7 +1150,7 @@ class MusicBotPlugin extends EventEmitter {
       song.url
     ];
 
-    const ytdlpPath = this.musicResolver?.config?.ytdlpPath || this.config.resolver.ytdlpPath || 'yt-dlp';
+    const ytdlpPath = this._getYtDlpPath();
     const proc = spawn(ytdlpPath, args, {
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -1152,7 +1173,12 @@ class MusicBotPlugin extends EventEmitter {
       const cachedPath = stdout.trim().split('\n').filter(Boolean).pop();
       if (cachedPath && fs.existsSync(cachedPath)) {
         this._precacheState.set(song.id, { path: cachedPath, cachedAt: Date.now() });
-        song.localPath = cachedPath;
+        if (!this.queueManager.setSongLocalPath(song.id, cachedPath)) {
+          this._precacheState.delete(song.id);
+        }
+        this._pruneCacheDir().catch((error) => {
+          this.api.log(`[music-bot] Cache prune failed: ${error.message}`, 'debug');
+        });
       } else if (stderr) {
         this.api.log(`[music-bot] Pre-cache skipped for "${song.title}": ${stderr.trim()}`, 'debug');
       }
@@ -1173,8 +1199,44 @@ class MusicBotPlugin extends EventEmitter {
         if (proc.exitCode === null) {
           proc.kill('SIGKILL');
         }
-      }, 1500);
+      }, PRECACHE_KILL_TIMEOUT_MS);
     })));
+  }
+
+  _getYtDlpPath() {
+    return this.musicResolver?.config?.ytdlpPath || this.config.resolver.ytdlpPath || 'yt-dlp';
+  }
+
+  _safeCacheKey(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'track';
+    return createHash('sha1').update(raw).digest('hex').slice(0, 16);
+  }
+
+  async _pruneCacheDir() {
+    const maxCacheFiles = 200;
+    const entries = await fsp.readdir(this.cacheDir, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const fullPath = path.join(this.cacheDir, entry.name);
+      try {
+        const stat = await fsp.stat(fullPath);
+        files.push({ fullPath, mtimeMs: stat.mtimeMs });
+      } catch (_) {
+        // ignore stale entries
+      }
+    }
+    if (files.length <= maxCacheFiles) return;
+    files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    const removeCount = files.length - maxCacheFiles;
+    await Promise.all(files.slice(0, removeCount).map(async (file) => {
+      try {
+        await fsp.unlink(file.fullPath);
+      } catch (_) {
+        // ignore deletion errors
+      }
+    }));
   }
 
   async _playFallbackTrack() {
@@ -1259,7 +1321,8 @@ class MusicBotPlugin extends EventEmitter {
     }
     const baseDir = this.pluginDataDir || __dirname;
     const absolute = path.resolve(baseDir, rawPath);
-    if (!absolute.startsWith(path.resolve(baseDir))) return null;
+    const relative = path.relative(path.resolve(baseDir), absolute);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
     return fs.existsSync(absolute) ? absolute : null;
   }
 

@@ -5,6 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const DEFAULT_DUCKING_TARGET_PERCENT = 35;
+const DEFAULT_NORMALIZATION_INTEGRATED_LUFS = -16;
+const DEFAULT_NORMALIZATION_TRUE_PEAK_DB = -1.5;
+const DEFAULT_NORMALIZATION_LRA = 11;
+
 class PlaybackEngine extends EventEmitter {
   constructor(config, api) {
     super();
@@ -134,18 +139,24 @@ class PlaybackEngine extends EventEmitter {
     }
 
     this._duckReleaseTimer = setTimeout(async () => {
-      this._duckReleaseTimer = null;
-      this._duckActiveCount = Math.max(this._duckActiveCount - 1, 0);
-      if (this._duckActiveCount === 0) {
-        const cfgFadeIn = Number(duckingConfig.fadeInMs);
-        const fadeInMs = Math.max(Number.isFinite(cfgFadeIn) ? cfgFadeIn : 700, 0);
-        try {
+      try {
+        this._duckReleaseTimer = null;
+        this._duckActiveCount = Math.max(this._duckActiveCount - 1, 0);
+        if (this._duckActiveCount === 0) {
+          const cfgFadeIn = Number(duckingConfig.fadeInMs);
+          const fadeInMs = Math.max(Number.isFinite(cfgFadeIn) ? cfgFadeIn : 700, 0);
           await this._fadeVolume(this.volume, this._getEffectiveVolume(), fadeInMs, true);
-        } catch (error) {
-          this.emit('error', error);
         }
+      } catch (error) {
+        this.emit('error', error);
       }
     }, holdMs);
+  }
+
+  _clampRange(value, min, max, fallback) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.max(min, Math.min(max, num));
   }
 
   async shutdown() {
@@ -316,7 +327,13 @@ class PlaybackEngine extends EventEmitter {
       return this._clampVolume(this.masterVolume);
     }
     const targetPercent = Number(duckingConfig.targetVolumePercent);
-    const factor = Math.min(1, Math.max(0, (Number.isFinite(targetPercent) ? targetPercent : 35) / 100));
+    const factor = Math.min(
+      1,
+      Math.max(
+        0,
+        (Number.isFinite(targetPercent) ? targetPercent : DEFAULT_DUCKING_TARGET_PERCENT) / 100
+      )
+    );
     return this._clampVolume(this.masterVolume * factor);
   }
 
@@ -326,15 +343,19 @@ class PlaybackEngine extends EventEmitter {
       await this._sendCommand(['af', 'clr']);
       return;
     }
-    const i = Number.isFinite(Number(normalization.integratedLufs))
-      ? Number(normalization.integratedLufs)
-      : -16;
-    const tp = Number.isFinite(Number(normalization.truePeakDb))
-      ? Number(normalization.truePeakDb)
-      : -1.5;
-    const lra = Number.isFinite(Number(normalization.lra))
-      ? Number(normalization.lra)
-      : 11;
+    const i = this._clampRange(
+      normalization.integratedLufs,
+      -70,
+      0,
+      DEFAULT_NORMALIZATION_INTEGRATED_LUFS
+    );
+    const tp = this._clampRange(
+      normalization.truePeakDb,
+      -9,
+      0,
+      DEFAULT_NORMALIZATION_TRUE_PEAK_DB
+    );
+    const lra = this._clampRange(normalization.lra, 1, 20, DEFAULT_NORMALIZATION_LRA);
     const filter = `lavfi=[loudnorm=I=${i}:TP=${tp}:LRA=${lra}]`;
     await this._sendCommand(['af', 'set', filter]);
   }

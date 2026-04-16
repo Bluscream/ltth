@@ -95,7 +95,7 @@ class QueueManager {
 
     const youtubeId = this._extractYouTubeId(song);
 
-    const requesterKey = String(song.requestedBy || '').trim().toLowerCase();
+    const requesterKey = this._normalizeRequesterKey(song.requestedBy);
     const songEntry = {
       id: song.id || randomUUID(),
       title: song.title,
@@ -164,6 +164,21 @@ class QueueManager {
 
   markPlaying(track) {
     this.current = track;
+  }
+
+  setSongLocalPath(songId, localPath) {
+    if (!songId || !localPath) return false;
+    let updated = false;
+    this.queue = this.queue.map((entry) => {
+      if (entry.id !== songId) return entry;
+      updated = true;
+      return { ...entry, localPath };
+    });
+    if (this.current?.id === songId) {
+      this.current = { ...this.current, localPath };
+      updated = true;
+    }
+    return updated;
   }
 
   addToHistory(track, skipped = false) {
@@ -264,10 +279,10 @@ class QueueManager {
       }
     }
 
-    const requesterKey = String(song.requestedBy || '').trim().toLowerCase();
+    const requesterKey = this._normalizeRequesterKey(song.requestedBy);
     if (requesterKey) {
       const count = this.queue.filter((s) => {
-        const existing = String(s.requesterKey || s.requestedBy || '').trim().toLowerCase();
+        const existing = this._normalizeRequesterKey(s.requesterKey || s.requestedBy);
         return existing === requesterKey;
       }).length;
       if (count >= this.queueConfig.maxPerUser) {
@@ -381,7 +396,7 @@ class QueueManager {
         youtubeId: row.youtubeId || null,
         source: row.source || 'youtube',
         requestedBy: row.requestedBy || 'viewer',
-        requesterKey: String(row.requestedBy || 'viewer').toLowerCase(),
+        requesterKey: this._normalizeRequesterKey(row.requestedBy || 'viewer'),
         isGiftRequest: Boolean(row.isGiftRequest),
         addedAt: row.addedAt || Date.now()
       }));
@@ -463,6 +478,10 @@ class QueueManager {
     } catch (error) {
       this.api.log?.(`[music-bot] Failed to ensure queue table: ${error.message}`, 'error');
     }
+  }
+
+  _normalizeRequesterKey(value) {
+    return String(value || '').trim().toLowerCase();
   }
 }
 
