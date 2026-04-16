@@ -26,7 +26,7 @@ class TikTokConnector extends EventEmitter {
     this.io = io;
     this.db = db;
     this.logger = logger;
-    this.setMaxListeners(20);
+    this.setMaxListeners(50);
     this._adapter = null;
     this._currentSource = '';
     this._eventForwarders = {};

@@ -794,7 +794,11 @@ func (l *Launcher) killNodeProcess() {
 
 // checkServerHealth checks if the server is responding
 func (l *Launcher) checkServerHealth() bool {
-	return l.checkServerHealthOnPort(3000)
+	targetPort := 3000
+	if l.alternativePort > 0 {
+		targetPort = l.alternativePort
+	}
+	return l.checkServerHealthOnPort(targetPort)
 }
 
 // checkServerHealthOnPort checks if the server is responding on a specific port
@@ -932,24 +936,22 @@ func (l *Launcher) autoFixPort() {
 	}
 
 	// Port is occupied but no server responds.
-	// This usually means the OS is holding the port in TCP TIME_WAIT after a recent shutdown.
-	// Wait up to 15 seconds for the port to be released before falling back to an alternative.
-	l.logger.Println("[INFO] Port in use but no server responding - waiting for port release (TIME_WAIT)...")
+	// Wait only briefly and let Node.js PortManager handle deeper recovery/cleanup.
+	l.logger.Println("[INFO] Port in use but no server responding - waiting briefly for port release...")
 	l.updateProgressLocalized(87, "status.port_wait", "⏳ Warte auf Port-Freigabe nach Shutdown...")
 
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 3; i++ {
 		time.Sleep(1 * time.Second)
 		if l.checkPortAvailable(3000) {
 			l.logger.Println("[SUCCESS] Port 3000 is now available after waiting")
 			l.updateProgressLocalized(88, "status.port_freed", "✅ Port 3000 ist wieder frei")
 			return
 		}
-		l.logger.Printf("[INFO] Waiting for port 3000... (%d/15s)\n", i+1)
+		l.logger.Printf("[INFO] Waiting for port 3000... (%d/3s)\n", i+1)
 	}
 
-	// Still occupied after 15s → fall back to alternative port
-	l.logger.Println("[WARNING] Port 3000 still in use after 15s, trying alternative ports...")
-	time.Sleep(2 * time.Second)
+	// Still occupied after brief wait → fall back to alternative port
+	l.logger.Println("[WARNING] Port 3000 still in use after brief wait, trying alternative ports...")
 
 	for _, altPort := range []int{3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009} {
 		if l.checkPortAvailable(altPort) {

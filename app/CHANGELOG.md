@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### 🚀 Launcher/Port-Stabilität (Go + Node.js)
+- `build-src/dev-launcher.go` und `build-src/launcher-gui.go`: `checkServerHealth()` nutzt jetzt dynamisch `alternativePort`, wenn ein Fallback-Port gewählt wurde (statt hartcodiert 3000), wodurch Health-Check-Timeouts auf Alternativports verhindert werden.
+- `build-src/dev-launcher.go` und `build-src/launcher-gui.go`: `autoFixPort()` wartet bei blockiertem Port 3000 nur noch kurz (max. 3s statt 15s) und überlässt erweitertes Recovery dem Node.js-Port-Management.
+- `app/modules/tiktok.js` und `app/server.js`: EventEmitter-Listener-Limits für TikTokConnector und Socket.IO Namespace auf 50 erhöht, um `MaxListenersExceededWarning` in legitimen Multi-Listener-Szenarien zu vermeiden.
+- `app/modules/port-manager.js` + `app/server.js`: EADDRINUSE-Retry kann jetzt fehlgeschlagene Ports explizit ausschließen (`excludePorts`), sodass ein gerade fehlgeschlagener Fallback-Port nicht sofort erneut ausgewählt wird.
+
 #### 🔥 **Flame Overlay WebGL rendering + bloom framebuffer state**
 - `app/plugins/flame-overlay/renderer/post-processor.js`: `renderToFramebuffer()` now validates target framebuffer, applies matching viewport size for scene vs bloom buffers, clears color/depth before rendering, and restores default framebuffer viewport afterward.
 - `app/plugins/flame-overlay/renderer/effects-engine.js`: `render()` now explicitly restores canvas framebuffer/viewport before final composite and direct rendering fallback; smoke rendering logic is encapsulated in `renderSmoke(time)` and invoked safely from `renderScene()`.
