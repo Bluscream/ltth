@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### 🔥 **Flame Overlay WebGL rendering + bloom framebuffer state**
+- `app/plugins/flame-overlay/renderer/post-processor.js`: `renderToFramebuffer()` now validates target framebuffer, applies matching viewport size for scene vs bloom buffers, clears color/depth before rendering, and restores default framebuffer viewport afterward.
+- `app/plugins/flame-overlay/renderer/effects-engine.js`: `render()` now explicitly restores canvas framebuffer/viewport before final composite and direct rendering fallback; smoke rendering logic is encapsulated in `renderSmoke(time)` and invoked safely from `renderScene()`.
+- Added regression test coverage in `app/test/flame-overlay-renderer-webgl-state.test.js` to guard viewport/framebuffer and render-scene delegation behavior.
+
 #### 🔌 **EulerstreamAdapter – Token-Drain & ~60s-Disconnect-Loop**
 - EulerstreamAdapter: 4404 (Not Live) retry no longer runs unbounded – now consumes autoReconnectCount and stops at maxAutoReconnects
 - EulerstreamAdapter: 4429 (Too Many Connections) retry no longer runs unbounded – now consumes autoReconnectCount and stops at maxAutoReconnects
