@@ -50,7 +50,7 @@ const DEFAULT_CONFIG = {
   queue: {
     maxLength: 50,
     maxPerUser: 3,
-    maxSongDurationSeconds: 600,
+    maxSongDurationSeconds: 360,
     allowDuplicates: false,
     cooldownPerUserSeconds: 30,
     duplicateDetection: 'strict',

@@ -33,6 +33,7 @@
   const crossfadeValue = document.getElementById('crossfade-value');
   const duplicateDetection = document.getElementById('duplicate-detection');
   const cooldownSecondsInput = document.getElementById('cooldown-seconds');
+  const maxSongDurationInput = document.getElementById('max-song-duration-seconds');
   const cooldownBypassGifts = document.getElementById('cooldown-bypass-gifts');
   const skipImmunityGifts = document.getElementById('skip-immunity-gifts');
   const autoDjEnabled = document.getElementById('auto-dj-enabled');
@@ -219,6 +220,12 @@
     await post('/config', { queue: { cooldownPerUserSeconds: seconds } });
   });
 
+  maxSongDurationInput?.addEventListener('change', async () => {
+    const seconds = clampSongDuration(maxSongDurationInput.value);
+    maxSongDurationInput.value = seconds;
+    await post('/config', { queue: { maxSongDurationSeconds: seconds } });
+  });
+
   cooldownBypassGifts.addEventListener('change', async () => {
     await post('/config', { queue: { cooldownBypassForGifts: cooldownBypassGifts.checked } });
   });
@@ -234,7 +241,7 @@
 
   function buildOverlayUrl() {
     const design = overlayDesign?.value || 'compact';
-    const theme = overlayTheme?.value || 'glass';
+    const theme = overlayTheme?.value || 'default';
     const position = overlayPosition?.value || 'bottom-left';
     const base = `${window.location.protocol}//${window.location.host}/plugins/music-bot/overlay.html`;
     return `${base}?design=${design}&theme=${theme}&position=${position}`;
@@ -302,6 +309,7 @@
       queue: {
         duplicateDetection: duplicateDetection.value,
         cooldownPerUserSeconds: Math.max(0, Number(cooldownSecondsInput.value) || 0),
+        maxSongDurationSeconds: clampSongDuration(maxSongDurationInput?.value),
         cooldownBypassForGifts: cooldownBypassGifts.checked
       },
       resolver: { ytdlpPath: (ytdlpPathInput?.value || '').trim() || 'yt-dlp' },
@@ -455,6 +463,9 @@
     }
     if (configData?.config?.queue?.cooldownPerUserSeconds !== undefined) {
       cooldownSecondsInput.value = configData.config.queue.cooldownPerUserSeconds;
+    }
+    if (configData?.config?.queue?.maxSongDurationSeconds !== undefined && maxSongDurationInput) {
+      maxSongDurationInput.value = clampSongDuration(configData.config.queue.maxSongDurationSeconds);
     }
     if (configData?.config?.queue?.cooldownBypassForGifts !== undefined) {
       cooldownBypassGifts.checked = Boolean(configData.config.queue.cooldownBypassForGifts);
@@ -739,6 +750,12 @@
       .split(splitter)
       .map((item) => item.trim())
       .filter(Boolean);
+  }
+
+  function clampSongDuration(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 360;
+    return Math.min(7200, Math.max(30, Math.round(numeric)));
   }
 
   async function refreshBans() {

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🎵 **Music Bot Overlay: Theme-Engine & Visualizer**
+- OBS-Overlay unterstützt nun URL-Themes `default`, `cyberpunk`, `minimal`, `neon` (inkl. Legacy-Mapping alter Theme-Namen).
+- Neues Canvas-basiertes Echtzeit-Visualizer-Rendering mit Web Audio API (`AnalyserNode`, `requestAnimationFrame`) und Theme-gebundener Farbpalette.
+- Konfigurierbares Songlängen-Limit (Default 360s) inkl. Dashboard-Feld und hartem Queue-Check vor dem Hinzufügen von Requests.
+
 #### 🔌 **Adapter Architecture for TikTok Data Sources** (`app/modules/adapters/`)
 - `BaseAdapter.js`: Abstract base class for all data source adapters. Extends `EventEmitter`. Provides shared state (`isConnected`, `currentUsername`, `streamStartTime`, `stats`), broadcast helpers (`broadcastStats`, `broadcastStatus`), event routing (`handleEvent`), and duration interval management.
 - `EulerstreamAdapter.js`: Eulerstream WebSocket logic extracted from `tiktok.js` with zero behaviour change. All original event handling, deduplication, gift catalog, room info fetching, diagnostics, and heartbeat logic are fully preserved.

@@ -245,8 +245,22 @@ class QueueManager {
       return { success: false, error: 'Queue is full' };
     }
 
-    if (song.duration && song.duration > this.queueConfig.maxSongDurationSeconds) {
-      return { success: false, error: 'Song is too long' };
+    const maxSongDurationSeconds = Math.max(
+      Number(this.queueConfig.maxSongDurationSeconds) || 360,
+      1
+    );
+    const duration = Number(song.duration);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return {
+        success: false,
+        error: 'Songdauer konnte nicht ermittelt werden. Bitte einen anderen Song wählen.'
+      };
+    }
+    if (duration > maxSongDurationSeconds) {
+      return {
+        success: false,
+        error: `Song ist zu lang (${Math.ceil(duration)}s). Maximum: ${maxSongDurationSeconds}s.`
+      };
     }
 
     const duplicatesDisabled =
