@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🎵 **Music Bot – Monetization/UI/Overlay Ausbau** (Feature 21, 22, 29, 31, 33, 34, 36, 38, 39)
+- **Pay-to-Play** mit Geschenkekatalog + Coin-Schwelle: `!sr`-Requests benötigen (konfigurierbar) passendes Gift oder ausreichende Coins; Credits werden über Gift-Events vergeben.
+- **Pay-to-Skip** mit Geschenkekatalog: definierte Gifts überspringen den aktuell laufenden Song sofort.
+- **Like-Gated Requests** mit Mindestlikes pro User: `!sr` wird abgelehnt, bis die konfigurierbare Like-Schwelle erreicht ist.
+- Dashboard-Konfiguration um **Monetization-Settings** (Pay-to-Play/Skip, Giftlisten, Mindestlikes) inkl. Persistenz erweitert.
+- Dashboard um **Master-/Source-Volume-Slider** erweitert, live angewendet und in Plugin-Config persistent gespeichert.
+- Dashboard-Queue unterstützt **Drag & Drop Reorder** plus UI-Aktionen für Pause/Resume und Löschen.
+- Dashboard-**Status-Toasts** für Request-Erfolg/-Ablehnung, API-Fehler und Netzwerk-/Socket-Probleme ergänzt.
+- Overlay zeigt **Requester-Avatar** beim aktuellen Song (Avatar-URL wird beim Queue-Add gespeichert).
+- Overlay ergänzt um **dynamisch animierte Album-Artworks** (rotierend, pausiert bei Playback-Pause).
+- Overlay ergänzt um **Up-Next Widget** (nächste 2-3 Queue-Songs, live via Socket-Queue-Updates).
+
 #### 🎵 **Music Bot – Core Feature Erweiterung (Audio/Queue/Chat)**
 - **Audio-Ducking:** Automatisches Ducking der Musik bei `tts:playback:started` sowie systemweiten `alert:show` Events mit konfigurierbaren Fade-In/Fade-Out Zeiten.
 - **Lautstärke-Normalisierung:** MPV-Audiofilter `loudnorm` für konsistentere Track-Lautheit (konfigurierbar über `playback.normalization`).

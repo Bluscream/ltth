@@ -106,6 +106,7 @@ class QueueManager {
       youtubeId: youtubeId || null,
       source: song.source || 'youtube',
       requestedBy: song.requestedBy || 'viewer',
+      requesterAvatar: song.requesterAvatar || null,
       requesterKey: requesterKey || 'viewer',
       isGiftRequest: Boolean(song.isGiftRequest),
       addedAt: Date.now()

@@ -123,7 +123,14 @@
       <div class="player-bottom">
         <div class="player-sliders">
           <div class="slider-group">
-            <label for="volume-input">🔊 Volume</label>
+            <label for="master-volume-input">🔊 Master Volume</label>
+            <div class="slider-row">
+              <input type="range" id="master-volume-input" min="0" max="100" value="100">
+              <span id="master-volume-value">100</span>
+            </div>
+          </div>
+          <div class="slider-group">
+            <label for="volume-input">🎚️ Source Volume</label>
             <div class="slider-row">
               <input type="range" id="volume-input" min="0" max="100" value="50">
               <span id="volume-value">50</span>
@@ -187,6 +194,38 @@
         <label class="checkbox-field">
           <input type="checkbox" id="require-superfan">
           <span>Nur Superfans dürfen Songs anfragen 🌟</span>
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" id="pay-to-play-enabled">
+          <span>Pay-to-Play aktivieren (Gift/Coin Pflicht für !sr)</span>
+        </label>
+        <label class="field">
+          <span>Pay-to-Play Gifts (Komma oder Zeile)</span>
+          <textarea id="pay-to-play-gifts" rows="2" placeholder="Rose, GG"></textarea>
+        </label>
+        <label class="field">
+          <span>Pay-to-Play Mindestcoins pro Request</span>
+          <input type="number" id="pay-to-play-min-coins" min="0" value="0">
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" id="pay-to-skip-enabled">
+          <span>Pay-to-Skip aktivieren</span>
+        </label>
+        <label class="field">
+          <span>Pay-to-Skip Gifts (Komma oder Zeile)</span>
+          <textarea id="pay-to-skip-gifts" rows="2" placeholder="GG"></textarea>
+        </label>
+        <label class="field">
+          <span>Geschenkekatalog (Mehrfachauswahl, dann in Felder kopieren)</span>
+          <select id="gift-catalog-list" size="6" multiple></select>
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" id="like-gate-enabled">
+          <span>Like-Gating für !sr aktivieren</span>
+        </label>
+        <label class="field">
+          <span>Mindestanzahl Likes pro User</span>
+          <input type="number" id="min-likes-per-user" min="1" value="1">
         </label>
       </div>
       <div class="actions">
@@ -334,7 +373,7 @@
       <div class="card-header">
         <div>
           <h2>Queue</h2>
-          <p class="text-secondary">Aktuelle Warteschlange</p>
+          <p class="text-secondary">Aktuelle Warteschlange (Drag &amp; Drop zum Sortieren)</p>
         </div>
         <span id="queue-length" class="pill">0</span>
       </div>
@@ -425,6 +464,7 @@
       </div>
     </section>
   </div>
+  <div id="musicbot-toast-container" class="musicbot-toast-container" aria-live="polite" aria-atomic="true"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/plugins/music-bot/assets/ui.js"></script>

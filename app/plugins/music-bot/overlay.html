@@ -41,6 +41,29 @@
       box-sizing: border-box;
     }
 
+    .thumb.artwork {
+      border-radius: 50%;
+      animation: spin-artwork 8s linear infinite;
+      animation-play-state: running;
+    }
+    body.overlay-paused .thumb.artwork {
+      animation-play-state: paused;
+    }
+    @keyframes spin-artwork {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .requester-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      object-fit: cover;
+      background: rgba(15, 23, 42, 0.65);
+      flex-shrink: 0;
+    }
+
     /* Position presets */
     .pos-top-left { justify-content: flex-start; align-items: flex-start; }
     .pos-top-right { justify-content: flex-end; align-items: flex-start; }
@@ -495,6 +518,42 @@
       opacity: 1;
       transform: translateY(0);
     }
+
+    .up-next-widget {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      width: 300px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      padding: 10px 12px;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 250ms ease, transform 250ms ease;
+      pointer-events: none;
+    }
+    .up-next-widget.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .up-next-title {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+    .up-next-item {
+      font-size: 12px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 2px 0;
+    }
   </style>
 </head>
 <body>
@@ -514,6 +573,7 @@
           <div id="compact-time" class="time">--:-- / --:--</div>
         </div>
       </div>
+      <img id="compact-avatar" class="requester-avatar" alt="" style="display:none">
     </div>
 
     <!-- FULLWIDTH -->
@@ -524,6 +584,7 @@
         <p id="fullwidth-artist" class="artist"></p>
         <p id="fullwidth-requester" class="requester"></p>
       </div>
+      <img id="fullwidth-avatar" class="requester-avatar" alt="" style="display:none">
       <div class="progress-wrap">
         <div class="bar">
           <div id="fullwidth-bar-fill" class="bar-fill"></div>
@@ -543,6 +604,7 @@
     <!-- CARD -->
     <div id="widget-card" style="display:none">
       <div id="card-thumb" class="thumb" aria-hidden="true"></div>
+      <img id="card-avatar" class="requester-avatar" alt="" style="display:none">
       <div class="meta">
         <p id="card-title" class="title">Waiting for music...</p>
         <p id="card-artist" class="artist"></p>
@@ -568,6 +630,10 @@
     <div class="fill" id="vote-skip-fill"></div>
   </div>
   <div class="vote-skip-label" id="vote-skip-label"></div>
+  <div id="up-next-widget" class="up-next-widget">
+    <div class="up-next-title">Up Next</div>
+    <div id="up-next-items"></div>
+  </div>
 
   <script>
     (() => {
@@ -598,6 +664,7 @@
         compact: {
           widget: document.getElementById('widget-compact'),
           thumb: document.getElementById('compact-thumb'),
+          avatar: document.getElementById('compact-avatar'),
           title: document.getElementById('compact-title'),
           artist: document.getElementById('compact-artist'),
           requester: document.getElementById('compact-requester'),
@@ -607,6 +674,7 @@
         fullwidth: {
           widget: document.getElementById('widget-fullwidth'),
           thumb: document.getElementById('fullwidth-thumb'),
+          avatar: document.getElementById('fullwidth-avatar'),
           title: document.getElementById('fullwidth-title'),
           artist: document.getElementById('fullwidth-artist'),
           requester: document.getElementById('fullwidth-requester'),
@@ -621,6 +689,7 @@
         card: {
           widget: document.getElementById('widget-card'),
           thumb: document.getElementById('card-thumb'),
+          avatar: document.getElementById('card-avatar'),
           title: document.getElementById('card-title'),
           artist: document.getElementById('card-artist'),
           requester: document.getElementById('card-requester'),
@@ -640,6 +709,9 @@
       let pausedProgress = 0;
       let currentQueue = [];
       let idleHideTimer = null;
+      const UP_NEXT_LIMIT = 3;
+      const upNextWidget = document.getElementById('up-next-widget');
+      const upNextItems = document.getElementById('up-next-items');
 
       function handleVoteSkipUpdate(data) {
         const bar = document.getElementById('vote-skip-bar');
@@ -716,12 +788,14 @@
           title: payload.title || 'Unbekannter Titel',
           artist: payload.artist || '',
           requestedBy: payload.requestedBy || '',
+          requesterAvatar: payload.requesterAvatar || null,
           duration,
           startedAt: baseStarted,
           thumbnail: payload.thumbnail || null,
           state: payload.state || 'playing'
         };
         state = currentTrack.state || 'playing';
+        document.body.classList.toggle('overlay-paused', state === 'paused');
         pausedProgress = 0;
 
         // Hide idle message when a track starts
@@ -752,9 +826,19 @@
               ? `Requested by @${currentTrack.requestedBy}` : '';
           }
           if (r.thumb) {
+            r.thumb.classList.add('artwork');
             r.thumb.style.backgroundImage = currentTrack.thumbnail
               ? `url('${currentTrack.thumbnail}')`
               : 'linear-gradient(135deg, rgba(56,189,248,0.35), rgba(14,165,233,0.2))';
+          }
+          if (r.avatar) {
+            if (currentTrack.requesterAvatar) {
+              r.avatar.src = currentTrack.requesterAvatar;
+              r.avatar.style.display = '';
+            } else {
+              r.avatar.style.display = 'none';
+              r.avatar.removeAttribute('src');
+            }
           }
           renderQueueExtras();
           startProgressLoop();
@@ -778,15 +862,31 @@
       }
 
       function renderQueueExtras() {
+        const upNextSongs = currentQueue.slice(0, UP_NEXT_LIMIT);
+        if (upNextWidget && upNextItems) {
+          if (upNextSongs.length > 0) {
+            upNextWidget.classList.add('visible');
+            upNextItems.innerHTML = upNextSongs
+              .map((s, i) => {
+                const label = s.artist ? `${s.title} – ${s.artist}` : s.title;
+                return `<div class="up-next-item">${i + 1}. ${label}</div>`;
+              })
+              .join('');
+          } else {
+            upNextWidget.classList.remove('visible');
+            upNextItems.innerHTML = '';
+          }
+        }
+
         if (design === 'fullwidth' && r.queueCount) {
           const qLen = currentQueue.length;
           r.queueCount.textContent = qLen > 0 ? `🎵 +${qLen} in Queue` : '';
         }
         if (design === 'card' && r.queuePreview && r.queueItems) {
-          const next3 = currentQueue.slice(0, 3);
-          if (next3.length > 0) {
+          const cardPreviewSongs = currentQueue.slice(0, UP_NEXT_LIMIT);
+          if (cardPreviewSongs.length > 0) {
             r.queuePreview.style.display = '';
-            r.queueItems.innerHTML = next3
+            r.queueItems.innerHTML = cardPreviewSongs
               .map((s, i) => {
                 const label = s.artist ? `${s.title} – ${s.artist}` : s.title;
                 return `<div class="queue-preview-item">${i + 1}. ${label}</div>`;
@@ -800,6 +900,7 @@
 
       function setState(nextState) {
         state = nextState;
+        document.body.classList.toggle('overlay-paused', state === 'paused');
         if (state === 'paused') {
           pausedProgress = computeElapsed();
           updateProgress(true);
@@ -815,10 +916,15 @@
 
       function clearTrack() {
         currentTrack = null;
+        document.body.classList.remove('overlay-paused');
         if (r.widget) r.widget.classList.remove('visible');
         stopProgressLoop();
         if (r.barFill) r.barFill.style.width = '0%';
         if (r.time) r.time.textContent = '--:-- / --:--';
+        if (r.avatar) {
+          r.avatar.style.display = 'none';
+          r.avatar.removeAttribute('src');
+        }
         if (design === 'minimal' && r.text) {
           r.text.textContent = '🎵 Waiting for music...';
           r.text.classList.remove('scrolling');
