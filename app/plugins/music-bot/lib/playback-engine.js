@@ -15,21 +15,26 @@ class PlaybackEngine extends EventEmitter {
     this.socket = null;
     this.nowPlaying = null;
     this.state = 'idle';
-    this.volume = config.defaultVolume;
+    this.masterVolume = this._clampVolume(config.defaultVolume);
+    this.volume = this.masterVolume;
     this._buffer = '';
     this._fadeTimer = null;
     this._restartAttempts = 0;
     this._shuttingDown = false;
+    this._duckActiveCount = 0;
+    this._duckReleaseTimer = null;
   }
 
   async play(track) {
-    if (!track || !track.url) {
+    if (!track || (!track.url && !track.localPath)) {
       throw new Error('Invalid track');
     }
 
     await this._ensureProcess();
+    await this._applyNormalizationFilter();
     const crossfadeMs = Number(this.config.crossfadeDuration || 0);
     const hasCurrent = this.nowPlaying && this.state === 'playing';
+    const playbackUrl = track.localPath || track.url;
 
     const newTrackPayload = {
       id: track.id,
@@ -39,7 +44,8 @@ class PlaybackEngine extends EventEmitter {
       thumbnail: track.thumbnail || null,
       requestedBy: track.requestedBy || 'viewer',
       source: track.source || 'youtube',
-      url: track.url,
+      url: track.url || playbackUrl,
+      localPath: track.localPath || null,
       youtubeId: track.youtubeId || null,
       isGiftRequest: Boolean(track.isGiftRequest),
       startedAt: Date.now()
@@ -49,7 +55,7 @@ class PlaybackEngine extends EventEmitter {
       const currentVolume = this.volume;
       await this._fadeVolume(currentVolume, 0, crossfadeMs, true);
 
-      await this._sendCommand(['loadfile', track.url, 'append-play']);
+      await this._sendCommand(['loadfile', playbackUrl, 'append-play']);
       await this._sendCommand(['playlist-next', 'force']);
       await this._sendCommand(['set_property', 'volume', 0]);
 
@@ -59,8 +65,8 @@ class PlaybackEngine extends EventEmitter {
 
       await this._fadeVolume(0, currentVolume, crossfadeMs, true);
     } else {
-      await this._sendCommand(['loadfile', track.url, 'replace']);
-      await this.setVolume(this.volume);
+      await this._sendCommand(['loadfile', playbackUrl, 'replace']);
+      await this.setVolume(this.masterVolume);
 
       this.nowPlaying = newTrackPayload;
       this.state = 'playing';
@@ -94,14 +100,60 @@ class PlaybackEngine extends EventEmitter {
   }
 
   async setVolume(volume) {
-    this.volume = volume;
+    this.masterVolume = this._clampVolume(volume);
+    const effectiveVolume = this._getEffectiveVolume();
+    this.volume = effectiveVolume;
     if (!this.process) return;
-    await this._sendCommand(['set_property', 'volume', volume]);
-    this.emit('volume-changed', volume);
+    await this._sendCommand(['set_property', 'volume', effectiveVolume]);
+    this.emit('volume-changed', effectiveVolume);
+  }
+
+  async triggerDucking(durationMs) {
+    const duckingConfig = this.config?.ducking || {};
+    if (!duckingConfig.enabled) return;
+
+    const holdCandidate = Number(durationMs);
+    const configHold = Number(duckingConfig.holdMs);
+    const holdMs = Math.max(
+      Number.isFinite(holdCandidate)
+        ? holdCandidate
+        : (Number.isFinite(configHold) ? configHold : 1000),
+      0
+    );
+    this._duckActiveCount += 1;
+    if (this._duckReleaseTimer) {
+      clearTimeout(this._duckReleaseTimer);
+      this._duckReleaseTimer = null;
+    }
+
+    if (this._duckActiveCount === 1) {
+      const target = this._getEffectiveVolume();
+      const cfgFadeOut = Number(duckingConfig.fadeOutMs);
+      const fadeOutMs = Math.max(Number.isFinite(cfgFadeOut) ? cfgFadeOut : 250, 0);
+      await this._fadeVolume(this.volume, target, fadeOutMs, true);
+    }
+
+    this._duckReleaseTimer = setTimeout(async () => {
+      this._duckReleaseTimer = null;
+      this._duckActiveCount = Math.max(this._duckActiveCount - 1, 0);
+      if (this._duckActiveCount === 0) {
+        const cfgFadeIn = Number(duckingConfig.fadeInMs);
+        const fadeInMs = Math.max(Number.isFinite(cfgFadeIn) ? cfgFadeIn : 700, 0);
+        try {
+          await this._fadeVolume(this.volume, this._getEffectiveVolume(), fadeInMs, true);
+        } catch (error) {
+          this.emit('error', error);
+        }
+      }
+    }, holdMs);
   }
 
   async shutdown() {
     this._shuttingDown = true;
+    if (this._duckReleaseTimer) {
+      clearTimeout(this._duckReleaseTimer);
+      this._duckReleaseTimer = null;
+    }
     if (this.socket) {
       this.socket.destroy();
       this.socket = null;
@@ -117,6 +169,8 @@ class PlaybackEngine extends EventEmitter {
     this.state = 'idle';
     this._restartAttempts = 0;
     this._shuttingDown = false;
+    this._duckActiveCount = 0;
+    this.volume = this.masterVolume;
   }
 
   getNowPlaying() {
@@ -133,7 +187,7 @@ class PlaybackEngine extends EventEmitter {
   }
 
   getVolume() {
-    return this.volume;
+    return this.masterVolume;
   }
 
   getState() {
@@ -246,6 +300,43 @@ class PlaybackEngine extends EventEmitter {
     if (!this.socket) return;
     const payload = JSON.stringify({ command });
     this.socket.write(`${payload}\n`);
+  }
+
+  _clampVolume(volume) {
+    const num = Number(volume);
+    if (!Number.isFinite(num)) {
+      return 50;
+    }
+    return Math.min(100, Math.max(0, num));
+  }
+
+  _getEffectiveVolume() {
+    const duckingConfig = this.config?.ducking || {};
+    if (!duckingConfig.enabled || this._duckActiveCount <= 0) {
+      return this._clampVolume(this.masterVolume);
+    }
+    const targetPercent = Number(duckingConfig.targetVolumePercent);
+    const factor = Math.min(1, Math.max(0, (Number.isFinite(targetPercent) ? targetPercent : 35) / 100));
+    return this._clampVolume(this.masterVolume * factor);
+  }
+
+  async _applyNormalizationFilter() {
+    const normalization = this.config?.normalization || {};
+    if (!normalization.enabled) {
+      await this._sendCommand(['af', 'clr']);
+      return;
+    }
+    const i = Number.isFinite(Number(normalization.integratedLufs))
+      ? Number(normalization.integratedLufs)
+      : -16;
+    const tp = Number.isFinite(Number(normalization.truePeakDb))
+      ? Number(normalization.truePeakDb)
+      : -1.5;
+    const lra = Number.isFinite(Number(normalization.lra))
+      ? Number(normalization.lra)
+      : 11;
+    const filter = `lavfi=[loudnorm=I=${i}:TP=${tp}:LRA=${lra}]`;
+    await this._sendCommand(['af', 'set', filter]);
   }
 
   async _fadeVolume(from, to, durationMs, emitVolumeEvent = true) {

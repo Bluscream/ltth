@@ -95,6 +95,7 @@ class QueueManager {
 
     const youtubeId = this._extractYouTubeId(song);
 
+    const requesterKey = String(song.requestedBy || '').trim().toLowerCase();
     const songEntry = {
       id: song.id || randomUUID(),
       title: song.title,
@@ -105,13 +106,14 @@ class QueueManager {
       youtubeId: youtubeId || null,
       source: song.source || 'youtube',
       requestedBy: song.requestedBy || 'viewer',
+      requesterKey: requesterKey || 'viewer',
       isGiftRequest: Boolean(song.isGiftRequest),
       addedAt: Date.now()
     };
 
     this.queue.push(songEntry);
-    if (songEntry.requestedBy) {
-      this.userLastRequest.set(songEntry.requestedBy, Date.now());
+    if (songEntry.requesterKey) {
+      this.userLastRequest.set(songEntry.requesterKey, Date.now());
     }
 
     this.persistQueue();
@@ -262,13 +264,20 @@ class QueueManager {
       }
     }
 
-    if (song.requestedBy) {
-      const count = this.queue.filter((s) => s.requestedBy === song.requestedBy).length;
+    const requesterKey = String(song.requestedBy || '').trim().toLowerCase();
+    if (requesterKey) {
+      const count = this.queue.filter((s) => {
+        const existing = String(s.requesterKey || s.requestedBy || '').trim().toLowerCase();
+        return existing === requesterKey;
+      }).length;
       if (count >= this.queueConfig.maxPerUser) {
-        return { success: false, error: 'User queue limit reached' };
+        return {
+          success: false,
+          error: `Maximal ${this.queueConfig.maxPerUser} aktive Requests pro User erlaubt.`
+        };
       }
 
-      const lastRequest = this.userLastRequest.get(song.requestedBy);
+      const lastRequest = this.userLastRequest.get(requesterKey);
       const cooldownSeconds = Number(this.queueConfig.cooldownPerUserSeconds) || 0;
       if (lastRequest) {
         const diffSeconds = (Date.now() - lastRequest) / 1000;
@@ -372,6 +381,7 @@ class QueueManager {
         youtubeId: row.youtubeId || null,
         source: row.source || 'youtube',
         requestedBy: row.requestedBy || 'viewer',
+        requesterKey: String(row.requestedBy || 'viewer').toLowerCase(),
         isGiftRequest: Boolean(row.isGiftRequest),
         addedAt: row.addedAt || Date.now()
       }));
