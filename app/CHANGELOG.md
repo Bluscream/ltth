@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `build-src/dev-launcher.go` und `build-src/launcher-gui.go`: `autoFixPort()` wartet bei blockiertem Port 3000 nur noch kurz (max. 3s statt 15s) und überlässt erweitertes Recovery dem Node.js-Port-Management.
 - `app/modules/tiktok.js` und `app/server.js`: EventEmitter-Listener-Limits für TikTokConnector und Socket.IO Namespace auf 50 erhöht, um `MaxListenersExceededWarning` in legitimen Multi-Listener-Szenarien zu vermeiden.
 - `app/modules/port-manager.js` + `app/server.js`: EADDRINUSE-Retry kann jetzt fehlgeschlagene Ports explizit ausschließen (`excludePorts`), sodass ein gerade fehlgeschlagener Fallback-Port nicht sofort erneut ausgewählt wird.
+- `app/server.js` + `app/modules/port-manager.js` + `build-src/dev-launcher.go` + `build-src/launcher-gui.go`: Port-Strategie auf „Force Port 3000“ umgestellt. Kein Ausweichen auf 3001+ mehr; stattdessen aggressives Rebind (`exclusive: false`), EADDRINUSE-Warteschleife sowie Kill/Wait-Only Port-Resolution auf 3000.
 
 #### 🔥 **Flame Overlay WebGL rendering + bloom framebuffer state**
 - `app/plugins/flame-overlay/renderer/post-processor.js`: `renderToFramebuffer()` now validates target framebuffer, applies matching viewport size for scene vs bloom buffers, clears color/depth before rendering, and restores default framebuffer viewport afterward.

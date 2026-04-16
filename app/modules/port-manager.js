@@ -10,14 +10,12 @@ const logger = require('./logger');
  *
  * Strategie:
  * 1. Prüfe ob bevorzugter Port frei ist → nutze ihn
- * 2. Falls belegt: prüfe ob eine alte LTTH-Instanz auf dem Port läuft
- *    a) Wenn ja → alte Instanz killen, bevorzugten Port nutzen
- *    b) Wenn nein (fremder Prozess) → alternativen Port (3001-3009) suchen
+ * 2. Falls belegt: Prozess-PID ermitteln und gnadenlos killen (wenn nicht self)
+ * 3. Falls keine PID ermittelbar (z.B. TIME_WAIT): hartnäckig warten bis Port frei ist
  */
 class PortManager {
   constructor(options = {}) {
     this.preferredPort = options.preferredPort || 3000;
-    this.fallbackPorts = options.fallbackPorts || [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009];
     this.healthEndpoint = options.healthEndpoint || '/api/health';
     this.appIdentifier = options.appIdentifier || 'ltth';
     this.killTimeout = options.killTimeout || 5000;
@@ -171,7 +169,7 @@ class PortManager {
       logger.info(`🔪 Killing old LTTH instance (PID: ${pid})...`);
 
       if (process.platform === 'win32') {
-        execSync(`taskkill /PID ${pid} /F /T`, {
+        execSync(`taskkill /F /T /PID ${pid}`, {
           encoding: 'utf-8',
           timeout: this.killTimeout,
           windowsHide: true
@@ -258,30 +256,22 @@ class PortManager {
   }
 
   /**
-   * Hauptmethode: Findet den besten verfügbaren Port
+   * Hauptmethode: Erzwingt den bevorzugten Port.
+   * Kein Fallback auf andere Ports.
    *
-   * Ablauf:
-   * 1. Bevorzugter Port frei? → Nutzen
-   * 2. Belegt von alter LTTH-Instanz? → Killen, bevorzugten Port nutzen
-   * 3. Belegt von fremdem Prozess? → Fallback-Port suchen
-   *
-   * @param {{excludePorts?: number[]}} [options]
    * @returns {Promise<{port: number, action: string}>}
    */
-  async resolvePort(options = {}) {
+  async resolvePort() {
     const preferred = this.preferredPort;
-    const excludePorts = Array.isArray(options.excludePorts) ? options.excludePorts : [];
-    const excluded = new Set(excludePorts.filter((port) => Number.isInteger(port) && port > 0));
+    let waitedForRelease = false;
 
-    if (excluded.has(preferred)) {
-      logger.warn(`⚠️  Preferred port ${preferred} is excluded, skipping direct check`);
-    } else {
+    while (true) {
       logger.info(`🔍 Checking if port ${preferred} is available...`);
       const isFree = await this.isPortFree(preferred);
 
       if (isFree) {
         logger.info(`✅ Port ${preferred} is available`);
-        return { port: preferred, action: 'direct' };
+        return { port: preferred, action: waitedForRelease ? 'waited_for_release' : 'direct' };
       }
 
       logger.warn(`⚠️  Port ${preferred} is in use, investigating...`);
@@ -294,50 +284,24 @@ class PortManager {
         if (attempt < 2) await new Promise(r => setTimeout(r, 300));
       }
 
-      const { isLTTH } = await this.checkIfLTTHInstance(preferred);
-
-      // Wenn PID bekannt: immer versuchen zu killen.
-      // Beim Neustart nach Absturz ist es garantiert eine alte LTTH-Instanz.
       if (pid && pid !== process.pid) {
-        logger.info(`🔄 Stale process on port ${preferred} (PID: ${pid}) – killing...`);
-        const killed = await this.killProcess(pid);
-
-        if (killed) {
-          const nowFree = await this._waitForPortFree(preferred, this.killTimeout);
-          if (nowFree) {
-            logger.info(`✅ Port ${preferred} freed after killing stale process`);
-            return { port: preferred, action: 'killed_old_instance' };
-          }
-          logger.warn(`⚠️  Port ${preferred} still blocked after kill – using fallback`);
-        } else {
-          logger.warn(`⚠️  Kill of PID ${pid} failed – using fallback`);
-        }
-      } else if (isLTTH && !pid) {
-        // LTTH erkannt aber PID nicht ermittelbar (andere User, Berechtigungen)
-        logger.warn(`⚠️  LTTH instance on port ${preferred} detected but PID unknown – using fallback port`);
+        logger.info(`🔄 Process on port ${preferred} detected (PID: ${pid}) – killing...`);
+        await this.killProcess(pid);
+      } else if (pid === process.pid) {
+        logger.warn(`⚠️  Port ${preferred} belongs to current process (PID: ${pid}) – waiting for release...`);
       } else {
-        logger.warn(`⚠️  Port ${preferred} blocked by unknown process, PID not determinable – using fallback`);
+        logger.info(`⏳ No PID found on port ${preferred} (possible TIME_WAIT). Waiting for release...`);
       }
-    }
 
-    // Fallback-Ports durchsuchen
-    for (const fallbackPort of this.fallbackPorts) {
-      if (excluded.has(fallbackPort)) {
-        logger.debug(`Skipping excluded fallback port ${fallbackPort}`);
-        continue;
+      const nowFree = await this._waitForPortFree(preferred, this.killTimeout);
+      if (nowFree) {
+        logger.info(`✅ Port ${preferred} released after wait`);
+        return { port: preferred, action: pid ? 'killed_old_instance' : 'waited_for_release' };
       }
-      const fallbackFree = await this.isPortFree(fallbackPort);
-      if (fallbackFree) {
-        logger.info(`✅ Using fallback port ${fallbackPort}`);
-        return { port: fallbackPort, action: 'fallback' };
-      }
-      logger.debug(`Port ${fallbackPort} also in use, trying next...`);
-    }
 
-    const attemptedPorts = [preferred, ...this.fallbackPorts]
-      .filter((port) => !excluded.has(port))
-      .join(', ');
-    throw new Error(`All ports (${attemptedPorts}) are in use. Cannot start server.`);
+      waitedForRelease = true;
+      logger.warn(`⏳ Port ${preferred} still busy after wait window. Retrying...`);
+    }
   }
 }
 

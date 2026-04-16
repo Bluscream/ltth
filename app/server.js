@@ -3391,7 +3391,6 @@ app.delete('/api/network/external-url', apiLimiter, (req, res) => {
 const PortManager = require('./modules/port-manager');
 const portManager = new PortManager({
     preferredPort: parseInt(process.env.PORT, 10) || 3000,
-    fallbackPorts: [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009],
     appIdentifier: 'ltth'
 });
 
@@ -3537,7 +3536,7 @@ const pluginCacheControl = (req, res, next) => {
     });
 
     // Jetzt Server starten
-    server.listen(PORT, BIND_ADDRESS, async () => {
+    const onServerListening = async () => {
         initState.setServerStarted();
 
         const accessURLs = networkManager.getAccessURLs(PORT);
@@ -3954,32 +3953,37 @@ const pluginCacheControl = (req, res, next) => {
                 logger.info(`   Öffne manuell: http://localhost:${PORT}/dashboard.html\n`);
             }
         }
-    });
+    };
 
-    // CRITICAL: Error handler for the HTTP server (e.g. race condition after port resolution)
-    let _eaddrinuseRetried = false;
-    server.on('error', async (err) => {
-        if (err.code === 'EADDRINUSE' && !_eaddrinuseRetried) {
-            _eaddrinuseRetried = true;
-            const failedPort = PORT;
-            logger.warn(`⚠️  Port ${failedPort} is unexpectedly in use (race condition after port resolution). Retrying...`);
-            try {
-                const retryResult = await portManager.resolvePort({ excludePorts: [failedPort] });
-                PORT = retryResult.port;
-                ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
-                logger.info(`♻️  Retry resolved to port ${PORT} (action: ${retryResult.action}, excluded: ${failedPort})`);
-                server.listen(PORT, BIND_ADDRESS);
-            } catch (retryErr) {
-                logger.error(`❌ Retry failed: ${retryErr.message}. Exiting.`);
+    server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: false }, onServerListening);
+
+    // CRITICAL: Error handler for the HTTP server (strict port-3000 enforcement)
+    let eaddrRetryAttempts = 0;
+    const maxEaddrRetries = 15;
+
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE' && PORT === 3000) {
+            if (eaddrRetryAttempts >= maxEaddrRetries) {
+                logger.error(`❌ Port 3000 remained unavailable after ${maxEaddrRetries} retries (30s). Exiting.`);
                 process.exit(1);
             }
-        } else if (err.code === 'EADDRINUSE') {
-            logger.error(`❌ Port ${PORT} still in use after retry. Exiting.`);
-            process.exit(1);
-        } else {
-            logger.error(`❌ Server error: ${err.message}`);
-            process.exit(1);
+
+            eaddrRetryAttempts += 1;
+            logger.warn('⏳ Port 3000 hängt im OS TIME_WAIT. Warte auf Freigabe (Retry in 2s)...');
+            setTimeout(() => {
+                server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: false }, onServerListening);
+            }, 2000);
+            return;
         }
+
+        if (err.code === 'EADDRINUSE') {
+            logger.error(`❌ Port ${PORT} is unexpectedly in use (non-3000 path). Exiting.`);
+            process.exit(1);
+            return;
+        }
+
+        logger.error(`❌ Server error: ${err.message}`);
+        process.exit(1);
     });
 })(); // Schließe async IIFE
 
