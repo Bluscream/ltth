@@ -87,6 +87,7 @@
   let progressCurrentPos = 0;
   let progressDuration = 0;
   let draggedQueueIndex = null;
+  let giftCatalogTargetField = null;
 
   // Client-side YouTube ID extraction (no server call needed for direct links)
   function extractYouTubeId(url) {
@@ -269,11 +270,18 @@
   giftCatalogList?.addEventListener('change', () => {
     const selected = Array.from(giftCatalogList.selectedOptions || []).map((option) => option.value);
     if (!selected.length) return;
-    const target = document.activeElement === payToSkipGifts ? payToSkipGifts : payToPlayGifts;
+    const target = giftCatalogTargetField || payToPlayGifts;
     if (!target) return;
     const existing = parseList(target.value);
     const merged = Array.from(new Set([...existing, ...selected]));
     target.value = merged.join(', ');
+  });
+
+  payToPlayGifts?.addEventListener('focus', () => {
+    giftCatalogTargetField = payToPlayGifts;
+  });
+  payToSkipGifts?.addEventListener('focus', () => {
+    giftCatalogTargetField = payToSkipGifts;
   });
 
   function buildOverlayUrl() {
@@ -698,7 +706,6 @@
             <span class="queue-meta">${item.requestedBy || 'Viewer'}${dur}</span>
           </div>
           <div class="queue-actions">
-            <button class="btn ghost small" data-queue-action="pause-toggle" data-idx="${idx}" title="Pause/Resume">⏯</button>
             <button class="btn danger small" data-queue-action="remove" data-idx="${idx}" title="Entfernen">✕</button>
           </div>
         </div>`;
@@ -723,10 +730,6 @@
       await del(`/queue/${idx}`);
       await renderQueueFromServer();
       showToast('info', 'Queue', 'Track wurde entfernt.');
-    } else if (action === 'pause-toggle') {
-      const isPaused = String(stateEl?.textContent || '').toLowerCase() === 'paused';
-      await post(isPaused ? '/resume' : '/pause');
-      showToast('info', 'Player', isPaused ? 'Wiedergabe fortgesetzt.' : 'Wiedergabe pausiert.');
     }
   });
 
@@ -761,7 +764,7 @@
     if (!Number.isFinite(toIndex) || toIndex === draggedQueueIndex) return;
     await post('/queue/reorder', { fromIndex: draggedQueueIndex, toIndex });
     await renderQueueFromServer();
-    showToast('success', 'Queue', `Track von #${draggedQueueIndex + 1} nach #${toIndex + 1} verschoben.`);
+    showToast('success', 'Queue', `Track #${draggedQueueIndex + 1} wurde an Position #${toIndex + 1} verschoben.`);
   });
 
   function startProgressTimer() {

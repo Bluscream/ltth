@@ -709,6 +709,7 @@
       let pausedProgress = 0;
       let currentQueue = [];
       let idleHideTimer = null;
+      const UP_NEXT_LIMIT = 3;
       const upNextWidget = document.getElementById('up-next-widget');
       const upNextItems = document.getElementById('up-next-items');
 
@@ -861,11 +862,11 @@
       }
 
       function renderQueueExtras() {
-        const next3Songs = currentQueue.slice(0, 3);
+        const upNextSongs = currentQueue.slice(0, UP_NEXT_LIMIT);
         if (upNextWidget && upNextItems) {
-          if (next3Songs.length > 0) {
+          if (upNextSongs.length > 0) {
             upNextWidget.classList.add('visible');
-            upNextItems.innerHTML = next3Songs
+            upNextItems.innerHTML = upNextSongs
               .map((s, i) => {
                 const label = s.artist ? `${s.title} – ${s.artist}` : s.title;
                 return `<div class="up-next-item">${i + 1}. ${label}</div>`;
@@ -882,9 +883,10 @@
           r.queueCount.textContent = qLen > 0 ? `🎵 +${qLen} in Queue` : '';
         }
         if (design === 'card' && r.queuePreview && r.queueItems) {
-          if (next3Songs.length > 0) {
+          const cardPreviewSongs = currentQueue.slice(0, UP_NEXT_LIMIT);
+          if (cardPreviewSongs.length > 0) {
             r.queuePreview.style.display = '';
-            r.queueItems.innerHTML = next3Songs
+            r.queueItems.innerHTML = cardPreviewSongs
               .map((s, i) => {
                 const label = s.artist ? `${s.title} – ${s.artist}` : s.title;
                 return `<div class="queue-preview-item">${i + 1}. ${label}</div>`;
