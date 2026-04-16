@@ -33,5 +33,21 @@ describe('CoinBattleDatabase initialization', () => {
     `).get();
 
     expect(archivedTable).toBeDefined();
+
+    const archivedColumns = rawDb.prepare(`
+      PRAGMA table_info(coinbattle_archived_matches)
+    `).all();
+    const columnNames = archivedColumns.map(column => column.name);
+    expect(columnNames).toEqual(expect.arrayContaining([
+      'match_id',
+      'match_uuid',
+      'end_time'
+    ]));
+
+    const archivedIndex = rawDb.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'index' AND name = 'idx_archived_matches_match_id'
+    `).get();
+    expect(archivedIndex).toBeDefined();
   });
 });
