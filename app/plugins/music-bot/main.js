@@ -1,7 +1,11 @@
 const path = require('path');
+const fs = require('fs');
+const fsp = require('fs/promises');
 const { execFile } = require('child_process');
+const { spawn } = require('child_process');
 const { promisify } = require('util');
 const EventEmitter = require('events');
+const { createHash } = require('crypto');
 let YOUTUBE_DL_PATH = 'yt-dlp';
 try {
   const youtubeDlExec = require('youtube-dl-exec');
@@ -17,6 +21,10 @@ const MusicResolver = require('./lib/music-resolver');
 const PlaybackEngine = require('./lib/playback-engine');
 const BanList = require('./lib/ban-list');
 const AutoDJ = require('./lib/auto-dj');
+
+const DEFAULT_PRECACHE_LOOKAHEAD = 2;
+const MAX_PRECACHE_LOOKAHEAD = 5;
+const PRECACHE_KILL_TIMEOUT_MS = 1500;
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -61,7 +69,20 @@ const DEFAULT_CONFIG = {
     mpvPath: 'mpv',
     audioDevice: 'auto',
     autoPlay: true,
-    crossfadeDuration: 3000
+    crossfadeDuration: 3000,
+    ducking: {
+      enabled: true,
+      targetVolumePercent: 35,
+      fadeOutMs: 250,
+      fadeInMs: 700,
+      holdMs: 1100
+    },
+    normalization: {
+      enabled: true,
+      integratedLufs: -16,
+      truePeakDb: -1.5,
+      lra: 11
+    }
   },
   permissions: {
     request: 'viewer',
@@ -103,6 +124,14 @@ const DEFAULT_CONFIG = {
     rejectExplicit: false,
     rejectAgeRestricted: true,
     blockedKeywords: []
+  },
+  fallbackPlaylist: {
+    enabled: false,
+    tracks: []
+  },
+  preCache: {
+    enabled: true,
+    lookahead: 2
   }
 };
 
@@ -123,11 +152,21 @@ class MusicBotPlugin extends EventEmitter {
     this.commandParser = null;
     this.autoDJ = null;
     this._pendingRequests = new Set();
+    this.pluginDataDir = null;
+    this.cacheDir = null;
+    this._precacheTasks = new Map();
+    this._precacheState = new Map();
+    this._fallbackIndex = 0;
+    this._ioEmitOriginal = null;
+    this._ttsDuckingHandlers = null;
   }
 
   async init() {
     this._loadConfig();
-    this.api.ensurePluginDataDir();
+    this.pluginDataDir = this.api.ensurePluginDataDir();
+    this.cacheDir = path.join(this.pluginDataDir, 'cache');
+    await fsp.mkdir(this.cacheDir, { recursive: true });
+    await this._pruneCacheDir();
 
     await this._ensureYtDlp();
     await this._ensureMpv();
@@ -155,6 +194,7 @@ class MusicBotPlugin extends EventEmitter {
     this._registerRoutes();
     this._registerSocketEvents();
     this._registerTikTokEvents();
+    this._registerDuckingHooks();
 
     await this._restoreState();
     this.api.log('[music-bot] Plugin initialized', 'info');
@@ -170,6 +210,8 @@ class MusicBotPlugin extends EventEmitter {
     }
 
     this.queueManager.clear();
+    this._cleanupDuckingHooks();
+    await this._stopPrecacheTasks();
     this._pendingRequests.clear();
     this.removeAllListeners();
     this._stopPlaybackSync();
@@ -357,6 +399,7 @@ class MusicBotPlugin extends EventEmitter {
     this.queueManager.restoreQueue();
     this._emitStatus();
     this._emitQueue();
+    this._schedulePreCache();
   }
 
   _registerPlaybackEvents() {
@@ -366,6 +409,7 @@ class MusicBotPlugin extends EventEmitter {
       this._emitNowPlaying(track);
       this._mpvRestartAttempts = 0;
       this._startPlaybackSync();
+      this._schedulePreCache();
     });
 
     this.playbackEngine.on('track-end', (info) => {
@@ -683,29 +727,75 @@ class MusicBotPlugin extends EventEmitter {
     });
   }
 
+  _registerDuckingHooks() {
+    const ttsStarted = async () => {
+      try {
+        await this.playbackEngine?.triggerDucking();
+      } catch (error) {
+        this.api.log(`[music-bot] TTS ducking failed: ${error.message}`, 'error');
+      }
+    };
+    const alertShown = async () => {
+      try {
+        await this.playbackEngine?.triggerDucking();
+      } catch (error) {
+        this.api.log(`[music-bot] Alert ducking failed: ${error.message}`, 'error');
+      }
+    };
+
+    this._ttsDuckingHandlers = { ttsStarted, alertShown };
+    if (this.api.pluginLoader?.on) {
+      this.api.pluginLoader.on('tts:playback:started', ttsStarted);
+    } else {
+      this.api.log('[music-bot] pluginLoader unavailable: TTS ducking listener not registered', 'warn');
+    }
+
+    if (this.io && typeof this.io.emit === 'function') {
+      this._ioEmitOriginal = this.io.emit.bind(this.io);
+      this.io.emit = (event, ...args) => {
+        if (event === 'alert:show') {
+          Promise.resolve(alertShown()).catch(() => {});
+        }
+        return this._ioEmitOriginal(event, ...args);
+      };
+    }
+  }
+
+  _cleanupDuckingHooks() {
+    if (this._ttsDuckingHandlers?.ttsStarted) {
+      this.api.pluginLoader?.removeListener?.('tts:playback:started', this._ttsDuckingHandlers.ttsStarted);
+    }
+    if (this._ioEmitOriginal && this.io) {
+      this.io.emit = this._ioEmitOriginal;
+    }
+    this._ioEmitOriginal = null;
+    this._ttsDuckingHandlers = null;
+  }
+
   // ---------- Command handling ----------
 
   async _handleCommand(command, chatData) {
+    const username = this._getChatUsername(chatData);
     switch (command.type) {
       case 'request':
-        return this._handleRequest(command.query, chatData.username || 'unknown');
+        return this._handleRequest(command.query, username);
       case 'skip':
         if (command.force) {
-          return this._skipCurrent(chatData.username || 'viewer');
+          return this._skipCurrent(username);
         }
-        return this._handleSkipVote(chatData.username || 'viewer');
+        return this._handleSkipVote(username);
       case 'queue':
-        this._emitChatResponse(`Queue length: ${this.queueManager.getQueue().length}`, chatData.username);
+        this._emitChatResponse(`Queue length: ${this.queueManager.getQueue().length}`, username);
         return;
       case 'nowPlaying':
-        this._emitChatResponse(this._formatNowPlaying(), chatData.username);
+        this._emitChatResponse(this._formatNowPlaying(), username);
         return;
       case 'volume':
         if (command.value !== undefined) {
           await this.playbackEngine.setVolume(command.value);
           this._emitVolume(command.value);
         } else {
-          this._emitChatResponse(`Aktuelle Lautstärke: ${this.playbackEngine.getVolume()}`, chatData.username);
+          this._emitChatResponse(`Aktuelle Lautstärke: ${this.playbackEngine.getVolume()}`, username);
         }
         return;
       case 'pause':
@@ -724,15 +814,15 @@ class MusicBotPlugin extends EventEmitter {
         return;
       case 'mysong': {
         const queue = this.queueManager.getQueue();
-        const lowerUser = (chatData.username || '').toLowerCase();
+        const lowerUser = username.toLowerCase();
         const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
         if (idx === -1) {
-          this._emitChatResponse('Du hast keinen Song in der Queue.', chatData.username);
+          this._emitChatResponse('Du hast keinen Song in der Queue.', username);
         } else {
           const song = queue[idx];
           this._emitChatResponse(
             `Dein Song "${song.title}" ist auf Position #${idx + 1}.`,
-            chatData.username
+            username
           );
         }
         return;
@@ -747,49 +837,60 @@ class MusicBotPlugin extends EventEmitter {
         if (cmds.nowPlaying) parts.push(`${prefix}${cmds.nowPlaying}`);
         if (cmds.mysong) parts.push(`${prefix}${cmds.mysong}`);
         if (cmds.remove) parts.push(`${prefix}${cmds.remove}`);
-        this._emitChatResponse(`Commands: ${parts.join(' | ')}`, chatData.username);
+        this._emitChatResponse(`Commands: ${parts.join(' | ')}`, username);
         return;
       }
       case 'remove': {
         const queue = this.queueManager.getQueue();
-        const lowerUser = (chatData.username || '').toLowerCase();
-        const isPrivileged = await this._isPrivilegedUser(chatData.username, chatData);
+        const lowerUser = username.toLowerCase();
+        const isPrivileged = await this._isPrivilegedUser(username, chatData);
 
         if (command.index !== null && command.index !== undefined && isPrivileged) {
           // Mod/Streamer: remove specific song by 0-based index
           const result = this.queueManager.removeSong(command.index);
           if (result.success) {
-            this._emitChatResponse(
-              `"${result.song.title}" wurde aus der Queue entfernt.`,
-              chatData.username
-            );
-            this._emitQueue();
-          } else {
-            this._emitChatResponse('Song nicht gefunden.', chatData.username);
-          }
-        } else {
-          // Remove user's own song
-          const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
-          if (idx === -1) {
-            this._emitChatResponse('Du hast keinen Song in der Queue.', chatData.username);
-          } else {
-            const result = this.queueManager.removeSong(idx);
-            if (result.success) {
               this._emitChatResponse(
                 `"${result.song.title}" wurde aus der Queue entfernt.`,
-                chatData.username
+                username
               );
               this._emitQueue();
             } else {
-              this._emitChatResponse('Fehler beim Entfernen.', chatData.username);
+              this._emitChatResponse('Song nicht gefunden.', username);
+            }
+          } else {
+            // Remove user's own song
+            const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
+            if (idx === -1) {
+              this._emitChatResponse('Du hast keinen Song in der Queue.', username);
+            } else {
+              const result = this.queueManager.removeSong(idx);
+              if (result.success) {
+                this._emitChatResponse(
+                  `"${result.song.title}" wurde aus der Queue entfernt.`,
+                  username
+                );
+                this._emitQueue();
+              } else {
+                this._emitChatResponse('Fehler beim Entfernen.', username);
+              }
             }
           }
-        }
         return;
       }
       default:
         break;
     }
+  }
+
+  _getChatUsername(chatData) {
+    return (
+      chatData?.username ||
+      chatData?.uniqueId ||
+      chatData?.nickname ||
+      chatData?.user?.uniqueId ||
+      chatData?.user?.nickname ||
+      'viewer'
+    );
   }
 
   async _isPrivilegedUser(username, chatData) {
@@ -819,6 +920,7 @@ class MusicBotPlugin extends EventEmitter {
       if (!added.success) {
         return added;
       }
+      this._schedulePreCache();
       this.autoDJ?.onSongRequested();
       this._emitSongAdded(added.song, added.position);
       if (!this.playbackEngine.isPlaying() && this.config.playback.autoPlay) {
@@ -868,6 +970,7 @@ class MusicBotPlugin extends EventEmitter {
         this._emitChatResponse(addResult.error || 'Song konnte nicht hinzugefügt werden.', username);
         return;
       }
+      this._schedulePreCache();
       this.autoDJ?.onSongRequested();
       this._emitSongAdded(addResult.song, addResult.position);
 
@@ -965,6 +1068,11 @@ class MusicBotPlugin extends EventEmitter {
     }
     const next = this.queueManager.shiftNext();
     if (!next) {
+      const fallbackTrack = await this._playFallbackTrack();
+      if (fallbackTrack) {
+        this._schedulePreCache();
+        return;
+      }
       const autoDJTrack = await this._maybePlayAutoDJ();
       if (!autoDJTrack) {
         this.playbackEngine.clearNowPlaying();
@@ -976,11 +1084,246 @@ class MusicBotPlugin extends EventEmitter {
     try {
       await this.playbackEngine.play(next);
       this._emitQueue();
+      this._schedulePreCache();
     } catch (error) {
       this.api.log(`[music-bot] Playback failed: ${error.message}`, 'error');
       this._emitError(error.message);
       setImmediate(() => this._playNextFromQueue(retries + 1));
     }
+  }
+
+  _schedulePreCache() {
+    try {
+      const cfg = this.config.preCache || {};
+      if (!cfg.enabled) return;
+      const requestedLookahead = Number(cfg.lookahead);
+      const lookahead = Math.max(
+        0,
+        Math.min(
+          Number.isFinite(requestedLookahead) ? requestedLookahead : DEFAULT_PRECACHE_LOOKAHEAD,
+          MAX_PRECACHE_LOOKAHEAD
+        )
+      );
+      if (!lookahead) return;
+      const upcoming = this.queueManager.getQueue().slice(0, lookahead);
+      upcoming.forEach((song) => this._startPreCache(song));
+    } catch (error) {
+      this.api.log(`[music-bot] Failed to schedule pre-cache: ${error.message}`, 'warn');
+    }
+  }
+
+  _startPreCache(song) {
+    if (!song?.id || !song?.url) return;
+    if (song.localPath && fs.existsSync(song.localPath)) return;
+    if (this._precacheTasks.has(song.id)) return;
+
+    const cacheState = this._precacheState.get(song.id);
+    if (cacheState?.path && fs.existsSync(cacheState.path)) {
+      if (!this.queueManager.setSongLocalPath(song.id, cacheState.path)) {
+        this._precacheState.delete(song.id);
+      }
+      return;
+    }
+
+    const isHttpUrl = /^https?:\/\//i.test(song.url);
+    if (!isHttpUrl) {
+      if (fs.existsSync(song.url)) {
+        if (!this.queueManager.setSongLocalPath(song.id, song.url)) {
+          this._precacheState.delete(song.id);
+        }
+      }
+      return;
+    }
+
+    const cacheKey = this._safeCacheKey(song.id);
+    const outputTemplate = path.join(this.cacheDir, `${cacheKey}-%(id)s.%(ext)s`);
+    const args = [
+      '--no-warnings',
+      '--ignore-errors',
+      '--no-playlist',
+      '--format',
+      'bestaudio',
+      '--output',
+      outputTemplate,
+      '--print',
+      'after_move:filepath',
+      song.url
+    ];
+
+    const ytdlpPath = this._getYtDlpPath();
+    const proc = spawn(ytdlpPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    this._precacheTasks.set(song.id, proc);
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    proc.on('error', (error) => {
+      this._precacheTasks.delete(song.id);
+      this.api.log(`[music-bot] Pre-cache process failed: ${error.message}`, 'warn');
+    });
+    proc.on('close', () => {
+      this._precacheTasks.delete(song.id);
+      const cachedPath = stdout.trim().split('\n').filter(Boolean).pop();
+      if (cachedPath && fs.existsSync(cachedPath)) {
+        this._precacheState.set(song.id, { path: cachedPath, cachedAt: Date.now() });
+        if (!this.queueManager.setSongLocalPath(song.id, cachedPath)) {
+          this._precacheState.delete(song.id);
+        }
+        this._pruneCacheDir().catch((error) => {
+          this.api.log(`[music-bot] Cache prune failed: ${error.message}`, 'debug');
+        });
+      } else if (stderr) {
+        this.api.log(`[music-bot] Pre-cache skipped for "${song.title}": ${stderr.trim()}`, 'debug');
+      }
+    });
+  }
+
+  async _stopPrecacheTasks() {
+    const tasks = Array.from(this._precacheTasks.values());
+    this._precacheTasks.clear();
+    await Promise.all(tasks.map((proc) => new Promise((resolve) => {
+      if (!proc || proc.exitCode !== null) {
+        resolve();
+        return;
+      }
+      proc.once('close', () => resolve());
+      proc.kill('SIGTERM');
+      setTimeout(() => {
+        if (proc.exitCode === null) {
+          proc.kill('SIGKILL');
+        }
+      }, PRECACHE_KILL_TIMEOUT_MS);
+    })));
+  }
+
+  _getYtDlpPath() {
+    return this.musicResolver?.config?.ytdlpPath || this.config.resolver.ytdlpPath || 'yt-dlp';
+  }
+
+  _safeCacheKey(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'track';
+    return createHash('sha1').update(raw).digest('hex').slice(0, 16);
+  }
+
+  async _pruneCacheDir() {
+    const maxCacheFiles = 200;
+    const entries = await fsp.readdir(this.cacheDir, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const fullPath = path.join(this.cacheDir, entry.name);
+      try {
+        const stat = await fsp.stat(fullPath);
+        files.push({ fullPath, mtimeMs: stat.mtimeMs });
+      } catch (_) {
+        // ignore stale entries
+      }
+    }
+    if (files.length <= maxCacheFiles) return;
+    files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    const removeCount = files.length - maxCacheFiles;
+    await Promise.all(files.slice(0, removeCount).map(async (file) => {
+      try {
+        await fsp.unlink(file.fullPath);
+      } catch (_) {
+        // ignore deletion errors
+      }
+    }));
+  }
+
+  async _playFallbackTrack() {
+    const cfg = this.config.fallbackPlaylist || {};
+    const tracks = Array.isArray(cfg.tracks) ? cfg.tracks : [];
+    if (!cfg.enabled || !tracks.length) return null;
+
+    for (let offset = 0; offset < tracks.length; offset += 1) {
+      const idx = (this._fallbackIndex + offset) % tracks.length;
+      const fallback = await this._resolveFallbackTrack(tracks[idx], idx + 1);
+      if (!fallback) continue;
+      try {
+        await this.playbackEngine.play(fallback);
+        this.queueManager.markPlaying(fallback);
+        this._fallbackIndex = (idx + 1) % tracks.length;
+        this.api.emit('musicbot:fallback-playing', {
+          title: fallback.title,
+          source: fallback.source
+        });
+        return fallback;
+      } catch (error) {
+        this.api.log(`[music-bot] Fallback playback failed: ${error.message}`, 'warn');
+      }
+    }
+    return null;
+  }
+
+  async _resolveFallbackTrack(entry, index) {
+    try {
+      if (!entry) return null;
+      if (typeof entry === 'object' && (entry.url || entry.localPath)) {
+        const rawUrl = entry.localPath || entry.url;
+        const resolvedPath = this._resolveLocalPath(rawUrl);
+        return {
+          id: entry.id || `fallback-${index}`,
+          title: entry.title || `Fallback Track ${index}`,
+          artist: entry.artist || '',
+          duration: entry.duration || null,
+          thumbnail: entry.thumbnail || null,
+          url: resolvedPath || rawUrl,
+          localPath: resolvedPath || null,
+          source: entry.source || 'fallback',
+          requestedBy: 'fallback'
+        };
+      }
+
+      const text = String(entry || '').trim();
+      if (!text) return null;
+      const resolvedPath = this._resolveLocalPath(text);
+      if (resolvedPath) {
+        return {
+          id: `fallback-${createHash('sha1').update(resolvedPath).digest('hex').slice(0, 12)}`,
+          title: path.basename(resolvedPath),
+          artist: '',
+          duration: null,
+          thumbnail: null,
+          url: resolvedPath,
+          localPath: resolvedPath,
+          source: 'fallback',
+          requestedBy: 'fallback'
+        };
+      }
+
+      const resolved = await this.musicResolver.resolve(text);
+      if (!resolved?.success) return null;
+      return {
+        ...resolved.song,
+        id: `fallback-${createHash('sha1').update(text).digest('hex').slice(0, 12)}`,
+        requestedBy: 'fallback',
+        source: resolved.song?.source || 'fallback'
+      };
+    } catch (error) {
+      this.api.log(`[music-bot] Failed to resolve fallback track: ${error.message}`, 'warn');
+      return null;
+    }
+  }
+
+  _resolveLocalPath(rawPath) {
+    if (!rawPath || /^https?:\/\//i.test(rawPath)) return null;
+    if (path.isAbsolute(rawPath)) {
+      return fs.existsSync(rawPath) ? rawPath : null;
+    }
+    const baseDir = this.pluginDataDir || __dirname;
+    const absolute = path.resolve(baseDir, rawPath);
+    const relative = path.relative(path.resolve(baseDir), absolute);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+    return fs.existsSync(absolute) ? absolute : null;
   }
 
   // ---------- Emitters ----------

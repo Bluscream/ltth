@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🎵 **Music Bot – Core Feature Erweiterung (Audio/Queue/Chat)**
+- **Audio-Ducking:** Automatisches Ducking der Musik bei `tts:playback:started` sowie systemweiten `alert:show` Events mit konfigurierbaren Fade-In/Fade-Out Zeiten.
+- **Lautstärke-Normalisierung:** MPV-Audiofilter `loudnorm` für konsistentere Track-Lautheit (konfigurierbar über `playback.normalization`).
+- **Fallback-Playlist:** Automatischer Fallback auf vordefinierte lokale/URL-basierte Tracks bei leerer Request-Queue.
+- **Pre-Caching:** Asynchrones Vorladen der nächsten Tracks (Lookahead) in den persistenten `pluginDataDir/cache` Bereich.
+- **Request-Limits robuster:** User-Limit und Cooldown werden jetzt case-insensitive ausgewertet, um Umgehung via Groß-/Kleinschreibung zu verhindern.
+- **Tests ergänzt:** Neue Jest-Tests für Ducking-/Normalisierungslogik und case-insensitive Request-Limits.
+
 #### 🔌 **Adapter Architecture for TikTok Data Sources** (`app/modules/adapters/`)
 - `BaseAdapter.js`: Abstract base class for all data source adapters. Extends `EventEmitter`. Provides shared state (`isConnected`, `currentUsername`, `streamStartTime`, `stats`), broadcast helpers (`broadcastStats`, `broadcastStatus`), event routing (`handleEvent`), and duration interval management.
 - `EulerstreamAdapter.js`: Eulerstream WebSocket logic extracted from `tiktok.js` with zero behaviour change. All original event handling, deduplication, gift catalog, room info fetching, diagnostics, and heartbeat logic are fully preserved.
