@@ -3,6 +3,11 @@
  * Tests parameter discovery, parsing, and WebSocket subscriptions
  */
 
+jest.mock('axios', () => ({
+    get: jest.fn()
+}));
+
+const axios = require('axios');
 const OSCQueryClient = require('../modules/OSCQueryClient');
 
 describe('OSCQueryClient', () => {
@@ -208,6 +213,21 @@ describe('OSCQueryClient', () => {
             expect(status.host).toBe('127.0.0.1');
             expect(status.port).toBe(9001);
             expect(status.isConnected).toBe(false);
+        });
+    });
+
+    describe('Error logging', () => {
+        test('should log discovery errors as plain strings without passing circular objects', async () => {
+            const error = new Error('Request failed');
+            error.request = {};
+            error.request.self = error.request;
+            axios.get.mockRejectedValueOnce(error);
+
+            await expect(client.discover()).rejects.toThrow('Request failed');
+
+            expect(mockLogger.error).toHaveBeenCalledWith('OSCQuery discovery failed: Request failed');
+            expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('OSCQuery discovery stack:'));
+            expect(mockLogger.error.mock.calls.every(call => call.length === 1)).toBe(true);
         });
     });
 

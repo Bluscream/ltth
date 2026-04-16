@@ -57,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `app/modules/tiktok.js` und `app/server.js`: EventEmitter-Listener-Limits für TikTokConnector und Socket.IO Namespace auf 50 erhöht, um `MaxListenersExceededWarning` in legitimen Multi-Listener-Szenarien zu vermeiden.
 - `app/modules/port-manager.js` + `app/server.js`: EADDRINUSE-Retry kann jetzt fehlgeschlagene Ports explizit ausschließen (`excludePorts`), sodass ein gerade fehlgeschlagener Fallback-Port nicht sofort erneut ausgewählt wird.
 
+#### 🔌 OSC-Bridge + CoinBattle Stabilitätsfixes
+- `app/plugins/osc-bridge/main.js` und `app/plugins/osc-bridge/modules/OSCQueryClient.js`: OSCQuery-Fehlerlogs (Auto-Discovery/Subscribe/WebSocket) loggen jetzt nur noch `error.message` plus optionalen `error.stack`, statt komplette (potenziell zirkuläre) Error-Objekte.
+- `app/plugins/coinbattle/backend/database.js`: `coinbattle_archived_matches` wird jetzt bereits in `initializeTables()` via `CREATE TABLE IF NOT EXISTS` angelegt (inkl. Index), damit Cleanup/Archivierung nicht mehr an fehlender Tabelle scheitert.
+
 #### 🔥 **Flame Overlay WebGL rendering + bloom framebuffer state**
 - `app/plugins/flame-overlay/renderer/post-processor.js`: `renderToFramebuffer()` now validates target framebuffer, applies matching viewport size for scene vs bloom buffers, clears color/depth before rendering, and restores default framebuffer viewport afterward.
 - `app/plugins/flame-overlay/renderer/effects-engine.js`: `render()` now explicitly restores canvas framebuffer/viewport before final composite and direct rendering fallback; smoke rendering logic is encapsulated in `renderSmoke(time)` and invoked safely from `renderScene()`.
