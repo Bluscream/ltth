@@ -3390,8 +3390,7 @@ app.delete('/api/network/external-url', apiLimiter, (req, res) => {
 // ========== PORT RESOLUTION ==========
 const PortManager = require('./modules/port-manager');
 const portManager = new PortManager({
-    preferredPort: parseInt(process.env.PORT, 10) || 3000,
-    fallbackPorts: [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009],
+    preferredPort: 3000,
     appIdentifier: 'ltth'
 });
 
@@ -3416,27 +3415,30 @@ const pluginCacheControl = (req, res, next) => {
 // Async Initialisierung vor Server-Start
 (async () => {
     // ========== PORT RESOLUTION (VOR Plugin-Loading) ==========
+    // Port 3000 wird immer erzwungen. Kein Test-Bind (vermeidet TIME_WAIT-Falle).
+    // Stattdessen: PID-Lookup + Kill falls ein Fremdprozess den Port belegt.
+    PORT = 3000;
     try {
-        const portResult = await portManager.resolvePort();
-        PORT = portResult.port;
-
-        if (portResult.action === 'killed_old_instance') {
-            logger.info(`♻️  Replaced old LTTH instance, using port ${PORT}`);
-        } else if (portResult.action === 'fallback') {
-            logger.warn(`⚠️  Primary port unavailable, using fallback port ${PORT}`);
-        }
-
-        // Rebuild CORS whitelist with NetworkManager for resolved port
-        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
-        logger.info(`📋 CORS whitelist initialized for port ${PORT} (mode: ${networkManager.bindMode})`);
-        if (PORT !== 3000) {
-            logger.info(`📋 Server running on non-default port ${PORT}`);
+        const existingPid = portManager.findPIDOnPort(PORT);
+        if (existingPid && existingPid !== process.pid) {
+            logger.info(`🔪 Pre-startup: existing process on port ${PORT} (PID: ${existingPid}) – killing...`);
+            const killed = await portManager.killProcess(existingPid);
+            if (killed) {
+                logger.info(`✅ Existing process (PID: ${existingPid}) terminated. Proceeding on port ${PORT}.`);
+            } else {
+                logger.warn(`⚠️  Kill of PID ${existingPid} may have failed. server.listen() will retry via EADDRINUSE handler.`);
+            }
+        } else {
+            logger.info(`✅ Pre-startup: port ${PORT} clear (no blocking process detected).`);
         }
     } catch (portError) {
-        logger.error(`❌ Port resolution failed: ${portError.message}`);
-        logger.error('   All configured ports are in use. Exiting.');
-        process.exit(1);
+        // Non-fatal: log and let server.listen() handle any remaining conflict
+        logger.warn(`⚠️  Pre-startup port check failed: ${portError.message}. Proceeding anyway.`);
     }
+
+    // Rebuild CORS whitelist with NetworkManager for resolved port
+    ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
+    logger.info(`📋 CORS whitelist initialized for port ${PORT} (mode: ${networkManager.bindMode})`);
 
     // Plugins laden VOR Server-Start, damit alle Routen verfügbar sind
     logger.info('🔌 Loading plugins...');
@@ -3537,7 +3539,7 @@ const pluginCacheControl = (req, res, next) => {
     });
 
     // Jetzt Server starten
-    server.listen(PORT, BIND_ADDRESS, async () => {
+    const onServerListening = async () => {
         initState.setServerStarted();
 
         const accessURLs = networkManager.getAccessURLs(PORT);
@@ -3954,32 +3956,40 @@ const pluginCacheControl = (req, res, next) => {
                 logger.info(`   Öffne manuell: http://localhost:${PORT}/dashboard.html\n`);
             }
         }
-    });
+    };
 
-    // CRITICAL: Error handler for the HTTP server (e.g. race condition after port resolution)
-    let _eaddrinuseRetried = false;
-    server.on('error', async (err) => {
-        if (err.code === 'EADDRINUSE' && !_eaddrinuseRetried) {
-            _eaddrinuseRetried = true;
-            const failedPort = PORT;
-            logger.warn(`⚠️  Port ${failedPort} is unexpectedly in use (race condition after port resolution). Retrying...`);
-            try {
-                const retryResult = await portManager.resolvePort({ excludePorts: [failedPort] });
-                PORT = retryResult.port;
-                ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
-                logger.info(`♻️  Retry resolved to port ${PORT} (action: ${retryResult.action}, excluded: ${failedPort})`);
-                server.listen(PORT, BIND_ADDRESS);
-            } catch (retryErr) {
-                logger.error(`❌ Retry failed: ${retryErr.message}. Exiting.`);
+    // exclusive: false enables aggressive rebinding behavior to recover better
+    // from short-lived OS TIME_WAIT/EADDRINUSE race windows on port 3000.
+    server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: false }, onServerListening);
+
+    // CRITICAL: Error handler for the HTTP server (strict port-3000 enforcement)
+    let eaddrRetryAttempts = 0;
+    const maxEaddrRetries = 15;
+
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE' && PORT === 3000) {
+            if (eaddrRetryAttempts >= maxEaddrRetries) {
+                const totalWaitSeconds = maxEaddrRetries * 2;
+                logger.error(`❌ Port 3000 remained unavailable after ${maxEaddrRetries} retries (${totalWaitSeconds}s). Exiting.`);
                 process.exit(1);
             }
-        } else if (err.code === 'EADDRINUSE') {
-            logger.error(`❌ Port ${PORT} still in use after retry. Exiting.`);
-            process.exit(1);
-        } else {
-            logger.error(`❌ Server error: ${err.message}`);
-            process.exit(1);
+
+            eaddrRetryAttempts += 1;
+            logger.warn('⏳ Port 3000 hängt im OS TIME_WAIT. Warte auf Freigabe (Retry in 2s)...');
+            setTimeout(() => {
+                server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: false }, onServerListening);
+            }, 2000);
+            return;
         }
+
+        if (err.code === 'EADDRINUSE') {
+            logger.error(`❌ Port ${PORT} is unexpectedly in use (non-3000 path). Exiting.`);
+            process.exit(1);
+            return;
+        }
+
+        logger.error(`❌ Server error: ${err.message}`);
+        process.exit(1);
     });
 })(); // Schließe async IIFE
 

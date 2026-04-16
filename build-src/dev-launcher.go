@@ -11,7 +11,6 @@ import (
 	"html/template"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -32,7 +31,6 @@ type Launcher struct {
 	logFile         *os.File
 	logger          *log.Logger
 	envFileFixed    bool // Track if we auto-created .env file
-	alternativePort int  // Alternative port when 3000 is in use
 	serverPort      int  // Actual port the server responded on
 }
 
@@ -336,18 +334,9 @@ func (l *Launcher) startTool() (*exec.Cmd, error) {
 		if strings.HasPrefix(e, "OPEN_BROWSER=") {
 			continue
 		}
-		// Strip existing PORT to avoid conflicts when we set our own
-		if l.alternativePort > 0 && strings.HasPrefix(e, "PORT=") {
-			continue
-		}
 		env = append(env, e)
 	}
 	env = append(env, "OPEN_BROWSER=false")
-	// Pass alternative port via PORT env var so the server binds to the right port
-	if l.alternativePort > 0 {
-		env = append(env, fmt.Sprintf("PORT=%d", l.alternativePort))
-		l.logAndSync("PORT environment variable set to: %d", l.alternativePort)
-	}
 
 	// DEV MODE: Force unbuffered output from Node.js
 	env = append(env, "NODE_NO_WARNINGS=1") // Reduce noise
@@ -392,11 +381,7 @@ func (l *Launcher) startTool() (*exec.Cmd, error) {
 
 // checkServerHealth checks if the server is responding
 func (l *Launcher) checkServerHealth() bool {
-	targetPort := 3000
-	if l.alternativePort > 0 {
-		targetPort = l.alternativePort
-	}
-	return l.checkServerHealthOnPort(targetPort)
+	return l.checkServerHealthOnPort(3000)
 }
 
 // checkServerHealthOnPort checks if the server is responding on a specific port
@@ -471,66 +456,10 @@ func (l *Launcher) autoFixEnvFile() error {
 	return nil
 }
 
-// checkPortAvailable checks if a port is available
-func (l *Launcher) checkPortAvailable(port int) bool {
-	address := fmt.Sprintf("localhost:%d", port)
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		return false
-	}
-	listener.Close()
-	return true
-}
-
-// autoFixPort checks if port 3000 is available and logs status
+// autoFixPort delegates port management to the Node.js backend.
 func (l *Launcher) autoFixPort() {
-	l.logger.Println("[INFO] Checking if port 3000 is available...")
-
-	if l.checkPortAvailable(3000) {
-		l.logger.Println("[SUCCESS] Port 3000 is available")
-		return
-	}
-
-	l.logger.Println("[WARNING] Port 3000 is already in use")
-	l.updateProgress(87, "⚠️ Port 3000 belegt - prüfe ob Instanz läuft...")
-
-	// Check if an LTTH server is actually responding on port 3000
-	if l.checkServerHealthOnPort(3000) {
-		l.logger.Println("[INFO] Server is already running on port 3000")
-		l.updateProgress(88, "ℹ️ Server läuft bereits auf Port 3000")
-		time.Sleep(2 * time.Second)
-		return
-	}
-
-	// Port is occupied but no server responds.
-	// Wait only briefly and let Node.js PortManager handle deeper recovery/cleanup.
-	l.logger.Println("[INFO] Port in use but no server responding - waiting briefly for port release...")
-	l.updateProgress(87, "⏳ Warte auf Port-Freigabe nach Shutdown...")
-
-	for i := 0; i < 3; i++ {
-		time.Sleep(1 * time.Second)
-		if l.checkPortAvailable(3000) {
-			l.logger.Println("[SUCCESS] Port 3000 is now available after waiting")
-			l.updateProgress(88, "✅ Port 3000 ist wieder frei")
-			return
-		}
-		l.logger.Printf("[INFO] Waiting for port 3000... (%d/3s)\n", i+1)
-	}
-
-	// Still occupied after brief wait → fall back to alternative port
-	l.logger.Println("[WARNING] Port 3000 still in use after brief wait, trying alternative ports...")
-
-	for _, altPort := range []int{3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009} {
-		if l.checkPortAvailable(altPort) {
-			l.alternativePort = altPort
-			l.logger.Printf("[INFO] Alternative port %d selected for server\n", altPort)
-			l.updateProgress(88, fmt.Sprintf("ℹ️ Alternativer Port %d wird genutzt", altPort))
-			time.Sleep(1 * time.Second)
-			return
-		}
-	}
-
-	l.logger.Println("[WARNING] No alternative port found in range 3001-3009")
+	l.logger.Println("[INFO] Port-Management is delegated strictly to Node.js on port 3000.")
+	l.updateProgress(87, "🔌 Port-Management wird strikt an Node.js (Port 3000) delegiert...")
 }
 
 // autoFixYtDlp checks if yt-dlp is available and logs a warning if it is missing
@@ -781,18 +710,10 @@ func (l *Launcher) runLauncher() {
 				lastLogTime = time.Now()
 			}
 			
-			// Try multiple ports (server might have failed over)
-			ports := []int{3000, 3001, 3002, 3003, 3004}
-			for _, port := range ports {
-				if l.checkServerHealthOnPort(port) {
-					l.logger.Printf("[SUCCESS] Server responded on port %d!\n", port)
-					if port != 3000 {
-						l.logger.Printf("[INFO] Note: Server is running on port %d instead of 3000\n", port)
-					}
-					l.serverPort = port
-					serverReady = true
-					break
-				}
+			if l.checkServerHealth() {
+				l.logger.Println("[SUCCESS] Server responded on port 3000!")
+				l.serverPort = 3000
+				serverReady = true
 			}
 		case <-healthCheckTimeout:
 			l.logger.Println("[ERROR] Server health check timed out after 60 seconds")

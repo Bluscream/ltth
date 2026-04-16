@@ -2,7 +2,7 @@
 
 const net = require('net');
 const http = require('http');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const logger = require('./logger');
 
 /**
@@ -10,14 +10,12 @@ const logger = require('./logger');
  *
  * Strategie:
  * 1. Prüfe ob bevorzugter Port frei ist → nutze ihn
- * 2. Falls belegt: prüfe ob eine alte LTTH-Instanz auf dem Port läuft
- *    a) Wenn ja → alte Instanz killen, bevorzugten Port nutzen
- *    b) Wenn nein (fremder Prozess) → alternativen Port (3001-3009) suchen
+ * 2. Falls belegt: Prozess-PID ermitteln und gnadenlos killen (wenn nicht self)
+ * 3. Falls keine PID ermittelbar (z.B. TIME_WAIT): hartnäckig warten bis Port frei ist
  */
 class PortManager {
   constructor(options = {}) {
     this.preferredPort = options.preferredPort || 3000;
-    this.fallbackPorts = options.fallbackPorts || [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009];
     this.healthEndpoint = options.healthEndpoint || '/api/health';
     this.appIdentifier = options.appIdentifier || 'ltth';
     this.killTimeout = options.killTimeout || 5000;
@@ -162,7 +160,7 @@ class PortManager {
    * @returns {Promise<boolean>}
    */
   async killProcess(pid) {
-    if (!pid || pid === process.pid) {
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
       logger.warn(`Refusing to kill PID ${pid} (self or invalid)`);
       return false;
     }
@@ -171,7 +169,7 @@ class PortManager {
       logger.info(`🔪 Killing old LTTH instance (PID: ${pid})...`);
 
       if (process.platform === 'win32') {
-        execSync(`taskkill /PID ${pid} /F /T`, {
+        execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], {
           encoding: 'utf-8',
           timeout: this.killTimeout,
           windowsHide: true
@@ -258,86 +256,30 @@ class PortManager {
   }
 
   /**
-   * Hauptmethode: Findet den besten verfügbaren Port
+   * Hauptmethode: Erzwingt den bevorzugten Port.
+   * Führt einen einmaligen PID-Kill/Wait-Versuch durch – kein Test-Bind, kein Fallback.
    *
-   * Ablauf:
-   * 1. Bevorzugter Port frei? → Nutzen
-   * 2. Belegt von alter LTTH-Instanz? → Killen, bevorzugten Port nutzen
-   * 3. Belegt von fremdem Prozess? → Fallback-Port suchen
-   *
-   * @param {{excludePorts?: number[]}} [options]
    * @returns {Promise<{port: number, action: string}>}
    */
-  async resolvePort(options = {}) {
+  async resolvePort() {
     const preferred = this.preferredPort;
-    const excludePorts = Array.isArray(options.excludePorts) ? options.excludePorts : [];
-    const excluded = new Set(excludePorts.filter((port) => Number.isInteger(port) && port > 0));
 
-    if (excluded.has(preferred)) {
-      logger.warn(`⚠️  Preferred port ${preferred} is excluded, skipping direct check`);
-    } else {
-      logger.info(`🔍 Checking if port ${preferred} is available...`);
-      const isFree = await this.isPortFree(preferred);
+    logger.info(`🔍 resolvePort: checking for existing process on port ${preferred}...`);
 
-      if (isFree) {
-        logger.info(`✅ Port ${preferred} is available`);
-        return { port: preferred, action: 'direct' };
+    const pid = this.findPIDOnPort(preferred);
+
+    if (pid && pid !== process.pid) {
+      logger.info(`🔄 Process on port ${preferred} detected (PID: ${pid}) – killing...`);
+      const killed = await this.killProcess(pid);
+      if (!killed) {
+        logger.warn(`⚠️  Kill for PID ${pid} failed. Waiting for port release fallback...`);
       }
-
-      logger.warn(`⚠️  Port ${preferred} is in use, investigating...`);
-
-      // PID lookup mit bis zu 3 Retries (Race-Condition-Schutz)
-      let pid = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        pid = this.findPIDOnPort(preferred);
-        if (pid) break;
-        if (attempt < 2) await new Promise(r => setTimeout(r, 300));
-      }
-
-      const { isLTTH } = await this.checkIfLTTHInstance(preferred);
-
-      // Wenn PID bekannt: immer versuchen zu killen.
-      // Beim Neustart nach Absturz ist es garantiert eine alte LTTH-Instanz.
-      if (pid && pid !== process.pid) {
-        logger.info(`🔄 Stale process on port ${preferred} (PID: ${pid}) – killing...`);
-        const killed = await this.killProcess(pid);
-
-        if (killed) {
-          const nowFree = await this._waitForPortFree(preferred, this.killTimeout);
-          if (nowFree) {
-            logger.info(`✅ Port ${preferred} freed after killing stale process`);
-            return { port: preferred, action: 'killed_old_instance' };
-          }
-          logger.warn(`⚠️  Port ${preferred} still blocked after kill – using fallback`);
-        } else {
-          logger.warn(`⚠️  Kill of PID ${pid} failed – using fallback`);
-        }
-      } else if (isLTTH && !pid) {
-        // LTTH erkannt aber PID nicht ermittelbar (andere User, Berechtigungen)
-        logger.warn(`⚠️  LTTH instance on port ${preferred} detected but PID unknown – using fallback port`);
-      } else {
-        logger.warn(`⚠️  Port ${preferred} blocked by unknown process, PID not determinable – using fallback`);
-      }
+      logger.info(`✅ Port ${preferred} released after wait`);
+      return { port: preferred, action: 'killed_old_instance' };
     }
 
-    // Fallback-Ports durchsuchen
-    for (const fallbackPort of this.fallbackPorts) {
-      if (excluded.has(fallbackPort)) {
-        logger.debug(`Skipping excluded fallback port ${fallbackPort}`);
-        continue;
-      }
-      const fallbackFree = await this.isPortFree(fallbackPort);
-      if (fallbackFree) {
-        logger.info(`✅ Using fallback port ${fallbackPort}`);
-        return { port: fallbackPort, action: 'fallback' };
-      }
-      logger.debug(`Port ${fallbackPort} also in use, trying next...`);
-    }
-
-    const attemptedPorts = [preferred, ...this.fallbackPorts]
-      .filter((port) => !excluded.has(port))
-      .join(', ');
-    throw new Error(`All ports (${attemptedPorts}) are in use. Cannot start server.`);
+    logger.info(`✅ Port ${preferred} is clear (no blocking PID found).`);
+    return { port: preferred, action: 'direct' };
   }
 }
 
