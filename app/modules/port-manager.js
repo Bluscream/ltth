@@ -2,7 +2,7 @@
 
 const net = require('net');
 const http = require('http');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const logger = require('./logger');
 
 /**
@@ -169,7 +169,7 @@ class PortManager {
       logger.info(`🔪 Killing old LTTH instance (PID: ${pid})...`);
 
       if (process.platform === 'win32') {
-        execSync(`taskkill /F /T /PID ${pid}`, {
+        execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], {
           encoding: 'utf-8',
           timeout: this.killTimeout,
           windowsHide: true
