@@ -1,5 +1,8 @@
 const { randomUUID } = require('crypto');
 
+const DEFAULT_MAX_SONG_DURATION_SECONDS = 360;
+const MIN_ALLOWED_MAX_SONG_DURATION_SECONDS = 30;
+
 class QueueManager {
   constructor(config, api) {
     this.config = config || {};
@@ -245,9 +248,13 @@ class QueueManager {
       return { success: false, error: 'Queue is full' };
     }
 
+    const configuredMaxSongDuration = Number(this.queueConfig.maxSongDurationSeconds);
+    const normalizedMaxSongDuration = Number.isFinite(configuredMaxSongDuration)
+      ? configuredMaxSongDuration
+      : DEFAULT_MAX_SONG_DURATION_SECONDS;
     const maxSongDurationSeconds = Math.max(
-      Number(this.queueConfig.maxSongDurationSeconds) || 360,
-      1
+      normalizedMaxSongDuration,
+      MIN_ALLOWED_MAX_SONG_DURATION_SECONDS
     );
     const duration = Number(song.duration);
     if (!Number.isFinite(duration) || duration <= 0) {

@@ -64,11 +64,11 @@ describe('Music Bot QueueManager max song duration', () => {
     expect(result.song.duration).toBe(180);
   });
 
-  test('uses 360 seconds as fallback when config value is invalid', () => {
+  test('clamps too-low config values to the minimum allowed duration threshold', () => {
     const queueManager = createQueueManager({ maxSongDurationSeconds: 0 });
     const result = queueManager.addSong(createSong({ duration: 361 }));
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Maximum: 360s');
+    expect(result.error).toContain('Maximum: 30s');
   });
 });

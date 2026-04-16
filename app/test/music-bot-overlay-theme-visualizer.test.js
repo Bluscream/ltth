@@ -12,8 +12,14 @@ describe('Music Bot overlay theme engine and visualizer', () => {
   });
 
   test('supports required theme names in URL parsing', () => {
-    expect(overlayHtml).toContain("const allowedThemes = new Set(['default', 'cyberpunk', 'minimal', 'neon'])");
+    expect(overlayHtml).toContain('const allowedThemes = new Set');
+    expect(overlayHtml).toContain("'default'");
+    expect(overlayHtml).toContain("'cyberpunk'");
+    expect(overlayHtml).toContain("'minimal'");
+    expect(overlayHtml).toContain("'neon'");
     expect(overlayHtml).toContain('themeAliases');
+    expect(overlayHtml).toContain("glass: 'default'");
+    expect(overlayHtml).toContain("sunset: 'cyberpunk'");
   });
 
   test('contains visualizer canvas and analyser wiring', () => {

@@ -653,6 +653,7 @@
       root.classList.add(`pos-${position}`);
       document.body.classList.add(`theme-${theme}`);
       document.body.classList.add(`design-${design}`);
+      refreshVisualizerThemeColors();
 
       // Show only the active design widget
       const widgetEl = document.getElementById(`widget-${design}`);
@@ -713,6 +714,15 @@
       let visualizerData = null;
       let visualizerAnimationFrame = null;
       let visualizerMediaElement = null;
+      let visualizerAccentColor = '#38bdf8';
+      let visualizerAccentStrongColor = '#60a5fa';
+      // Balance between responsive beat reaction and smooth bar movement in OBS.
+      const VISUALIZER_SMOOTHING_CONSTANT = 0.78;
+      // Good readability/performance balance for 1080p overlays.
+      const VISUALIZER_BAR_COUNT = 48;
+      const VISUALIZER_BAR_GAP = 3;
+      // Emphasizes stronger frequencies without losing quieter movement.
+      const VISUALIZER_EASING_EXPONENT = 1.25;
 
       function handleVoteSkipUpdate(data) {
         const bar = document.getElementById('vote-skip-bar');
@@ -936,8 +946,17 @@
         return Math.max(0, (Date.now() - currentTrack.startedAt) / 1000);
       }
 
+      function refreshVisualizerThemeColors() {
+        const styles = getComputedStyle(document.body);
+        visualizerAccentColor = styles.getPropertyValue('--accent').trim() || '#38bdf8';
+        visualizerAccentStrongColor = styles.getPropertyValue('--accent-strong').trim() || '#60a5fa';
+      }
+
       function initVisualizer() {
-        if (!visualizerCanvas || typeof window.AudioContext !== 'function' && typeof window.webkitAudioContext !== 'function') {
+        if (
+          !visualizerCanvas
+          || (typeof window.AudioContext !== 'function' && typeof window.webkitAudioContext !== 'function')
+        ) {
           return;
         }
         tryConnectVisualizer();
@@ -957,17 +976,21 @@
           return false;
         }
         visualizerMediaElement = media;
+        // Optional visualizer path: this can fail on restricted/unsupported media elements.
+        // In that case we keep the overlay functional and simply hide the visualizer.
         try {
           if (!visualizerAudioContext) {
-            const Ctx = window.AudioContext || window.webkitAudioContext;
-            visualizerAudioContext = new Ctx();
+            const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+            visualizerAudioContext = new AudioContextConstructor();
           }
           if (visualizerAudioContext.state === 'suspended') {
-            visualizerAudioContext.resume().catch(() => {});
+            visualizerAudioContext.resume().catch(() => {
+              // Visualizer is optional; keep overlay functional if autoplay policy blocks resume.
+            });
           }
           visualizerAnalyser = visualizerAudioContext.createAnalyser();
           visualizerAnalyser.fftSize = 256;
-          visualizerAnalyser.smoothingTimeConstant = 0.78;
+          visualizerAnalyser.smoothingTimeConstant = VISUALIZER_SMOOTHING_CONSTANT;
           visualizerSource = visualizerAudioContext.createMediaElementSource(media);
           visualizerSource.connect(visualizerAnalyser);
           visualizerAnalyser.connect(visualizerAudioContext.destination);
@@ -988,6 +1011,8 @@
       }
 
       function findVisualizerMediaElement() {
+        // Optional extension point: external scripts may set window.musicBotVisualizerAudio
+        // to a HTMLMediaElement that carries the overlay audio source.
         if (window.musicBotVisualizerAudio && window.musicBotVisualizerAudio instanceof HTMLMediaElement) {
           return window.musicBotVisualizerAudio;
         }
@@ -1008,22 +1033,22 @@
 
           visualizerAnalyser.getByteFrequencyData(visualizerData);
           visualizerCtx.clearRect(0, 0, width, height);
-          const barCount = 48;
-          const gap = 3;
+          const barCount = VISUALIZER_BAR_COUNT;
+          const gap = VISUALIZER_BAR_GAP;
           const barWidth = Math.max(2, (width - (barCount - 1) * gap) / barCount);
           const active = state === 'playing' && visualizerCanvas.classList.contains('active');
 
           for (let i = 0; i < barCount; i += 1) {
             const idx = Math.floor((i / barCount) * visualizerData.length);
             const value = visualizerData[idx] / 255;
-            const eased = Math.pow(value, 1.25);
+            const eased = Math.pow(value, VISUALIZER_EASING_EXPONENT);
             const minHeight = active ? 2 : 1;
             const barHeight = active ? Math.max(minHeight, eased * (height - 6)) : minHeight;
             const x = i * (barWidth + gap);
             const y = height - barHeight;
             const gradient = visualizerCtx.createLinearGradient(0, y, 0, height);
-            gradient.addColorStop(0, getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#38bdf8');
-            gradient.addColorStop(1, getComputedStyle(document.body).getPropertyValue('--accent-strong').trim() || '#60a5fa');
+            gradient.addColorStop(0, visualizerAccentColor);
+            gradient.addColorStop(1, visualizerAccentStrongColor);
             visualizerCtx.fillStyle = gradient;
             visualizerCtx.fillRect(x, y, barWidth, barHeight);
           }

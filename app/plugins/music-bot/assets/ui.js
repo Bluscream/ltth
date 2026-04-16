@@ -1,4 +1,8 @@
 (() => {
+  const MIN_SONG_DURATION_LIMIT_SECONDS = 30;
+  const MAX_SONG_DURATION_LIMIT_SECONDS = 7200;
+  const DEFAULT_SONG_DURATION_LIMIT_SECONDS = 360;
+
   // ── Tab switching ──
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -754,8 +758,11 @@
 
   function clampSongDuration(value) {
     const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return 360;
-    return Math.min(7200, Math.max(30, Math.round(numeric)));
+    if (!Number.isFinite(numeric)) return DEFAULT_SONG_DURATION_LIMIT_SECONDS;
+    return Math.min(
+      MAX_SONG_DURATION_LIMIT_SECONDS,
+      Math.max(MIN_SONG_DURATION_LIMIT_SECONDS, Math.round(numeric))
+    );
   }
 
   async function refreshBans() {
