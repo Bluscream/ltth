@@ -23,4 +23,10 @@ describe('PortManager flexible range behavior', () => {
     const manager = new PortManager({ preferredPort: 3000, maxPort: 3050 });
     expect(manager.getNextPort(3050)).toBeNull();
   });
+
+  test('throws when no free port is available in range', async () => {
+    const manager = new PortManager({ preferredPort: 3000, maxPort: 3001 });
+    jest.spyOn(manager, 'isPortFree').mockResolvedValue(false);
+    await expect(manager.resolvePort()).rejects.toThrow('No free port found in range 3000-3001');
+  });
 });

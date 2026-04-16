@@ -3442,7 +3442,7 @@ function writeObsOverlayWrapper(resolvedPort) {
       const iframe = document.getElementById('ltthOverlayFrame');
       const search = window.location.search || '';
       const hash = window.location.hash || '';
-      iframe.src = 'http://127.0.0.1:###PORT###/overlay.html' + search + hash;
+      iframe.src = 'http://localhost:###PORT###/overlay.html' + search + hash;
     })();
   </script>
 </body>
@@ -4026,7 +4026,7 @@ const pluginCacheControl = (req, res, next) => {
             PORT = nextPort;
             setTimeout(() => {
                 server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: true }, onServerListening);
-            }, 100);
+            }, 500);
             return;
         }
 

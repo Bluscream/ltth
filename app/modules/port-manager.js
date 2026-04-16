@@ -281,8 +281,7 @@ class PortManager {
       }
     }
 
-    logger.warn(`No free port found in range ${this.preferredPort}-${this.maxPort}. Falling back to ${this.preferredPort}.`);
-    return { port: this.preferredPort, action: 'unavailable_range' };
+    throw new Error(`No free port found in range ${this.preferredPort}-${this.maxPort}`);
   }
 }
 
