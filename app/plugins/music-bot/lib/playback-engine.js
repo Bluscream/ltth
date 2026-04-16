@@ -38,6 +38,7 @@ class PlaybackEngine extends EventEmitter {
       duration: track.duration || null,
       thumbnail: track.thumbnail || null,
       requestedBy: track.requestedBy || 'viewer',
+      requesterAvatar: track.requesterAvatar || null,
       source: track.source || 'youtube',
       url: track.url,
       youtubeId: track.youtubeId || null,
