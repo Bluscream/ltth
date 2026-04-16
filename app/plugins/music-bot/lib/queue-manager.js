@@ -1,5 +1,8 @@
 const { randomUUID } = require('crypto');
 
+const DEFAULT_MAX_SONG_DURATION_SECONDS = 360;
+const MIN_ALLOWED_MAX_SONG_DURATION_SECONDS = 30;
+
 class QueueManager {
   constructor(config, api) {
     this.config = config || {};
@@ -263,8 +266,26 @@ class QueueManager {
       return { success: false, error: 'Queue is full' };
     }
 
-    if (song.duration && song.duration > this.queueConfig.maxSongDurationSeconds) {
-      return { success: false, error: 'Song is too long' };
+    const configuredMaxSongDuration = Number(this.queueConfig.maxSongDurationSeconds);
+    const normalizedMaxSongDuration = Number.isFinite(configuredMaxSongDuration)
+      ? configuredMaxSongDuration
+      : DEFAULT_MAX_SONG_DURATION_SECONDS;
+    const maxSongDurationSeconds = Math.max(
+      normalizedMaxSongDuration,
+      MIN_ALLOWED_MAX_SONG_DURATION_SECONDS
+    );
+    const duration = Number(song.duration);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return {
+        success: false,
+        error: 'Songdauer konnte nicht ermittelt werden. Bitte einen anderen Song wählen.'
+      };
+    }
+    if (duration > maxSongDurationSeconds) {
+      return {
+        success: false,
+        error: `Song ist zu lang (${Math.ceil(duration)}s). Maximum: ${maxSongDurationSeconds}s.`
+      };
     }
 
     const duplicatesDisabled =

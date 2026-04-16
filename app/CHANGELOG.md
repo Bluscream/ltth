@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🎵 **Music Bot Overlay: Theme-Engine & Visualizer**
+- OBS-Overlay unterstützt nun URL-Themes `default`, `cyberpunk`, `minimal`, `neon` (inkl. Legacy-Mapping alter Theme-Namen).
+- Neues Canvas-basiertes Echtzeit-Visualizer-Rendering mit Web Audio API (`AnalyserNode`, `requestAnimationFrame`) und Theme-gebundener Farbpalette.
+- Konfigurierbares Songlängen-Limit (Default 360s) inkl. Dashboard-Feld und hartem Queue-Check vor dem Hinzufügen von Requests.
 #### 🎵 **Music Bot – Monetization/UI/Overlay Ausbau** (Feature 21, 22, 29, 31, 33, 34, 36, 38, 39)
 - **Pay-to-Play** mit Geschenkekatalog + Coin-Schwelle: `!sr`-Requests benötigen (konfigurierbar) passendes Gift oder ausreichende Coins; Credits werden über Gift-Events vergeben.
 - **Pay-to-Skip** mit Geschenkekatalog: definierte Gifts überspringen den aktuell laufenden Song sofort.

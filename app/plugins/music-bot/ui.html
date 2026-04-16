@@ -179,6 +179,11 @@
           <input type="number" id="cooldown-seconds" min="0" value="30">
         </label>
         <label class="field">
+          <span>Maximale Songlänge (Sekunden)</span>
+          <input type="number" id="max-song-duration-seconds" min="30" max="7200" value="360">
+          <small class="text-secondary">Blockiert zu lange Songs vor dem Queue-Add.</small>
+        </label>
+        <label class="field">
           <span>yt-dlp Pfad</span>
           <input type="text" id="ytdlp-path" placeholder="z.B. /usr/local/bin/yt-dlp">
           <small class="text-secondary">Benötigt für YouTube/SoundCloud. Standard: yt-dlp</small>
@@ -254,11 +259,10 @@
         <label class="field">
           <span>Theme</span>
           <select id="overlay-theme">
-            <option value="glass">Glass (Standard)</option>
-            <option value="dark">Dark</option>
+            <option value="default">Default (Standard)</option>
+            <option value="cyberpunk">Cyberpunk</option>
+            <option value="minimal">Minimal</option>
             <option value="neon">Neon</option>
-            <option value="sunset">Sunset</option>
-            <option value="ice">Ice</option>
           </select>
         </label>
         <label class="field">
