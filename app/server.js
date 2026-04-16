@@ -159,6 +159,7 @@ const io = socketIO(server, {
     // Allow EIO 4 (Socket.IO 4.x)
     allowEIO3: true
 });
+io.sockets.setMaxListeners(50);
 
 // Middleware
 app.use(express.json());
@@ -3960,12 +3961,13 @@ const pluginCacheControl = (req, res, next) => {
     server.on('error', async (err) => {
         if (err.code === 'EADDRINUSE' && !_eaddrinuseRetried) {
             _eaddrinuseRetried = true;
-            logger.warn(`⚠️  Port ${PORT} is unexpectedly in use (race condition after port resolution). Retrying...`);
+            const failedPort = PORT;
+            logger.warn(`⚠️  Port ${failedPort} is unexpectedly in use (race condition after port resolution). Retrying...`);
             try {
-                const retryResult = await portManager.resolvePort();
+                const retryResult = await portManager.resolvePort({ excludePorts: [failedPort] });
                 PORT = retryResult.port;
                 ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
-                logger.info(`♻️  Retry resolved to port ${PORT} (action: ${retryResult.action})`);
+                logger.info(`♻️  Retry resolved to port ${PORT} (action: ${retryResult.action}, excluded: ${failedPort})`);
                 server.listen(PORT, BIND_ADDRESS);
             } catch (retryErr) {
                 logger.error(`❌ Retry failed: ${retryErr.message}. Exiting.`);
