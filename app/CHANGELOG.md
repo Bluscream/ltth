@@ -13,6 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OBS-Overlay unterstützt nun URL-Themes `default`, `cyberpunk`, `minimal`, `neon` (inkl. Legacy-Mapping alter Theme-Namen).
 - Neues Canvas-basiertes Echtzeit-Visualizer-Rendering mit Web Audio API (`AnalyserNode`, `requestAnimationFrame`) und Theme-gebundener Farbpalette.
 - Konfigurierbares Songlängen-Limit (Default 360s) inkl. Dashboard-Feld und hartem Queue-Check vor dem Hinzufügen von Requests.
+#### 🎵 **Music Bot – Monetization/UI/Overlay Ausbau** (Feature 21, 22, 29, 31, 33, 34, 36, 38, 39)
+- **Pay-to-Play** mit Geschenkekatalog + Coin-Schwelle: `!sr`-Requests benötigen (konfigurierbar) passendes Gift oder ausreichende Coins; Credits werden über Gift-Events vergeben.
+- **Pay-to-Skip** mit Geschenkekatalog: definierte Gifts überspringen den aktuell laufenden Song sofort.
+- **Like-Gated Requests** mit Mindestlikes pro User: `!sr` wird abgelehnt, bis die konfigurierbare Like-Schwelle erreicht ist.
+- Dashboard-Konfiguration um **Monetization-Settings** (Pay-to-Play/Skip, Giftlisten, Mindestlikes) inkl. Persistenz erweitert.
+- Dashboard um **Master-/Source-Volume-Slider** erweitert, live angewendet und in Plugin-Config persistent gespeichert.
+- Dashboard-Queue unterstützt **Drag & Drop Reorder** plus UI-Aktionen für Pause/Resume und Löschen.
+- Dashboard-**Status-Toasts** für Request-Erfolg/-Ablehnung, API-Fehler und Netzwerk-/Socket-Probleme ergänzt.
+- Overlay zeigt **Requester-Avatar** beim aktuellen Song (Avatar-URL wird beim Queue-Add gespeichert).
+- Overlay ergänzt um **dynamisch animierte Album-Artworks** (rotierend, pausiert bei Playback-Pause).
+- Overlay ergänzt um **Up-Next Widget** (nächste 2-3 Queue-Songs, live via Socket-Queue-Updates).
+
+#### 🎵 **Music Bot – Core Feature Erweiterung (Audio/Queue/Chat)**
+- **Audio-Ducking:** Automatisches Ducking der Musik bei `tts:playback:started` sowie systemweiten `alert:show` Events mit konfigurierbaren Fade-In/Fade-Out Zeiten.
+- **Lautstärke-Normalisierung:** MPV-Audiofilter `loudnorm` für konsistentere Track-Lautheit (konfigurierbar über `playback.normalization`).
+- **Fallback-Playlist:** Automatischer Fallback auf vordefinierte lokale/URL-basierte Tracks bei leerer Request-Queue.
+- **Pre-Caching:** Asynchrones Vorladen der nächsten Tracks (Lookahead) in den persistenten `pluginDataDir/cache` Bereich.
+- **Request-Limits robuster:** User-Limit und Cooldown werden jetzt case-insensitive ausgewertet, um Umgehung via Groß-/Kleinschreibung zu verhindern.
+- **Tests ergänzt:** Neue Jest-Tests für Ducking-/Normalisierungslogik und case-insensitive Request-Limits.
 
 #### 🔌 **Adapter Architecture for TikTok Data Sources** (`app/modules/adapters/`)
 - `BaseAdapter.js`: Abstract base class for all data source adapters. Extends `EventEmitter`. Provides shared state (`isConnected`, `currentUsername`, `streamStartTime`, `stats`), broadcast helpers (`broadcastStats`, `broadcastStatus`), event routing (`handleEvent`), and duration interval management.
@@ -31,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vollständige Admin-UI mit Live-Preview und OBS-URL-Generator
 
 ### Fixed
+
+#### 🔥 **Flame Overlay WebGL rendering + bloom framebuffer state**
+- `app/plugins/flame-overlay/renderer/post-processor.js`: `renderToFramebuffer()` now validates target framebuffer, applies matching viewport size for scene vs bloom buffers, clears color/depth before rendering, and restores default framebuffer viewport afterward.
+- `app/plugins/flame-overlay/renderer/effects-engine.js`: `render()` now explicitly restores canvas framebuffer/viewport before final composite and direct rendering fallback; smoke rendering logic is encapsulated in `renderSmoke(time)` and invoked safely from `renderScene()`.
+- Added regression test coverage in `app/test/flame-overlay-renderer-webgl-state.test.js` to guard viewport/framebuffer and render-scene delegation behavior.
 
 #### 🔌 **EulerstreamAdapter – Token-Drain & ~60s-Disconnect-Loop**
 - EulerstreamAdapter: 4404 (Not Live) retry no longer runs unbounded – now consumes autoReconnectCount and stops at maxAutoReconnects

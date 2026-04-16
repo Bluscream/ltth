@@ -1,7 +1,11 @@
 const path = require('path');
+const fs = require('fs');
+const fsp = require('fs/promises');
 const { execFile } = require('child_process');
+const { spawn } = require('child_process');
 const { promisify } = require('util');
 const EventEmitter = require('events');
+const { createHash } = require('crypto');
 let YOUTUBE_DL_PATH = 'yt-dlp';
 try {
   const youtubeDlExec = require('youtube-dl-exec');
@@ -17,6 +21,10 @@ const MusicResolver = require('./lib/music-resolver');
 const PlaybackEngine = require('./lib/playback-engine');
 const BanList = require('./lib/ban-list');
 const AutoDJ = require('./lib/auto-dj');
+
+const DEFAULT_PRECACHE_LOOKAHEAD = 2;
+const MAX_PRECACHE_LOOKAHEAD = 5;
+const PRECACHE_KILL_TIMEOUT_MS = 1500;
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -61,7 +69,20 @@ const DEFAULT_CONFIG = {
     mpvPath: 'mpv',
     audioDevice: 'auto',
     autoPlay: true,
-    crossfadeDuration: 3000
+    crossfadeDuration: 3000,
+    ducking: {
+      enabled: true,
+      targetVolumePercent: 35,
+      fadeOutMs: 250,
+      fadeInMs: 700,
+      holdMs: 1100
+    },
+    normalization: {
+      enabled: true,
+      integratedLufs: -16,
+      truePeakDb: -1.5,
+      lra: 11
+    }
   },
   permissions: {
     request: 'viewer',
@@ -83,6 +104,19 @@ const DEFAULT_CONFIG = {
   giftIntegration: {
     skipImmunityGifts: []
   },
+  monetization: {
+    payToPlayEnabled: false,
+    payToPlayGiftCatalog: [],
+    payToPlayMinCoins: 0,
+    payToSkipEnabled: false,
+    payToSkipGiftCatalog: [],
+    likeGateEnabled: false,
+    minLikesPerUser: 1
+  },
+  audio: {
+    masterVolume: 100,
+    sourceVolume: 50
+  },
   autoDJ: {
     enabled: false,
     mode: 'history',
@@ -103,6 +137,14 @@ const DEFAULT_CONFIG = {
     rejectExplicit: false,
     rejectAgeRestricted: true,
     blockedKeywords: []
+  },
+  fallbackPlaylist: {
+    enabled: false,
+    tracks: []
+  },
+  preCache: {
+    enabled: true,
+    lookahead: 2
   }
 };
 
@@ -123,11 +165,23 @@ class MusicBotPlugin extends EventEmitter {
     this.commandParser = null;
     this.autoDJ = null;
     this._pendingRequests = new Set();
+    this._requestCredits = new Map();
+    this._userLikes = new Map();
+    this.pluginDataDir = null;
+    this.cacheDir = null;
+    this._precacheTasks = new Map();
+    this._precacheState = new Map();
+    this._fallbackIndex = 0;
+    this._ioEmitOriginal = null;
+    this._ttsDuckingHandlers = null;
   }
 
   async init() {
     this._loadConfig();
-    this.api.ensurePluginDataDir();
+    this.pluginDataDir = this.api.ensurePluginDataDir();
+    this.cacheDir = path.join(this.pluginDataDir, 'cache');
+    await fsp.mkdir(this.cacheDir, { recursive: true });
+    await this._pruneCacheDir();
 
     await this._ensureYtDlp();
     await this._ensureMpv();
@@ -138,6 +192,7 @@ class MusicBotPlugin extends EventEmitter {
       this.api
     );
     this.playbackEngine = new PlaybackEngine(this.config.playback, this.api);
+    await this.playbackEngine.setVolume(this._computeEffectiveVolume());
     this.banList = new BanList(this.api);
     this.autoDJ = new AutoDJ(this.config.autoDJ, this.musicResolver, this.db, this.api);
 
@@ -155,6 +210,7 @@ class MusicBotPlugin extends EventEmitter {
     this._registerRoutes();
     this._registerSocketEvents();
     this._registerTikTokEvents();
+    this._registerDuckingHooks();
 
     await this._restoreState();
     this.api.log('[music-bot] Plugin initialized', 'info');
@@ -170,7 +226,11 @@ class MusicBotPlugin extends EventEmitter {
     }
 
     this.queueManager.clear();
+    this._cleanupDuckingHooks();
+    await this._stopPrecacheTasks();
     this._pendingRequests.clear();
+    this._requestCredits.clear();
+    this._userLikes.clear();
     this.removeAllListeners();
     this._stopPlaybackSync();
     this.api.log('[music-bot] Plugin destroyed', 'info');
@@ -183,9 +243,22 @@ class MusicBotPlugin extends EventEmitter {
     const merged = this._mergeDeep(DEFAULT_CONFIG, saved || {});
     this.config = merged;
     this.config.moderation = this._mergeDeep(DEFAULT_CONFIG.moderation, this.config.moderation || {});
+    this.config.monetization = this._mergeDeep(DEFAULT_CONFIG.monetization, this.config.monetization || {});
+    this.config.audio = this._mergeDeep(DEFAULT_CONFIG.audio, this.config.audio || {});
     if (!Array.isArray(this.config.moderation.blockedKeywords)) {
       this.config.moderation.blockedKeywords = [];
     }
+    if (!Array.isArray(this.config.monetization.payToPlayGiftCatalog)) {
+      this.config.monetization.payToPlayGiftCatalog = [];
+    }
+    if (!Array.isArray(this.config.monetization.payToSkipGiftCatalog)) {
+      this.config.monetization.payToSkipGiftCatalog = [];
+    }
+    this.config.monetization.minLikesPerUser = Math.max(1, Number(this.config.monetization.minLikesPerUser) || 1);
+    this.config.monetization.payToPlayMinCoins = Math.max(0, Number(this.config.monetization.payToPlayMinCoins) || 0);
+    this.config.audio.masterVolume = Math.max(0, Math.min(100, Number(this.config.audio.masterVolume) || DEFAULT_CONFIG.audio.masterVolume));
+    this.config.audio.sourceVolume = Math.max(0, Math.min(100, Number(this.config.audio.sourceVolume) || DEFAULT_CONFIG.audio.sourceVolume));
+    this.config.playback.defaultVolume = this._computeEffectiveVolume();
     if (!saved) {
       this.api.setConfig('config', merged);
     } else if (JSON.stringify(saved) !== JSON.stringify(merged)) {
@@ -353,10 +426,74 @@ class MusicBotPlugin extends EventEmitter {
     return { valid: true };
   }
 
+  _computeEffectiveVolume() {
+    const master = Math.max(0, Math.min(100, Number(this.config.audio?.masterVolume) || 0));
+    const source = Math.max(0, Math.min(100, Number(this.config.audio?.sourceVolume) || 0));
+    return Math.round((master * source) / 100);
+  }
+
+  async _applyAudioVolume() {
+    const effective = this._computeEffectiveVolume();
+    this.config.playback.defaultVolume = effective;
+    await this.playbackEngine.setVolume(effective);
+    this._emitVolume(effective);
+    return effective;
+  }
+
+  _normalizeGiftList(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean);
+  }
+
+  _normalizeGiftKey(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  _getRequestCredits(username) {
+    const key = String(username || '').toLowerCase();
+    if (!key) return 0;
+    return Number(this._requestCredits.get(key) || 0);
+  }
+
+  _addRequestCredits(username, amount) {
+    const key = String(username || '').toLowerCase();
+    if (!key || amount <= 0) return 0;
+    const next = this._getRequestCredits(key) + amount;
+    this._requestCredits.set(key, next);
+    return next;
+  }
+
+  _consumeRequestCredit(username) {
+    const key = String(username || '').toLowerCase();
+    if (!key) return false;
+    const current = this._getRequestCredits(key);
+    if (current < 1) return false;
+    this._requestCredits.set(key, current - 1);
+    return true;
+  }
+
+  _addUserLikes(username, likeCount = 1) {
+    const key = String(username || '').toLowerCase();
+    if (!key) return 0;
+    const safeCount = Math.max(0, Number(likeCount) || 0);
+    const next = Number(this._userLikes.get(key) || 0) + safeCount;
+    this._userLikes.set(key, next);
+    return next;
+  }
+
+  _getUserLikes(username) {
+    const key = String(username || '').toLowerCase();
+    if (!key) return 0;
+    return Number(this._userLikes.get(key) || 0);
+  }
+
   async _restoreState() {
     this.queueManager.restoreQueue();
     this._emitStatus();
     this._emitQueue();
+    this._schedulePreCache();
   }
 
   _registerPlaybackEvents() {
@@ -366,6 +503,7 @@ class MusicBotPlugin extends EventEmitter {
       this._emitNowPlaying(track);
       this._mpvRestartAttempts = 0;
       this._startPlaybackSync();
+      this._schedulePreCache();
     });
 
     this.playbackEngine.on('track-end', (info) => {
@@ -474,12 +612,12 @@ class MusicBotPlugin extends EventEmitter {
     });
 
     this.api.registerRoute('post', '/api/plugins/music-bot/request', async (req, res) => {
-      const { query, username = 'dashboard' } = req.body || {};
+      const { query, username = 'dashboard', requesterAvatar = null } = req.body || {};
       if (!query) {
         res.status(400).json({ success: false, error: 'Missing query' });
         return;
       }
-      const result = await this._handleDashboardRequest(query, username);
+      const result = await this._handleDashboardRequest(query, username, requesterAvatar);
       res.status(result.success ? 200 : 400).json(result);
     });
 
@@ -489,13 +627,31 @@ class MusicBotPlugin extends EventEmitter {
     });
 
     this.api.registerRoute('post', '/api/plugins/music-bot/volume', async (req, res) => {
-      const { volume } = req.body || {};
-      if (typeof volume !== 'number' || volume < 0 || volume > 100) {
-        res.status(400).json({ success: false, error: 'Volume must be 0-100' });
+      const { volume, masterVolume, sourceVolume } = req.body || {};
+      const hasLegacy = typeof volume === 'number';
+      const hasMaster = typeof masterVolume === 'number';
+      const hasSource = typeof sourceVolume === 'number';
+      if (!hasLegacy && !hasMaster && !hasSource) {
+        res.status(400).json({ success: false, error: 'Volume payload missing' });
         return;
       }
-      await this.playbackEngine.setVolume(volume);
-      res.json({ success: true, volume });
+      if (hasLegacy) {
+        this.config.audio.sourceVolume = Math.max(0, Math.min(100, Number(volume) || 0));
+      }
+      if (hasMaster) {
+        this.config.audio.masterVolume = Math.max(0, Math.min(100, Number(masterVolume) || 0));
+      }
+      if (hasSource) {
+        this.config.audio.sourceVolume = Math.max(0, Math.min(100, Number(sourceVolume) || 0));
+      }
+      const effectiveVolume = await this._applyAudioVolume();
+      await this.api.setConfig('config', this.config);
+      res.json({
+        success: true,
+        volume: effectiveVolume,
+        masterVolume: this.config.audio.masterVolume,
+        sourceVolume: this.config.audio.sourceVolume
+      });
     });
 
     this.api.registerRoute('post', '/api/plugins/music-bot/pause', async (req, res) => {
@@ -530,14 +686,23 @@ class MusicBotPlugin extends EventEmitter {
       }
       this.config = merged;
       this.config.moderation = this._mergeDeep(DEFAULT_CONFIG.moderation, this.config.moderation || {});
+      this.config.monetization = this._mergeDeep(DEFAULT_CONFIG.monetization, this.config.monetization || {});
+      this.config.audio = this._mergeDeep(DEFAULT_CONFIG.audio, this.config.audio || {});
       if (!Array.isArray(this.config.moderation.blockedKeywords)) {
         this.config.moderation.blockedKeywords = [];
       }
-      this.queueManager.config = merged;
-      this.queueManager.queueConfig = merged.queue;
-      this.playbackEngine.config = merged.playback;
+      this.config.monetization.payToPlayGiftCatalog = this._normalizeGiftList(this.config.monetization.payToPlayGiftCatalog);
+      this.config.monetization.payToSkipGiftCatalog = this._normalizeGiftList(this.config.monetization.payToSkipGiftCatalog);
+      this.config.monetization.minLikesPerUser = Math.max(1, Number(this.config.monetization.minLikesPerUser) || 1);
+      this.config.monetization.payToPlayMinCoins = Math.max(0, Number(this.config.monetization.payToPlayMinCoins) || 0);
+      this.config.audio.masterVolume = Math.max(0, Math.min(100, Number(this.config.audio.masterVolume) || DEFAULT_CONFIG.audio.masterVolume));
+      this.config.audio.sourceVolume = Math.max(0, Math.min(100, Number(this.config.audio.sourceVolume) || DEFAULT_CONFIG.audio.sourceVolume));
+      this.queueManager.config = this.config;
+      this.queueManager.queueConfig = this.config.queue;
+      this.playbackEngine.config = this.config.playback;
       this.musicResolver.config = { ...this.config.resolver, moderation: this.config.moderation };
-      this.autoDJ?.updateConfig(merged.autoDJ);
+      this.autoDJ?.updateConfig(this.config.autoDJ);
+      await this._applyAudioVolume();
       await this.api.setConfig('config', this.config);
       res.json({ success: true, config: this.config });
     });
@@ -641,12 +806,17 @@ class MusicBotPlugin extends EventEmitter {
 
   _registerSocketEvents() {
     this.api.registerSocket('musicbot:request-status', async (socket) => {
+      const effectiveVolume = this._computeEffectiveVolume();
       socket.emit('musicbot:now-playing', this.playbackEngine.getNowPlaying());
       socket.emit('musicbot:queue-update', {
         queue: this.queueManager.getQueue(),
         length: this.queueManager.getQueue().length
       });
-      socket.emit('musicbot:volume-changed', { volume: this.playbackEngine.getVolume() });
+      socket.emit('musicbot:volume-changed', {
+        volume: effectiveVolume,
+        masterVolume: this.config.audio.masterVolume,
+        sourceVolume: this.config.audio.sourceVolume
+      });
     });
 
     this.api.registerSocket('musicbot:dashboard-skip', async () => {
@@ -654,10 +824,20 @@ class MusicBotPlugin extends EventEmitter {
     });
 
     this.api.registerSocket('musicbot:dashboard-volume', async (socket, payload) => {
-      const vol = Number(payload?.volume);
-      if (Number.isFinite(vol) && vol >= 0 && vol <= 100) {
-        await this.playbackEngine.setVolume(vol);
-        this._emitVolume(vol);
+      const source = Number(payload?.sourceVolume ?? payload?.volume);
+      const master = Number(payload?.masterVolume);
+      if (
+        (Number.isFinite(source) && source >= 0 && source <= 100) ||
+        (Number.isFinite(master) && master >= 0 && master <= 100)
+      ) {
+        if (Number.isFinite(source)) {
+          this.config.audio.sourceVolume = source;
+        }
+        if (Number.isFinite(master)) {
+          this.config.audio.masterVolume = master;
+        }
+        await this._applyAudioVolume();
+        await this.api.setConfig('config', this.config);
       } else {
         socket.emit('musicbot:error', { message: 'Volume must be between 0 and 100' });
       }
@@ -681,31 +861,84 @@ class MusicBotPlugin extends EventEmitter {
     this.api.registerTikTokEvent('gift', async (data) => {
       await this._handleGiftEvent(data);
     });
+    this.api.registerTikTokEvent('like', async (data) => {
+      const username = data?.username || data?.nickname || data?.user?.uniqueId;
+      if (!username) return;
+      const likeCount = Number(data?.likeCount || data?.count || 1);
+      const total = this._addUserLikes(username, likeCount);
+      this.api.emit('musicbot:user-likes-updated', { username, likes: total });
+    });
+  }
+
+  _registerDuckingHooks() {
+    const ttsStarted = async () => {
+      try {
+        await this.playbackEngine?.triggerDucking();
+      } catch (error) {
+        this.api.log(`[music-bot] TTS ducking failed: ${error.message}`, 'error');
+      }
+    };
+    const alertShown = async () => {
+      try {
+        await this.playbackEngine?.triggerDucking();
+      } catch (error) {
+        this.api.log(`[music-bot] Alert ducking failed: ${error.message}`, 'error');
+      }
+    };
+
+    this._ttsDuckingHandlers = { ttsStarted, alertShown };
+    if (this.api.pluginLoader?.on) {
+      this.api.pluginLoader.on('tts:playback:started', ttsStarted);
+    } else {
+      this.api.log('[music-bot] pluginLoader unavailable: TTS ducking listener not registered', 'warn');
+    }
+
+    if (this.io && typeof this.io.emit === 'function') {
+      this._ioEmitOriginal = this.io.emit.bind(this.io);
+      this.io.emit = (event, ...args) => {
+        if (event === 'alert:show') {
+          Promise.resolve(alertShown()).catch(() => {});
+        }
+        return this._ioEmitOriginal(event, ...args);
+      };
+    }
+  }
+
+  _cleanupDuckingHooks() {
+    if (this._ttsDuckingHandlers?.ttsStarted) {
+      this.api.pluginLoader?.removeListener?.('tts:playback:started', this._ttsDuckingHandlers.ttsStarted);
+    }
+    if (this._ioEmitOriginal && this.io) {
+      this.io.emit = this._ioEmitOriginal;
+    }
+    this._ioEmitOriginal = null;
+    this._ttsDuckingHandlers = null;
   }
 
   // ---------- Command handling ----------
 
   async _handleCommand(command, chatData) {
+    const username = this._getChatUsername(chatData);
     switch (command.type) {
       case 'request':
-        return this._handleRequest(command.query, chatData.username || 'unknown');
+        return this._handleRequest(command.query, username, chatData);
       case 'skip':
         if (command.force) {
-          return this._skipCurrent(chatData.username || 'viewer');
+          return this._skipCurrent(username);
         }
-        return this._handleSkipVote(chatData.username || 'viewer');
+        return this._handleSkipVote(username);
       case 'queue':
-        this._emitChatResponse(`Queue length: ${this.queueManager.getQueue().length}`, chatData.username);
+        this._emitChatResponse(`Queue length: ${this.queueManager.getQueue().length}`, username);
         return;
       case 'nowPlaying':
-        this._emitChatResponse(this._formatNowPlaying(), chatData.username);
+        this._emitChatResponse(this._formatNowPlaying(), username);
         return;
       case 'volume':
         if (command.value !== undefined) {
           await this.playbackEngine.setVolume(command.value);
           this._emitVolume(command.value);
         } else {
-          this._emitChatResponse(`Aktuelle Lautstärke: ${this.playbackEngine.getVolume()}`, chatData.username);
+          this._emitChatResponse(`Aktuelle Lautstärke: ${this.playbackEngine.getVolume()}`, username);
         }
         return;
       case 'pause':
@@ -724,15 +957,15 @@ class MusicBotPlugin extends EventEmitter {
         return;
       case 'mysong': {
         const queue = this.queueManager.getQueue();
-        const lowerUser = (chatData.username || '').toLowerCase();
+        const lowerUser = username.toLowerCase();
         const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
         if (idx === -1) {
-          this._emitChatResponse('Du hast keinen Song in der Queue.', chatData.username);
+          this._emitChatResponse('Du hast keinen Song in der Queue.', username);
         } else {
           const song = queue[idx];
           this._emitChatResponse(
             `Dein Song "${song.title}" ist auf Position #${idx + 1}.`,
-            chatData.username
+            username
           );
         }
         return;
@@ -747,49 +980,60 @@ class MusicBotPlugin extends EventEmitter {
         if (cmds.nowPlaying) parts.push(`${prefix}${cmds.nowPlaying}`);
         if (cmds.mysong) parts.push(`${prefix}${cmds.mysong}`);
         if (cmds.remove) parts.push(`${prefix}${cmds.remove}`);
-        this._emitChatResponse(`Commands: ${parts.join(' | ')}`, chatData.username);
+        this._emitChatResponse(`Commands: ${parts.join(' | ')}`, username);
         return;
       }
       case 'remove': {
         const queue = this.queueManager.getQueue();
-        const lowerUser = (chatData.username || '').toLowerCase();
-        const isPrivileged = await this._isPrivilegedUser(chatData.username, chatData);
+        const lowerUser = username.toLowerCase();
+        const isPrivileged = await this._isPrivilegedUser(username, chatData);
 
         if (command.index !== null && command.index !== undefined && isPrivileged) {
           // Mod/Streamer: remove specific song by 0-based index
           const result = this.queueManager.removeSong(command.index);
           if (result.success) {
-            this._emitChatResponse(
-              `"${result.song.title}" wurde aus der Queue entfernt.`,
-              chatData.username
-            );
-            this._emitQueue();
-          } else {
-            this._emitChatResponse('Song nicht gefunden.', chatData.username);
-          }
-        } else {
-          // Remove user's own song
-          const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
-          if (idx === -1) {
-            this._emitChatResponse('Du hast keinen Song in der Queue.', chatData.username);
-          } else {
-            const result = this.queueManager.removeSong(idx);
-            if (result.success) {
               this._emitChatResponse(
                 `"${result.song.title}" wurde aus der Queue entfernt.`,
-                chatData.username
+                username
               );
               this._emitQueue();
             } else {
-              this._emitChatResponse('Fehler beim Entfernen.', chatData.username);
+              this._emitChatResponse('Song nicht gefunden.', username);
+            }
+          } else {
+            // Remove user's own song
+            const idx = queue.findIndex(s => (s.requestedBy || '').toLowerCase() === lowerUser);
+            if (idx === -1) {
+              this._emitChatResponse('Du hast keinen Song in der Queue.', username);
+            } else {
+              const result = this.queueManager.removeSong(idx);
+              if (result.success) {
+                this._emitChatResponse(
+                  `"${result.song.title}" wurde aus der Queue entfernt.`,
+                  username
+                );
+                this._emitQueue();
+              } else {
+                this._emitChatResponse('Fehler beim Entfernen.', username);
+              }
             }
           }
-        }
         return;
       }
       default:
         break;
     }
+  }
+
+  _getChatUsername(chatData) {
+    return (
+      chatData?.username ||
+      chatData?.uniqueId ||
+      chatData?.nickname ||
+      chatData?.user?.uniqueId ||
+      chatData?.user?.nickname ||
+      'viewer'
+    );
   }
 
   async _isPrivilegedUser(username, chatData) {
@@ -803,37 +1047,44 @@ class MusicBotPlugin extends EventEmitter {
     return false;
   }
 
-  async _handleDashboardRequest(query, username) {
+  async _handleDashboardRequest(query, username, requesterAvatar = null) {
     try {
       const resolved = await this.musicResolver.resolve(query);
       if (!resolved?.success) {
+        this._emitToast('error', 'API-Fehler', resolved?.message || 'Song konnte nicht geladen werden.');
         return { success: false, error: resolved?.message || 'Song konnte nicht geladen werden.' };
       }
 
       const banMessage = this._checkBans(resolved.song, username);
       if (banMessage) {
+        this._emitToast('warn', 'Song geblockt', banMessage);
         return { success: false, error: banMessage };
       }
 
-      const added = this.queueManager.addSong({ ...resolved.song, requestedBy: username });
+      const added = this.queueManager.addSong({ ...resolved.song, requestedBy: username, requesterAvatar });
       if (!added.success) {
+        this._emitToast('warn', 'Song-Request abgelehnt', added.error || 'Song konnte nicht hinzugefügt werden.');
         return added;
       }
+      this._schedulePreCache();
       this.autoDJ?.onSongRequested();
       this._emitSongAdded(added.song, added.position);
       if (!this.playbackEngine.isPlaying() && this.config.playback.autoPlay) {
         await this._playNextFromQueue();
       }
+      this._emitToast('success', 'Song hinzugefügt', `${resolved.song.title} (#${added.position})`);
       return { success: true, song: added.song, position: added.position };
     } catch (error) {
       this.api.log(`[music-bot] Failed to request song: ${error.message}`, 'error');
+      this._emitToast('error', 'API-Fehler', error.message || 'Song konnte nicht geladen werden.');
       return { success: false, error: error.message };
     }
   }
 
-  async _handleRequest(query, username) {
+  async _handleRequest(query, username, chatData = {}) {
     if (!query) {
       this._emitChatResponse('Bitte gib einen Song an.', username);
+      this._emitToast('warn', 'Song-Request abgelehnt', 'Bitte gib einen Song an.');
       return;
     }
 
@@ -846,7 +1097,27 @@ class MusicBotPlugin extends EventEmitter {
     const userBan = this.banList?.isUserBanned(username);
     if (userBan?.banned) {
       this._emitChatResponse('Dieser Nutzer darf keine Songs anfragen.', username);
+      this._emitToast('warn', 'Song geblockt', `@${username} ist für Song-Requests gesperrt.`);
       return;
+    }
+
+    if (this.config.monetization?.likeGateEnabled) {
+      const likes = this._getUserLikes(username);
+      const requiredLikes = Math.max(1, Number(this.config.monetization?.minLikesPerUser) || 1);
+      if (likes < requiredLikes) {
+        this._emitChatResponse(`Du brauchst mindestens ${requiredLikes} Likes für !sr. Aktuell: ${likes}.`, username);
+        this._emitToast('warn', 'Song-Request abgelehnt', `@${username}: ${likes}/${requiredLikes} Likes.`);
+        return;
+      }
+    }
+
+    if (this.config.monetization?.payToPlayEnabled) {
+      const availableCredits = this._getRequestCredits(username);
+      if (availableCredits < 1) {
+        this._emitChatResponse('Für !sr benötigst du ein konfiguriertes Gift bzw. genügend Coins.', username);
+        this._emitToast('warn', 'Song-Request abgelehnt', `@${username} hat kein gültiges Request-Gift gesendet.`);
+        return;
+      }
     }
 
     this._pendingRequests.add(lowerUser);
@@ -854,20 +1125,31 @@ class MusicBotPlugin extends EventEmitter {
       const resolved = await this.musicResolver.resolve(query);
       if (!resolved?.success) {
         this._emitChatResponse(resolved?.message || 'Song konnte nicht geladen werden.', username);
+        this._emitToast('error', 'API-Fehler', resolved?.message || 'Song konnte nicht geladen werden.');
         return;
       }
 
       const banMessage = this._checkBans(resolved.song, username);
       if (banMessage) {
         this._emitChatResponse(banMessage, username);
+        this._emitToast('warn', 'Song geblockt', banMessage);
         return;
       }
 
-      const addResult = this.queueManager.addSong({ ...resolved.song, requestedBy: username });
+      const addResult = this.queueManager.addSong({
+        ...resolved.song,
+        requestedBy: username,
+        requesterAvatar: chatData?.profilePictureUrl || chatData?.avatar || null
+      });
       if (!addResult.success) {
         this._emitChatResponse(addResult.error || 'Song konnte nicht hinzugefügt werden.', username);
+        this._emitToast('warn', 'Song-Request abgelehnt', addResult.error || 'Song konnte nicht hinzugefügt werden.');
         return;
       }
+      if (this.config.monetization?.payToPlayEnabled) {
+        this._consumeRequestCredit(username);
+      }
+      this._schedulePreCache();
       this.autoDJ?.onSongRequested();
       this._emitSongAdded(addResult.song, addResult.position);
 
@@ -877,9 +1159,11 @@ class MusicBotPlugin extends EventEmitter {
 
       const artist = resolved.song.artist ? ` von ${resolved.song.artist}` : '';
       this._emitChatResponse(`Hinzugefügt: ${resolved.song.title}${artist} (#${addResult.position})`, username);
+      this._emitToast('success', 'Song hinzugefügt', `${resolved.song.title} (#${addResult.position})`);
     } catch (error) {
       this.api.log(`[music-bot] request failed: ${error.message}`, 'error');
       this._emitChatResponse('Song konnte nicht geladen werden.', username);
+      this._emitToast('error', 'API-Fehler', error.message || 'Song konnte nicht geladen werden.');
     } finally {
       this._pendingRequests.delete(lowerUser);
     }
@@ -965,6 +1249,11 @@ class MusicBotPlugin extends EventEmitter {
     }
     const next = this.queueManager.shiftNext();
     if (!next) {
+      const fallbackTrack = await this._playFallbackTrack();
+      if (fallbackTrack) {
+        this._schedulePreCache();
+        return;
+      }
       const autoDJTrack = await this._maybePlayAutoDJ();
       if (!autoDJTrack) {
         this.playbackEngine.clearNowPlaying();
@@ -976,6 +1265,7 @@ class MusicBotPlugin extends EventEmitter {
     try {
       await this.playbackEngine.play(next);
       this._emitQueue();
+      this._schedulePreCache();
     } catch (error) {
       this.api.log(`[music-bot] Playback failed: ${error.message}`, 'error');
       this._emitError(error.message);
@@ -983,12 +1273,246 @@ class MusicBotPlugin extends EventEmitter {
     }
   }
 
+  _schedulePreCache() {
+    try {
+      const cfg = this.config.preCache || {};
+      if (!cfg.enabled) return;
+      const requestedLookahead = Number(cfg.lookahead);
+      const lookahead = Math.max(
+        0,
+        Math.min(
+          Number.isFinite(requestedLookahead) ? requestedLookahead : DEFAULT_PRECACHE_LOOKAHEAD,
+          MAX_PRECACHE_LOOKAHEAD
+        )
+      );
+      if (!lookahead) return;
+      const upcoming = this.queueManager.getQueue().slice(0, lookahead);
+      upcoming.forEach((song) => this._startPreCache(song));
+    } catch (error) {
+      this.api.log(`[music-bot] Failed to schedule pre-cache: ${error.message}`, 'warn');
+    }
+  }
+
+  _startPreCache(song) {
+    if (!song?.id || !song?.url) return;
+    if (song.localPath && fs.existsSync(song.localPath)) return;
+    if (this._precacheTasks.has(song.id)) return;
+
+    const cacheState = this._precacheState.get(song.id);
+    if (cacheState?.path && fs.existsSync(cacheState.path)) {
+      if (!this.queueManager.setSongLocalPath(song.id, cacheState.path)) {
+        this._precacheState.delete(song.id);
+      }
+      return;
+    }
+
+    const isHttpUrl = /^https?:\/\//i.test(song.url);
+    if (!isHttpUrl) {
+      if (fs.existsSync(song.url)) {
+        if (!this.queueManager.setSongLocalPath(song.id, song.url)) {
+          this._precacheState.delete(song.id);
+        }
+      }
+      return;
+    }
+
+    const cacheKey = this._safeCacheKey(song.id);
+    const outputTemplate = path.join(this.cacheDir, `${cacheKey}-%(id)s.%(ext)s`);
+    const args = [
+      '--no-warnings',
+      '--ignore-errors',
+      '--no-playlist',
+      '--format',
+      'bestaudio',
+      '--output',
+      outputTemplate,
+      '--print',
+      'after_move:filepath',
+      song.url
+    ];
+
+    const ytdlpPath = this._getYtDlpPath();
+    const proc = spawn(ytdlpPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    this._precacheTasks.set(song.id, proc);
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    proc.on('error', (error) => {
+      this._precacheTasks.delete(song.id);
+      this.api.log(`[music-bot] Pre-cache process failed: ${error.message}`, 'warn');
+    });
+    proc.on('close', () => {
+      this._precacheTasks.delete(song.id);
+      const cachedPath = stdout.trim().split('\n').filter(Boolean).pop();
+      if (cachedPath && fs.existsSync(cachedPath)) {
+        this._precacheState.set(song.id, { path: cachedPath, cachedAt: Date.now() });
+        if (!this.queueManager.setSongLocalPath(song.id, cachedPath)) {
+          this._precacheState.delete(song.id);
+        }
+        this._pruneCacheDir().catch((error) => {
+          this.api.log(`[music-bot] Cache prune failed: ${error.message}`, 'debug');
+        });
+      } else if (stderr) {
+        this.api.log(`[music-bot] Pre-cache skipped for "${song.title}": ${stderr.trim()}`, 'debug');
+      }
+    });
+  }
+
+  async _stopPrecacheTasks() {
+    const tasks = Array.from(this._precacheTasks.values());
+    this._precacheTasks.clear();
+    await Promise.all(tasks.map((proc) => new Promise((resolve) => {
+      if (!proc || proc.exitCode !== null) {
+        resolve();
+        return;
+      }
+      proc.once('close', () => resolve());
+      proc.kill('SIGTERM');
+      setTimeout(() => {
+        if (proc.exitCode === null) {
+          proc.kill('SIGKILL');
+        }
+      }, PRECACHE_KILL_TIMEOUT_MS);
+    })));
+  }
+
+  _getYtDlpPath() {
+    return this.musicResolver?.config?.ytdlpPath || this.config.resolver.ytdlpPath || 'yt-dlp';
+  }
+
+  _safeCacheKey(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'track';
+    return createHash('sha1').update(raw).digest('hex').slice(0, 16);
+  }
+
+  async _pruneCacheDir() {
+    const maxCacheFiles = 200;
+    const entries = await fsp.readdir(this.cacheDir, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const fullPath = path.join(this.cacheDir, entry.name);
+      try {
+        const stat = await fsp.stat(fullPath);
+        files.push({ fullPath, mtimeMs: stat.mtimeMs });
+      } catch (_) {
+        // ignore stale entries
+      }
+    }
+    if (files.length <= maxCacheFiles) return;
+    files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    const removeCount = files.length - maxCacheFiles;
+    await Promise.all(files.slice(0, removeCount).map(async (file) => {
+      try {
+        await fsp.unlink(file.fullPath);
+      } catch (_) {
+        // ignore deletion errors
+      }
+    }));
+  }
+
+  async _playFallbackTrack() {
+    const cfg = this.config.fallbackPlaylist || {};
+    const tracks = Array.isArray(cfg.tracks) ? cfg.tracks : [];
+    if (!cfg.enabled || !tracks.length) return null;
+
+    for (let offset = 0; offset < tracks.length; offset += 1) {
+      const idx = (this._fallbackIndex + offset) % tracks.length;
+      const fallback = await this._resolveFallbackTrack(tracks[idx], idx + 1);
+      if (!fallback) continue;
+      try {
+        await this.playbackEngine.play(fallback);
+        this.queueManager.markPlaying(fallback);
+        this._fallbackIndex = (idx + 1) % tracks.length;
+        this.api.emit('musicbot:fallback-playing', {
+          title: fallback.title,
+          source: fallback.source
+        });
+        return fallback;
+      } catch (error) {
+        this.api.log(`[music-bot] Fallback playback failed: ${error.message}`, 'warn');
+      }
+    }
+    return null;
+  }
+
+  async _resolveFallbackTrack(entry, index) {
+    try {
+      if (!entry) return null;
+      if (typeof entry === 'object' && (entry.url || entry.localPath)) {
+        const rawUrl = entry.localPath || entry.url;
+        const resolvedPath = this._resolveLocalPath(rawUrl);
+        return {
+          id: entry.id || `fallback-${index}`,
+          title: entry.title || `Fallback Track ${index}`,
+          artist: entry.artist || '',
+          duration: entry.duration || null,
+          thumbnail: entry.thumbnail || null,
+          url: resolvedPath || rawUrl,
+          localPath: resolvedPath || null,
+          source: entry.source || 'fallback',
+          requestedBy: 'fallback'
+        };
+      }
+
+      const text = String(entry || '').trim();
+      if (!text) return null;
+      const resolvedPath = this._resolveLocalPath(text);
+      if (resolvedPath) {
+        return {
+          id: `fallback-${createHash('sha1').update(resolvedPath).digest('hex').slice(0, 12)}`,
+          title: path.basename(resolvedPath),
+          artist: '',
+          duration: null,
+          thumbnail: null,
+          url: resolvedPath,
+          localPath: resolvedPath,
+          source: 'fallback',
+          requestedBy: 'fallback'
+        };
+      }
+
+      const resolved = await this.musicResolver.resolve(text);
+      if (!resolved?.success) return null;
+      return {
+        ...resolved.song,
+        id: `fallback-${createHash('sha1').update(text).digest('hex').slice(0, 12)}`,
+        requestedBy: 'fallback',
+        source: resolved.song?.source || 'fallback'
+      };
+    } catch (error) {
+      this.api.log(`[music-bot] Failed to resolve fallback track: ${error.message}`, 'warn');
+      return null;
+    }
+  }
+
+  _resolveLocalPath(rawPath) {
+    if (!rawPath || /^https?:\/\//i.test(rawPath)) return null;
+    if (path.isAbsolute(rawPath)) {
+      return fs.existsSync(rawPath) ? rawPath : null;
+    }
+    const baseDir = this.pluginDataDir || __dirname;
+    const absolute = path.resolve(baseDir, rawPath);
+    const relative = path.relative(path.resolve(baseDir), absolute);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+    return fs.existsSync(absolute) ? absolute : null;
+  }
+
   // ---------- Emitters ----------
 
   _emitStatus() {
     this.api.emit('musicbot:now-playing', this.playbackEngine.getNowPlaying());
     this._emitQueue();
-    this._emitVolume(this.playbackEngine.getVolume());
+    this._emitVolume(this._computeEffectiveVolume());
   }
 
   _emitQueue() {
@@ -1014,10 +1538,15 @@ class MusicBotPlugin extends EventEmitter {
       title,
       reason
     });
+    this._emitToast('info', 'Song übersprungen', `${title} (${reason})`);
   }
 
   _emitVolume(volume) {
-    this.api.emit('musicbot:volume-changed', { volume });
+    this.api.emit('musicbot:volume-changed', {
+      volume,
+      masterVolume: this.config.audio.masterVolume,
+      sourceVolume: this.config.audio.sourceVolume
+    });
   }
 
   _emitPaused() {
@@ -1034,6 +1563,7 @@ class MusicBotPlugin extends EventEmitter {
 
   _emitError(message) {
     this.api.emit('musicbot:error', { message });
+    this._emitToast('error', 'API-Fehler', String(message || 'Unbekannter Fehler'));
   }
 
   _emitNowPlaying(track) {
@@ -1055,6 +1585,15 @@ class MusicBotPlugin extends EventEmitter {
     this.api.emit('musicbot:chat-response', { message, username });
   }
 
+  _emitToast(type, title, message) {
+    this.api.emit('musicbot:status-toast', {
+      type: String(type || 'info'),
+      title: String(title || 'Music Bot'),
+      message: String(message || ''),
+      timestamp: Date.now()
+    });
+  }
+
   _handleChatResponse(payload) {
     if (payload?.message) {
       this._emitChatResponse(payload.message, payload.username);
@@ -1062,22 +1601,50 @@ class MusicBotPlugin extends EventEmitter {
   }
 
   async _handleGiftEvent(data) {
-    const gifts = (this.config.giftIntegration?.skipImmunityGifts || []).map((g) =>
-      String(g || '').toLowerCase().trim()
-    );
-    if (!gifts.length) return;
-
-    const giftName = String(
-      data?.gift?.name || data?.giftName || data?.giftId || data?.id || ''
-    ).toLowerCase();
-    if (!giftName) return;
-
-    const match = gifts.find((entry) => String(entry || '').toLowerCase() === giftName);
-    if (!match) return;
-
     const username =
       data?.username || data?.nickname || data?.user?.uniqueId || data?.user?.nickname;
     if (!username) return;
+    const giftNameRaw = String(
+      data?.gift?.name || data?.giftName || data?.giftId || data?.id || ''
+    ).trim();
+    const giftName = this._normalizeGiftKey(giftNameRaw);
+    const coins = Math.max(0, Number(data?.coins || 0));
+
+    if (this.config.monetization?.payToPlayEnabled) {
+      const playCatalog = this._normalizeGiftList(this.config.monetization.payToPlayGiftCatalog)
+        .map((entry) => this._normalizeGiftKey(entry));
+      const minCoins = Math.max(0, Number(this.config.monetization.payToPlayMinCoins) || 0);
+      let credits = 0;
+      if (giftName && playCatalog.includes(giftName)) {
+        credits = Math.max(credits, 1);
+      }
+      if (minCoins > 0 && coins >= minCoins) {
+        credits = Math.max(credits, Math.floor(coins / minCoins));
+      }
+      if (credits > 0) {
+        const totalCredits = this._addRequestCredits(username, credits);
+        this._emitToast('success', 'Pay-to-Play', `@${username} hat ${credits} Request-Credit(s) erhalten (${totalCredits} verfügbar).`);
+      }
+    }
+
+    if (this.config.monetization?.payToSkipEnabled && giftName) {
+      const skipCatalog = this._normalizeGiftList(this.config.monetization.payToSkipGiftCatalog)
+        .map((entry) => this._normalizeGiftKey(entry));
+      if (skipCatalog.includes(giftName)) {
+        const skipped = await this._skipCurrent(`gift:${giftNameRaw}`);
+        if (skipped.success) {
+          this._emitToast('info', 'Pay-to-Skip', `Song wurde per Gift "${giftNameRaw}" übersprungen.`);
+        }
+      }
+    }
+
+    const gifts = (this.config.giftIntegration?.skipImmunityGifts || []).map((g) =>
+      String(g || '').toLowerCase().trim()
+    );
+    if (!gifts.length || !giftName) return;
+
+    const match = gifts.find((entry) => String(entry || '').toLowerCase() === giftName);
+    if (!match) return;
 
     const hasSong = this._findSongByUser(username);
     if (!hasSong) return;
@@ -1130,7 +1697,9 @@ class MusicBotPlugin extends EventEmitter {
       success: true,
       nowPlaying: this.playbackEngine.getNowPlaying(),
       queueLength: this.queueManager.getQueue().length,
-      volume: this.playbackEngine.getVolume(),
+      volume: this._computeEffectiveVolume(),
+      masterVolume: this.config.audio.masterVolume,
+      sourceVolume: this.config.audio.sourceVolume,
       playbackState: this.playbackEngine.getState(),
       autoDJ: this.autoDJ?.getStatus(),
       ytdlpAvailable: this._ytdlpAvailable || false,
@@ -1163,6 +1732,7 @@ class MusicBotPlugin extends EventEmitter {
         title: nowPlaying.title,
         artist: nowPlaying.artist,
         requestedBy: nowPlaying.requestedBy,
+        requesterAvatar: nowPlaying.requesterAvatar || null,
         thumbnail: nowPlaying.thumbnail,
         duration: nowPlaying.duration,
         position,

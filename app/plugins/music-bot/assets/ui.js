@@ -31,6 +31,8 @@
   const previewFrame = document.getElementById('preview-frame');
   const playerFrameBox = document.getElementById('player-frame-box');
   const previewSource = document.getElementById('preview-source');
+  const masterVolumeInput = document.getElementById('master-volume-input');
+  const masterVolumeValue = document.getElementById('master-volume-value');
   const volumeInput = document.getElementById('volume-input');
   const volumeValue = document.getElementById('volume-value');
   const crossfadeInput = document.getElementById('crossfade-input');
@@ -61,6 +63,14 @@
   const banTable = document.getElementById('ban-table');
   const ytdlpPathInput = document.getElementById('ytdlp-path');
   const requireSuperfan = document.getElementById('require-superfan');
+  const payToPlayEnabled = document.getElementById('pay-to-play-enabled');
+  const payToPlayGifts = document.getElementById('pay-to-play-gifts');
+  const payToPlayMinCoins = document.getElementById('pay-to-play-min-coins');
+  const payToSkipEnabled = document.getElementById('pay-to-skip-enabled');
+  const payToSkipGifts = document.getElementById('pay-to-skip-gifts');
+  const giftCatalogList = document.getElementById('gift-catalog-list');
+  const likeGateEnabled = document.getElementById('like-gate-enabled');
+  const minLikesPerUser = document.getElementById('min-likes-per-user');
   const overlayDesign = document.getElementById('overlay-design');
   const overlayTheme = document.getElementById('overlay-theme');
   const overlayPosition = document.getElementById('overlay-position');
@@ -75,11 +85,14 @@
   const npProgressFill = document.getElementById('np-progress-fill');
   const npElapsed = document.getElementById('np-elapsed');
   const npDuration = document.getElementById('np-duration');
+  const toastContainer = document.getElementById('musicbot-toast-container');
 
   // Progress timer state
   let progressTimer = null;
   let progressCurrentPos = 0;
   let progressDuration = 0;
+  let draggedQueueIndex = null;
+  let giftCatalogTargetField = null;
 
   // Client-side YouTube ID extraction (no server call needed for direct links)
   function extractYouTubeId(url) {
@@ -137,8 +150,10 @@
     if (result?.success) {
       requestFeedback.textContent = `✅ Hinzugefügt: ${result.song.title}`;
       requestInput.value = '';
+      showToast('success', 'Song hinzugefügt', result.song.title);
     } else {
       requestFeedback.textContent = result?.error || 'Fehler beim Request.';
+      showToast('warn', 'Song-Request abgelehnt', result?.error || 'Fehler beim Request.');
     }
   });
 
@@ -197,15 +212,23 @@
     if (result?.success) {
       requestFeedback.textContent = `✅ Hinzugefügt: ${result.song.title}`;
       renderQueueFromServer();
+      showToast('success', 'Song hinzugefügt', result.song.title);
     } else {
       requestFeedback.textContent = `⚠️ ${result?.error || 'Fehler beim Request.'}`;
+      showToast('warn', 'Song-Request abgelehnt', result?.error || 'Fehler beim Request.');
     }
+  });
+
+  masterVolumeInput?.addEventListener('input', async () => {
+    const vol = Number(masterVolumeInput.value);
+    if (masterVolumeValue) masterVolumeValue.textContent = vol;
+    await post('/volume', { masterVolume: vol });
   });
 
   volumeInput.addEventListener('input', async () => {
     const vol = Number(volumeInput.value);
     volumeValue.textContent = vol;
-    await post('/volume', { volume: vol });
+    await post('/volume', { sourceVolume: vol });
   });
 
   crossfadeInput.addEventListener('input', async () => {
@@ -241,6 +264,35 @@
 
   requireSuperfan?.addEventListener('change', async () => {
     await post('/config', { permissions: { requireSuperfanForRequest: requireSuperfan.checked } });
+  });
+
+  payToPlayEnabled?.addEventListener('change', async () => {
+    await post('/config', { monetization: { payToPlayEnabled: payToPlayEnabled.checked } });
+  });
+
+  payToSkipEnabled?.addEventListener('change', async () => {
+    await post('/config', { monetization: { payToSkipEnabled: payToSkipEnabled.checked } });
+  });
+
+  likeGateEnabled?.addEventListener('change', async () => {
+    await post('/config', { monetization: { likeGateEnabled: likeGateEnabled.checked } });
+  });
+
+  giftCatalogList?.addEventListener('change', () => {
+    const selected = Array.from(giftCatalogList.selectedOptions || []).map((option) => option.value);
+    if (!selected.length) return;
+    const target = giftCatalogTargetField || payToPlayGifts;
+    if (!target) return;
+    const existing = parseList(target.value);
+    const merged = Array.from(new Set([...existing, ...selected]));
+    target.value = merged.join(', ');
+  });
+
+  payToPlayGifts?.addEventListener('focus', () => {
+    giftCatalogTargetField = payToPlayGifts;
+  });
+  payToSkipGifts?.addEventListener('focus', () => {
+    giftCatalogTargetField = payToSkipGifts;
   });
 
   function buildOverlayUrl() {
@@ -318,7 +370,20 @@
       },
       resolver: { ytdlpPath: (ytdlpPathInput?.value || '').trim() || 'yt-dlp' },
       giftIntegration: { skipImmunityGifts: parseList(skipImmunityGifts.value) },
-      permissions: { requireSuperfanForRequest: requireSuperfan?.checked || false }
+      permissions: { requireSuperfanForRequest: requireSuperfan?.checked || false },
+      audio: {
+        masterVolume: Math.max(0, Math.min(100, Number(masterVolumeInput?.value) || 0)),
+        sourceVolume: Math.max(0, Math.min(100, Number(volumeInput?.value) || 0))
+      },
+      monetization: {
+        payToPlayEnabled: payToPlayEnabled?.checked || false,
+        payToPlayGiftCatalog: parseList(payToPlayGifts?.value || ''),
+        payToPlayMinCoins: Math.max(0, Number(payToPlayMinCoins?.value) || 0),
+        payToSkipEnabled: payToSkipEnabled?.checked || false,
+        payToSkipGiftCatalog: parseList(payToSkipGifts?.value || ''),
+        likeGateEnabled: likeGateEnabled?.checked || false,
+        minLikesPerUser: Math.max(1, Number(minLikesPerUser?.value) || 1)
+      }
     };
     const result = await post('/config', payload);
     showFeedback(settingsFeedback, result?.success ? '✅ Gespeichert' : '❌ Fehler');
@@ -399,11 +464,32 @@
     renderQueue(queue, length);
   });
 
-  socket.on('musicbot:volume-changed', ({ volume }) => {
+  socket.on('musicbot:volume-changed', ({ volume, masterVolume, sourceVolume }) => {
     if (typeof volume === 'number') {
-      volumeInput.value = volume;
-      volumeValue.textContent = volume;
+      if (typeof sourceVolume === 'number') {
+        volumeInput.value = sourceVolume;
+        volumeValue.textContent = sourceVolume;
+      } else {
+        volumeInput.value = volume;
+        volumeValue.textContent = volume;
+      }
+      if (typeof masterVolume === 'number' && masterVolumeInput && masterVolumeValue) {
+        masterVolumeInput.value = masterVolume;
+        masterVolumeValue.textContent = masterVolume;
+      }
     }
+  });
+  socket.on('musicbot:status-toast', (payload) => {
+    showToast(payload?.type || 'info', payload?.title || 'Music Bot', payload?.message || '');
+  });
+  socket.on('musicbot:error', (payload) => {
+    showToast('error', 'API-Fehler', payload?.message || 'Unbekannter Fehler');
+  });
+  socket.on('connect_error', () => {
+    showToast('error', 'Netzwerk', 'Verbindung zum Music Bot unterbrochen.');
+  });
+  socket.on('disconnect', () => {
+    showToast('warn', 'Netzwerk', 'Socket-Verbindung getrennt.');
   });
 
   socket.on('musicbot:paused', () => {
@@ -436,8 +522,17 @@
     if (status?.success) {
       renderNowPlaying(status.nowPlaying);
       updateState(status.playbackState);
-      volumeInput.value = status.volume;
-      volumeValue.textContent = status.volume;
+      if (typeof status.sourceVolume === 'number') {
+        volumeInput.value = status.sourceVolume;
+        volumeValue.textContent = status.sourceVolume;
+      } else {
+        volumeInput.value = status.volume;
+        volumeValue.textContent = status.volume;
+      }
+      if (typeof status.masterVolume === 'number' && masterVolumeInput && masterVolumeValue) {
+        masterVolumeInput.value = status.masterVolume;
+        masterVolumeValue.textContent = status.masterVolume;
+      }
       renderQueue([], status.queueLength);
       // Show currently playing video
       if (status.nowPlaying?.youtubeId) {
@@ -502,14 +597,34 @@
     if (configData?.config?.resolver?.ytdlpPath) {
       ytdlpPathInput.value = configData.config.resolver.ytdlpPath;
     }
+    if (configData?.config?.audio) {
+      if (typeof configData.config.audio.masterVolume === 'number' && masterVolumeInput && masterVolumeValue) {
+        masterVolumeInput.value = configData.config.audio.masterVolume;
+        masterVolumeValue.textContent = configData.config.audio.masterVolume;
+      }
+      if (typeof configData.config.audio.sourceVolume === 'number') {
+        volumeInput.value = configData.config.audio.sourceVolume;
+        volumeValue.textContent = configData.config.audio.sourceVolume;
+      }
+    }
     if (configData?.config?.permissions?.requireSuperfanForRequest !== undefined && requireSuperfan) {
       requireSuperfan.checked = Boolean(configData.config.permissions.requireSuperfanForRequest);
+    }
+    if (configData?.config?.monetization) {
+      payToPlayEnabled.checked = Boolean(configData.config.monetization.payToPlayEnabled);
+      payToPlayGifts.value = (configData.config.monetization.payToPlayGiftCatalog || []).join(', ');
+      payToPlayMinCoins.value = Number(configData.config.monetization.payToPlayMinCoins) || 0;
+      payToSkipEnabled.checked = Boolean(configData.config.monetization.payToSkipEnabled);
+      payToSkipGifts.value = (configData.config.monetization.payToSkipGiftCatalog || []).join(', ');
+      likeGateEnabled.checked = Boolean(configData.config.monetization.likeGateEnabled);
+      minLikesPerUser.value = Math.max(1, Number(configData.config.monetization.minLikesPerUser) || 1);
     }
 
     refreshOverlayUrl();
 
     await refreshAutoDjStatus();
     await refreshBans();
+    await refreshGiftCatalog();
   }
 
   async function refreshHistory() {
@@ -524,6 +639,7 @@
       const res = await fetch(`/api/plugins/music-bot${path}`);
       return await res.json();
     } catch (error) {
+      showToast('error', 'Netzwerk', 'GET-Anfrage fehlgeschlagen.');
       return null;
     }
   }
@@ -537,6 +653,7 @@
       });
       return await res.json();
     } catch (error) {
+      showToast('error', 'Netzwerk', 'POST-Anfrage fehlgeschlagen.');
       return null;
     }
   }
@@ -548,6 +665,7 @@
       });
       return await res.json();
     } catch (error) {
+      showToast('error', 'Netzwerk', 'DELETE-Anfrage fehlgeschlagen.');
       return null;
     }
   }
@@ -595,9 +713,7 @@
           : '<span class="queue-thumb-placeholder">🎵</span>';
         const dur = item.duration ? ` • ${formatDuration(item.duration)}` : '';
         const giftBadge = item.isGiftRequest ? ' <span class="gift-badge">🎁</span>' : '';
-        const isFirst = idx === 0;
-        const isLast = idx === queue.length - 1;
-        return `<div class="item queue-item">
+        return `<div class="item queue-item" draggable="true" data-queue-index="${idx}">
           <span class="queue-pos">#${idx + 1}</span>
           ${thumb}
           <div class="queue-info">
@@ -605,8 +721,6 @@
             <span class="queue-meta">${item.requestedBy || 'Viewer'}${dur}</span>
           </div>
           <div class="queue-actions">
-            <button class="btn ghost small" data-queue-action="up" data-idx="${idx}" ${isFirst ? 'disabled' : ''} title="Nach oben">▲</button>
-            <button class="btn ghost small" data-queue-action="down" data-idx="${idx}" ${isLast ? 'disabled' : ''} title="Nach unten">▼</button>
             <button class="btn danger small" data-queue-action="remove" data-idx="${idx}" title="Entfernen">✕</button>
           </div>
         </div>`;
@@ -630,13 +744,42 @@
     if (action === 'remove') {
       await del(`/queue/${idx}`);
       await renderQueueFromServer();
-    } else if (action === 'up') {
-      await post('/queue/reorder', { fromIndex: idx, toIndex: idx - 1 });
-      await renderQueueFromServer();
-    } else if (action === 'down') {
-      await post('/queue/reorder', { fromIndex: idx, toIndex: idx + 1 });
-      await renderQueueFromServer();
+      showToast('info', 'Queue', 'Track wurde entfernt.');
     }
+  });
+
+  queueListEl?.addEventListener('dragstart', (event) => {
+    const item = event.target.closest('.queue-item');
+    if (!item) return;
+    draggedQueueIndex = Number(item.dataset.queueIndex);
+    item.classList.add('dragging');
+  });
+
+  queueListEl?.addEventListener('dragend', (event) => {
+    const item = event.target.closest('.queue-item');
+    if (item) item.classList.remove('dragging');
+    queueListEl.querySelectorAll('.queue-item.drop-target').forEach((el) => el.classList.remove('drop-target'));
+    draggedQueueIndex = null;
+  });
+
+  queueListEl?.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    const item = event.target.closest('.queue-item');
+    if (!item) return;
+    queueListEl.querySelectorAll('.queue-item.drop-target').forEach((el) => el.classList.remove('drop-target'));
+    item.classList.add('drop-target');
+  });
+
+  queueListEl?.addEventListener('drop', async (event) => {
+    event.preventDefault();
+    const item = event.target.closest('.queue-item');
+    if (!item || draggedQueueIndex === null) return;
+    const toIndex = Number(item.dataset.queueIndex);
+    item.classList.remove('drop-target');
+    if (!Number.isFinite(toIndex) || toIndex === draggedQueueIndex) return;
+    await post('/queue/reorder', { fromIndex: draggedQueueIndex, toIndex });
+    await renderQueueFromServer();
+    showToast('success', 'Queue', `Track #${draggedQueueIndex + 1} wurde an Position #${toIndex + 1} verschoben.`);
   });
 
   function startProgressTimer() {
@@ -667,6 +810,20 @@
     if (!el) return;
     el.textContent = message;
     setTimeout(() => { el.textContent = ''; }, 4000);
+  }
+
+  function showToast(type = 'info', title = 'Music Bot', message = '') {
+    if (!toastContainer) return;
+    const toast = document.createElement('div');
+    toast.className = `musicbot-toast ${type}`;
+    toast.innerHTML = `
+      <div class="musicbot-toast-title">${escapeHtml(title)}</div>
+      <div class="musicbot-toast-message">${escapeHtml(message)}</div>
+    `;
+    toastContainer.appendChild(toast);
+    setTimeout(() => {
+      toast.remove();
+    }, 4500);
   }
 
   function updatePreviewFrame(song) {
@@ -772,6 +929,21 @@
     }
   }
 
+  async function refreshGiftCatalog() {
+    if (!giftCatalogList) return;
+    try {
+      const res = await fetch('/api/gift-catalog');
+      const data = await res.json();
+      const gifts = Array.isArray(data?.catalog) ? data.catalog : [];
+      giftCatalogList.innerHTML = gifts
+        .slice(0, 200)
+        .map((gift) => `<option value="${escapeHtml(gift.name)}">${escapeHtml(gift.name)} (${Number(gift.diamond_count) || 0}💎)</option>`)
+        .join('');
+    } catch (_) {
+      giftCatalogList.innerHTML = '';
+    }
+  }
+
   function renderBans(bans = []) {
     if (!banTable) return;
     const tbody = banTable.querySelector('tbody');
@@ -791,6 +963,15 @@
         </tr>`
       )
       .join('');
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function showBanFeedback(message, isError = false) {
