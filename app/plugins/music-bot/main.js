@@ -921,7 +921,7 @@ class MusicBotPlugin extends EventEmitter {
     const username = this._getChatUsername(chatData);
     switch (command.type) {
       case 'request':
-        return this._handleRequest(command.query, chatData.username || 'unknown', chatData);
+        return this._handleRequest(command.query, username, chatData);
       case 'skip':
         if (command.force) {
           return this._skipCurrent(username);
