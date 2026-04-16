@@ -160,7 +160,7 @@ class PortManager {
    * @returns {Promise<boolean>}
    */
   async killProcess(pid) {
-    if (!pid || pid === process.pid) {
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
       logger.warn(`Refusing to kill PID ${pid} (self or invalid)`);
       return false;
     }
@@ -265,6 +265,8 @@ class PortManager {
     const preferred = this.preferredPort;
     let waitedForRelease = false;
 
+    // Intentionally no max retry cap here: force-port-3000 architecture requires
+    // waiting until the preferred port becomes available instead of falling back.
     while (true) {
       logger.info(`🔍 Checking if port ${preferred} is available...`);
       const isFree = await this.isPortFree(preferred);
@@ -286,7 +288,10 @@ class PortManager {
 
       if (pid && pid !== process.pid) {
         logger.info(`🔄 Process on port ${preferred} detected (PID: ${pid}) – killing...`);
-        await this.killProcess(pid);
+        const killed = await this.killProcess(pid);
+        if (!killed) {
+          logger.warn(`⚠️  Kill for PID ${pid} failed. Waiting for port release fallback...`);
+        }
       } else if (pid === process.pid) {
         logger.warn(`⚠️  Port ${preferred} belongs to current process (PID: ${pid}) – waiting for release...`);
       } else {

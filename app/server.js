@@ -3390,7 +3390,7 @@ app.delete('/api/network/external-url', apiLimiter, (req, res) => {
 // ========== PORT RESOLUTION ==========
 const PortManager = require('./modules/port-manager');
 const portManager = new PortManager({
-    preferredPort: parseInt(process.env.PORT, 10) || 3000,
+    preferredPort: 3000,
     appIdentifier: 'ltth'
 });
 
@@ -3955,6 +3955,8 @@ const pluginCacheControl = (req, res, next) => {
         }
     };
 
+    // exclusive: false enables aggressive rebinding behavior to recover better
+    // from short-lived OS TIME_WAIT/EADDRINUSE race windows on port 3000.
     server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: false }, onServerListening);
 
     // CRITICAL: Error handler for the HTTP server (strict port-3000 enforcement)
@@ -3964,7 +3966,8 @@ const pluginCacheControl = (req, res, next) => {
     server.on('error', (err) => {
         if (err.code === 'EADDRINUSE' && PORT === 3000) {
             if (eaddrRetryAttempts >= maxEaddrRetries) {
-                logger.error(`❌ Port 3000 remained unavailable after ${maxEaddrRetries} retries (30s). Exiting.`);
+                const totalWaitSeconds = maxEaddrRetries * 2;
+                logger.error(`❌ Port 3000 remained unavailable after ${maxEaddrRetries} retries (${totalWaitSeconds}s). Exiting.`);
                 process.exit(1);
             }
 

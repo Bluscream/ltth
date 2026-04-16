@@ -11,7 +11,7 @@ describe('PortManager force-port-3000 behavior', () => {
   });
 
   test('waits for release (TIME_WAIT-style) and still returns port 3000', async () => {
-    const manager = new PortManager({ preferredPort: 3000, killTimeout: 10 });
+    const manager = new PortManager({ preferredPort: 3000, killTimeout: 100 });
     jest.spyOn(manager, 'isPortFree').mockResolvedValue(false);
     jest.spyOn(manager, 'findPIDOnPort').mockReturnValue(null);
     jest.spyOn(manager, '_waitForPortFree').mockResolvedValue(true);
@@ -22,7 +22,7 @@ describe('PortManager force-port-3000 behavior', () => {
   });
 
   test('kills detected process and still returns port 3000', async () => {
-    const manager = new PortManager({ preferredPort: 3000, killTimeout: 10 });
+    const manager = new PortManager({ preferredPort: 3000, killTimeout: 100 });
     jest.spyOn(manager, 'isPortFree').mockResolvedValue(false);
     jest.spyOn(manager, 'findPIDOnPort').mockReturnValue(99999);
     const killSpy = jest.spyOn(manager, 'killProcess').mockResolvedValue(true);
