@@ -1734,72 +1734,77 @@ void main() {
         // Draw main effect
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         
-        // Render smoke layer if enabled
-        if (this.config.smokeEnabled && this.programs.smoke) {
-            const prevProgram = this.currentProgram;
-            
-            gl.useProgram(this.programs.smoke);
-            
-            // Cache smoke uniform locations on a dedicated property (not nested in this.uniforms)
-            if (!this.smokeUniforms) {
-                this.smokeUniforms = {
-                    time: gl.getUniformLocation(this.programs.smoke, 'uTime'),
-                    resolution: gl.getUniformLocation(this.programs.smoke, 'uResolution'),
-                    frameThickness: gl.getUniformLocation(this.programs.smoke, 'uFrameThickness'),
-                    frameMode: gl.getUniformLocation(this.programs.smoke, 'uFrameMode'),
-                    smokeIntensity: gl.getUniformLocation(this.programs.smoke, 'uSmokeIntensity'),
-                    smokeSpeed: gl.getUniformLocation(this.programs.smoke, 'uSmokeSpeed'),
-                    smokeColor: gl.getUniformLocation(this.programs.smoke, 'uSmokeColor'),
-                    detailScale: gl.getUniformLocation(this.programs.smoke, 'uDetailScale'),
-                    projectionMatrix: gl.getUniformLocation(this.programs.smoke, 'uProjectionMatrix'),
-                    modelViewMatrix: gl.getUniformLocation(this.programs.smoke, 'uModelViewMatrix')
-                };
-            }
-            
-            // Set smoke-specific uniforms
-            const smokeUniforms = this.smokeUniforms;
-            if (smokeUniforms.time) gl.uniform1f(smokeUniforms.time, time);
-            if (smokeUniforms.resolution) gl.uniform2f(smokeUniforms.resolution, this.canvas.width, this.canvas.height);
-            if (smokeUniforms.frameThickness) gl.uniform1f(smokeUniforms.frameThickness, this.config.frameThickness || 150);
-            if (smokeUniforms.frameMode) gl.uniform1i(smokeUniforms.frameMode, this.getFrameMode());
-            if (smokeUniforms.smokeIntensity) gl.uniform1f(smokeUniforms.smokeIntensity, this.config.smokeIntensity || 0.4);
-            if (smokeUniforms.smokeSpeed) gl.uniform1f(smokeUniforms.smokeSpeed, this.config.smokeSpeed || 0.3);
-            if (smokeUniforms.detailScale) gl.uniform1f(smokeUniforms.detailScale, this.calculateDetailScale());
-            
-            if (smokeUniforms.smokeColor) {
-                const smokeRgb = this.hexToRgb(this.config.smokeColor || '#333333');
-                gl.uniform3f(smokeUniforms.smokeColor, smokeRgb.r, smokeRgb.g, smokeRgb.b);
-            }
-            
-            const projectionMatrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-            const modelViewMatrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-            if (smokeUniforms.projectionMatrix) gl.uniformMatrix4fv(smokeUniforms.projectionMatrix, false, projectionMatrix);
-            if (smokeUniforms.modelViewMatrix) gl.uniformMatrix4fv(smokeUniforms.modelViewMatrix, false, modelViewMatrix);
-            
-            // Re-bind geometry for smoke
-            const aSmokePosition = gl.getAttribLocation(this.programs.smoke, 'aPosition');
-            if (aSmokePosition !== -1) {
-                gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.position);
-                gl.enableVertexAttribArray(aSmokePosition);
-                gl.vertexAttribPointer(aSmokePosition, 3, gl.FLOAT, false, 0, 0);
-            }
-            
-            const aSmokeTexCoord = gl.getAttribLocation(this.programs.smoke, 'aTexCoord');
-            if (aSmokeTexCoord !== -1) {
-                gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.texCoord);
-                gl.enableVertexAttribArray(aSmokeTexCoord);
-                gl.vertexAttribPointer(aSmokeTexCoord, 2, gl.FLOAT, false, 0, 0);
-            }
-            
-            // Additive blending for smoke on top of main effect
-            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-            // Restore standard alpha blending
-            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            
-            // Restore previous program
-            gl.useProgram(prevProgram);
+        if (this.config.smokeEnabled && typeof this.renderSmoke === 'function') {
+            this.renderSmoke(time);
         }
+    }
+    
+    renderSmoke(time) {
+        const gl = this.gl;
+        if (!this.programs.smoke) return;
+        
+        const prevProgram = this.currentProgram;
+        gl.useProgram(this.programs.smoke);
+        
+        // Cache smoke uniform locations on a dedicated property (not nested in this.uniforms)
+        if (!this.smokeUniforms) {
+            this.smokeUniforms = {
+                time: gl.getUniformLocation(this.programs.smoke, 'uTime'),
+                resolution: gl.getUniformLocation(this.programs.smoke, 'uResolution'),
+                frameThickness: gl.getUniformLocation(this.programs.smoke, 'uFrameThickness'),
+                frameMode: gl.getUniformLocation(this.programs.smoke, 'uFrameMode'),
+                smokeIntensity: gl.getUniformLocation(this.programs.smoke, 'uSmokeIntensity'),
+                smokeSpeed: gl.getUniformLocation(this.programs.smoke, 'uSmokeSpeed'),
+                smokeColor: gl.getUniformLocation(this.programs.smoke, 'uSmokeColor'),
+                detailScale: gl.getUniformLocation(this.programs.smoke, 'uDetailScale'),
+                projectionMatrix: gl.getUniformLocation(this.programs.smoke, 'uProjectionMatrix'),
+                modelViewMatrix: gl.getUniformLocation(this.programs.smoke, 'uModelViewMatrix')
+            };
+        }
+        
+        // Set smoke-specific uniforms
+        const smokeUniforms = this.smokeUniforms;
+        if (smokeUniforms.time) gl.uniform1f(smokeUniforms.time, time);
+        if (smokeUniforms.resolution) gl.uniform2f(smokeUniforms.resolution, this.canvas.width, this.canvas.height);
+        if (smokeUniforms.frameThickness) gl.uniform1f(smokeUniforms.frameThickness, this.config.frameThickness || 150);
+        if (smokeUniforms.frameMode) gl.uniform1i(smokeUniforms.frameMode, this.getFrameMode());
+        if (smokeUniforms.smokeIntensity) gl.uniform1f(smokeUniforms.smokeIntensity, this.config.smokeIntensity || 0.4);
+        if (smokeUniforms.smokeSpeed) gl.uniform1f(smokeUniforms.smokeSpeed, this.config.smokeSpeed || 0.3);
+        if (smokeUniforms.detailScale) gl.uniform1f(smokeUniforms.detailScale, this.calculateDetailScale());
+        
+        if (smokeUniforms.smokeColor) {
+            const smokeRgb = this.hexToRgb(this.config.smokeColor || '#333333');
+            gl.uniform3f(smokeUniforms.smokeColor, smokeRgb.r, smokeRgb.g, smokeRgb.b);
+        }
+        
+        const projectionMatrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+        const modelViewMatrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+        if (smokeUniforms.projectionMatrix) gl.uniformMatrix4fv(smokeUniforms.projectionMatrix, false, projectionMatrix);
+        if (smokeUniforms.modelViewMatrix) gl.uniformMatrix4fv(smokeUniforms.modelViewMatrix, false, modelViewMatrix);
+        
+        // Re-bind geometry for smoke
+        const aSmokePosition = gl.getAttribLocation(this.programs.smoke, 'aPosition');
+        if (aSmokePosition !== -1) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.position);
+            gl.enableVertexAttribArray(aSmokePosition);
+            gl.vertexAttribPointer(aSmokePosition, 3, gl.FLOAT, false, 0, 0);
+        }
+        
+        const aSmokeTexCoord = gl.getAttribLocation(this.programs.smoke, 'aTexCoord');
+        if (aSmokeTexCoord !== -1) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.texCoord);
+            gl.enableVertexAttribArray(aSmokeTexCoord);
+            gl.vertexAttribPointer(aSmokeTexCoord, 2, gl.FLOAT, false, 0, 0);
+        }
+        
+        // Additive blending for smoke on top of main effect
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        // Restore standard alpha blending
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        
+        // Restore previous program
+        gl.useProgram(prevProgram);
     }
     
     render() {
@@ -1808,6 +1813,7 @@ void main() {
             return;
         }
         
+        const gl = this.gl;
         const time = (Date.now() - this.startTime) / 1000.0;
         
         // Multi-pass rendering with bloom
@@ -1827,6 +1833,11 @@ void main() {
             );
             
             // Composite to screen
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            
             this.postProcessor.composite(
                 this.postProcessor.textures.scene,
                 bloomTexture,
@@ -1839,6 +1850,8 @@ void main() {
             );
         } else {
             // Direct rendering without bloom
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
             this.renderScene();
         }
         
