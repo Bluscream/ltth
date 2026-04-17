@@ -226,4 +226,19 @@ describe('Leaderboard Migration: streamer_id column', () => {
     expect(users[1].username).toBe('testuser2');
     expect(users[1].total_coins).toBe(100);
   });
+
+  test('should skip updateStats when username is missing or invalid', () => {
+    db = new Database(tempDbPath);
+    leaderboard = new LeaderboardManager(db, null, 'test_streamer');
+
+    expect(() => {
+      leaderboard.updateStats(undefined, 'like', { count: 5 });
+      leaderboard.updateStats('', 'chat', {});
+      leaderboard.updateStats('   ', 'gift', { coins: 10 });
+      leaderboard.updateStats(null, 'follow');
+    }).not.toThrow();
+
+    const count = db.prepare('SELECT COUNT(*) as count FROM leaderboard_stats').get().count;
+    expect(count).toBe(0);
+  });
 });
