@@ -6,16 +6,13 @@ const { execSync, execFileSync } = require('child_process');
 const logger = require('./logger');
 
 /**
- * PortManager - Intelligentes Port-Management für LTTH
- *
- * Strategie:
- * 1. Prüfe ob bevorzugter Port frei ist → nutze ihn
- * 2. Falls belegt: Prozess-PID ermitteln und gnadenlos killen (wenn nicht self)
- * 3. Falls keine PID ermittelbar (z.B. TIME_WAIT): hartnäckig warten bis Port frei ist
+ * PortManager - Port helper for LTTH.
+ * Tries preferred port first and falls back to the next free port in range.
  */
 class PortManager {
   constructor(options = {}) {
     this.preferredPort = options.preferredPort || 3000;
+    this.maxPort = options.maxPort || 3050;
     this.healthEndpoint = options.healthEndpoint || '/api/health';
     this.appIdentifier = options.appIdentifier || 'ltth';
     this.killTimeout = options.killTimeout || 5000;
@@ -169,7 +166,7 @@ class PortManager {
       logger.info(`🔪 Killing old LTTH instance (PID: ${pid})...`);
 
       if (process.platform === 'win32') {
-        execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], {
+        execFileSync('taskkill', ['/F', '/PID', String(pid)], {
           encoding: 'utf-8',
           timeout: this.killTimeout,
           windowsHide: true
@@ -256,30 +253,35 @@ class PortManager {
   }
 
   /**
-   * Hauptmethode: Erzwingt den bevorzugten Port.
-   * Führt einen einmaligen PID-Kill/Wait-Versuch durch – kein Test-Bind, kein Fallback.
-   *
+   * Returns the next port in configured range or null if range is exhausted.
+   * @param {number} currentPort
+   * @returns {number|null}
+   */
+  getNextPort(currentPort) {
+    if (currentPort >= this.maxPort) {
+      return null;
+    }
+    return currentPort + 1;
+  }
+
+  /**
+   * Resolves the first free port in range [preferredPort, maxPort].
+   * @param {{excludePorts?: number[]}} [options]
    * @returns {Promise<{port: number, action: string}>}
    */
-  async resolvePort() {
-    const preferred = this.preferredPort;
-
-    logger.info(`🔍 resolvePort: checking for existing process on port ${preferred}...`);
-
-    const pid = this.findPIDOnPort(preferred);
-
-    if (pid && pid !== process.pid) {
-      logger.info(`🔄 Process on port ${preferred} detected (PID: ${pid}) – killing...`);
-      const killed = await this.killProcess(pid);
-      if (!killed) {
-        logger.warn(`⚠️  Kill for PID ${pid} failed. Waiting for port release fallback...`);
+  async resolvePort(options = {}) {
+    const excludedPorts = new Set(options.excludePorts || []);
+    for (let port = this.preferredPort; port <= this.maxPort; port += 1) {
+      if (excludedPorts.has(port)) {
+        continue;
       }
-      logger.info(`✅ Port ${preferred} released after wait`);
-      return { port: preferred, action: 'killed_old_instance' };
+      const free = await this.isPortFree(port);
+      if (free) {
+        return { port, action: port === this.preferredPort ? 'preferred' : 'fallback' };
+      }
     }
 
-    logger.info(`✅ Port ${preferred} is clear (no blocking PID found).`);
-    return { port: preferred, action: 'direct' };
+    throw new Error(`No free port found in range ${this.preferredPort}-${this.maxPort}`);
   }
 }
 

@@ -135,6 +135,28 @@ func NewLauncher() *Launcher {
 	}
 }
 
+func getCurrentNodePort() int {
+	const fallbackPort = 3000
+
+	exePath, err := os.Executable()
+	if err != nil {
+		return fallbackPort
+	}
+
+	portFilePath := filepath.Join(filepath.Dir(exePath), ".ltth_port")
+	content, err := os.ReadFile(portFilePath)
+	if err != nil {
+		return fallbackPort
+	}
+
+	port, err := strconv.Atoi(strings.TrimSpace(string(content)))
+	if err != nil || port <= 0 {
+		return fallbackPort
+	}
+
+	return port
+}
+
 // loadTranslations loads i18n strings from locale files
 func (l *Launcher) loadTranslations(locale string) error {
 	// Try build-src/locales first (for development), then locales (for installed version)
@@ -490,7 +512,7 @@ func (l *Launcher) updateProgressLocalized(value int, key string, fallback strin
 func (l *Launcher) sendRedirect() {
 	port := l.serverPort
 	if port == 0 {
-		port = 3000
+		port = getCurrentNodePort()
 	}
 	msg := fmt.Sprintf(`{"redirect": "http://localhost:%d/dashboard.html", "serverReady": true}`, port)
 	l.clientsMu.Lock()
@@ -784,7 +806,7 @@ func (l *Launcher) killNodeProcess() {
 
 // checkServerHealth checks if the server is responding
 func (l *Launcher) checkServerHealth() bool {
-	return l.checkServerHealthOnPort(3000)
+	return l.checkServerHealthOnPort(getCurrentNodePort())
 }
 
 // checkServerHealthOnPort checks if the server is responding on a specific port
@@ -892,8 +914,8 @@ func (l *Launcher) autoFixYtDlp() {
 
 // autoFixPort delegates port management to the Node.js backend.
 func (l *Launcher) autoFixPort() {
-	l.logger.Println("[INFO] Port-Management is delegated strictly to Node.js on port 3000.")
-	l.updateProgressLocalized(87, "status.port_delegated", "🔌 Port-Management wird strikt an Node.js (Port 3000) delegiert...")
+	l.logger.Println("[INFO] Port-Management is delegated to Node.js with dynamic .ltth_port discovery.")
+	l.updateProgressLocalized(87, "status.port_delegated", "🔌 Port-Management wird an Node.js delegiert (.ltth_port)...")
 }
 
 // ============================================================
@@ -1685,7 +1707,7 @@ func (l *Launcher) runLauncher() {
 	// Wait for server to be ready
 	l.updateProgressLocalized(93, "status.waiting_for_server_start", "Warte auf Server-Start...")
 	l.logger.Println("[INFO] Waiting for server health check (60s timeout)...")
-	l.logger.Println("[INFO] Checking if server responds on http://localhost:3000...")
+	l.logger.Println("[INFO] Checking if server responds on current .ltth_port (fallback 3000)...")
 
 	// Check server health with process monitoring
 	healthCheckTimeout := time.After(60 * time.Second)
@@ -1771,8 +1793,9 @@ func (l *Launcher) runLauncher() {
 			}
 
 			if l.checkServerHealth() {
-				l.logger.Println("[SUCCESS] Server responded on port 3000!")
-				l.serverPort = 3000
+				resolvedPort := getCurrentNodePort()
+				l.logger.Printf("[SUCCESS] Server responded on port %d!\n", resolvedPort)
+				l.serverPort = resolvedPort
 				serverReady = true
 			}
 		case <-healthCheckTimeout:
@@ -1783,7 +1806,7 @@ func (l *Launcher) runLauncher() {
 			l.logger.Println("[ERROR]  - Server startet, aber hängt sich bei Initialisierung auf")
 			l.logger.Println("[ERROR]  - Dependencies werden geladen (kann lange dauern)")
 			l.logger.Println("[ERROR]  - Datenbank-Migration läuft")
-			l.logger.Println("[ERROR]  - Port 3000 ist blockiert durch Firewall")
+			l.logger.Println("[ERROR]  - Portbereich 3000-3050 ist blockiert durch Firewall")
 			l.logger.Println("[ERROR] ===========================================")
 
 			l.updateProgressLocalized(95, "status.server_timeout", "⏱️ Server-Start Timeout (60s)")
@@ -1792,7 +1815,7 @@ func (l *Launcher) runLauncher() {
 			time.Sleep(2 * time.Second)
 			l.updateProgressLocalized(97, "status.server_maybe_running", "💡 Server läuft evtl. noch im Hintergrund")
 			time.Sleep(2 * time.Second)
-			l.updateProgressLocalized(98, "status.wait_manual_open", "💡 Warte 2-3 Minuten und öffne localhost:3000")
+			l.updateProgressLocalized(98, "status.wait_manual_open", fmt.Sprintf("💡 Warte 2-3 Minuten und öffne localhost:%d", getCurrentNodePort()))
 			time.Sleep(2 * time.Second)
 			l.updateProgressLocalized(100, "status.closing", "❌ Launcher wird in 15 Sekunden geschlossen...")
 			time.Sleep(15 * time.Second)

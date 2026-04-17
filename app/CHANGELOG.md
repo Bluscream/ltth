@@ -57,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `app/modules/tiktok.js` und `app/server.js`: EventEmitter-Listener-Limits für TikTokConnector und Socket.IO Namespace auf 50 erhöht, um `MaxListenersExceededWarning` in legitimen Multi-Listener-Szenarien zu vermeiden.
 - `app/modules/port-manager.js` + `app/server.js`: EADDRINUSE-Retry kann jetzt fehlgeschlagene Ports explizit ausschließen (`excludePorts`), sodass ein gerade fehlgeschlagener Fallback-Port nicht sofort erneut ausgewählt wird.
 - `app/server.js` + `app/modules/port-manager.js` + `build-src/dev-launcher.go` + `build-src/launcher-gui.go`: Port-Strategie auf „Force Port 3000“ umgestellt. Kein Ausweichen auf 3001+ mehr; stattdessen aggressives Rebind (`exclusive: false`), EADDRINUSE-Warteschleife sowie Kill/Wait-Only Port-Resolution auf 3000.
+- `app/server.js` + `app/modules/port-manager.js`: Port-Start jetzt robust und flexibel: Bind startet mit `exclusive: true` auf 3000 und wechselt bei `EADDRINUSE` schrittweise bis 3050; erfolgreiche Runtime-Portnummer wird in `.ltth_port` gespeichert.
+- `app/server.js`: Beim erfolgreichen Start wird `obs-overlay-wrapper.html` im Projekt-Root neu erzeugt (lokale OBS-Dateiquelle mit dynamischem Port inkl. Query/Hash-Passthrough).
+- `build-src/dev-launcher.go` + `build-src/launcher-gui.go`: Launcher lesen den aktiven Node-Port über `getCurrentNodePort()` aus `.ltth_port` (Fallback 3000) und nutzen ihn für Health-Checks und Dashboard-Weiterleitung.
 
 #### 🔌 OSC-Bridge + CoinBattle Stabilitätsfixes
 - `app/plugins/osc-bridge/main.js` und `app/plugins/osc-bridge/modules/OSCQueryClient.js`: OSCQuery-Fehlerlogs (Auto-Discovery/Subscribe/WebSocket) loggen jetzt nur noch `error.message` plus optionalen `error.stack`, statt komplette (potenziell zirkuläre) Error-Objekte.

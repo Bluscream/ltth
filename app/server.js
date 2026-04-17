@@ -3391,10 +3391,69 @@ app.delete('/api/network/external-url', apiLimiter, (req, res) => {
 const PortManager = require('./modules/port-manager');
 const portManager = new PortManager({
     preferredPort: 3000,
+    maxPort: 3050,
     appIdentifier: 'ltth'
 });
 
 let PORT; // resolved at startup in the async IIFE below
+const LTTH_PORT_FILE_PATH = path.join(__dirname, '..', '.ltth_port');
+const OBS_WRAPPER_FILE_PATH = path.join(__dirname, '..', 'obs-overlay-wrapper.html');
+
+/**
+ * Persist current running server port for launchers and helper tools.
+ * @param {number} resolvedPort
+ */
+function writeCurrentPortFile(resolvedPort) {
+    fs.writeFileSync(LTTH_PORT_FILE_PATH, String(resolvedPort), 'utf8');
+}
+
+/**
+ * Generate local OBS wrapper HTML for file-based Browser Source usage.
+ * @param {number} resolvedPort
+ */
+function writeObsOverlayWrapper(resolvedPort) {
+    const wrapperTemplate = `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LTTH OBS Wrapper</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+    iframe {
+      border: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <iframe id="ltthOverlayFrame" title="LTTH Overlay"></iframe>
+  <script>
+    (() => {
+      const iframe = document.getElementById('ltthOverlayFrame');
+      const search = window.location.search || '';
+      const hash = window.location.hash || '';
+      iframe.src = 'http://localhost:###PORT###/overlay.html' + search + hash;
+    })();
+  </script>
+</body>
+</html>`;
+
+    fs.writeFileSync(
+        OBS_WRAPPER_FILE_PATH,
+        wrapperTemplate.replace(/###PORT###/g, String(resolvedPort)),
+        'utf8'
+    );
+}
 
 // Conservative cache control middleware for plugin overlays (OBS compatibility)
 // Prevents freezing when many gifts come in rapidly by ensuring fresh content
@@ -3415,30 +3474,8 @@ const pluginCacheControl = (req, res, next) => {
 // Async Initialisierung vor Server-Start
 (async () => {
     // ========== PORT RESOLUTION (VOR Plugin-Loading) ==========
-    // Port 3000 wird immer erzwungen. Kein Test-Bind (vermeidet TIME_WAIT-Falle).
-    // Stattdessen: PID-Lookup + Kill falls ein Fremdprozess den Port belegt.
-    PORT = 3000;
-    try {
-        const existingPid = portManager.findPIDOnPort(PORT);
-        if (existingPid && existingPid !== process.pid) {
-            logger.info(`🔪 Pre-startup: existing process on port ${PORT} (PID: ${existingPid}) – killing...`);
-            const killed = await portManager.killProcess(existingPid);
-            if (killed) {
-                logger.info(`✅ Existing process (PID: ${existingPid}) terminated. Proceeding on port ${PORT}.`);
-            } else {
-                logger.warn(`⚠️  Kill of PID ${existingPid} may have failed. server.listen() will retry via EADDRINUSE handler.`);
-            }
-        } else {
-            logger.info(`✅ Pre-startup: port ${PORT} clear (no blocking process detected).`);
-        }
-    } catch (portError) {
-        // Non-fatal: log and let server.listen() handle any remaining conflict
-        logger.warn(`⚠️  Pre-startup port check failed: ${portError.message}. Proceeding anyway.`);
-    }
-
-    // Rebuild CORS whitelist with NetworkManager for resolved port
-    ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
-    logger.info(`📋 CORS whitelist initialized for port ${PORT} (mode: ${networkManager.bindMode})`);
+    PORT = portManager.preferredPort;
+    logger.info(`🔌 Port binding starts at ${PORT} (range ${portManager.preferredPort}-${portManager.maxPort})`);
 
     // Plugins laden VOR Server-Start, damit alle Routen verfügbar sind
     logger.info('🔌 Loading plugins...');
@@ -3541,6 +3578,22 @@ const pluginCacheControl = (req, res, next) => {
     // Jetzt Server starten
     const onServerListening = async () => {
         initState.setServerStarted();
+        ALLOWED_ORIGINS = networkManager.getAllowedOrigins(PORT);
+        logger.info(`📋 CORS whitelist initialized for port ${PORT} (mode: ${networkManager.bindMode})`);
+
+        try {
+            writeCurrentPortFile(PORT);
+            logger.info(`📝 Runtime port file written: ${LTTH_PORT_FILE_PATH}`);
+        } catch (error) {
+            logger.error(`❌ Failed to write runtime port file: ${error.message}`);
+        }
+
+        try {
+            writeObsOverlayWrapper(PORT);
+            logger.info(`🎬 OBS local wrapper updated: ${OBS_WRAPPER_FILE_PATH}`);
+        } catch (error) {
+            logger.error(`❌ Failed to write OBS local wrapper: ${error.message}`);
+        }
 
         const accessURLs = networkManager.getAccessURLs(PORT);
 
@@ -3958,33 +4011,22 @@ const pluginCacheControl = (req, res, next) => {
         }
     };
 
-    // exclusive: false enables aggressive rebinding behavior to recover better
-    // from short-lived OS TIME_WAIT/EADDRINUSE race windows on port 3000.
-    server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: false }, onServerListening);
-
-    // CRITICAL: Error handler for the HTTP server (strict port-3000 enforcement)
-    let eaddrRetryAttempts = 0;
-    const maxEaddrRetries = 15;
+    server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: true }, onServerListening);
 
     server.on('error', (err) => {
-        if (err.code === 'EADDRINUSE' && PORT === 3000) {
-            if (eaddrRetryAttempts >= maxEaddrRetries) {
-                const totalWaitSeconds = maxEaddrRetries * 2;
-                logger.error(`❌ Port 3000 remained unavailable after ${maxEaddrRetries} retries (${totalWaitSeconds}s). Exiting.`);
+        if (err.code === 'EADDRINUSE') {
+            const nextPort = portManager.getNextPort(PORT);
+            if (!nextPort) {
+                logger.error(`❌ No free port in range ${portManager.preferredPort}-${portManager.maxPort}. Last failed port: ${PORT}`);
                 process.exit(1);
+                return;
             }
 
-            eaddrRetryAttempts += 1;
-            logger.warn('⏳ Port 3000 hängt im OS TIME_WAIT. Warte auf Freigabe (Retry in 2s)...');
+            logger.warn(`⚠️  Port ${PORT} is in use. Retrying with port ${nextPort}...`);
+            PORT = nextPort;
             setTimeout(() => {
-                server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: false }, onServerListening);
-            }, 2000);
-            return;
-        }
-
-        if (err.code === 'EADDRINUSE') {
-            logger.error(`❌ Port ${PORT} is unexpectedly in use (non-3000 path). Exiting.`);
-            process.exit(1);
+                server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: true }, onServerListening);
+            }, 500);
             return;
         }
 

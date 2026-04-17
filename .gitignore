@@ -39,6 +39,8 @@ app/data/
 # Logs and runtime files
 app/logs/
 app/plugins/plugins_state.json
+.ltth_port
+obs-overlay-wrapper.html
 
 # Database files
 *.db
