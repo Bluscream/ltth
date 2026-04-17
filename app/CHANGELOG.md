@@ -71,9 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added regression test coverage in `app/test/flame-overlay-renderer-webgl-state.test.js` to guard viewport/framebuffer and render-scene delegation behavior.
 
 #### 🔌 **EulerstreamAdapter – Token-Drain & ~60s-Disconnect-Loop**
-- EulerstreamAdapter: 4404 (Not Live) retry no longer runs unbounded – now consumes autoReconnectCount and stops at maxAutoReconnects
-- EulerstreamAdapter: 4429 (Too Many Connections) retry no longer runs unbounded – now consumes autoReconnectCount and stops at maxAutoReconnects
+- EulerstreamAdapter: 4404 (Not Live) retry now uses a dedicated retry budget and no longer drains the general auto-reconnect counter.
+- EulerstreamAdapter: 4429 (Too Many Connections) retry now uses a dedicated retry budget and no longer drains the general auto-reconnect counter.
 - EulerstreamAdapter: Heartbeat timeout no longer causes ~60s reconnect loop – ws.removeAllListeners() is called before terminate() to prevent the close handler from triggering an uncontrolled reconnect chain
+
+#### 🏆 **Leaderboard + Eulerstream stability hardening**
+- `app/modules/leaderboard.js`: `updateStats()` now rejects missing/invalid usernames before DB writes, preventing `NOT NULL` crashes for anonymous/aggregated events.
+- `app/server.js`: all `leaderboard.track*()` calls now guard `data.username` and skip tracking with debug logging when missing.
+- `app/modules/adapters/EulerstreamAdapter.js`: raised general reconnect budget (`maxAutoReconnects` 5→50), added dedicated 4404/4429 retry counters/limits, added delayed self-heal reconnect reset after max-reached states, and made heartbeat tolerant to 2 consecutive missed pongs with message-based liveness reset.
 
 #### 🎰 **Plinko – Board-aware gift trigger flow** (PR #222)
 - Fixed root cause: gifts configured on non-default Plinko boards were never recognized because `handlePlinkoGiftTrigger()` always loaded the first/default board config via `getConfig()` without a board ID, ignoring the board already identified by `findBoardByGiftTrigger()`.

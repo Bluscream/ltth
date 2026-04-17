@@ -40,8 +40,14 @@ class EulerstreamAdapter extends BaseAdapter {
 
         // Auto-Reconnect configuration
         this.autoReconnectCount = 0;
-        this.maxAutoReconnects = 5;
+        this.maxAutoReconnects = 50;
+        this.notLiveReconnectCount = 0;
+        this.maxNotLiveReconnects = 20;
+        this.rateLimitReconnectCount = 0;
+        this.maxRateLimitReconnects = 10;
         this.autoReconnectResetTimeout = null;
+        this._selfHealTimer = null;
+        this._missedPongs = 0;
 
         // Stats tracking - Load from database if available
         const savedStats = this.db.loadStreamStats();
@@ -265,9 +271,15 @@ class EulerstreamAdapter extends BaseAdapter {
 
             // Reset auto-reconnect counter on every successful connection
             this.autoReconnectCount = 0;
+            this.notLiveReconnectCount = 0;
+            this.rateLimitReconnectCount = 0;
             if (this.autoReconnectResetTimeout) {
                 clearTimeout(this.autoReconnectResetTimeout);
                 this.autoReconnectResetTimeout = null;
+            }
+            if (this._selfHealTimer) {
+                clearTimeout(this._selfHealTimer);
+                this._selfHealTimer = null;
             }
             this.logger.info('✅ Auto-reconnect counter reset (successful connection)');
 
@@ -439,6 +451,7 @@ class EulerstreamAdapter extends BaseAdapter {
         this.ws.on('close', (code, reason) => {
             this._stopHeartbeat();
             const reasonText = Buffer.isBuffer(reason) ? reason.toString('utf-8') : (reason || '');
+            const savedUsername = this.currentUsername;
             this.logger.info(`🔴 Eulerstream WebSocket disconnected: ${code} - ${ClientCloseCode[code] || reasonText}`);
 
             this.isConnected = false;
@@ -491,53 +504,53 @@ class EulerstreamAdapter extends BaseAdapter {
                 return;
             }
 
-            // 4404 – Not live → soft retry with long delay, consumes autoReconnectCount
+            // 4404 – Not live → soft retry with long delay, dedicated not-live retry budget
             if (code === 4404) {
                 this.logger.warn('⚠️  User Not Live: The requested TikTok user is not currently streaming.');
                 this.broadcastStatus('not_live');
                 emitDisconnect('User not live');
 
-                if (this.currentUsername && this.autoReconnectCount < this.maxAutoReconnects) {
-                    this.autoReconnectCount++;
+                if (savedUsername && this.notLiveReconnectCount < this.maxNotLiveReconnects) {
+                    this.notLiveReconnectCount++;
                     const notLiveDelay = 30000;
-                    const savedUsername = this.currentUsername;
-                    this.logger.info(`⏳ Not-live retry ${this.autoReconnectCount}/${this.maxAutoReconnects} in ${notLiveDelay / 1000}s (stream may be starting soon)...`);
+                    this.logger.info(`⏳ Not-live retry ${this.notLiveReconnectCount}/${this.maxNotLiveReconnects} in ${notLiveDelay / 1000}s (stream may be starting soon)...`);
                     setTimeout(() => {
                         this.connect(savedUsername).catch(err => {
-                            this.logger.error(`Not-live retry ${this.autoReconnectCount}/${this.maxAutoReconnects} failed:`, err.message);
+                            this.logger.error(`Not-live retry ${this.notLiveReconnectCount}/${this.maxNotLiveReconnects} failed:`, err.message);
                         });
                     }, notLiveDelay);
                 } else {
-                    this.logger.warn(`⚠️ Max retry attempts (${this.maxAutoReconnects}) reached or no username set. Manual reconnect required.`);
+                    this.logger.warn(`⚠️ Max retry attempts (${this.maxNotLiveReconnects}) reached or no username set. Manual reconnect required.`);
                     this.broadcastStatus('max_reconnects_reached', {
-                        maxReconnects: this.maxAutoReconnects,
+                        maxReconnects: this.maxNotLiveReconnects,
                         message: 'User nicht live – bitte manuell neu verbinden'
                     });
+                    this._scheduleSelfHealReconnect(savedUsername);
                 }
                 return;
             }
 
-            // 4429 – Too many connections → wait 30s then retry (consumes autoReconnectCount)
+            // 4429 – Too many connections → wait 30s then retry (dedicated rate-limit retry budget)
             if (code === 4429) {
                 this.logger.warn('⚠️  Too many connections. Waiting 30s before retry...');
                 this.broadcastStatus('disconnected');
                 emitDisconnect('Too many connections');
 
-                if (this.currentUsername && this.autoReconnectCount < this.maxAutoReconnects) {
-                    this.autoReconnectCount++;
-                    const savedUsername = this.currentUsername;
-                    this.logger.info(`⏳ 4429 retry ${this.autoReconnectCount}/${this.maxAutoReconnects} in 30s...`);
+                if (savedUsername && this.rateLimitReconnectCount < this.maxRateLimitReconnects) {
+                    this.rateLimitReconnectCount++;
+                    this.logger.info(`⏳ 4429 retry ${this.rateLimitReconnectCount}/${this.maxRateLimitReconnects} in 30s...`);
                     setTimeout(() => {
                         this.connect(savedUsername).catch(err => {
-                            this.logger.error(`4429 retry ${this.autoReconnectCount}/${this.maxAutoReconnects} failed:`, err.message);
+                            this.logger.error(`4429 retry ${this.rateLimitReconnectCount}/${this.maxRateLimitReconnects} failed:`, err.message);
                         });
                     }, 30000);
                 } else {
-                    this.logger.warn(`⚠️ Max retry attempts (${this.maxAutoReconnects}) reached or no username set. Manual reconnect required.`);
+                    this.logger.warn(`⚠️ Max retry attempts (${this.maxRateLimitReconnects}) reached or no username set. Manual reconnect required.`);
                     this.broadcastStatus('max_reconnects_reached', {
-                        maxReconnects: this.maxAutoReconnects,
+                        maxReconnects: this.maxRateLimitReconnects,
                         message: 'Zu viele Verbindungen – bitte manuell neu verbinden'
                     });
+                    this._scheduleSelfHealReconnect(savedUsername);
                 }
                 return;
             }
@@ -561,6 +574,7 @@ class EulerstreamAdapter extends BaseAdapter {
                     maxReconnects: this.maxAutoReconnects,
                     message: 'Bitte manuell neu verbinden'
                 });
+                this._scheduleSelfHealReconnect(savedUsername);
             }
         });
 
@@ -578,6 +592,11 @@ class EulerstreamAdapter extends BaseAdapter {
         // Handle incoming WebSocket messages
         this.ws.on('message', (data) => {
             try {
+                this.isAlive = true;
+                if (this._missedPongs !== undefined) {
+                    this._missedPongs = 0;
+                }
+
                 // Log that we received a message (using info level for visibility)
                 this.logger.info(`📨 Received WebSocket message: ${typeof data}, length: ${data ? data.length : 0}`);
                 
@@ -1777,6 +1796,28 @@ class EulerstreamAdapter extends BaseAdapter {
         }
     }
 
+    _scheduleSelfHealReconnect(savedUsername) {
+        if (!savedUsername) {
+            return;
+        }
+
+        if (this._selfHealTimer) {
+            clearTimeout(this._selfHealTimer);
+        }
+
+        const healDelay = 5 * 60 * 1000;
+        this._selfHealTimer = setTimeout(() => {
+            this._selfHealTimer = null;
+            this.logger.info('🔄 Self-heal: resetting reconnect counter after max-reached, retrying...');
+            this.autoReconnectCount = 0;
+            this.notLiveReconnectCount = 0;
+            this.rateLimitReconnectCount = 0;
+            this.connect(savedUsername).catch(err => {
+                this.logger.error('Self-heal reconnect failed:', err.message);
+            });
+        }, healDelay);
+    }
+
     /**
      * Starts the Ping/Pong heartbeat to prevent idle timeouts from load balancers (e.g. Cloudflare)
      * @private
@@ -1784,9 +1825,11 @@ class EulerstreamAdapter extends BaseAdapter {
     _startHeartbeat() {
         this._stopHeartbeat();
         this.isAlive = true;
+        this._missedPongs = 0;
 
         this._onPong = () => {
             this.isAlive = true;
+            this._missedPongs = 0;
             this.logger.debug('💓 WebSocket Pong received');
         };
         this.ws.on('pong', this._onPong);
@@ -1798,7 +1841,16 @@ class EulerstreamAdapter extends BaseAdapter {
             }
 
             if (this.isAlive === false) {
-                this.logger.warn('⚠️ WebSocket heartbeat timeout - connection unresponsive. Forcing clean reconnect...');
+                this._missedPongs = (this._missedPongs || 0) + 1;
+                if (this._missedPongs < 2) {
+                    this.logger.warn(`⚠️ No pong received (miss ${this._missedPongs}/2) - keeping connection alive for now`);
+                    this.isAlive = false;
+                    try {
+                        this.ws.ping();
+                    } catch {}
+                    return;
+                }
+                this.logger.warn('⚠️ WebSocket heartbeat timeout (2 consecutive misses) - forcing reconnect...');
                 this._stopHeartbeat();
 
                 // Save username before nulling out state
@@ -1839,10 +1891,12 @@ class EulerstreamAdapter extends BaseAdapter {
                         maxReconnects: this.maxAutoReconnects,
                         message: 'Heartbeat-Timeout – bitte manuell neu verbinden'
                     });
+                    this._scheduleSelfHealReconnect(savedUsername);
                 }
                 return;
             }
 
+            this._missedPongs = 0;
             this.isAlive = false;
             try {
                 this.ws.ping();
@@ -1866,10 +1920,15 @@ class EulerstreamAdapter extends BaseAdapter {
             this.ws.removeListener('pong', this._onPong);
         }
         this._onPong = null;
+        this._missedPongs = 0;
     }
 
     disconnect() {
         this._stopHeartbeat();
+        if (this._selfHealTimer) {
+            clearTimeout(this._selfHealTimer);
+            this._selfHealTimer = null;
+        }
         if (this.ws) {
             this.ws.removeAllListeners();
             if (typeof this.ws.close === 'function') {

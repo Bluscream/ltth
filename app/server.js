@@ -3117,7 +3117,11 @@ tiktok.on('gift', async (data) => {
     debugLogger.log('goals', `Coins goal incremented by ${data.coins}`);
 
     // Leaderboard: Update user stats
-    await leaderboard.trackGift(data.username, data.giftName, data.coins);
+    if (data.username) {
+        await leaderboard.trackGift(data.username, data.giftName, data.coins);
+    } else {
+        debugLogger.log('tiktok', 'Gift event has no username – leaderboard tracking skipped', null, 'debug');
+    }
 
     // IFTTT Engine verarbeiten
     await iftttEngine.processEvent('tiktok:gift', data);
@@ -3134,7 +3138,11 @@ tiktok.on('follow', async (data) => {
     debugLogger.log('goals', `Followers goal incremented by 1`);
 
     // Leaderboard: Track follow
-    await leaderboard.trackFollow(data.username);
+    if (data.username) {
+        await leaderboard.trackFollow(data.username);
+    } else {
+        debugLogger.log('tiktok', 'Follow event has no username – leaderboard tracking skipped', null, 'debug');
+    }
 
     await iftttEngine.processEvent('tiktok:follow', data);
 });
@@ -3153,7 +3161,11 @@ tiktok.on('subscribe', async (data) => {
     await subscriptionTiers.processSubscription(data);
 
     // Leaderboard: Track subscription
-    await leaderboard.trackSubscription(data.username);
+    if (data.username) {
+        await leaderboard.trackSubscription(data.username);
+    } else {
+        debugLogger.log('tiktok', 'Subscribe event has no username – leaderboard tracking skipped', null, 'debug');
+    }
 
     await iftttEngine.processEvent('tiktok:subscribe', data);
 });
@@ -3163,7 +3175,11 @@ tiktok.on('share', async (data) => {
     alerts.addAlert('share', data);
 
     // Leaderboard: Track share
-    await leaderboard.trackShare(data.username);
+    if (data.username) {
+        await leaderboard.trackShare(data.username);
+    } else {
+        debugLogger.log('tiktok', 'Share event has no username – leaderboard tracking skipped', null, 'debug');
+    }
 
     await iftttEngine.processEvent('tiktok:share', data);
 });
@@ -3171,7 +3187,11 @@ tiktok.on('share', async (data) => {
 // Chat Event
 tiktok.on('chat', async (data) => {
     // Leaderboard: Track chat message
-    await leaderboard.trackChat(data.username);
+    if (data.username) {
+        await leaderboard.trackChat(data.username);
+    } else {
+        debugLogger.log('tiktok', 'Chat event has no username – leaderboard tracking skipped', null, 'debug');
+    }
 
     // IFTTT Engine verarbeiten
     await iftttEngine.processEvent('tiktok:chat', data);
@@ -3197,7 +3217,11 @@ tiktok.on('like', async (data) => {
     }
 
     // Leaderboard: Track likes
-    await leaderboard.trackLike(data.username, data.likeCount || 1);
+    if (data.username) {
+        await leaderboard.trackLike(data.username, data.likeCount || 1);
+    } else {
+        debugLogger.log('tiktok', 'Like event has no username – leaderboard tracking skipped', null, 'debug');
+    }
 
     // IFTTT Engine verarbeiten
     await iftttEngine.processEvent('tiktok:like', data);

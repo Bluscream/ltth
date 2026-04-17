@@ -150,6 +150,11 @@ class LeaderboardManager {
    * Update stats for a user
    */
   updateStats(username, eventType, data = {}) {
+    if (!username || typeof username !== 'string' || username.trim() === '') {
+      logger.warn(`[Leaderboard] Skipping "${eventType}" event: username missing or invalid (got: ${JSON.stringify(username)})`);
+      return;
+    }
+
     const now = Date.now();
     const sid = this.streamerId || DEFAULT_STREAMER_ID;
 
