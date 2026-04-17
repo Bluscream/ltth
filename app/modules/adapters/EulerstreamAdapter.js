@@ -1847,7 +1847,9 @@ class EulerstreamAdapter extends BaseAdapter {
                     this.isAlive = false;
                     try {
                         this.ws.ping();
-                    } catch {}
+                    } catch (err) {
+                        this.logger.debug('Heartbeat retry ping failed:', err.message);
+                    }
                     return;
                 }
                 this.logger.warn('⚠️ WebSocket heartbeat timeout (2 consecutive misses) - forcing reconnect...');
