@@ -814,6 +814,10 @@
                             <i data-lucide="sparkles"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.fireworks">Fireworks</span>
                         </a>
+                        <a href="#" class="sidebar-item" data-view="fireworks-dev" data-plugin="fireworks-dev" data-tooltip="Fireworks Dev">
+                            <i data-lucide="swords"></i>
+                            <span class="sidebar-item-text" data-i18n="navigation.fireworks_dev">Fireworks Dev</span>
+                        </a>
                         <a href="#" class="sidebar-item" data-view="flame-overlay" data-plugin="flame-overlay" data-tooltip="Flame Overlay">
                             <i data-lucide="flame"></i>
                             <span class="sidebar-item-text" data-i18n="navigation.flame_overlay">Flame Overlay</span>
@@ -1089,7 +1093,7 @@
                         <details id="connection-details-panel" class="connection-details-accordion">
                             <summary class="connection-details-summary">
                                 <i data-lucide="info"></i>
-                                <span data-i18n="dashboard.connection_details">Connection Details &amp; Diagnostics</span>
+                                <span data-i18n="dashboard.connection_info">Connection Details &amp; Diagnostics</span>
                                 <i data-lucide="chevron-down" class="accordion-chevron"></i>
                             </summary>
 
@@ -1171,7 +1175,7 @@
                             </button>
                             <button class="quick-action-btn" id="quick-webgpu-emoji-rain-btn" data-action="webgpu-emoji-rain" data-state="off" data-plugin="webgpu-emoji-rain">
                                 <i data-lucide="zap"></i>
-                                <span data-i18n="dashboard.quick_action.webgpu_emoji_rain">WebGPU Emoji Rain</span>
+                                <span data-i18n="dashboard.quick_action.emoji_rain">WebGPU Emoji Rain</span>
                             </button>
                             <button class="quick-action-btn" id="quick-osc-bridge-btn" data-action="osc-bridge" data-state="off" data-plugin="osc-bridge">
                                 <i data-lucide="gamepad-2"></i>
@@ -1524,6 +1528,17 @@
                             </div>
                         </div>
 
+                        <div class="bg-gray-700 rounded-lg p-3 mb-3 flex items-center justify-between gap-3 flex-wrap">
+                            <div>
+                                <strong>Automation Engine</strong>
+                                <p class="text-sm text-gray-400" style="margin:4px 0 0 0;">Globaler Schalter fuer alle Flows und Timer-Trigger.</p>
+                            </div>
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="flows-global-enabled" style="width:18px;height:18px;">
+                                <span id="flows-global-enabled-label">Aktiv</span>
+                            </label>
+                        </div>
+
                         <!-- Bulk actions bar (shown when flows are selected) -->
                         <div id="flows-bulk-bar" style="display:none;" class="bg-gray-700 rounded-lg p-3 mb-3 flex items-center gap-3 flex-wrap">
                             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
@@ -1679,6 +1694,25 @@
                         </div>
                         <div class="iframe-container">
                             <iframe data-src="/fireworks/ui" title="Fireworks Configuration"></iframe>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- View: Fireworks Dev -->
+                <div id="view-fireworks-dev" class="content-view" data-plugin="fireworks-dev">
+                    <section class="view-section">
+                        <div class="view-header">
+                            <h2 class="view-title">
+                                <i data-lucide="swords"></i>
+                                Fireworks Dev Bossfight
+                            </h2>
+                            <a href="/fireworks-dev/ui" target="_blank" class="btn btn-sm btn-ghost">
+                                <i data-lucide="external-link"></i>
+                                Open in New Tab
+                            </a>
+                        </div>
+                        <div class="iframe-container">
+                            <iframe data-src="/fireworks-dev/ui" title="Fireworks Dev Configuration"></iframe>
                         </div>
                     </section>
                 </div>
@@ -2226,6 +2260,10 @@
                                 </div>
                                 <div style="display: flex; gap: 0.75rem; align-items: center; padding: 0.5rem 0; border-left: 1px solid rgba(255, 255, 255, 0.1); padding-left: 0.75rem;">
                                     <span style="font-size: 0.85rem; color: #9ca3af; font-weight: 500;">Dev Status:</span>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; color: #60a5fa;">
+                                        <input type="checkbox" class="dev-status-filter" data-status="stable" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;">
+                                        <span>Stable</span>
+                                    </label>
                                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; color: #22c55e;">
                                         <input type="checkbox" class="dev-status-filter" data-status="working-beta" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #22c55e;">
                                         <span>Working Beta</span>
@@ -2237,6 +2275,10 @@
                                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; color: #ef4444;">
                                         <input type="checkbox" class="dev-status-filter" data-status="early-version" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #ef4444;">
                                         <span>Early Version</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; color: #9ca3af;">
+                                        <input type="checkbox" class="dev-status-filter" data-status="non-working-beta" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #6b7280;">
+                                        <span>Non-working Beta</span>
                                     </label>
                                 </div>
                                 <select id="plugin-sort" style="padding: 0.75rem 1rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: white; font-size: 0.9rem; cursor: pointer;">
@@ -2334,13 +2376,13 @@
                                     </div>
                                     <div class="form-group">
                                         <label class="checkbox-label">
-                                            <input type="checkbox" id="auto-update-check" checked>
+                                            <input type="checkbox" id="auto-update-check" disabled>
                                             <span data-i18n="settings.auto_update_check">Check for updates on startup</span>
                                         </label>
                                     </div>
                                     <div class="form-group">
                                         <label class="checkbox-label">
-                                            <input type="checkbox" id="update-notifications" checked>
+                                            <input type="checkbox" id="update-notifications" disabled>
                                             <span data-i18n="settings.show_update_notifications">Show update notifications</span>
                                         </label>
                                     </div>
@@ -2680,19 +2722,19 @@
                                     </p>
                                 </div>
 
-                                <!-- Auto-Restart Settings -->
+                                <!-- Profile restart behavior -->
                                 <div class="bg-gray-700 rounded-lg p-4 mb-4">
                                     <h4 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
                                         <i data-lucide="rotate-cw" class="inline-block w-4 h-4"></i>
-                                        Auto-Restart on Profile Switch
+                                        Auto-Restart bei Profilwechsel
                                     </h4>
                                     <div class="form-group mb-3">
                                         <label class="checkbox-label">
-                                            <input type="checkbox" id="profile-auto-restart-toggle">
-                                            <span>Enable automatic restart after profile switch</span>
+                                            <input type="checkbox" id="profile-auto-restart-toggle" checked disabled>
+                                            <span>Profilwechsel starten die Anwendung automatisch neu</span>
                                         </label>
                                         <p class="text-xs text-gray-400 mt-2">
-                                            When enabled, the application will automatically restart 5 seconds after switching profiles. You can cancel the countdown if needed.
+                                            Ein Seiten-Reload reicht nicht aus, weil Datenbank und Plugins beim Serverstart mit dem aktiven Profil geladen werden.
                                         </p>
                                     </div>
                                 </div>
@@ -3378,8 +3420,8 @@
                 </div>
                 <div id="alert-settings" class="form-group">
                     <label for="flow-action-text">Alert Text (supports variables)</label>
-                    <textarea id="flow-action-text" placeholder="e.g., Thank you {username} for {gift_name}!" class="form-textarea"></textarea>
-                    <p class="form-help">Available variables: {username}, {gift_name}, {coins}, {message}</p>
+                    <textarea id="flow-action-text" placeholder="e.g., Thank you {username} for {giftName}!" class="form-textarea"></textarea>
+                    <p class="form-help">Available variables: {username}, {giftName}, {coins}, {message}</p>
                 </div>
                 <div id="webhook-settings" class="form-group" style="display: none;">
                     <label for="flow-webhook-url">Webhook URL</label>

@@ -39,13 +39,22 @@ describe('TikTok Auto-Reconnect', () => {
         tiktok = new TikTokConnector(mockIo, db, mockLogger);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         // Cleanup
         if (tiktok.isConnected) {
-            tiktok.disconnect();
+            await Promise.resolve(tiktok.disconnect());
+        }
+        if (db) {
+            db.close();
         }
         if (fs.existsSync(dbPath)) {
             fs.unlinkSync(dbPath);
+        }
+        for (const suffix of ['-wal', '-shm']) {
+            const sidecarPath = `${dbPath}${suffix}`;
+            if (fs.existsSync(sidecarPath)) {
+                fs.unlinkSync(sidecarPath);
+            }
         }
     });
 

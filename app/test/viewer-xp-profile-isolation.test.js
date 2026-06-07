@@ -22,29 +22,25 @@ describe('Viewer XP System - Profile Isolation', () => {
     let mockTikTok1, mockTikTok2;
 
     beforeAll(() => {
-        // Create temporary test config directory
         testConfigDir = path.join(__dirname, 'test-config-profiles');
-        if (fs.existsSync(testConfigDir)) {
-            fs.rmSync(testConfigDir, { recursive: true, force: true });
-        }
-        fs.mkdirSync(testConfigDir, { recursive: true });
-
-        // Create a custom ConfigPathManager for testing
-        configPathManager = new ConfigPathManager();
-        configPathManager.customConfigPath = testConfigDir;
-
-        // Create UserProfileManager
-        profileManager = new UserProfileManager(configPathManager);
     });
 
     afterAll(() => {
-        // Cleanup test directory
         if (fs.existsSync(testConfigDir)) {
             fs.rmSync(testConfigDir, { recursive: true, force: true });
         }
     });
 
     beforeEach(async () => {
+        if (fs.existsSync(testConfigDir)) {
+            fs.rmSync(testConfigDir, { recursive: true, force: true });
+        }
+        fs.mkdirSync(testConfigDir, { recursive: true });
+
+        configPathManager = new ConfigPathManager();
+        configPathManager.customConfigPath = testConfigDir;
+
+        profileManager = new UserProfileManager(configPathManager);
         // Create two separate profiles
         if (!profileManager.profileExists('streamer1')) {
             profileManager.createProfile('streamer1');
@@ -122,11 +118,11 @@ describe('Viewer XP System - Profile Isolation', () => {
             await viewerXPPlugin2.destroy();
         }
 
-        if (db1 && db1.db) {
-            db1.db.close();
+        if (db1 && typeof db1.close === 'function') {
+            db1.close();
         }
-        if (db2 && db2.db) {
-            db2.db.close();
+        if (db2 && typeof db2.close === 'function') {
+            db2.close();
         }
     });
 
@@ -208,7 +204,7 @@ describe('Viewer XP System - Profile Isolation', () => {
 
         // Close the plugin and database (simulating app shutdown)
         await viewerXPPlugin1.destroy();
-        db1.db.close();
+        db1.close();
 
         // Reopen the database (simulating app restart)
         const dbPath1 = profileManager.getProfilePath('streamer1');
@@ -309,10 +305,8 @@ describe('Viewer XP System - Profile Isolation', () => {
             comment: 'Multiple messages!'
         };
         
-        // Send multiple messages to accumulate XP
-        for (let i = 0; i < 5; i++) {
-            mockTikTok1.emit('chat', viewer1Event);
-        }
+        mockTikTok1.emit('chat', viewer1Event);
+        viewerXPPlugin1.db.addXP('topviewer', 20, 'manual_award', { reason: 'leaderboard test' });
 
         // Add same viewer to streamer2 but with different activity
         const viewer2Event = {

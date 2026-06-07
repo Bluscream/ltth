@@ -28,6 +28,8 @@ class GoalsPlugin extends EventEmitter {
 
         // Lifecycle tracker for timeouts/intervals/listeners registered during init
         this._lifecycle = new LifecycleTracker();
+        this.fireworkFinaleMilestones = new Set();
+        this.fireworkProgressMilestones = new Set();
 
         // Initialize modules
         this.db = new GoalsDatabase(api);
@@ -124,6 +126,7 @@ class GoalsPlugin extends EventEmitter {
 
         machine.on(EVENTS.GOAL_REACHED, (data) => {
             this.api.log(`Goal ${data.goalId} reached!`, 'info');
+            this.triggerGoalFireworkFinale(data.goalId);
             this.broadcastGoalReached(data.goalId);
         });
 
@@ -364,7 +367,227 @@ class GoalsPlugin extends EventEmitter {
     }
 
     broadcastGoalReset(goal) {
+        this.clearGoalFireworkMilestones(goal.id);
         this.websocket.broadcastGoalReset(goal);
+    }
+
+    resolveFireworksPlugin() {
+        const devPlugin = this.api.getPlugin ? this.api.getPlugin('fireworks-dev') : null;
+        if (devPlugin && typeof devPlugin.triggerFinale === 'function') {
+            return { id: 'fireworks-dev', plugin: devPlugin };
+        }
+
+        const stablePlugin = this.api.getPlugin ? this.api.getPlugin('fireworks') : null;
+        if (stablePlugin && typeof stablePlugin.triggerFinale === 'function') {
+            return { id: 'fireworks', plugin: stablePlugin };
+        }
+
+        return null;
+    }
+
+    getGoalFireworkProgressMilestones(goal) {
+        const raw = typeof goal.firework_progress_milestones === 'string' && goal.firework_progress_milestones.trim()
+            ? goal.firework_progress_milestones
+            : '25,50,75';
+
+        const values = raw.split(',')
+            .map((value) => Number(value.trim()))
+            .filter((value) => Number.isFinite(value) && value > 0 && value < 100)
+            .map((value) => Math.round(value));
+
+        return Array.from(new Set(values)).sort((a, b) => a - b);
+    }
+
+    getGoalProgressPercent(goal) {
+        const target = Number(goal?.target_value);
+        const current = Number(goal?.current_value);
+        if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(current)) {
+            return 0;
+        }
+        return (current / target) * 100;
+    }
+
+    getFireworkProgressMilestoneKey(goal, milestone) {
+        return `${goal.id}:${goal.target_value}:progress:${milestone}`;
+    }
+
+    buildGoalFireworkHudLabel(goal, suffix) {
+        const base = goal.firework_hud_label || goal.name || 'Goal';
+        return suffix ? `${base} ${suffix}` : base;
+    }
+
+    triggerGoalFireworkProgress(goal, milestone) {
+        try {
+            if (!goal || !goal.firework_enabled || goal.firework_progress_enabled === 0) {
+                return false;
+            }
+
+            const resolved = this.resolveFireworksPlugin();
+            if (!resolved) {
+                return false;
+            }
+
+            const milestoneKey = this.getFireworkProgressMilestoneKey(goal, milestone);
+            if (this.fireworkProgressMilestones.has(milestoneKey)) {
+                return false;
+            }
+
+            const { id, plugin } = resolved;
+            const intensity = this.clampNumber(goal.firework_intensity, 1, 10, 3);
+            const milestoneIntensity = milestone >= 75 ? Math.max(1.8, intensity * 0.72) : milestone >= 50 ? Math.max(1.35, intensity * 0.58) : Math.max(1.05, intensity * 0.44);
+            const qualityProfile = goal.firework_quality_profile || 'high';
+            const encounterMode = milestone >= 75 ? 'raid' : 'skirmish';
+            const hudLabel = this.buildGoalFireworkHudLabel(goal, `${milestone}%`);
+
+            if (id === 'fireworks-dev' && typeof plugin.triggerFirework === 'function') {
+                plugin.triggerFirework({
+                    type: 'goal-progress',
+                    intensity: milestoneIntensity,
+                    shape: milestone >= 75 ? 'ring' : 'star',
+                    position: {
+                        x: 0.24 + Math.random() * 0.52,
+                        y: 0.28 + Math.random() * 0.24
+                    },
+                    duration: 2200,
+                    theme: goal.firework_theme || undefined,
+                    encounterMode,
+                    qualityProfile,
+                    impactLevel: milestone >= 75 ? 'raid' : milestone >= 50 ? 'heavy' : 'medium',
+                    ultimateTier: null,
+                    hudLabel,
+                    cameraImpulse: 0.16 + (milestone / 220),
+                    screenFxPreset: milestone >= 75 ? 'milestone-raid' : 'milestone',
+                    bypassEnabled: true
+                });
+            } else if (typeof plugin.triggerFirework === 'function') {
+                plugin.triggerFirework({
+                    type: 'goal-progress',
+                    intensity: milestoneIntensity,
+                    shape: milestone >= 75 ? 'ring' : 'star',
+                    position: {
+                        x: 0.24 + Math.random() * 0.52,
+                        y: 0.28 + Math.random() * 0.24
+                    },
+                    reason: 'goal-progress',
+                    bypassEnabled: true
+                });
+            } else {
+                return false;
+            }
+
+            this.fireworkProgressMilestones.add(milestoneKey);
+            this.api.log(`Triggered goal progress firework milestone ${milestone}% for "${goal.name}"`, 'info');
+            return true;
+        } catch (error) {
+            this.api.log(`Error triggering goal progress firework: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
+    maybeTriggerGoalFireworkGamification(previousGoal, updatedGoal) {
+        if (!previousGoal || !updatedGoal || !updatedGoal.firework_enabled) {
+            return false;
+        }
+
+        const previousPercent = this.getGoalProgressPercent(previousGoal);
+        const updatedPercent = this.getGoalProgressPercent(updatedGoal);
+        let triggered = false;
+
+        for (const milestone of this.getGoalFireworkProgressMilestones(updatedGoal)) {
+            if (previousPercent < milestone && updatedPercent >= milestone) {
+                triggered = this.triggerGoalFireworkProgress(updatedGoal, milestone) || triggered;
+            }
+        }
+
+        return this.maybeTriggerGoalFireworkFinale(previousGoal, updatedGoal) || triggered;
+    }
+
+    /**
+     * Trigger a Fireworks finale for goals that explicitly opted in.
+     */
+    triggerGoalFireworkFinale(goalId) {
+        try {
+            const goal = this.db.getGoal(goalId);
+            if (!goal || !goal.firework_enabled) {
+                return false;
+            }
+
+            const milestoneKey = this.getFireworkMilestoneKey(goal);
+            if (this.fireworkFinaleMilestones.has(milestoneKey)) {
+                return false;
+            }
+
+            const resolved = this.resolveFireworksPlugin();
+            if (!resolved) {
+                this.api.log(`Goal ${goalId} requested a firework finale, but the Fireworks plugin is not loaded`, 'warn');
+                return false;
+            }
+
+            const { id: pluginId, plugin: fireworks } = resolved;
+            const intensity = this.clampNumber(goal.firework_intensity, 1, 10, 3);
+            const duration = this.clampNumber(goal.firework_duration, 1000, 30000, 5000);
+
+            this.fireworkFinaleMilestones.add(milestoneKey);
+            if (pluginId === 'fireworks-dev') {
+                fireworks.triggerFinale(intensity, duration, true, {
+                    theme: goal.firework_theme || undefined,
+                    encounterMode: goal.firework_encounter_mode || 'finale',
+                    qualityProfile: goal.firework_quality_profile || 'high',
+                    impactLevel: 'ultimate',
+                    ultimateTier: 'goal-finale',
+                    hudLabel: this.buildGoalFireworkHudLabel(goal, 'Complete'),
+                    cameraImpulse: Math.max(0.4, intensity * 0.14),
+                    screenFxPreset: 'goal-finale'
+                });
+            } else {
+                fireworks.triggerFinale(intensity, duration);
+            }
+            this.api.log(`Triggered firework finale for goal "${goal.name}" (${intensity}x, ${duration}ms)`, 'info');
+            return true;
+        } catch (error) {
+            this.api.log(`Error triggering goal firework finale: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
+    maybeTriggerGoalFireworkFinale(previousGoal, updatedGoal) {
+        if (!previousGoal || !updatedGoal) {
+            return false;
+        }
+
+        const wasReached = Number(previousGoal.current_value) >= Number(previousGoal.target_value);
+        const isReached = Number(updatedGoal.current_value) >= Number(updatedGoal.target_value);
+
+        if (!wasReached && isReached) {
+            return this.triggerGoalFireworkFinale(updatedGoal.id);
+        }
+
+        return false;
+    }
+
+    getFireworkMilestoneKey(goal) {
+        return `${goal.id}:${goal.target_value}`;
+    }
+
+    clearGoalFireworkMilestones(goalId) {
+        for (const key of Array.from(this.fireworkFinaleMilestones)) {
+            if (key.startsWith(`${goalId}:`)) {
+                this.fireworkFinaleMilestones.delete(key);
+            }
+        }
+        for (const key of Array.from(this.fireworkProgressMilestones)) {
+            if (key.startsWith(`${goalId}:`)) {
+                this.fireworkProgressMilestones.delete(key);
+            }
+        }
+    }
+
+    clampNumber(value, min, max, fallback) {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) {
+            return fallback;
+        }
+        return Math.min(max, Math.max(min, parsed));
     }
 
     /**

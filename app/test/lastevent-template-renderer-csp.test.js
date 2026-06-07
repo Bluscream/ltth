@@ -19,6 +19,7 @@ describe('TemplateRenderer CSP Compliance', () => {
     global.document = dom.window.document;
     global.window = dom.window;
     global.Image = dom.window.Image;
+    document = dom.window.document;
 
     // Load the TemplateRenderer module
     const rendererPath = path.join(__dirname, '../plugins/lastevent-spotlight/lib/template-renderer.js');
@@ -172,5 +173,126 @@ describe('TemplateRenderer CSP Compliance', () => {
     images.forEach(img => {
       expect(img.getAttribute('data-fallback')).toBeTruthy();
     });
+  });
+
+  test('should render gift images when the source is an object URL list', async () => {
+    const renderer = new TemplateRenderer(container, {
+      showProfilePicture: false,
+      showUsername: true,
+      preloadImages: false
+    });
+
+    const userData = {
+      uniqueId: 'testuser',
+      nickname: 'Test User',
+      eventType: 'gifter',
+      label: 'Gifter',
+      metadata: {
+        giftName: 'Rose',
+        giftPictureUrl: {
+          url: ['https://example.com/rose.png']
+        },
+        giftCount: 1,
+        coins: 1
+      }
+    };
+
+    await expect(renderer.render(userData)).resolves.toBeUndefined();
+
+    const giftImage = container.querySelector('.gift-icon img');
+    expect(giftImage).toBeTruthy();
+    expect(giftImage.getAttribute('src')).toBe('https://example.com/rose.png');
+  });
+
+  test('clear prevents settings updates from re-rendering stale users', async () => {
+    const renderer = new TemplateRenderer(container, {
+      showProfilePicture: false,
+      showUsername: true
+    });
+
+    await renderer.render({
+      uniqueId: 'olduser',
+      nickname: 'Old User',
+      eventType: 'follower',
+      label: 'Follower'
+    });
+
+    renderer.clear();
+    renderer.updateSettings({ fontSize: '40px' });
+
+    expect(container.textContent).not.toContain('Old User');
+  });
+
+  test('turning off center alignment clears flex centering styles', async () => {
+    const renderer = new TemplateRenderer(container, {
+      showProfilePicture: false,
+      showUsername: true,
+      alignCenter: true
+    });
+
+    await renderer.render({
+      uniqueId: 'testuser',
+      nickname: 'Test User',
+      eventType: 'follower',
+      label: 'Follower'
+    });
+
+    renderer.updateSettings({ alignCenter: false });
+
+    expect(container.style.justifyContent).toBe('');
+    expect(container.style.alignItems).toBe('');
+    expect(container.style.textAlign).toBe('left');
+  });
+
+  test('username text effects wrap only the actual username characters', async () => {
+    const textEffectsPath = path.join(__dirname, '../plugins/lastevent-spotlight/lib/text-effects.js');
+    const TextEffects = require(textEffectsPath);
+    window.TextEffects = TextEffects;
+    global.requestAnimationFrame = jest.fn(() => 1);
+    global.cancelAnimationFrame = jest.fn();
+
+    const renderer = new TemplateRenderer(container, {
+      showProfilePicture: false,
+      showUsername: true,
+      usernameEffect: 'wave'
+    });
+
+    await renderer.render({
+      uniqueId: 'testuser',
+      nickname: 'Ab',
+      eventType: 'follower',
+      label: 'Follower'
+    });
+
+    expect(container.querySelector('.username').textContent).toBe('Ab');
+    expect(container.querySelectorAll('.username .wave-char')).toHaveLength(2);
+  });
+
+  test('rendering null clears active text effects', async () => {
+    const textEffectsPath = path.join(__dirname, '../plugins/lastevent-spotlight/lib/text-effects.js');
+    const TextEffects = require(textEffectsPath);
+    window.TextEffects = TextEffects;
+    global.requestAnimationFrame = jest.fn(() => 1);
+    global.cancelAnimationFrame = jest.fn();
+
+    const renderer = new TemplateRenderer(container, {
+      showProfilePicture: false,
+      showUsername: true,
+      usernameEffect: 'wave',
+      hideOnNullUser: true
+    });
+
+    await renderer.render({
+      uniqueId: 'testuser',
+      nickname: 'Ab',
+      eventType: 'follower',
+      label: 'Follower'
+    });
+
+    expect(renderer.textEffects.activeEffects.size).toBe(1);
+
+    await renderer.render(null);
+
+    expect(renderer.textEffects.activeEffects.size).toBe(0);
   });
 });

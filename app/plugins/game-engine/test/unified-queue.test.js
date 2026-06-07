@@ -29,12 +29,18 @@ const createMockWheelGame = () => ({
   startSpin: jest.fn().mockResolvedValue({ success: true })
 });
 
+// Mock Slot game
+const createMockSlotGame = () => ({
+  startSpinFromQueue: jest.fn().mockResolvedValue({ success: true })
+});
+
 describe('Unified Queue Manager', () => {
   let queueManager;
   let mockLogger;
   let mockIO;
   let mockPlinkoGame;
   let mockWheelGame;
+  let mockSlotGame;
 
   beforeEach(() => {
     mockLogger = createMockLogger();
@@ -42,9 +48,11 @@ describe('Unified Queue Manager', () => {
     queueManager = new UnifiedQueueManager(mockLogger, mockIO);
     mockPlinkoGame = createMockPlinkoGame();
     mockWheelGame = createMockWheelGame();
+    mockSlotGame = createMockSlotGame();
     
     queueManager.setPlinkoGame(mockPlinkoGame);
     queueManager.setWheelGame(mockWheelGame);
+    queueManager.setSlotGame(mockSlotGame);
   });
 
   afterEach(() => {
@@ -170,6 +178,68 @@ describe('Unified Queue Manager', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(mockWheelGame.startSpin).toHaveBeenCalledWith(spinData);
+    });
+
+    test('Should switch unified overlay before processing Plinko item', async () => {
+      const dropData = {
+        username: 'testuser',
+        nickname: 'Test User',
+        betAmount: 100,
+        count: 1,
+        batchId: 'batch123',
+        boardId: 2
+      };
+
+      await queueManager.processPlinkoItem(dropData);
+
+      expect(mockIO.emit).toHaveBeenCalledWith(
+        'game-engine:game-switched',
+        expect.objectContaining({
+          gameType: 'plinko',
+          sessionId: 'batch123',
+          useUnified: true
+        })
+      );
+    });
+
+    test('Should switch unified overlay before processing Wheel item', async () => {
+      const spinData = {
+        username: 'testuser',
+        nickname: 'Test User',
+        spinId: 'spin123',
+        wheelId: 1
+      };
+
+      await queueManager.processWheelItem(spinData);
+
+      expect(mockIO.emit).toHaveBeenCalledWith(
+        'game-engine:game-switched',
+        expect.objectContaining({
+          gameType: 'wheel',
+          sessionId: 'spin123',
+          useUnified: true
+        })
+      );
+    });
+
+    test('Should switch unified overlay before processing Slot item', async () => {
+      const spinData = {
+        username: 'testuser',
+        nickname: 'Test User',
+        spinId: 'slot-spin123',
+        machineId: 1
+      };
+
+      await queueManager.processSlotItem(spinData);
+
+      expect(mockIO.emit).toHaveBeenCalledWith(
+        'game-engine:game-switched',
+        expect.objectContaining({
+          gameType: 'slot',
+          sessionId: 'slot-spin123',
+          useUnified: true
+        })
+      );
     });
 
     test('Should process items in FIFO order', async () => {

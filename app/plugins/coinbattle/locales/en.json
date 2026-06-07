@@ -116,7 +116,14 @@
     "coins": "Coins",
     "gifts": "Gifts",
     "team": "Team",
-    "badges": "Badges"
+    "badges": "Badges",
+    "weekly": "Wöchentlich",
+    "season": "Saison",
+    "manageUsers": "Benutzer verwalten",
+    "deleteUser": "Benutzer löschen",
+    "deleteUserConfirm": "Möchten Sie diesen Benutzer wirklich aus allen Ranglisten löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+    "userDeleted": "Benutzer erfolgreich gelöscht",
+    "noData": "Keine Daten verfügbar"
   },
   "history": {
     "title": "Match History",
@@ -169,5 +176,17 @@
     "reset": "Reset",
     "apply": "Apply",
     "close": "Close"
+  },
+  "season": {
+    "title": "Saison-Konfiguration",
+    "name": "Saison-Name",
+    "startDate": "Startdatum",
+    "endDate": "Enddatum",
+    "active": "Aktive Saison",
+    "noActiveSeason": "Keine aktive Saison konfiguriert",
+    "createUpdate": "Saison erstellen/aktualisieren",
+    "description": "Konfigurieren Sie den Datumsbereich für die Saison-Rangliste. Es kann nur eine Saison gleichzeitig aktiv sein.",
+    "saved": "Saison erfolgreich gespeichert",
+    "period": "Zeitraum"
   }
 }

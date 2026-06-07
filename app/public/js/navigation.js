@@ -216,8 +216,10 @@
             if (window.innerWidth <= 1024) {
                 const clickedInsideSidebar = sidebar.contains(e.target);
                 const clickedToggle = toggleBtn && toggleBtn.contains(e.target);
+                const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+                const clickedMobileToggle = mobileMenuBtn && mobileMenuBtn.contains(e.target);
 
-                if (!clickedInsideSidebar && !clickedToggle && sidebar.classList.contains('mobile-open')) {
+                if (!clickedInsideSidebar && !clickedToggle && !clickedMobileToggle && sidebar.classList.contains('mobile-open')) {
                     sidebar.classList.remove('mobile-open');
                 }
             }
@@ -857,6 +859,7 @@
         // Add a mobile menu button if needed
         const topbar = document.querySelector('.topbar-left');
         if (!topbar || window.innerWidth > 1024) return;
+        if (document.getElementById('mobile-menu-btn')) return;
 
         const menuBtn = document.createElement('button');
         menuBtn.className = 'topbar-icon-btn';
@@ -864,7 +867,8 @@
         menuBtn.innerHTML = '<i data-lucide="menu"></i>';
         menuBtn.style.marginRight = '1rem';
 
-        menuBtn.addEventListener('click', () => {
+        menuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
             const sidebar = document.getElementById('sidebar');
             sidebar.classList.toggle('mobile-open');
         });

@@ -17,6 +17,7 @@ class ExpressionController {
         this.activeExpressions = new Set();
         this.comboQueue = [];
         this.isPlayingCombo = false;
+        this._queueProcessTimer = null;
         
         // Cooldown and spam protection
         this.cooldowns = new Map();        // Map<key, timestamp>
@@ -48,16 +49,17 @@ class ExpressionController {
             return false;
         }
 
-        // Check cooldown
+        // Releases must never be blocked, otherwise held avatar expressions can get stuck.
         const key = `${type}_${slot}`;
-        if (this._isOnCooldown(key)) {
+        const releaseOnCooldown = !hold && this._isOnCooldown(key);
+        if (hold && this._isOnCooldown(key)) {
             const remaining = this._getRemainingCooldown(key);
             this.logger.debug(`${type} slot ${slot} on cooldown (${remaining}ms remaining)`);
             return false;
         }
 
         // Check spam protection
-        if (this._isSpamming(key)) {
+        if (hold && this._isSpamming(key)) {
             this.logger.warn(`${type} slot ${slot} spam detected, throttling`);
             return false;
         }
@@ -80,10 +82,14 @@ class ExpressionController {
         }
 
         // Update cooldown
-        this._setCooldown(key);
+        if (hold) {
+            this._setCooldown(key);
+        }
         
         // Update spam history
-        this._recordTrigger(key);
+        if (hold) {
+            this._recordTrigger(key);
+        }
 
         this.logger.info(`😀 ${type} slot ${slot} triggered (hold: ${hold})`);
         
@@ -96,7 +102,7 @@ class ExpressionController {
             timestamp: Date.now()
         });
 
-        return true;
+        return !releaseOnCooldown;
     }
 
     /**
@@ -179,8 +185,11 @@ class ExpressionController {
         this.logger.info(`🎬 Combo queued (queue size: ${this.comboQueue.length})`);
         
         // Start processing queue if not already
-        if (!this.isPlayingCombo) {
-            this._processQueue();
+        if (!this.isPlayingCombo && !this._queueProcessTimer) {
+            this._queueProcessTimer = setTimeout(() => {
+                this._queueProcessTimer = null;
+                this._processQueue();
+            }, 0);
         }
     }
 
@@ -210,6 +219,10 @@ class ExpressionController {
      * Clear combo queue
      */
     clearQueue() {
+        if (this._queueProcessTimer) {
+            clearTimeout(this._queueProcessTimer);
+            this._queueProcessTimer = null;
+        }
         const count = this.comboQueue.length;
         this.comboQueue = [];
         this.logger.info(`🗑️ Combo queue cleared (${count} combos removed)`);

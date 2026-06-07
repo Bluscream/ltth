@@ -30,8 +30,8 @@ class WheelGame {
   constructor(api, db, logger) {
     this.api = api;
     this.db = db;
-    this.logger = logger;
-    this.io = api.getSocketIO();
+    this.logger = this._normalizeLogger(logger);
+    this.io = this._getSocketIO();
     this.unifiedQueue = null; // Set by main.js
     
     // Track active spins in-flight
@@ -60,6 +60,28 @@ class WheelGame {
     
     // Cleanup timer
     this.cleanupTimer = null;
+  }
+
+  _normalizeLogger(logger) {
+    const fallback = (level) => (message) => {
+      if (typeof this.api?.log === 'function') {
+        this.api.log(message, level);
+      }
+    };
+
+    return {
+      info: typeof logger?.info === 'function' ? logger.info.bind(logger) : fallback('info'),
+      warn: typeof logger?.warn === 'function' ? logger.warn.bind(logger) : fallback('warn'),
+      error: typeof logger?.error === 'function' ? logger.error.bind(logger) : fallback('error'),
+      debug: typeof logger?.debug === 'function' ? logger.debug.bind(logger) : fallback('debug')
+    };
+  }
+
+  _getSocketIO() {
+    if (typeof this.api?.getSocketIO === 'function') {
+      return this.api.getSocketIO() || { emit: () => {}, on: () => {} };
+    }
+    return { emit: () => {}, on: () => {} };
   }
 
   /**
@@ -561,6 +583,9 @@ class WheelGame {
         this.forceCompleteSpin(spinId, spinData, config);
       }
     }, safetyTimeoutMs);
+    if (typeof this.spinSafetyTimeout.unref === 'function') {
+      this.spinSafetyTimeout.unref();
+    }
     
     this.logger.debug(`🎡 Spin safety timeout set: ${safetyTimeoutMs}ms (spin: ${spinDuration}ms, winner: ${winnerDisplayDuration}ms, info: ${infoScreenDuration}ms, buffer: ${SPIN_SAFETY_TIMEOUT_BUFFER}ms)`);
 
@@ -718,7 +743,7 @@ class WheelGame {
       spinData.username,
       spinData.nickname,
       segment.text,
-      segmentIndex,
+      finalSegmentIndex,
       spinData.giftName,
       wheelId
     );
@@ -762,7 +787,7 @@ class WheelGame {
           // Errors are caught and logged within the callback
           // Store reference to logger for delayed callback
           const logger = this.logger;
-          setTimeout(() => {
+          const shockTimer = setTimeout(() => {
             // Execute shock trigger asynchronously with proper error handling
             (async () => {
               try {
@@ -781,6 +806,9 @@ class WheelGame {
               }
             })();
           }, SHOCK_DISPLAY_DELAY_MS);
+          if (typeof shockTimer.unref === 'function') {
+            shockTimer.unref();
+          }
           shockScheduled = true; // Shock is scheduled (will execute after delay)
           this.logger.debug(`Shock scheduled for ${spinData.nickname} (delay: ${SHOCK_DISPLAY_DELAY_MS}ms)`);
         } else {
@@ -832,7 +860,7 @@ class WheelGame {
     const winnerDisplayDuration = (settings.winnerDisplayDuration || 5) * 1000;
     const infoScreenDuration = (settings.infoScreenEnabled && !segment.isNiete) ? (settings.infoScreenDuration || 5) * 1000 : 0;
     const nextSpinDelay = winnerDisplayDuration + infoScreenDuration + 1000;
-    setTimeout(() => {
+    const nextSpinTimer = setTimeout(() => {
       // Notify unified queue that spin is complete
       if (this.unifiedQueue) {
         this.unifiedQueue.completeProcessing();
@@ -841,6 +869,9 @@ class WheelGame {
         this.processNextSpin();
       }
     }, nextSpinDelay);
+    if (typeof nextSpinTimer.unref === 'function') {
+      nextSpinTimer.unref();
+    }
 
     return {
       success: true,
@@ -1101,6 +1132,9 @@ class WheelGame {
     this.cleanupTimer = setInterval(() => {
       this.cleanupOldSpins();
     }, CLEANUP_INTERVAL_MS);
+    if (typeof this.cleanupTimer.unref === 'function') {
+      this.cleanupTimer.unref();
+    }
   }
 
   /**

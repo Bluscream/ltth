@@ -9,6 +9,8 @@
  * - Chess (Blitzschach) game
  * - Plinko game
  * - Glücksrad (Wheel of Fortune) game
+ * - Slot Machine game
+ * - Live Arena persistent overlay game
  * - GCCE chat command integration
  * - Gift trigger support
  * - XP rewards for winners/losers
@@ -22,6 +24,7 @@ const ChessGame = require('./games/chess');
 const PlinkoGame = require('./games/plinko');
 const WheelGame = require('./games/wheel');
 const SlotGame = require('./games/slot');
+const ArenaGame = require('./games/arena');
 const UnifiedQueueManager = require('./backend/unified-queue');
 const path = require('path');
 const fs = require('fs');
@@ -30,7 +33,7 @@ const multer = require('multer');
 class GameEnginePlugin {
   constructor(api) {
     this.api = api;
-    this.io = api.getSocketIO();
+    this.io = this._getSocketIO();
     this.db = null;
     this.logger = {
       info: (msg) => this.api.log(msg, 'info'),
@@ -60,9 +63,13 @@ class GameEnginePlugin {
 
     // Slot Machine game instance
     this.slotGame = null;
+
+    // Live Arena game instance
+    this.arenaGame = null;
     
-    // Unified queue manager for Plinko and Wheel
-    this.unifiedQueue = null;
+    // Unified queue manager for Plinko, Wheel, Slot, Connect4, and Chess
+    this.unifiedQueue = new UnifiedQueueManager(this.logger, this.io);
+    this.unifiedQueue.setGameEnginePlugin(this);
     
     // GCCE integration state
     this.gcceCommandsRegistered = false;
@@ -152,8 +159,490 @@ class GameEnginePlugin {
           labelDraw:      '🤝 Remis!',
           labelWin:       '🏆 {player} gewinnt!',
         }
-      }
+      },
+      arena: ArenaGame.DEFAULT_CONFIG
     };
+  }
+
+  _mirrorUnifiedQueueEntry(entry) {
+    if (!entry || !entry.viewerUsername || !entry.gameType) {
+      return;
+    }
+
+    this.gameQueue.push({ ...entry, queueType: 'unified' });
+  }
+
+  _removeMirroredUnifiedQueueEntry(gameType, viewerUsername) {
+    const index = this.gameQueue.findIndex(entry =>
+      entry.queueType === 'unified' &&
+      entry.gameType === gameType &&
+      entry.viewerUsername === viewerUsername
+    );
+
+    if (index !== -1) {
+      this.gameQueue.splice(index, 1);
+    }
+  }
+
+  _getSocketIO() {
+    const noopSocket = { emit: () => {}, on: () => {} };
+    try {
+      if (typeof this.api.getSocketIO === 'function') {
+        return this.api.getSocketIO() || noopSocket;
+      }
+    } catch (error) {
+      if (typeof this.api.log === 'function') {
+        this.api.log(`Game Engine socket unavailable: ${error.message}`, 'warn');
+      }
+    }
+    return noopSocket;
+  }
+
+  _ensureDatabaseInitialized() {
+    if (this.db) {
+      return;
+    }
+
+    const apiDb = typeof this.api.getDatabase === 'function' ? this.api.getDatabase() : null;
+    if (apiDb && !apiDb.db && typeof apiDb.createSession === 'function') {
+      this.db = apiDb;
+      if (typeof this.db.initialize === 'function') {
+        this.db.initialize();
+      }
+      return;
+    }
+
+    this.db = new GameEngineDatabase(this.api, this.logger);
+    this.db.initialize();
+  }
+
+  _safeJoin(baseDir, ...parts) {
+    const root = path.resolve(baseDir);
+    const target = path.resolve(root, ...parts.map(part => String(part || '')));
+    const relative = path.relative(root, target);
+
+    if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
+      return target;
+    }
+
+    return null;
+  }
+
+  _isSafeAudioFilename(filename) {
+    if (!filename || typeof filename !== 'string') {
+      return false;
+    }
+
+    const normalized = filename.trim();
+    if (normalized !== filename || normalized.includes('/') || normalized.includes('\\') || normalized.includes('..')) {
+      return false;
+    }
+
+    return /^[A-Za-z0-9 ._-]+\.mp3$/i.test(normalized);
+  }
+
+  _sanitizeNumericId(value, fallback = '1') {
+    const id = String(value || '').trim();
+    if (!/^[0-9]+$/.test(id)) {
+      return fallback;
+    }
+
+    const parsed = parseInt(id, 10);
+    return parsed > 0 ? String(parsed) : fallback;
+  }
+
+  _sanitizeWheelAudioType(audioType) {
+    const validTypes = new Set(['spinning', 'prize1', 'prize2', 'prize3', 'lost']);
+    return validTypes.has(audioType) ? audioType : null;
+  }
+
+  _isDrawReason(reason) {
+    return [
+      'draw',
+      'stalemate',
+      'repetition',
+      'insufficient_material',
+      'fifty_move_rule',
+      'draw_agreement'
+    ].includes(reason);
+  }
+
+  _getChessSideForPlayer(game, username, fallbackSide) {
+    if (!game || !username) {
+      return fallbackSide;
+    }
+
+    const candidates = [game.player1, game.player2, game.whitePlayer, game.blackPlayer]
+      .filter(Boolean);
+    const player = candidates.find(candidate => candidate.username === username);
+    return player?.side || fallbackSide;
+  }
+
+  _getSessionPlayerOutcomes(session, winner, reason) {
+    const isDraw = this._isDrawReason(reason);
+
+    if (session.game_type === 'chess') {
+      const game = this.activeSessions.get(session.id);
+      const player1Side = this._getChessSideForPlayer(game, session.player1_username, 'white');
+      const player2Side = this._getChessSideForPlayer(game, session.player2_username, 'black');
+
+      return {
+        player1IsWinner: !isDraw && winner === player1Side,
+        player2IsWinner: !isDraw && winner === player2Side,
+        isDraw,
+        player1Side,
+        player2Side
+      };
+    }
+
+    return {
+      player1IsWinner: !isDraw && winner === 1,
+      player2IsWinner: !isDraw && winner === 2,
+      isDraw,
+      player1Side: null,
+      player2Side: null
+    };
+  }
+
+  _mergeConfigDefaults(base, override) {
+    const output = Array.isArray(base)
+      ? base.map(item => this._cloneConfigDefault(item))
+      : Object.fromEntries(Object.entries(base || {}).map(([key, value]) => [key, this._cloneConfigDefault(value)]));
+    for (const [key, value] of Object.entries(override || {})) {
+      if (
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        base &&
+        base[key] &&
+        typeof base[key] === 'object' &&
+        !Array.isArray(base[key])
+      ) {
+        output[key] = this._mergeConfigDefaults(base[key], value);
+      } else {
+        output[key] = value;
+      }
+    }
+    return output;
+  }
+
+  _cloneConfigDefault(value) {
+    if (Array.isArray(value)) {
+      return value.map(item => this._cloneConfigDefault(item));
+    }
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, this._cloneConfigDefault(nested)]));
+    }
+    return value;
+  }
+
+  _getConfigWithDefaults(gameType, config) {
+    const defaults = this.defaultConfigs[gameType];
+    if (!defaults) return config || {};
+    const merged = this._mergeConfigDefaults(defaults, config || {});
+    if (gameType === 'arena') {
+      return this._normalizeArenaConfigDefaults(merged, config || {});
+    }
+    return merged;
+  }
+
+  _normalizeArenaConfigDefaults(config, stored) {
+    if (Number(stored?.tickRateMs) === 100 || Number(stored?.tickRateMs) === 50) {
+      config.tickRateMs = this.defaultConfigs.arena.tickRateMs;
+    }
+    if (Number(stored?.stateEmitIntervalMs) === 120 || Number(stored?.stateEmitIntervalMs) === 50) {
+      config.stateEmitIntervalMs = this.defaultConfigs.arena.stateEmitIntervalMs;
+    }
+    if (Number(stored?.targetFps) === 30) {
+      config.targetFps = this.defaultConfigs.arena.targetFps;
+    }
+    if (Number(stored?.inactivityGraceMs) === 15000) {
+      config.inactivityGraceMs = this.defaultConfigs.arena.inactivityGraceMs;
+    }
+    if (Number(stored?.inactivityShrinkPerSecond) === 5) {
+      config.inactivityShrinkPerSecond = this.defaultConfigs.arena.inactivityShrinkPerSecond;
+    }
+    if (Number(stored?.maxMass) === 90 || Number(stored?.maxMass) === 140 || Number(stored?.maxMass) === 170) {
+      config.maxMass = this.defaultConfigs.arena.maxMass;
+    }
+    if (Number(stored?.maxLives) === 2500 || Number(stored?.maxLives) === 6000 || Number(stored?.maxLives) === 9000) {
+      config.maxLives = this.defaultConfigs.arena.maxLives;
+    }
+    if ([0.7, 0.42, 0.82].includes(Number(stored?.playerAbsorbMassRatio))) {
+      config.playerAbsorbMassRatio = this.defaultConfigs.arena.playerAbsorbMassRatio;
+    }
+    if ([0.7, 0.55, 0.84].includes(Number(stored?.playerAbsorbLifeStealRatio))) {
+      config.playerAbsorbLifeStealRatio = this.defaultConfigs.arena.playerAbsorbLifeStealRatio;
+    }
+    if ([12, 8, 16].includes(Number(stored?.deathFoodDropCount))) {
+      config.deathFoodDropCount = this.defaultConfigs.arena.deathFoodDropCount;
+    }
+    if ([1.15, 0.9, 1.25].includes(Number(stored?.deathFoodDropValue))) {
+      config.deathFoodDropValue = this.defaultConfigs.arena.deathFoodDropValue;
+    }
+    if (Number(stored?.maxFood) === 90 || Number(stored?.maxFood) === 50) {
+      config.maxFood = this.defaultConfigs.arena.maxFood;
+    }
+    if (Number(stored?.maxFoodRender) === 52 || Number(stored?.maxFoodRender) === 25) {
+      config.maxFoodRender = this.defaultConfigs.arena.maxFoodRender;
+    }
+    if (Number(stored?.foodValue) === 2.25) {
+      config.foodValue = this.defaultConfigs.arena.foodValue;
+    }
+    if (!Number.isFinite(Number(config.foodSpawnIntervalMs)) || Number(config.foodSpawnIntervalMs) < 0) {
+      config.foodSpawnIntervalMs = this.defaultConfigs.arena.foodSpawnIntervalMs;
+    }
+    if (!Number.isFinite(Number(config.foodSpawnBatchSize)) || Number(config.foodSpawnBatchSize) < 1) {
+      config.foodSpawnBatchSize = this.defaultConfigs.arena.foodSpawnBatchSize;
+    }
+    if (!Number.isFinite(Number(config.foodDespawnMs)) || Number(config.foodDespawnMs) < 0) {
+      config.foodDespawnMs = this.defaultConfigs.arena.foodDespawnMs;
+    }
+    if (!Number.isFinite(Number(config.foodBurstDespawnMs)) || Number(config.foodBurstDespawnMs) < 0) {
+      config.foodBurstDespawnMs = this.defaultConfigs.arena.foodBurstDespawnMs;
+    }
+    if (!Number.isFinite(Number(config.lifeDropDespawnMs)) || Number(config.lifeDropDespawnMs) < 0) {
+      config.lifeDropDespawnMs = this.defaultConfigs.arena.lifeDropDespawnMs;
+    }
+    if (!Number.isFinite(Number(config.lifeDropFadeMs)) || Number(config.lifeDropFadeMs) < 0) {
+      config.lifeDropFadeMs = this.defaultConfigs.arena.lifeDropFadeMs;
+    }
+    if (!Number.isFinite(Number(config.lifeDropSpread)) || Number(config.lifeDropSpread) < 0) {
+      config.lifeDropSpread = this.defaultConfigs.arena.lifeDropSpread;
+    }
+    if (!Number.isFinite(Number(config.lifeDropMotionScale)) || Number(config.lifeDropMotionScale) < 0) {
+      config.lifeDropMotionScale = this.defaultConfigs.arena.lifeDropMotionScale;
+    }
+    if (stored?.fieldFrameDesign === 'neon-grid') {
+      config.fieldFrameDesign = this.defaultConfigs.arena.fieldFrameDesign;
+    }
+    this._normalizeArenaLargeBallTransparencyDefaults(config, stored);
+    if ([10, 20, 100].includes(Number(stored?.giftTiers?.medium?.minValue)) && config.giftTiers?.medium) {
+      config.giftTiers.medium.minValue = this.defaultConfigs.arena.giftTiers.medium.minValue;
+    }
+    if ([50, 100, 1000].includes(Number(stored?.giftTiers?.large?.minValue)) && config.giftTiers?.large) {
+      config.giftTiers.large.minValue = this.defaultConfigs.arena.giftTiers.large.minValue;
+    }
+    if (Number(stored?.maxWeaponPickups) === 8) {
+      config.maxWeaponPickups = this.defaultConfigs.arena.maxWeaponPickups;
+    }
+    if (Number(stored?.weaponPickupSpawnIntervalMs) === 4500) {
+      config.weaponPickupSpawnIntervalMs = this.defaultConfigs.arena.weaponPickupSpawnIntervalMs;
+    }
+    if (Number(stored?.weaponPickupChance) === 0.45) {
+      config.weaponPickupChance = this.defaultConfigs.arena.weaponPickupChance;
+    }
+    if (Number(stored?.weaponPickupDurationMs) === 18000) {
+      config.weaponPickupDurationMs = this.defaultConfigs.arena.weaponPickupDurationMs;
+    }
+    if (config.giftTiers?.medium) {
+      const storedMediumWeaponTypes = stored?.giftTiers?.medium?.weaponTypes;
+      if (!Array.isArray(storedMediumWeaponTypes)) {
+        config.giftTiers.medium.weaponTypes = [...this.defaultConfigs.arena.giftTiers.medium.weaponTypes];
+      } else if (storedMediumWeaponTypes.join('|') === 'laser|pulse|magnet|vampire|freeze|dash') {
+        config.giftTiers.medium.weaponTypes = [...this.defaultConfigs.arena.giftTiers.medium.weaponTypes];
+      }
+    }
+    config.personalityProfiles = this._normalizeArenaPersonalityProfiles(config.personalityProfiles);
+    config.weaponPickupTypes = this._normalizeArenaWeaponPickupTypes(
+      config.weaponPickupTypes,
+      !Array.isArray(stored?.weaponPickupTypes)
+    );
+
+    const movement = stored && stored.movement && typeof stored.movement === 'object'
+      ? stored.movement
+      : null;
+    if (movement && this.defaultConfigs.arena?.movement) {
+      const hasSmartMovementKeys = [
+        'fleeMassRatio',
+        'huntMassRatio',
+        'huntLeadSeconds',
+        'boundaryAvoidanceDistance'
+      ].some(key => Object.prototype.hasOwnProperty.call(movement, key));
+
+      const isLegacyDefaultMovement =
+        !hasSmartMovementKeys &&
+        Number(movement.fleeDistance) === 180 &&
+        Number(movement.huntDistance) === 260 &&
+        Number(movement.foodSenseDistance) === 420 &&
+        Number(movement.steeringStrength) === 0.15 &&
+        Number(movement.randomTurn) === 0.18;
+
+      if (isLegacyDefaultMovement) {
+        config.movement = {
+          ...config.movement,
+          fleeDistance: this.defaultConfigs.arena.movement.fleeDistance,
+          huntDistance: this.defaultConfigs.arena.movement.huntDistance,
+          foodSenseDistance: this.defaultConfigs.arena.movement.foodSenseDistance,
+          steeringStrength: this.defaultConfigs.arena.movement.steeringStrength,
+          randomTurn: this.defaultConfigs.arena.movement.randomTurn
+        };
+      }
+
+      if (this._isPreviousSmartArenaMovementDefault(movement)) {
+        config.movement = {
+          ...config.movement,
+          ...this.defaultConfigs.arena.movement
+        };
+      }
+
+      if (this._isPreviousArenaAiStabilityDefault(movement)) {
+        config.movement = {
+          ...config.movement,
+          behaviorMemoryMs: this.defaultConfigs.arena.movement.behaviorMemoryMs,
+          targetSwitchScoreMargin: this.defaultConfigs.arena.movement.targetSwitchScoreMargin
+        };
+      }
+
+      if (this._isTwitchyArenaMovementDefault(movement)) {
+        config.movement = {
+          ...config.movement,
+          randomTurn: this.defaultConfigs.arena.movement.randomTurn,
+          behaviorMemoryMs: this.defaultConfigs.arena.movement.behaviorMemoryMs,
+          targetSwitchScoreMargin: this.defaultConfigs.arena.movement.targetSwitchScoreMargin,
+          wanderFocusMinMs: this.defaultConfigs.arena.movement.wanderFocusMinMs,
+          wanderFocusMaxMs: this.defaultConfigs.arena.movement.wanderFocusMaxMs
+        };
+      }
+
+      if (Number(movement.largeMassSpeedPenalty) === 0.48) {
+        config.movement = {
+          ...config.movement,
+          largeMassSpeedPenalty: this.defaultConfigs.arena.movement.largeMassSpeedPenalty
+        };
+      }
+    }
+
+    if (config.giftTiers?.large) {
+      const weaponTypes = Array.isArray(config.giftTiers.large.weaponTypes)
+        ? config.giftTiers.large.weaponTypes
+        : [];
+      const storedLargeWeaponTypes = stored?.giftTiers?.large?.weaponTypes;
+      if (!Array.isArray(storedLargeWeaponTypes) && !weaponTypes.includes('chainsaw')) {
+        config.giftTiers.large.weaponTypes = [...weaponTypes, 'chainsaw'];
+      } else if (Array.isArray(storedLargeWeaponTypes) && storedLargeWeaponTypes.join('|') === 'blackhole|missile|chainsaw|vampire|mine|magnet') {
+        config.giftTiers.large.weaponTypes = [...this.defaultConfigs.arena.giftTiers.large.weaponTypes];
+      }
+    }
+
+    return config;
+  }
+
+  _normalizeArenaLargeBallTransparencyDefaults(config, stored = {}) {
+    const modes = ['off', 'flat', 'scale'];
+    const storedHasMode = Object.prototype.hasOwnProperty.call(stored || {}, 'largeBallTransparencyMode');
+    let mode = String(config.largeBallTransparencyMode || '').trim();
+
+    if (!modes.includes(mode)) {
+      mode = this.defaultConfigs.arena.largeBallTransparencyMode;
+    }
+    if (!storedHasMode && stored.largeBallTransparencyEnabled === false) {
+      mode = 'off';
+    }
+
+    config.largeBallTransparencyMode = mode;
+    config.largeBallTransparencyEnabled = mode !== 'off';
+    if (!Number.isFinite(Number(config.largeBallTransparencyStartMass)) || Number(config.largeBallTransparencyStartMass) < 0) {
+      config.largeBallTransparencyStartMass = this.defaultConfigs.arena.largeBallTransparencyStartMass;
+    }
+    if (!Number.isFinite(Number(config.largeBallMinOpacity)) || Number(config.largeBallMinOpacity) <= 0) {
+      config.largeBallMinOpacity = this.defaultConfigs.arena.largeBallMinOpacity;
+    }
+  }
+
+  _clamp(value, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return min;
+    return Math.min(max, Math.max(min, number));
+  }
+
+  _normalizeArenaPersonalityProfiles(profiles) {
+    const defaults = this.defaultConfigs.arena?.personalityProfiles || [];
+    const source = Array.isArray(profiles) && profiles.length ? profiles : defaults;
+    return source.map(profile => {
+      const aggression = this._clamp(Number(profile.aggression) || 1, 0.5, 1.7);
+      const fear = this._clamp(Number(profile.fear) || 1, 0.5, 1.7);
+      const weaponFocus = this._clamp(Number(profile.weaponFocus) || 1, 0.45, 1.7);
+      const randomness = this._clamp(Number(profile.randomness) || 0.55, 0.15, 1.35);
+      const derivedRiskTolerance = 1 +
+        (aggression - 1) * 0.58 +
+        (randomness - 0.55) * 0.28 -
+        (fear - 1) * 0.46 +
+        (weaponFocus - 1) * 0.08;
+
+      return {
+        ...profile,
+        aggression,
+        fear,
+        intelligence: this._clamp(Number(profile.intelligence) || 1, 0.45, 1.65),
+        weaponFocus,
+        foodFocus: this._clamp(Number(profile.foodFocus) || 1, 0.45, 1.7),
+        randomness,
+        commitment: this._clamp(Number(profile.commitment) || 1, 0.45, 1.7),
+        riskTolerance: this._clamp(Number(profile.riskTolerance) || derivedRiskTolerance, 0.35, 1.75)
+      };
+    });
+  }
+
+  _normalizeArenaWeaponPickupTypes(weaponPickupTypes, mergeMissingDefaults = false) {
+    const normalized = mergeMissingDefaults
+      ? this._mergeArenaWeaponPickupDefaults(weaponPickupTypes)
+      : Array.isArray(weaponPickupTypes)
+        ? [...weaponPickupTypes]
+        : [];
+    const defaultChainsaw = (this.defaultConfigs.arena?.weaponPickupTypes || [])
+      .find(definition => definition.type === 'chainsaw');
+    if (!defaultChainsaw) return normalized;
+
+    return normalized.map(definition => {
+      if (!definition || definition.type !== 'chainsaw') return definition;
+      return {
+        ...definition,
+        power: Number.isFinite(Number(definition.power)) ? Number(definition.power) : defaultChainsaw.power,
+        durationMs: Math.max(
+          Number(definition.durationMs) || 0,
+          Number(defaultChainsaw.durationMs) || 0
+        ),
+        weight: Math.max(
+          Number(definition.weight) || 0,
+          Number(defaultChainsaw.weight) || 0
+        )
+      };
+    });
+  }
+
+  _mergeArenaWeaponPickupDefaults(weaponPickupTypes) {
+    const existing = Array.isArray(weaponPickupTypes) ? [...weaponPickupTypes] : [];
+    const existingTypes = new Set(existing.map(item => item && item.type).filter(Boolean));
+    for (const defaultDefinition of this.defaultConfigs.arena?.weaponPickupTypes || []) {
+      if (!existingTypes.has(defaultDefinition.type)) {
+        existing.push({ ...defaultDefinition });
+      }
+    }
+    return existing;
+  }
+
+  _isPreviousSmartArenaMovementDefault(movement) {
+    return Number(movement.fleeDistance) === 260 &&
+      Number(movement.huntDistance) === 380 &&
+      Number(movement.foodSenseDistance) === 460 &&
+      Number(movement.steeringStrength) === 0.24 &&
+      Number(movement.randomTurn) === 0.08 &&
+      Number(movement.fleeMassRatio) === 1.08 &&
+      Number(movement.huntMassRatio) === 1.1;
+  }
+
+  _isPreviousArenaAiStabilityDefault(movement) {
+    return Number(movement.behaviorMemoryMs) === 700 &&
+      Number(movement.targetSwitchScoreMargin) === 1.2;
+  }
+
+  _isTwitchyArenaMovementDefault(movement) {
+    return Number(movement.randomTurn) === 0.04 &&
+      Number(movement.behaviorMemoryMs) === 1600 &&
+      Number(movement.targetSwitchScoreMargin) === 2.4 &&
+      Number(movement.wanderFocusMinMs) === 1400 &&
+      Number(movement.wanderFocusMaxMs) === 2800;
   }
 
   async init() {
@@ -161,12 +650,16 @@ class GameEnginePlugin {
 
     try {
       // Initialize database
-      const mainDb = this.api.getDatabase();
-      this.db = new GameEngineDatabase(this.api, this.logger);
-      this.db.initialize();
+      this._ensureDatabaseInitialized();
 
-      // Initialize unified queue manager
-      this.unifiedQueue = new UnifiedQueueManager(this.logger, this.io);
+      if (!this.unifiedQueue) {
+        this.unifiedQueue = new UnifiedQueueManager(this.logger, this.io);
+      }
+
+      // Reset transient queue state on init while preserving constructor-time availability
+      this.unifiedQueue.clearQueue();
+      this.gameQueue = [];
+      this.unifiedQueue.setGameEnginePlugin(this);
 
       // Initialize Plinko game
       this.plinkoGame = new PlinkoGame(this.api, this.db, this.logger);
@@ -188,6 +681,11 @@ class GameEnginePlugin {
       this.slotGame.startCleanupTimer();
       this.slotGame.setUnifiedQueue(this.unifiedQueue);
       this.unifiedQueue.setSlotGame(this.slotGame);
+
+      // Initialize Live Arena game
+      this.arenaGame = new ArenaGame(this.api, this.db, this.logger);
+      this.arenaGame.init();
+      this.arenaGame.startTickTimer();
       
       // Set game engine reference for Connect4 and Chess
       this.unifiedQueue.setGameEnginePlugin(this);
@@ -228,6 +726,9 @@ class GameEnginePlugin {
           this.logger.debug(`[GIFT DEDUP] Cleaned ${oldSize - this.recentGiftEvents.size} old gift events (${this.recentGiftEvents.size} remaining)`);
         }
       }, 5000); // Run every 5 seconds
+      if (typeof this.giftDedupCleanupInterval.unref === 'function') {
+        this.giftDedupCleanupInterval.unref();
+      }
 
       // Register GCCE commands FIRST (before TikTok events)
       // This ensures we know if GCCE is available before deciding whether to register fallback chat handler
@@ -236,7 +737,7 @@ class GameEnginePlugin {
       // Set up retry mechanism for GCCE command registration
       // This handles the case where Game Engine loads before GCCE
       if (!this.gcceCommandsRegistered) {
-        this.logger.warn('⚠️ [GAME ENGINE] GCCE not available yet, starting retry mechanism');
+        this.logger.info('[GAME ENGINE] GCCE not available yet, starting retry mechanism');
         this.gcceRetryCount = 0;
         this.gcceRetryInterval = setInterval(() => {
           this.gcceRetryCount++;
@@ -260,6 +761,9 @@ class GameEnginePlugin {
             // to avoid processing commands when GCCE becomes available after initial registration.
           }
         }, 2000); // Retry every 2 seconds
+        if (typeof this.gcceRetryInterval.unref === 'function') {
+          this.gcceRetryInterval.unref();
+        }
       }
 
       // Register TikTok events (conditional chat handler based on GCCE status)
@@ -271,7 +775,8 @@ class GameEnginePlugin {
       this.logger.info('   - Plinko game available');
       this.logger.info('   - Glücksrad (Wheel) game available');
       this.logger.info('   - Slot Machine game available');
-      this.logger.info('   - Overlays: /overlay/game-engine/connect4, /overlay/game-engine/chess, /overlay/game-engine/plinko, /overlay/game-engine/wheel, /overlay/game-engine/slot');
+      this.logger.info('   - Live Arena game available');
+      this.logger.info('   - Overlays: /overlay/game-engine/connect4, /overlay/game-engine/chess, /overlay/game-engine/plinko, /overlay/game-engine/wheel, /overlay/game-engine/slot, /overlay/game-engine/arena');
       this.logger.info('   - Admin UI: /game-engine/ui');
     } catch (error) {
       this.logger.error(`Failed to initialize Game Engine: ${error.message}`);
@@ -312,6 +817,12 @@ class GameEnginePlugin {
     if (this.slotGame) {
       this.slotGame.destroy();
       this.slotGame = null;
+    }
+
+    // Destroy Live Arena game
+    if (this.arenaGame) {
+      this.arenaGame.destroy();
+      this.arenaGame = null;
     }
 
     // Destroy unified queue
@@ -370,13 +881,15 @@ class GameEnginePlugin {
   /**
    * Create a pending challenge
    */
-  createPendingChallenge(gameType, challengerUsername, challengerNickname, giftName, giftImageUrl, config) {
+  createPendingChallenge(gameType, challengerUsername, challengerNickname, giftName, giftImageUrl, config, triggerType = 'gift') {
+    this._ensureDatabaseInitialized();
+
     // Create database session
     const sessionId = this.db.createSession(
       gameType,
       challengerUsername,
       'viewer',
-      'gift',
+      triggerType,
       giftName
     );
 
@@ -415,6 +928,9 @@ class GameEnginePlugin {
       
       this.acceptChallengeAsStreamer(sessionId);
     }, timeoutSeconds * 1000);
+    if (typeof timeoutHandle.unref === 'function') {
+      timeoutHandle.unref();
+    }
 
     // Store pending challenge
     this.pendingChallenges.set(sessionId, {
@@ -540,12 +1056,20 @@ class GameEnginePlugin {
     const streamerRole = config.streamerRole || 'player2';
     const challengerRole = streamerRole === 'player1' ? 'player2' : 'player1';
 
-    // Update session with player 2
-    this.db.addPlayer2(
-      sessionId,
-      opponentUsername,
-      opponentUsername === 'streamer' ? 'streamer' : 'viewer'
-    );
+    // Keep stored session players aligned with the in-memory player numbers.
+    if (streamerRole === 'player1') {
+      this.db.updateSession(sessionId, {
+        player1_username: 'streamer',
+        player1_role: 'streamer'
+      });
+      this.db.addPlayer2(sessionId, challenge.challengerUsername, 'viewer');
+    } else {
+      this.db.addPlayer2(
+        sessionId,
+        opponentUsername,
+        opponentUsername === 'streamer' ? 'streamer' : 'viewer'
+      );
+    }
 
     // Create game instance
     const player1 = streamerRole === 'player1' ? {
@@ -641,6 +1165,11 @@ class GameEnginePlugin {
       res.sendFile(path.join(__dirname, 'overlay', 'game-hud.html'));
     });
 
+    // Serve Live Arena overlay HTML
+    this.api.registerRoute('GET', '/overlay/game-engine/arena', (req, res) => {
+      res.sendFile(path.join(__dirname, 'overlay', 'arena.html'));
+    });
+
     // Serve UI HTML
     this.api.registerRoute('GET', '/game-engine/ui', (req, res) => {
       res.sendFile(path.join(__dirname, 'ui.html'));
@@ -649,10 +1178,13 @@ class GameEnginePlugin {
     // Serve default sound files
     this.api.registerRoute('GET', '/game-engine/sounds/default/:filename', (req, res) => {
       const { filename } = req.params;
-      const soundPath = path.join(__dirname, 'assets', 'sounds', 'default', filename);
+      const soundDir = path.join(__dirname, 'assets', 'sounds', 'default');
+      const soundPath = this._isSafeAudioFilename(filename)
+        ? this._safeJoin(soundDir, filename)
+        : null;
       
       // Check if file exists
-      if (require('fs').existsSync(soundPath)) {
+      if (soundPath && fs.existsSync(soundPath)) {
         res.sendFile(soundPath);
       } else {
         res.status(404).json({ error: 'Sound file not found' });
@@ -662,10 +1194,13 @@ class GameEnginePlugin {
     // Serve wheel sound files
     this.api.registerRoute('GET', '/game-engine/sounds/wheel/:filename', (req, res) => {
       const { filename } = req.params;
-      const soundPath = path.join(__dirname, 'assets', 'sounds', 'wheel', filename);
+      const soundDir = path.join(__dirname, 'assets', 'sounds', 'wheel');
+      const soundPath = this._isSafeAudioFilename(filename)
+        ? this._safeJoin(soundDir, filename)
+        : null;
       
       // Check if file exists
-      if (require('fs').existsSync(soundPath)) {
+      if (soundPath && fs.existsSync(soundPath)) {
         res.sendFile(soundPath);
       } else {
         res.status(404).json({ error: 'Sound file not found' });
@@ -695,17 +1230,7 @@ class GameEnginePlugin {
         const { gameType } = req.params;
         let config = this.db.getGameConfig(gameType);
         
-        if (!config && this.defaultConfigs[gameType]) {
-          config = this.defaultConfigs[gameType];
-        }
-
-        // Ensure displayTexts defaults are present (backward compat for stored configs)
-        if (config && this.defaultConfigs[gameType] && this.defaultConfigs[gameType].displayTexts) {
-          config.displayTexts = Object.assign(
-            { ...this.defaultConfigs[gameType].displayTexts },
-            config.displayTexts || {}
-          );
-        }
+        config = this._getConfigWithDefaults(gameType, config);
         
         res.json(config || {});
       } catch (error) {
@@ -718,19 +1243,7 @@ class GameEnginePlugin {
     this.api.registerRoute('POST', '/api/game-engine/config/:gameType', (req, res) => {
       try {
         const { gameType } = req.params;
-        const config = req.body;
-
-        // Ensure displayTexts defaults are present (backward compat)
-        if (this.defaultConfigs[gameType] && this.defaultConfigs[gameType].displayTexts) {
-          if (!config.displayTexts || typeof config.displayTexts !== 'object') {
-            config.displayTexts = { ...this.defaultConfigs[gameType].displayTexts };
-          } else {
-            config.displayTexts = Object.assign(
-              { ...this.defaultConfigs[gameType].displayTexts },
-              config.displayTexts
-            );
-          }
-        }
+        const config = this._getConfigWithDefaults(gameType, req.body || {});
         
         this.db.saveGameConfig(gameType, config);
         
@@ -740,6 +1253,134 @@ class GameEnginePlugin {
         res.json({ success: true });
       } catch (error) {
         this.logger.error(`Error saving game config: ${error.message}`);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Get Live Arena state
+    this.api.registerRoute('GET', '/api/game-engine/arena/state', (req, res) => {
+      try {
+        if (!this.arenaGame) {
+          return res.status(503).json({ error: 'Arena game is not initialized' });
+        }
+        res.json(this.arenaGame.getState('api'));
+      } catch (error) {
+        this.logger.error(`Error getting Arena state: ${error.message}`);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Proxy Live Arena profile pictures as same-origin images for Canvas/Pixi renderers.
+    this.api.registerRoute('GET', '/api/game-engine/arena/avatar', async (req, res) => {
+      try {
+        const rawUrl = String(req.query?.url || '').trim();
+        const parsed = new URL(rawUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return res.status(400).json({ error: 'Invalid avatar URL' });
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        let upstream;
+        try {
+          upstream = await fetch(parsed.toString(), {
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'LTTH-GameEngine/1.3 AvatarProxy'
+            }
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        if (!upstream.ok) {
+          return res.status(upstream.status).json({ error: 'Avatar image unavailable' });
+        }
+
+        const contentType = upstream.headers.get('content-type') || 'image/webp';
+        if (!contentType.toLowerCase().startsWith('image/')) {
+          return res.status(415).json({ error: 'Avatar URL is not an image' });
+        }
+
+        const bytes = Buffer.from(await upstream.arrayBuffer());
+        if (bytes.length > 2 * 1024 * 1024) {
+          return res.status(413).json({ error: 'Avatar image too large' });
+        }
+
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=1800');
+        res.send(bytes);
+      } catch (error) {
+        this.logger.warn(`Arena avatar proxy failed: ${error.message}`);
+        res.status(400).json({ error: 'Invalid avatar request' });
+      }
+    });
+
+    // API: Trigger Live Arena test activity
+    this.api.registerRoute('POST', '/api/game-engine/arena/test-activity', (req, res) => {
+      try {
+        if (!this.arenaGame) {
+          return res.status(503).json({ error: 'Arena game is not initialized' });
+        }
+        const body = req.body || {};
+        const username = body.uniqueId || body.username || 'TestViewer';
+        const nickname = body.nickname || username;
+        const activityType = body.activityType || 'chat';
+        const profilePictureUrl = body.profilePictureUrl || '';
+        const result = this.arenaGame.handleActivity({
+          uniqueId: String(username),
+          nickname: String(nickname),
+          profilePictureUrl: String(profilePictureUrl),
+          likeCount: body.likeCount,
+          count: body.count
+        }, String(activityType));
+        res.json(result);
+      } catch (error) {
+        this.logger.error(`Error triggering Arena test activity: ${error.message}`);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Trigger Live Arena test gift weapon
+    this.api.registerRoute('POST', '/api/game-engine/arena/test-gift', (req, res) => {
+      try {
+        if (!this.arenaGame) {
+          return res.status(503).json({ error: 'Arena game is not initialized' });
+        }
+        const body = req.body || {};
+        const username = body.uniqueId || body.username || 'TestViewer';
+        const nickname = body.nickname || username;
+        const giftName = body.giftName || 'Test Gift';
+        const giftId = body.giftId || 'test-gift';
+        const diamondCount = body.diamondCount || body.giftValue || 1;
+        const repeatCount = body.repeatCount || 1;
+        const profilePictureUrl = body.profilePictureUrl || '';
+        const result = this.arenaGame.handleGift({
+          uniqueId: String(username),
+          nickname: String(nickname),
+          profilePictureUrl: String(profilePictureUrl),
+          giftName: String(giftName),
+          giftId: String(giftId),
+          diamondCount: Number(diamondCount) || 1,
+          repeatCount: Number(repeatCount) || 1,
+          repeatEnd: true
+        });
+        res.json(result);
+      } catch (error) {
+        this.logger.error(`Error triggering Arena test gift: ${error.message}`);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Reset Live Arena state
+    this.api.registerRoute('POST', '/api/game-engine/arena/reset', (req, res) => {
+      try {
+        if (!this.arenaGame) {
+          return res.status(503).json({ error: 'Arena game is not initialized' });
+        }
+        res.json(this.arenaGame.reset());
+      } catch (error) {
+        this.logger.error(`Error resetting Arena: ${error.message}`);
         res.status(500).json({ error: error.message });
       }
     });
@@ -1767,7 +2408,9 @@ class GameEnginePlugin {
     // === WHEEL CUSTOM AUDIO ROUTES ===
     
     // Get plugin data directory for custom audio storage
-    const pluginDataDir = this.api.getPluginDataDir();
+    const pluginDataDir = typeof this.api.getPluginDataDir === 'function'
+      ? this.api.getPluginDataDir()
+      : path.join(__dirname, 'data');
     const wheelAudioDir = path.join(pluginDataDir, 'wheel-audio');
     
     // Ensure wheel audio directory exists
@@ -1778,15 +2421,23 @@ class GameEnginePlugin {
     // Configure multer for audio file uploads
     const audioStorage = multer.diskStorage({
       destination: (req, file, cb) => {
-        const wheelId = req.body.wheelId || '1';
-        const wheelDir = path.join(wheelAudioDir, wheelId);
+        const wheelId = this._sanitizeNumericId(req.body.wheelId);
+        const wheelDir = this._safeJoin(wheelAudioDir, wheelId);
+        if (!wheelDir) {
+          cb(new Error('Invalid wheel ID'));
+          return;
+        }
         if (!fs.existsSync(wheelDir)) {
           fs.mkdirSync(wheelDir, { recursive: true });
         }
         cb(null, wheelDir);
       },
       filename: (req, file, cb) => {
-        const audioType = req.body.audioType || 'unknown';
+        const audioType = this._sanitizeWheelAudioType(req.body.audioType);
+        if (!audioType) {
+          cb(new Error('Invalid audio type'));
+          return;
+        }
         // Use consistent filename based on audio type
         cb(null, `${audioType}.mp3`);
       }
@@ -1812,8 +2463,11 @@ class GameEnginePlugin {
           return res.status(400).json({ success: false, error: 'No audio file uploaded' });
         }
         
-        const wheelId = req.body.wheelId || '1';
-        const audioType = req.body.audioType;
+        const wheelId = this._sanitizeNumericId(req.body.wheelId);
+        const audioType = this._sanitizeWheelAudioType(req.body.audioType);
+        if (!audioType) {
+          return res.status(400).json({ success: false, error: 'Invalid audio type' });
+        }
         
         // Save audio settings to database
         this.db.saveWheelAudioSetting(wheelId, audioType, req.file.originalname, true);
@@ -1838,22 +2492,27 @@ class GameEnginePlugin {
     this.api.registerRoute('POST', '/api/game-engine/wheel/audio/reset', (req, res) => {
       try {
         const { wheelId, audioType } = req.body;
+        const safeWheelId = this._sanitizeNumericId(wheelId);
+        const safeAudioType = this._sanitizeWheelAudioType(audioType);
+        if (!safeAudioType) {
+          return res.status(400).json({ success: false, error: 'Invalid audio type' });
+        }
         
         // Delete custom audio file if exists
-        const audioPath = path.join(wheelAudioDir, String(wheelId || '1'), `${audioType}.mp3`);
+        const audioPath = this._safeJoin(wheelAudioDir, safeWheelId, `${safeAudioType}.mp3`);
         if (fs.existsSync(audioPath)) {
           fs.unlinkSync(audioPath);
         }
         
         // Update database
-        this.db.saveWheelAudioSetting(wheelId || '1', audioType, null, false);
+        this.db.saveWheelAudioSetting(safeWheelId, safeAudioType, null, false);
         
-        this.logger.info(`Wheel audio reset to default: ${audioType} for wheel ${wheelId}`);
+        this.logger.info(`Wheel audio reset to default: ${safeAudioType} for wheel ${safeWheelId}`);
         
         // Emit config update to overlays
         this.io.emit('wheel:audio-updated', {
-          wheelId,
-          audioType,
+          wheelId: safeWheelId,
+          audioType: safeAudioType,
           isCustom: false
         });
         
@@ -1867,7 +2526,7 @@ class GameEnginePlugin {
     // API: Get wheel audio settings
     this.api.registerRoute('GET', '/api/game-engine/wheel/audio/settings', (req, res) => {
       try {
-        const wheelId = req.query.wheelId || '1';
+        const wheelId = this._sanitizeNumericId(req.query.wheelId);
         const settings = this.db.getWheelAudioSettings(wheelId);
         res.json(settings);
       } catch (error) {
@@ -1879,9 +2538,12 @@ class GameEnginePlugin {
     // Serve custom wheel audio files
     this.api.registerRoute('GET', '/game-engine/sounds/wheel/custom/:wheelId/:filename', (req, res) => {
       const { wheelId, filename } = req.params;
-      const audioPath = path.join(wheelAudioDir, wheelId, filename);
+      const safeWheelId = this._sanitizeNumericId(wheelId, null);
+      const audioPath = safeWheelId && this._isSafeAudioFilename(filename)
+        ? this._safeJoin(wheelAudioDir, safeWheelId, filename)
+        : null;
       
-      if (fs.existsSync(audioPath)) {
+      if (audioPath && fs.existsSync(audioPath)) {
         res.sendFile(audioPath);
       } else {
         res.status(404).json({ error: 'Audio file not found' });
@@ -2307,6 +2969,28 @@ class GameEnginePlugin {
         res.status(500).json({ error: error.message });
       }
     });
+
+    // API: List Game Engine games for admin UI and integrations
+    this.api.registerRoute('GET', '/api/game-engine/games', (req, res) => {
+      res.json({
+        success: true,
+        games: [
+          { id: 'connect4', name: 'Connect4', kind: 'interactive', overlayPath: '/overlay/game-engine/connect4' },
+          { id: 'chess', name: 'Blitzschach', kind: 'interactive', overlayPath: '/overlay/game-engine/chess' },
+          { id: 'plinko', name: 'Plinko', kind: 'queued', overlayPath: '/overlay/game-engine/plinko' },
+          { id: 'wheel', name: 'Glücksrad', kind: 'queued', overlayPath: '/overlay/game-engine/wheel' },
+          { id: 'slot', name: 'Slot Machine', kind: 'queued', overlayPath: '/overlay/game-engine/slot' },
+          {
+            id: 'arena',
+            name: 'Live Arena',
+            kind: 'persistent',
+            overlayPath: '/overlay/game-engine/arena',
+            configPath: '/api/game-engine/config/arena',
+            statePath: '/api/game-engine/arena/state'
+          }
+        ]
+      });
+    });
     
     // API: Update overlay settings for a specific game
     this.api.registerRoute('POST', '/api/game-engine/overlay-settings', (req, res) => {
@@ -2318,7 +3002,7 @@ class GameEnginePlugin {
         }
         
         // Validate game type
-        const validGames = ['connect4', 'chess', 'plinko', 'wheel'];
+        const validGames = ['connect4', 'chess', 'plinko', 'wheel', 'slot', 'arena'];
         if (!validGames.includes(gameType)) {
           return res.status(400).json({ error: `Invalid game type. Must be one of: ${validGames.join(', ')}` });
         }
@@ -2470,20 +3154,81 @@ class GameEnginePlugin {
   registerTikTokEvents() {
     // Listen for gifts that trigger games
     this.api.registerTikTokEvent('gift', (data) => {
+      if (this.arenaGame) {
+        this.arenaGame.handleGift(data);
+      }
       this.handleGiftTrigger(data);
     });
 
-    // Only register chat handler if GCCE is NOT handling commands
-    // This prevents double registration that would cause the fallback handler
-    // to intercept messages before GCCE can process them
-    if (!this.gcceCommandsRegistered) {
-      this.api.registerTikTokEvent('chat', (data) => {
+    this.api.registerTikTokEvent('chat', (data) => {
+      if (this.arenaGame) {
+        this.arenaGame.handleActivity(data, 'chat');
+      }
+      if (!this.gcceCommandsRegistered || !this.isGCCECommandMessage(data)) {
         this.handleChatCommand(data);
+      }
+    });
+
+    ['join', 'like', 'follow', 'share', 'subscribe'].forEach(eventName => {
+      this.api.registerTikTokEvent(eventName, (data) => {
+        if (this.arenaGame) {
+          this.arenaGame.handleActivity(data, eventName);
+        }
       });
+    });
+
+    if (!this.gcceCommandsRegistered) {
       this.logger.info('💬 [GAME ENGINE] Fallback chat handler registered (GCCE not available)');
     } else {
       this.logger.info('💬 [GAME ENGINE] Chat commands handled by GCCE');
     }
+  }
+
+  /**
+   * Check whether a chat event uses the active GCCE command prefix.
+   * @param {Object} data - TikTok chat event
+   * @returns {boolean} True when GCCE should own the command
+   */
+  isGCCECommandMessage(data) {
+    const message = (data?.comment || data?.message || '').trim();
+    return Boolean(message && message.startsWith(this.getGCCECommandPrefix()));
+  }
+
+  /**
+   * Get the currently configured GCCE command prefix.
+   * @returns {string} Single-character command prefix
+   */
+  getGCCECommandPrefix() {
+    const gccePlugin = this.api.pluginLoader?.loadedPlugins?.get('gcce');
+    const prefix = gccePlugin?.instance?.pluginConfig?.commandPrefix;
+    return typeof prefix === 'string' && prefix.trim().length > 0
+      ? prefix.trim().charAt(0)
+      : '/';
+  }
+
+  /**
+   * Normalize a chat command configured by users.
+   * @param {string} command - Raw command value
+   * @param {string} fallback - Fallback command when raw value is empty
+   * @returns {string} Lowercase command name without common prefixes
+   */
+  normalizeChatCommandName(command, fallback = '') {
+    const raw = typeof command === 'string' ? command.trim() : '';
+    const fallbackValue = typeof fallback === 'string' ? fallback.trim() : '';
+    const value = raw || fallbackValue;
+    return value.replace(/^[!/]+/, '').trim().toLowerCase();
+  }
+
+  /**
+   * Get the configured Connect4 start command as a GCCE-compatible name.
+   * @returns {string} Command name without prefix
+   */
+  getConnect4StartCommandName() {
+    let connect4Config = this.db?.getGameConfig ? this.db.getGameConfig('connect4') : null;
+    if (!connect4Config && this.defaultConfigs.connect4) {
+      connect4Config = this.defaultConfigs.connect4;
+    }
+    return this.normalizeChatCommandName(connect4Config?.chatCommand, 'c4start') || 'c4start';
   }
 
   /**
@@ -2501,13 +3246,15 @@ class GameEnginePlugin {
       }
 
       const gcce = gccePlugin.instance;
+      const getExistingCommandOwner = (commandName) => {
+        const existingCommand = gcce.registry?.getCommand?.(commandName);
+        if (!existingCommand || existingCommand.pluginId === 'game-engine') {
+          return null;
+        }
+        return existingCommand.pluginId;
+      };
 
-      // Get Connect4 configuration to retrieve custom chat command
-      let connect4Config = this.db.getGameConfig('connect4');
-      if (!connect4Config && this.defaultConfigs.connect4) {
-        connect4Config = this.defaultConfigs.connect4;
-      }
-      const c4ChatCommand = connect4Config?.chatCommand || 'c4start';
+      const c4ChatCommand = this.getConnect4StartCommandName();
 
       // Load all chat command triggers from database
       const triggers = this.db.getTriggers();
@@ -2600,6 +3347,11 @@ class GameEnginePlugin {
               this.logger.debug(`💬 [GAME ENGINE] Slot command "${slotCommandName}" already registered – skipping`);
               return;
             }
+            const existingOwner = getExistingCommandOwner(slotCommandName);
+            if (existingOwner) {
+              this.logger.info(`[GAME ENGINE] Slot command "${slotCommandName}" is already owned by ${existingOwner}; skipping game-engine registration`);
+              return;
+            }
             const capturedMachineId = machine.id;
             commands.push({
               name: slotCommandName,
@@ -2631,6 +3383,12 @@ class GameEnginePlugin {
           return;
         }
         
+        const existingOwner = getExistingCommandOwner(commandName);
+        if (existingOwner) {
+          this.logger.info(`[GAME ENGINE] Skipping custom DB trigger command "${commandName}" because it is already owned by ${existingOwner}`);
+          return;
+        }
+
         // Determine appropriate handler based on game type
         let handler;
         let description;
@@ -3031,6 +3789,7 @@ class GameEnginePlugin {
       // Gift IDs from the catalog are stored as string keys (e.g. "5655")
       const normalizedGiftId = giftId ? String(giftId).trim() : null;
       let giftMapping = null;
+      let resolvedBoardId = boardId;
       
       // When a specific board was identified during gift trigger lookup, use it directly.
       // This prevents silently falling back to the first/default board when the matching
@@ -3050,12 +3809,14 @@ class GameEnginePlugin {
       // Try by gift ID first (catalog-added mappings use the numeric ID as key)
       if (normalizedGiftId && config.giftMappings && config.giftMappings[normalizedGiftId]) {
         giftMapping = config.giftMappings[normalizedGiftId];
+        resolvedBoardId = config.id || resolvedBoardId;
         this.logger.info(`[PLINKO] Found gift mapping in board "${config.name}" (ID: ${config.id}) by ID key "${normalizedGiftId}"`);
       }
       
       // Try exact match by gift name in primary config
       if (!giftMapping && config.giftMappings && config.giftMappings[normalizedGiftName]) {
         giftMapping = config.giftMappings[normalizedGiftName];
+        resolvedBoardId = config.id || resolvedBoardId;
         this.logger.info(`[PLINKO] Found gift mapping in board "${config.name}" (ID: ${config.id}) by name key "${normalizedGiftName}"`);
       }
       
@@ -3065,6 +3826,7 @@ class GameEnginePlugin {
         for (const [key, value] of Object.entries(config.giftMappings)) {
           if (key.toLowerCase() === lowerGiftName) {
             giftMapping = value;
+            resolvedBoardId = config.id || resolvedBoardId;
             this.logger.info(`[PLINKO] Matched gift "${normalizedGiftName}" in board "${config.name}" (ID: ${config.id}) via case-insensitive lookup (key: "${key}")`);
             break;
           }
@@ -3093,23 +3855,26 @@ class GameEnginePlugin {
             const mappings = board.giftMappings || {};
             
             // Try by gift ID first (catalog-added mappings use the numeric ID as key)
-            if (normalizedGiftId && mappings[normalizedGiftId]) {
-              giftMapping = mappings[normalizedGiftId];
-              this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id}) by ID key "${normalizedGiftId}"`);
-              break;
-            }
+                if (normalizedGiftId && mappings[normalizedGiftId]) {
+                  giftMapping = mappings[normalizedGiftId];
+                  resolvedBoardId = board.id;
+                  this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id}) by ID key "${normalizedGiftId}"`);
+                  break;
+                }
             
             // Try exact match by name
-            if (mappings[normalizedGiftName]) {
-              giftMapping = mappings[normalizedGiftName];
-              this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id}) by name key "${normalizedGiftName}"`);
-              break;
-            }
+                if (mappings[normalizedGiftName]) {
+                  giftMapping = mappings[normalizedGiftName];
+                  resolvedBoardId = board.id;
+                  this.logger.info(`[PLINKO] Found gift mapping in board "${board.name}" (ID: ${board.id}) by name key "${normalizedGiftName}"`);
+                  break;
+                }
             
             // Try case-insensitive match by name
             for (const [key, value] of Object.entries(mappings)) {
               if (key.toLowerCase() === lowerGiftName) {
                 giftMapping = value;
+                resolvedBoardId = board.id;
                 this.logger.info(`[PLINKO] Matched gift "${normalizedGiftName}" in board "${board.name}" (ID: ${board.id}) via case-insensitive lookup (key: "${key}")`);
                 break;
               }
@@ -3141,7 +3906,7 @@ class GameEnginePlugin {
       const betAmount = giftMapping.betAmount || 100; // Default bet if not configured
       const ballType = giftMapping.ballType || 'standard'; // 'standard' or 'golden'
       const ballCount = Math.min(Math.max(giftMapping.ballCount || 1, 1), 50);
-      const boardContext = boardId !== null ? ` [board ID: ${boardId}]` : '';
+      const boardContext = resolvedBoardId !== null ? ` [board ID: ${resolvedBoardId}]` : '';
 
       let result;
       if (ballCount > 1) {
@@ -3152,7 +3917,7 @@ class GameEnginePlugin {
           profilePictureUrl || '',
           betAmount,
           ballCount,
-          { preferredColor: null }
+          { preferredColor: null, boardId: resolvedBoardId }
         );
       } else {
         this.logger.info(`[PLINKO] Spawning ball for ${username}: betAmount=${betAmount}, ballType=${ballType}${boardContext}`);
@@ -3161,7 +3926,8 @@ class GameEnginePlugin {
           nickname,
           profilePictureUrl || '',
           betAmount,
-          ballType
+          ballType,
+          { boardId: resolvedBoardId }
         );
       }
 
@@ -3191,6 +3957,8 @@ class GameEnginePlugin {
    * Handle game start request - queue if game is active, start immediately otherwise
    */
   handleGameStart(gameType, viewerUsername, viewerNickname, triggerType, triggerValue, giftPictureUrl = null) {
+    this._ensureDatabaseInitialized();
+
     // Check if unified queue is available for this game type
     const useUnifiedQueue = this.shouldUseUnifiedQueue(gameType);
     
@@ -3209,14 +3977,25 @@ class GameEnginePlugin {
           giftPictureUrl
         };
         
-        if (gameType === 'connect4') {
-          this.unifiedQueue.queueConnect4(gameData);
-        } else if (gameType === 'chess') {
-          this.unifiedQueue.queueChess(gameData);
+        const result = gameType === 'connect4'
+          ? this.unifiedQueue.queueConnect4(gameData)
+          : this.unifiedQueue.queueChess(gameData);
+
+        if (!result.queued) {
+          return {
+            queued: false,
+            queueType: 'unified',
+            position: 0,
+            error: result.error || 'Queue rejected request'
+          };
+        }
+
+        if (result.queued) {
+          this._mirrorUnifiedQueueEntry(gameData);
         }
         
         this.logger.info(`Game queued in unified queue: ${viewerUsername} for ${gameType}`);
-        return;
+        return { queued: true, queueType: 'unified', position: result.position };
       }
     } else {
       // Use old gameQueue for backwards compatibility with other game types
@@ -3246,7 +4025,7 @@ class GameEnginePlugin {
           message: `Spiel wurde in Warteschlange hinzugefügt. Position: ${this.gameQueue.length}`
         });
         
-        return;
+        return { queued: true, queueType: 'legacy', position: this.gameQueue.length };
       }
     }
 
@@ -3254,7 +4033,7 @@ class GameEnginePlugin {
     const activeSession = this.db.getActiveSessionForPlayer(viewerUsername);
     if (activeSession) {
       this.logger.info(`Player ${viewerUsername} already has an active game`);
-      return;
+      return { success: false, error: 'active_session' };
     }
 
     // Get configuration
@@ -3263,7 +4042,7 @@ class GameEnginePlugin {
     // If challenge screen is disabled, start game directly
     if (!config.showChallengeScreen) {
       this.startGame(gameType, viewerUsername, viewerNickname, triggerType, triggerValue);
-      return;
+      return { success: true, started: true };
     }
 
     // Create a pending challenge
@@ -3273,10 +4052,12 @@ class GameEnginePlugin {
       viewerNickname, 
       triggerValue,
       giftPictureUrl,
-      config
+      config,
+      triggerType
     );
 
     this.logger.info(`Challenge created #${sessionId}: ${viewerUsername} challenges with ${triggerValue}`);
+    return { success: true, challenge: true, sessionId };
   }
 
   /**
@@ -3285,7 +4066,10 @@ class GameEnginePlugin {
    */
   async startGameFromQueue(gameType, viewerUsername, viewerNickname, triggerType, triggerValue, giftPictureUrl = null) {
     try {
+      this._ensureDatabaseInitialized();
+
       this.logger.info(`🎮 [GAME ENGINE] Starting ${gameType} from unified queue for ${viewerUsername}`);
+      this._removeMirroredUnifiedQueueEntry(gameType, viewerUsername);
       
       // Check if player already has an active game
       const activeSession = this.db.getActiveSessionForPlayer(viewerUsername);
@@ -3294,7 +4078,11 @@ class GameEnginePlugin {
         if (this.unifiedQueue) {
           this.unifiedQueue.completeProcessing();
         }
-        return;
+        return {
+          success: false,
+          completed: true,
+          error: 'Player already has active game'
+        };
       }
 
       // Get configuration
@@ -3302,8 +4090,8 @@ class GameEnginePlugin {
 
       // If challenge screen is disabled, start game directly
       if (!config.showChallengeScreen) {
-        this.startGame(gameType, viewerUsername, viewerNickname, triggerType, triggerValue);
-        return;
+        const result = this.startGame(gameType, viewerUsername, viewerNickname, triggerType, triggerValue);
+        return result || { success: true, started: true };
       }
 
       // Create a pending challenge
@@ -3313,15 +4101,22 @@ class GameEnginePlugin {
         viewerNickname, 
         triggerValue,
         giftPictureUrl,
-        config
+        config,
+        triggerType
       );
 
       this.logger.info(`Challenge created #${sessionId}: ${viewerUsername} challenges with ${triggerValue}`);
+      return { success: true, challenge: true, sessionId };
     } catch (error) {
       this.logger.error(`Error starting game from queue: ${error.message}`);
       if (this.unifiedQueue) {
         this.unifiedQueue.completeProcessing();
       }
+      return {
+        success: false,
+        completed: true,
+        error: error.message
+      };
     }
   }
 
@@ -3359,6 +4154,9 @@ class GameEnginePlugin {
         this._queueProcessingTimeout = null;
       }
     }, 30000);
+    if (typeof this._queueProcessingTimeout.unref === 'function') {
+      this._queueProcessingTimeout.unref();
+    }
 
     try {
       // Get next game from queue (FIFO)
@@ -3400,7 +4198,8 @@ class GameEnginePlugin {
         nextGame.viewerNickname, 
         nextGame.triggerValue,
         nextGame.giftPictureUrl,
-        config
+        config,
+        nextGame.triggerType
       );
 
       this.logger.info(`Challenge created from queue #${sessionId}: ${nextGame.viewerUsername} with ${nextGame.triggerValue}`);
@@ -3430,10 +4229,11 @@ class GameEnginePlugin {
     const viewerNickname = nickname || data.username || 'Anonymous';
     // User role flags – used by slot cooldown adjuster
     const userRoles = { isModerator, isSubscriber, teamMemberLevel };
+    const c4ChatCommand = this.getConnect4StartCommandName();
 
     // Check for wheel chat commands (custom commands per wheel)
     // These can be with or without / prefix
-    const cleanCommand = message.toLowerCase().replace(/^\/+/, '');
+    const cleanCommand = this.normalizeChatCommandName(message);
     const matchingWheel = this.wheelGame.findWheelByChatCommand(cleanCommand);
     if (matchingWheel) {
       this.logger.debug(`Wheel chat command matched: "${cleanCommand}" -> Wheel "${matchingWheel.name}" (ID: ${matchingWheel.id})`);
@@ -3455,6 +4255,15 @@ class GameEnginePlugin {
           .catch(err => this.logger.error(`[SLOT] Chat trigger error: ${err.message}`));
         return;
       }
+    }
+
+    if (cleanCommand === c4ChatCommand) {
+      this.handleConnect4StartCommand([], {
+        username: viewerNickname,
+        userId: viewerId,
+        nickname: viewerNickname
+      });
+      return;
     }
 
     // Check if this chat message triggers a game from database triggers
@@ -3502,13 +4311,6 @@ class GameEnginePlugin {
         return; // Let GCCE handle it
       }
       
-      // Get Connect4 configuration to retrieve custom chat command
-      let connect4Config = this.db.getGameConfig('connect4');
-      if (!connect4Config && this.defaultConfigs.connect4) {
-        connect4Config = this.defaultConfigs.connect4;
-      }
-      const c4ChatCommand = connect4Config?.chatCommand || 'c4start';
-      
       // GCCE fallback: handle /c4 and custom start command
       const c4Match = message.match(/^\/c4\s+([a-g])$/i);
       if (c4Match) {
@@ -3524,7 +4326,7 @@ class GameEnginePlugin {
       if (c4StartMatch) {
         // Handle custom start command - start a new game
         this.handleConnect4StartCommand([], {
-          username: viewerId,
+          username: viewerNickname,
           userId: viewerId,
           nickname: viewerNickname
         });
@@ -3621,21 +4423,25 @@ class GameEnginePlugin {
       const userId = context.userId || context.username;
       const nickname = context.username || context.nickname || userId;
       
-      // Get Connect4 configuration to retrieve custom chat command
-      let connect4Config = this.db.getGameConfig('connect4');
-      if (!connect4Config && this.defaultConfigs.connect4) {
-        connect4Config = this.defaultConfigs.connect4;
-      }
-      const c4ChatCommand = connect4Config?.chatCommand || 'c4start';
+      const c4ChatCommand = this.getConnect4StartCommandName();
       
       // Check if there's already an active game
       if (this.activeSessions.size > 0 || this.pendingChallenges.size > 0) {
         // Game in progress - add to queue
-        this.handleGameStart('connect4', userId, nickname, 'command', `/${c4ChatCommand}`);
+        const result = this.handleGameStart('connect4', userId, nickname, 'command', `/${c4ChatCommand}`);
+
+        if (result && result.queued === false) {
+          return {
+            success: false,
+            error: result.error || 'Queue rejected request',
+            message: result.error || 'Could not queue game.',
+            displayOverlay: true
+          };
+        }
         
         return {
           success: true,
-          message: `Game queued! You are position ${this.gameQueue.length} in the queue.`,
+          message: `Game queued! You are position ${result?.position || this.gameQueue.length} in the queue.`,
           displayOverlay: true
         };
       }
@@ -3673,9 +4479,11 @@ class GameEnginePlugin {
    * Start a new game
    */
   startGame(gameType, viewerUsername, viewerNickname, triggerType, triggerValue, timeControl = null) {
+    this._ensureDatabaseInitialized();
+
     if (gameType !== 'connect4' && gameType !== 'chess') {
       this.logger.warn(`Unsupported game type: ${gameType}`);
-      return;
+      return { success: false, error: `Unsupported game type: ${gameType}` };
     }
 
     // Get configuration
@@ -3743,6 +4551,7 @@ class GameEnginePlugin {
     });
 
     this.logger.info(`Started ${gameType} game #${sessionId}: ${player1.username} vs ${player2.username}`);
+    return { success: true, started: true, sessionId };
   }
 
   /**
@@ -3822,6 +4631,45 @@ class GameEnginePlugin {
         }
         
         game.updateTimer();
+
+        if (game.status === 'completed' && game.winReason === 'timeout') {
+          if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+          }
+          game.timerInterval = null;
+
+          const timeoutResult = {
+            gameOver: true,
+            winner: game.winner,
+            winReason: game.winReason,
+            fen: game.getFEN ? game.getFEN() : undefined,
+            pgn: game.getPGN ? game.getPGN() : undefined,
+            capturedPieces: game.getCapturedPieces ? game.getCapturedPieces() : undefined,
+            timeout: true
+          };
+
+          try {
+            if (typeof this.db.updateSession === 'function') {
+              this.db.updateSession(sessionId, {
+                final_pgn: timeoutResult.pgn,
+                final_fen: timeoutResult.fen,
+                win_reason: timeoutResult.winReason
+              });
+            }
+          } catch (error) {
+            this.logger.warn(`Failed to persist chess timeout state for session ${sessionId}: ${error.message}`);
+          }
+
+          this.io.emit('game-engine:timer-update', {
+            sessionId,
+            timers: game.timers,
+            currentPlayer: game.currentPlayer
+          });
+
+          this.endGame(sessionId, game.winner, game.winReason, timeoutResult);
+          return;
+        }
         
         // Determine if we need faster updates (when time is low)
         const whiteTimeLow = game.timers.white < 10000; // Less than 10 seconds
@@ -3837,6 +4685,9 @@ class GameEnginePlugin {
           currentInterval = desiredInterval;
           updateCounter = 0;
           timerInterval = setInterval(updateTimerInterval, currentInterval);
+          if (typeof timerInterval.unref === 'function') {
+            timerInterval.unref();
+          }
           game.timerInterval = timerInterval;
           this.logger.debug(`Chess timer interval changed to ${currentInterval}ms for session ${sessionId}`);
         }
@@ -3867,6 +4718,9 @@ class GameEnginePlugin {
     
     // Start the timer
     timerInterval = setInterval(updateTimerInterval, currentInterval);
+    if (typeof timerInterval.unref === 'function') {
+      timerInterval.unref();
+    }
 
     // Store interval reference for cleanup
     game.timerInterval = timerInterval;
@@ -3890,6 +4744,7 @@ class GameEnginePlugin {
     });
 
     this.logger.info(`Started chess game #${sessionId}: ${whitePlayer.username} (white) vs ${blackPlayer.username} (black) - Time control: ${gameTimeControl}`);
+    return { success: true, started: true, sessionId };
   }
 
   /**
@@ -3903,6 +4758,15 @@ class GameEnginePlugin {
       return {
         success: false,
         message: 'You don\'t have an active game. Send a gift to start!',
+        displayOverlay: true
+      };
+    }
+
+    if (activeSession.game_type !== gameType) {
+      const displayGameType = gameType === 'connect4' ? 'Connect4' : gameType;
+      return {
+        success: false,
+        message: `This is not a ${displayGameType} game. Use the appropriate command for this game.`,
         displayOverlay: true
       };
     }
@@ -4023,6 +4887,8 @@ class GameEnginePlugin {
    * End a game and award XP
    */
   endGame(sessionId, winner, reason, gameResult = null) {
+    this._ensureDatabaseInitialized();
+
     // Bug #5 fix - Wrap DB operations in try-catch
     let session, config, xpRewards;
     try {
@@ -4156,9 +5022,12 @@ class GameEnginePlugin {
       this.unifiedQueue.completeProcessing();
     } else {
       // Process next game in old queue after a short delay (allow UI to update)
-      setTimeout(() => {
+      const nextGameTimer = setTimeout(() => {
         this.processNextQueuedGame();
       }, 2000);
+      if (typeof nextGameTimer.unref === 'function') {
+        nextGameTimer.unref();
+      }
     }
   }
 
@@ -4181,13 +5050,15 @@ class GameEnginePlugin {
     // Determine scores (1 = win, 0.5 = draw, 0 = loss)
     let player1Score, player2Score;
     
-    if (reason === 'draw') {
+    const outcome = this._getSessionPlayerOutcomes(session, winner, reason);
+
+    if (outcome.isDraw) {
       player1Score = 0.5;
       player2Score = 0.5;
-    } else if (winner === 1) {
+    } else if (outcome.player1IsWinner) {
       player1Score = 1;
       player2Score = 0;
-    } else if (winner === 2) {
+    } else if (outcome.player2IsWinner) {
       player1Score = 0;
       player2Score = 1;
     } else {
@@ -4236,9 +5107,8 @@ class GameEnginePlugin {
     const player2 = session.player2_username;
 
     // Determine winner and loser
-    const player1IsWinner = winner === 1;
-    const player2IsWinner = winner === 2;
-    const isDraw = reason === 'draw';
+    const outcome = this._getSessionPlayerOutcomes(session, winner, reason);
+    const { player1IsWinner, player2IsWinner, isDraw } = outcome;
 
     // Calculate XP for each player
     let player1XP = xpRewards.participation_xp || 0;
@@ -4269,20 +5139,13 @@ class GameEnginePlugin {
       // Update player statistics (use chess-specific if chess game)
       let streakInfo;
       if (session.game_type === 'chess') {
-        // Get player side from game instance
-        const game = this.activeSessions.get(session.id);
-        let player1Side = 'white'; // default
-        if (game && game.player1) {
-          player1Side = game.player1.side || 'white';
-        }
-        
         streakInfo = this.db.updateChessPlayerStats(
           player1, 
           session.game_type, 
           player1IsWinner, 
           player2IsWinner, 
           isDraw,
-          player1Side,
+          outcome.player1Side,
           player1XP
         );
       } else {
@@ -4319,20 +5182,13 @@ class GameEnginePlugin {
       // Update player statistics (use chess-specific if chess game)
       let streakInfo;
       if (session.game_type === 'chess') {
-        // Get player side from game instance
-        const game = this.activeSessions.get(session.id);
-        let player2Side = 'black'; // default
-        if (game && game.player2) {
-          player2Side = game.player2.side || 'black';
-        }
-        
         streakInfo = this.db.updateChessPlayerStats(
           player2, 
           session.game_type, 
           player2IsWinner, 
           player1IsWinner, 
           isDraw,
-          player2Side,
+          outcome.player2Side,
           player2XP
         );
       } else {
@@ -4544,11 +5400,11 @@ class GameEnginePlugin {
       // Check if there's already an active game
       if (this.activeSessions.size > 0 || this.pendingChallenges.size > 0) {
         // Game in progress - add to queue
-        this.handleGameStart('chess', userId, nickname, 'command', '/chessstart');
+        const result = this.handleGameStart('chess', userId, nickname, 'command', '/chessstart');
         
         return {
           success: true,
-          message: `Chess game queued! You are position ${this.gameQueue.length} in the queue.`,
+          message: `Chess game queued! You are position ${result?.position || this.gameQueue.length} in the queue.`,
           displayOverlay: true
         };
       }

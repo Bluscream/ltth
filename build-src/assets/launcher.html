@@ -552,6 +552,86 @@
             max-width: 200px;
         }
 
+        .manual-controls {
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        .manual-controls-title {
+            color: #333;
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .manual-port-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .manual-port-row input {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #111827;
+        }
+
+        .manual-button-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .manual-btn {
+            border: 0;
+            border-radius: 8px;
+            padding: 9px 10px;
+            font-weight: 700;
+            cursor: pointer;
+            color: #fff;
+            background: #4f46e5;
+        }
+
+        .manual-btn.secondary {
+            background: #475569;
+        }
+
+        .manual-btn.danger {
+            background: #b91c1c;
+        }
+
+        .manual-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .manual-status {
+            margin-top: 10px;
+            min-height: 18px;
+            color: #64748b;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .maintenance-controls {
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        .maintenance-note {
+            margin-top: 8px;
+            color: #64748b;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
         .log-viewer {
             background: #0f172a;
             color: #e5e7eb;
@@ -608,6 +688,7 @@
         body.theme-night .app-title,
         body.theme-night .tab-content h2,
         body.theme-night .tab-content p,
+        body.theme-night .manual-controls-title,
         body.theme-night .option-hint {
             color: #cbd5e1;
         }
@@ -615,6 +696,7 @@
         body.theme-highcontrast .app-title,
         body.theme-highcontrast .tab-content h2,
         body.theme-highcontrast .tab-content p,
+        body.theme-highcontrast .manual-controls-title,
         body.theme-highcontrast .option-hint {
             color: #fff;
         }
@@ -708,6 +790,117 @@
             background: #fff;
             color: #000;
         }
+
+        .header,
+        .tabs-section,
+        .status-panel,
+        .launcher-options {
+            border-radius: 8px;
+        }
+
+        .diagnostics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+        }
+
+        .diagnostic-item {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px;
+            background: #fff;
+            color: #111827;
+        }
+
+        .diagnostic-item.ok { border-left: 4px solid #16a34a; }
+        .diagnostic-item.warning { border-left: 4px solid #f59e0b; }
+        .diagnostic-item.error { border-left: 4px solid #dc2626; }
+        .diagnostic-item.info { border-left: 4px solid #2563eb; }
+
+        .diagnostic-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .diagnostic-badge {
+            border-radius: 999px;
+            padding: 2px 7px;
+            font-size: 11px;
+            color: #fff;
+            background: #64748b;
+            text-transform: uppercase;
+        }
+
+        .diagnostic-item.ok .diagnostic-badge { background: #16a34a; }
+        .diagnostic-item.warning .diagnostic-badge { background: #f59e0b; }
+        .diagnostic-item.error .diagnostic-badge { background: #dc2626; }
+        .diagnostic-item.info .diagnostic-badge { background: #2563eb; }
+
+        .diagnostic-message,
+        .diagnostic-details,
+        .plugin-failure-list {
+            font-size: 12px;
+            line-height: 1.35;
+            color: #475569;
+        }
+
+        .diagnostic-details {
+            margin-top: 6px;
+            word-break: break-word;
+        }
+
+        .compact-row,
+        .settings-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .settings-row label {
+            color: #334155;
+            font-size: 12px;
+            font-weight: 700;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .settings-row select,
+        .settings-row input {
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 8px;
+            font-size: 13px;
+        }
+
+        .first-run-panel {
+            display: none;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: #eff6ff;
+            color: #1e3a8a;
+        }
+
+        body.theme-night .diagnostic-item,
+        body.theme-night .first-run-panel {
+            background: rgba(15, 23, 42, 0.72);
+            color: #e5e7eb;
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        body.theme-night .diagnostic-message,
+        body.theme-night .diagnostic-details,
+        body.theme-night .plugin-failure-list,
+        body.theme-night .settings-row label {
+            color: #cbd5e1;
+        }
     </style>
 </head>
 <body class="theme-{{.CurrentTheme}}">
@@ -760,7 +953,7 @@
         <!-- Launcher Options -->
         <div class="launcher-options">
             <div class="option-checkbox">
-                <input type="checkbox" id="keepLauncherOpen">
+                <input type="checkbox" id="keepLauncherOpen" {{if .KeepLauncherOpen}}checked{{end}}>
                 <label for="keepLauncherOpen">{{.KeepOpenLabel}}</label>
                 <span class="option-hint">({{.KeepOpenHint}})</span>
             </div>
@@ -779,14 +972,51 @@
             <!-- Tabs Section -->
             <div class="tabs-section">
                 <div class="tabs">
-                    <button class="tab-button active" data-tab="changelog">📝 {{.TabChangelog}}</button>
+                    <button class="tab-button active" data-tab="diagnostics">Diagnose</button>
+                    <button class="tab-button" data-tab="changelog">📝 {{.TabChangelog}}</button>
                     <button class="tab-button" data-tab="apikeys">🔑 {{.TabApiKeys}}</button>
                     <button class="tab-button" data-tab="community">💜 {{.TabCommunity}}</button>
                     <button class="tab-button" data-tab="logs">📜 {{.TabLogs}}</button>
                 </div>
                 
+                <!-- Diagnostics Tab -->
+                <div id="tab-diagnostics" class="tab-content active">
+                    <div class="first-run-panel" id="firstRunPanel">
+                        <strong>Erster Start</strong>
+                        <p>Profil wählen, Diagnose prüfen, dann Server starten. Der Assistent verschwindet nach Abschluss.</p>
+                        <button class="manual-btn" id="firstRunDoneBtn" type="button">Assistent abschließen</button>
+                    </div>
+                    <h2>Launcher-Diagnose</h2>
+                    <div class="compact-row">
+                        <button class="manual-btn secondary" id="refreshDiagnosticsBtn" type="button">Diagnose aktualisieren</button>
+                        <button class="manual-btn secondary" id="exportDiagnosticsBtn" type="button">Diagnosepaket exportieren</button>
+                        <button class="manual-btn secondary" id="adoptServerBtn" type="button">Laufenden Server übernehmen</button>
+                    </div>
+                    <div class="settings-row">
+                        <label>Update-Kanal
+                            <select id="updateChannel">
+                                <option value="local" {{if eq .UpdateChannel "local"}}selected{{end}}>Local Snapshot</option>
+                                <option value="stable" {{if eq .UpdateChannel "stable"}}selected{{end}}>Stable</option>
+                                <option value="beta" {{if eq .UpdateChannel "beta"}}selected{{end}}>Beta</option>
+                            </select>
+                        </label>
+                        <label>Safe Mode
+                            <input type="checkbox" id="safeModeToggle" {{if .SafeMode}}checked{{end}}>
+                        </label>
+                    </div>
+                    <div class="compact-row">
+                        <button class="manual-btn secondary" id="checkUpdateBtn" type="button">Update prüfen</button>
+                        <button class="manual-btn secondary" id="applyUpdateBtn" type="button">Update installieren</button>
+                        <button class="manual-btn secondary" id="rollbackUpdateBtn" type="button">Update zurückrollen</button>
+                        <button class="manual-btn secondary" id="nodeRepairBtn" type="button">Node reparieren</button>
+                        <button class="manual-btn secondary" id="nodeRemoveBtn" type="button">Portable Node entfernen</button>
+                    </div>
+                    <div class="diagnostics-grid" id="diagnosticsGrid"></div>
+                    <div class="plugin-failure-list" id="pluginFailures"></div>
+                </div>
+
                 <!-- Changelog Tab -->
-                <div id="tab-changelog" class="tab-content active">
+                <div id="tab-changelog" class="tab-content">
                     <h2>{{.ChangelogTitle}}</h2>
                     <div id="changelog-content">
                         <p style="color: #999;">{{.ChangelogLoading}}</p>
@@ -885,6 +1115,27 @@
                 <div class="progress-bar-container">
                     <div class="progress-bar" id="progressBar">0%</div>
                 </div>
+                <div class="manual-controls">
+                    <div class="manual-controls-title">Server-Start</div>
+                    <div class="manual-port-row">
+                        <input type="number" id="manualPort" min="1" max="65535" value="3000" aria-label="Port">
+                        <button class="manual-btn secondary" id="savePortBtn" type="button">Port setzen</button>
+                    </div>
+                    <div class="manual-button-row">
+                        <button class="manual-btn" id="manualStartBtn" type="button">Server starten</button>
+                        <button class="manual-btn secondary" id="manualOpenBtn" type="button">App öffnen</button>
+                        <button class="manual-btn danger" id="manualStopBtn" type="button">Server stoppen</button>
+                        <button class="manual-btn secondary" id="refreshStatusBtn" type="button">Status prüfen</button>
+                    </div>
+                    <div class="maintenance-controls">
+                        <div class="manual-controls-title">Datenbank-Wartung</div>
+                        <button class="manual-btn secondary" id="vacuumDbBtn" type="button">Datenbank komprimieren (VACUUM)</button>
+                        <button class="manual-btn secondary" id="profileRepairBtn" type="button">Profil reparieren</button>
+                        <button class="manual-btn secondary" id="profileRestoreBtn" type="button">Letztes Profil-Backup wiederherstellen</button>
+                        <div class="maintenance-note" id="vacuumHint">Server vorher stoppen. VACUUM gibt freien Speicher nach geloeschten Detail-Logs frei.</div>
+                    </div>
+                    <div class="manual-status" id="manualStatus">Port 3000 wird automatisch versucht; bei Belegung nutzt der Server einen freien Folgeport.</div>
+                </div>
             </div>
         </div>
         
@@ -903,6 +1154,20 @@
         const templateTheme = '{{.CurrentTheme}}';
         const LOGS_EMPTY_TEXT = '{{.LogsEmpty}}';
         const LOGS_ERROR_TEXT = '{{.LogsError}}';
+        let firstRunComplete = {{.FirstRunComplete}};
+
+        function fixMojibake(text) {
+            if (!text) return text;
+            const replacements = {
+                'Ã„': 'Ä', 'Ã–': 'Ö', 'Ãœ': 'Ü', 'Ã¤': 'ä', 'Ã¶': 'ö', 'Ã¼': 'ü', 'ÃŸ': 'ß',
+                'âœ…': '✅', 'âš ï¸': '⚠️', 'âŒ': '❌', 'â„¹ï¸': 'ℹ️', 'â†’': '→',
+                'ðŸš€': '🚀', 'ðŸ“‹': '📋', 'ðŸ’¡': '💡', 'ðŸ”§': '🔧', 'ðŸ”„': '🔄'
+            };
+            Object.keys(replacements).forEach(key => {
+                text = text.split(key).join(replacements[key]);
+            });
+            return text;
+        }
 
         function resolveInitialTheme() {
             const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
@@ -946,6 +1211,7 @@
                 const url = new URL(window.location.href);
                 url.searchParams.set('theme', theme);
                 window.history.replaceState({}, '', url.toString());
+                saveLauncherSettings({ theme }).catch(error => setManualStatus('Theme konnte nicht gespeichert werden: ' + error.message));
             }
         }
 
@@ -970,7 +1236,7 @@
                 })
                 .then(text => {
                     const trimmed = text.trim();
-                    const content = trimmed ? text : LOGS_EMPTY_TEXT;
+                    const content = trimmed ? fixMojibake(text) : LOGS_EMPTY_TEXT;
                     logsContentEl.textContent = content;
                     logsContentEl.scrollTop = logsContentEl.scrollHeight;
                 })
@@ -978,6 +1244,385 @@
                     logsContentEl.textContent = LOGS_ERROR_TEXT;
                 });
         }
+
+        const manualPortEl = document.getElementById('manualPort');
+        const manualStatusEl = document.getElementById('manualStatus');
+        const vacuumDbBtn = document.getElementById('vacuumDbBtn');
+        const vacuumHintEl = document.getElementById('vacuumHint');
+        let vacuumInProgress = false;
+
+        function setManualStatus(text) {
+            if (manualStatusEl) manualStatusEl.textContent = text;
+        }
+
+        function formatBytes(bytes) {
+            let value = Number(bytes || 0);
+            const sign = value < 0 ? '-' : '';
+            value = Math.abs(value);
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let unitIndex = 0;
+            while (value >= 1024 && unitIndex < units.length - 1) {
+                value = value / 1024;
+                unitIndex++;
+            }
+            const digits = unitIndex === 0 || value >= 10 ? 0 : 1;
+            return sign + value.toFixed(digits) + ' ' + units[unitIndex];
+        }
+
+        async function postLauncherAction(url) {
+            const response = await fetch(url, { method: 'POST' });
+            const text = await response.text();
+            if (!response.ok) {
+                throw new Error(text || response.statusText);
+            }
+            try {
+                return JSON.parse(text);
+            } catch {
+                return {};
+            }
+        }
+
+        async function saveLauncherSettings(partial) {
+            const payload = Object.assign({
+                locale: localStorage.getItem(LANG_STORAGE_KEY) || '{{.Locale}}',
+                theme: currentTheme,
+                preferredPort: Number(manualPortEl && manualPortEl.value || 3000),
+                keepLauncherOpen: Boolean(document.getElementById('keepLauncherOpen') && document.getElementById('keepLauncherOpen').checked),
+                safeMode: Boolean(document.getElementById('safeModeToggle') && document.getElementById('safeModeToggle').checked),
+                updateChannel: document.getElementById('updateChannel') ? document.getElementById('updateChannel').value : 'local',
+                firstRunComplete: firstRunComplete
+            }, partial || {});
+
+            const response = await fetch('/api/launcher/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(text || response.statusText);
+            try { return JSON.parse(text); } catch { return {}; }
+        }
+
+        function renderDiagnostics(items, pluginFailures) {
+            const grid = document.getElementById('diagnosticsGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            (items || []).forEach(item => {
+                const root = document.createElement('div');
+                root.className = 'diagnostic-item ' + (item.status || 'info');
+                const head = document.createElement('div');
+                head.className = 'diagnostic-head';
+                const title = document.createElement('span');
+                title.textContent = fixMojibake(item.label || item.id || 'Diagnose');
+                const badge = document.createElement('span');
+                badge.className = 'diagnostic-badge';
+                badge.textContent = item.status || 'info';
+                head.appendChild(title);
+                head.appendChild(badge);
+                root.appendChild(head);
+
+                const msg = document.createElement('div');
+                msg.className = 'diagnostic-message';
+                msg.textContent = fixMojibake(item.message || '');
+                root.appendChild(msg);
+
+                if (item.details) {
+                    const details = document.createElement('div');
+                    details.className = 'diagnostic-details';
+                    details.textContent = fixMojibake(item.details);
+                    root.appendChild(details);
+                }
+
+                if (item.fixAction) {
+                    const btn = document.createElement('button');
+                    btn.className = 'manual-btn secondary';
+                    btn.type = 'button';
+                    btn.style.marginTop = '8px';
+                    btn.textContent = fixMojibake(item.fixLabel || 'Beheben');
+                    btn.addEventListener('click', async () => {
+                        try {
+                            setManualStatus('Aktion läuft: ' + item.fixAction);
+                            const result = await postLauncherAction('/api/launcher/fix?action=' + encodeURIComponent(item.fixAction));
+                            setManualStatus('Aktion abgeschlossen: ' + (result.action || item.fixAction));
+                            refreshDiagnostics();
+                        } catch (error) {
+                            setManualStatus('Aktion fehlgeschlagen: ' + error.message);
+                        }
+                    });
+                    root.appendChild(btn);
+                }
+                grid.appendChild(root);
+            });
+
+            const failuresEl = document.getElementById('pluginFailures');
+            if (failuresEl) {
+                failuresEl.textContent = '';
+                if (pluginFailures && pluginFailures.length) {
+                    const strong = document.createElement('strong');
+                    strong.textContent = 'Plugin-Fehler';
+                    failuresEl.appendChild(strong);
+                    pluginFailures.forEach(f => {
+                        const row = document.createElement('div');
+                        row.textContent = (f.pluginId || 'plugin') + ': ' + fixMojibake(f.message || '');
+                        failuresEl.appendChild(row);
+                    });
+                } else {
+                    failuresEl.textContent = 'Keine Plugin-Startfehler erkannt.';
+                }
+            }
+        }
+
+        async function refreshDiagnostics() {
+            try {
+                const response = await fetch('/api/launcher/diagnostics');
+                if (!response.ok) throw new Error(response.statusText);
+                const data = await response.json();
+                renderDiagnostics(data.diagnostics || [], data.pluginFailures || []);
+            } catch (error) {
+                setManualStatus('Diagnose konnte nicht geladen werden: ' + error.message);
+            }
+        }
+
+        async function refreshLauncherStatus() {
+            try {
+                const response = await fetch('/api/launcher/status');
+                if (!response.ok) throw new Error(response.statusText);
+                const data = await response.json();
+                const port = data.serverPort || data.runtimePort || data.preferredPort || 3000;
+                renderDiagnostics(data.diagnostics || [], data.pluginFailures || []);
+
+                if (manualPortEl && document.activeElement !== manualPortEl) {
+                    manualPortEl.value = data.preferredPort || port;
+                }
+
+                const appLink = document.getElementById('appLink');
+                const appLinkHint = document.getElementById('appLinkHint');
+                if (appLink && port) {
+                    appLink.href = 'http://localhost:' + port + '/dashboard.html';
+                }
+
+                const vacuumBlocked = !data.vacuumAvailable;
+                if (vacuumDbBtn) {
+                    vacuumDbBtn.disabled = Boolean(vacuumBlocked);
+                }
+                if (vacuumHintEl) {
+                    if (vacuumBlocked) {
+                        vacuumHintEl.textContent = 'Server zuerst stoppen. VACUUM laeuft nur, wenn die Datenbank nicht aktiv ist.';
+                    } else if (data.activeProfile) {
+                        vacuumHintEl.textContent = 'Aktives Profil: ' + data.activeProfile + '. VACUUM gibt freien Speicher nach geloeschten Detail-Logs frei.';
+                    } else {
+                        vacuumHintEl.textContent = 'Profil auswaehlen, dann Server stoppen und Datenbank komprimieren.';
+                    }
+                }
+
+                if (!vacuumInProgress) {
+                    if (data.serverRunning || data.serverPort || data.runtimePort) {
+                        if (appLink) appLink.classList.remove('disabled');
+                        if (appLinkHint) appLinkHint.textContent = 'App erreichbar auf Port ' + port;
+                        setManualStatus('Serverstatus: erreichbar auf Port ' + port + '. Log: ' + (data.logPath || 'app/logs/launcher_*.log'));
+                    } else if (data.startupInProgress) {
+                        setManualStatus('Server startet... Wunschport: ' + (data.preferredPort || 3000));
+                    } else if (data.lastStartError) {
+                        setManualStatus('Letzter Startfehler: ' + data.lastStartError);
+                    } else {
+                        setManualStatus('Bereit. Wunschport: ' + (data.preferredPort || 3000));
+                    }
+                }
+            } catch (error) {
+                setManualStatus('Launcher-Status konnte nicht gelesen werden: ' + error.message);
+            }
+        }
+
+        document.getElementById('savePortBtn').addEventListener('click', async () => {
+            try {
+                const port = Number(manualPortEl.value || 3000);
+                await postLauncherAction('/api/launcher/port?port=' + encodeURIComponent(port));
+                setManualStatus('Port ' + port + ' gespeichert. Beim nächsten Serverstart wird dieser Port bevorzugt.');
+                refreshLauncherStatus();
+            } catch (error) {
+                setManualStatus('Port konnte nicht gesetzt werden: ' + error.message);
+            }
+        });
+
+        document.getElementById('manualStartBtn').addEventListener('click', async () => {
+            try {
+                const port = Number(manualPortEl.value || 3000);
+                await postLauncherAction('/api/launcher/start-server?port=' + encodeURIComponent(port));
+                setManualStatus('Manueller Serverstart läuft auf Wunschport ' + port + '...');
+                switchTab('logs');
+                refreshLauncherStatus();
+            } catch (error) {
+                setManualStatus('Serverstart fehlgeschlagen: ' + error.message);
+            }
+        });
+
+        document.getElementById('manualStopBtn').addEventListener('click', async () => {
+            try {
+                await postLauncherAction('/api/launcher/stop-server');
+                setManualStatus('Server wurde gestoppt.');
+                refreshLauncherStatus();
+            } catch (error) {
+                setManualStatus('Server konnte nicht gestoppt werden: ' + error.message);
+            }
+        });
+
+        document.getElementById('manualOpenBtn').addEventListener('click', async () => {
+            try {
+                const result = await postLauncherAction('/api/launcher/open-app');
+                setManualStatus('App geöffnet: ' + (result.url || 'Dashboard'));
+            } catch (error) {
+                setManualStatus('App konnte nicht geöffnet werden: ' + error.message);
+            }
+        });
+
+        document.getElementById('vacuumDbBtn').addEventListener('click', async () => {
+            if (!confirm('Datenbank jetzt komprimieren? Der Server muss gestoppt sein. Der Vorgang kann mehrere Minuten dauern.')) {
+                return;
+            }
+            try {
+                vacuumInProgress = true;
+                if (vacuumDbBtn) vacuumDbBtn.disabled = true;
+                setManualStatus('VACUUM laeuft... bitte Launcher offen lassen.');
+                const result = await postLauncherAction('/api/launcher/vacuum-database');
+                const freed = Number(result.freedBytes || 0);
+                const freedText = freed >= 0
+                    ? 'freigegeben: ' + formatBytes(freed)
+                    : 'Groesse veraendert: +' + formatBytes(Math.abs(freed));
+                setManualStatus('VACUUM fertig fuer Profil ' + (result.profile || 'aktiv') + ' - ' + freedText + '. Dauer: ' + Math.round((result.durationMillis || 0) / 1000) + 's.');
+            } catch (error) {
+                setManualStatus('VACUUM fehlgeschlagen: ' + error.message);
+            } finally {
+                vacuumInProgress = false;
+                setTimeout(refreshLauncherStatus, 2500);
+            }
+        });
+
+        document.getElementById('profileRepairBtn').addEventListener('click', async () => {
+            if (!confirm('Aktives Profil reparieren? Vorher wird automatisch ein Backup erstellt.')) return;
+            try {
+                const result = await postLauncherAction('/api/launcher/fix?action=profile-repair');
+                setManualStatus('Profil repariert. Backup: ' + (result.backupPath || result.backup || 'erstellt'));
+                refreshDiagnostics();
+            } catch (error) {
+                setManualStatus('Profil-Reparatur fehlgeschlagen: ' + error.message);
+            }
+        });
+        document.getElementById('profileRestoreBtn').addEventListener('click', async () => {
+            if (!confirm('Letztes Profil-Backup wiederherstellen? Der Server muss gestoppt sein.')) return;
+            try {
+                const result = await postLauncherAction('/api/launcher/fix?action=profile-restore');
+                setManualStatus('Profil wiederhergestellt aus: ' + result.restoredFrom);
+                refreshDiagnostics();
+            } catch (error) {
+                setManualStatus('Profil-Wiederherstellung fehlgeschlagen: ' + error.message);
+            }
+        });
+
+        document.getElementById('refreshDiagnosticsBtn').addEventListener('click', refreshDiagnostics);
+        document.getElementById('exportDiagnosticsBtn').addEventListener('click', async () => {
+            try {
+                const result = await postLauncherAction('/api/launcher/export-diagnostics');
+                setManualStatus('Diagnosepaket erstellt: ' + result.path);
+            } catch (error) {
+                setManualStatus('Diagnoseexport fehlgeschlagen: ' + error.message);
+            }
+        });
+        document.getElementById('adoptServerBtn').addEventListener('click', async () => {
+            try {
+                const result = await postLauncherAction('/api/launcher/adopt-server');
+                setManualStatus('Server übernommen auf Port ' + result.serverPort);
+                refreshLauncherStatus();
+            } catch (error) {
+                setManualStatus('Server konnte nicht übernommen werden: ' + error.message);
+            }
+        });
+        document.getElementById('updateChannel').addEventListener('change', async () => {
+            try {
+                await saveLauncherSettings({ updateChannel: document.getElementById('updateChannel').value });
+                setManualStatus('Update-Kanal gespeichert.');
+            } catch (error) {
+                setManualStatus('Update-Kanal konnte nicht gespeichert werden: ' + error.message);
+            }
+        });
+        document.getElementById('safeModeToggle').addEventListener('change', async () => {
+            try {
+                await saveLauncherSettings({ safeMode: document.getElementById('safeModeToggle').checked });
+                setManualStatus(document.getElementById('safeModeToggle').checked ? 'Safe Mode aktiv. Nächster Start lädt keine Plugins.' : 'Safe Mode deaktiviert.');
+            } catch (error) {
+                setManualStatus('Safe Mode konnte nicht gespeichert werden: ' + error.message);
+            }
+        });
+        document.getElementById('keepLauncherOpen').addEventListener('change', async () => {
+            try {
+                await saveLauncherSettings({ keepLauncherOpen: document.getElementById('keepLauncherOpen').checked });
+            } catch (error) {
+                setManualStatus('Option konnte nicht gespeichert werden: ' + error.message);
+            }
+        });
+        document.getElementById('checkUpdateBtn').addEventListener('click', async () => {
+            try {
+                const result = await postLauncherAction('/api/launcher/update/check');
+                setManualStatus(result.disabled ? result.message : (result.available ? 'Update verfügbar: ' + result.latestVersion : 'Kein Update verfügbar.'));
+            } catch (error) {
+                setManualStatus('Updateprüfung fehlgeschlagen: ' + error.message);
+            }
+        });
+        document.getElementById('applyUpdateBtn').addEventListener('click', async () => {
+            if (!confirm('Update installieren? Der Server muss gestoppt sein. Ein Rollback-Backup wird erstellt.')) return;
+            try {
+                const result = await postLauncherAction('/api/launcher/update/apply');
+                setManualStatus('Update installiert: ' + result.version);
+            } catch (error) {
+                setManualStatus('Update fehlgeschlagen: ' + error.message);
+            }
+        });
+        document.getElementById('rollbackUpdateBtn').addEventListener('click', async () => {
+            if (!confirm('Letztes Update zurückrollen?')) return;
+            try {
+                const result = await postLauncherAction('/api/launcher/update/rollback');
+                setManualStatus('Rollback fertig: ' + result.backup);
+            } catch (error) {
+                setManualStatus('Rollback fehlgeschlagen: ' + error.message);
+            }
+        });
+        document.getElementById('nodeRepairBtn').addEventListener('click', async () => {
+            try {
+                const result = await postLauncherAction('/api/launcher/fix?action=node-repair');
+                setManualStatus('Node repariert: ' + (result.nodePath || 'portable runtime'));
+                refreshDiagnostics();
+            } catch (error) {
+                setManualStatus('Node-Reparatur fehlgeschlagen: ' + error.message);
+            }
+        });
+        document.getElementById('nodeRemoveBtn').addEventListener('click', async () => {
+            if (!confirm('Portable Node.js entfernen? Globale Node-Installationen werden nicht gelöscht.')) return;
+            try {
+                await postLauncherAction('/api/launcher/fix?action=node-remove');
+                setManualStatus('Portable Node.js wurde entfernt.');
+                refreshDiagnostics();
+            } catch (error) {
+                setManualStatus('Portable Node konnte nicht entfernt werden: ' + error.message);
+            }
+        });
+        const firstRunPanel = document.getElementById('firstRunPanel');
+        if (firstRunPanel && !firstRunComplete) {
+            firstRunPanel.style.display = 'block';
+        }
+        document.getElementById('firstRunDoneBtn').addEventListener('click', async () => {
+            try {
+                await saveLauncherSettings({ firstRunComplete: true });
+                firstRunComplete = true;
+                firstRunPanel.style.display = 'none';
+                setManualStatus('Erststart-Assistent abgeschlossen.');
+            } catch (error) {
+                setManualStatus('Erststart konnte nicht gespeichert werden: ' + error.message);
+            }
+        });
+
+        document.getElementById('refreshStatusBtn').addEventListener('click', refreshLauncherStatus);
+        setInterval(refreshLauncherStatus, 3000);
+        refreshLauncherStatus();
+        refreshDiagnostics();
         
         // Tab switching
         function switchTab(tabName) {
@@ -1052,23 +1697,30 @@
                 // Enable app link
                 const appLink = document.getElementById('appLink');
                 const appLinkHint = document.getElementById('appLinkHint');
+                const dashboardUrl = data.dashboardUrl || data.redirect;
+                if (dashboardUrl) {
+                    appLink.href = dashboardUrl;
+                }
                 appLink.classList.remove('disabled');
                 appLinkHint.textContent = '{{.AppReady}}';
             }
             
             // Handle redirect
-            if (data.redirect) {
+            if (data.redirect || data.dashboardUrl) {
                 evtSource.close();
                 
                 const keepOpen = document.getElementById('keepLauncherOpen').checked;
+                const dashboardUrl = data.dashboardUrl || data.redirect;
                 
                 if (keepOpen) {
-                    // Open in new tab instead of redirecting
-                    window.open(data.redirect, '_blank');
+                    setManualStatus('App wird geoeffnet. Launcher bleibt offen.');
+                    postLauncherAction('/api/launcher/open-app').catch(() => {
+                        window.open(dashboardUrl, '_blank');
+                    });
                 } else {
                     // Redirect as normal
                     setTimeout(function() {
-                        window.location.replace(data.redirect);
+                        window.location.replace(dashboardUrl);
                     }, 2000);
                 }
                 return;
@@ -1080,7 +1732,7 @@
             
             progressBar.style.width = data.progress + '%';
             progressBar.textContent = data.progress + '%';
-            statusText.textContent = data.status;
+            statusText.textContent = fixMojibake(data.status);
         };
         
         evtSource.onerror = function(error) {

@@ -534,6 +534,11 @@ async function saveSettings() {
         selectedEvents.push(checkbox.value);
       }
     });
+
+    if (selectedEvents.length === 0) {
+      showToast('Select at least one event for Multi-HUD rotation', 'error');
+      return;
+    }
     
     newSettings.selectedEvents = selectedEvents;
   }

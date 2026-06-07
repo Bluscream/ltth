@@ -13,6 +13,7 @@ const path = require('path');
 
 describe('ClarityHUD Join Events Feature', () => {
   let backendCode;
+  let settingsSchema;
   let uiCode;
   let mainCode;
   let fullOverlayCode;
@@ -20,6 +21,7 @@ describe('ClarityHUD Join Events Feature', () => {
   beforeAll(() => {
     // Load the source files
     backendCode = fs.readFileSync(path.join(__dirname, '../backend/api.js'), 'utf8');
+    settingsSchema = require('../lib/settings-schema');
     uiCode = fs.readFileSync(path.join(__dirname, '../ui/main.js'), 'utf8');
     mainCode = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
     fullOverlayCode = fs.readFileSync(path.join(__dirname, '../overlays/full.js'), 'utf8');
@@ -27,7 +29,7 @@ describe('ClarityHUD Join Events Feature', () => {
 
   describe('Backend Implementation', () => {
     test('should have showJoins in default settings', () => {
-      expect(backendCode).toContain('showJoins: true');
+      expect(settingsSchema.DEFAULT_SETTINGS.full.showJoins).toBe(true);
     });
 
     test('should have join event queue', () => {

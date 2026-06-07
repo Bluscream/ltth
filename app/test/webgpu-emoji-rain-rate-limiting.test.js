@@ -42,8 +42,8 @@ describe('WebGPU Emoji Rain Rate Limiting', () => {
         
         expect(config).toHaveProperty('rate_limit_enabled');
         expect(config).toHaveProperty('rate_limit_emojis_per_second');
-        expect(config.rate_limit_enabled).toBe(false);
-        expect(config.rate_limit_emojis_per_second).toBe(30);
+        expect(config.rate_limit_enabled).toBe(true);
+        expect(config.rate_limit_emojis_per_second).toBe(24);
     });
 
     test('Rate limiting config should be updateable', () => {

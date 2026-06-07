@@ -6,6 +6,12 @@ let users = [];
 let currentEditingTier = null;
 let pluginDisabled = false;
 
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+}
+
 // Load configuration on page load
 async function loadConfig() {
     try {
@@ -104,19 +110,19 @@ function displayTiers() {
         <div class="tier-item">
             <div class="tier-info">
                 <div class="tier-name">
-                    ${tier.name}
-                    <span class="tier-level-badge">Level ${tier.tier_level}</span>
+                    ${escapeHtml(tier.name)}
+                    <span class="tier-level-badge">Level ${Number(tier.tier_level || 0)}</span>
                     ${!tier.enabled ? '<span style="opacity: 0.5">(Deaktiviert)</span>' : ''}
                 </div>
                 <div class="tier-threshold">
-                    💰 ${tier.threshold.toLocaleString()} Coins
+                    💰 ${Number(tier.threshold || 0).toLocaleString()} Coins
                     ${tier.animation_gif_path || tier.animation_video_path || tier.animation_audio_path ? '| 🎬 Benutzerdefinierte Medien' : ''}
                 </div>
             </div>
             <div class="tier-actions">
-                <button class="small-button test-tier-btn" data-tier-id="${tier.id}">🧪 Test</button>
-                <button class="small-button edit-btn" data-tier-id="${tier.id}">✏️ Bearbeiten</button>
-                <button class="small-button delete-btn" data-tier-id="${tier.id}">🗑️ Löschen</button>
+                <button class="small-button test-tier-btn" data-tier-id="${Number(tier.id || 0)}">🧪 Test</button>
+                <button class="small-button edit-btn" data-tier-id="${Number(tier.id || 0)}">✏️ Bearbeiten</button>
+                <button class="small-button delete-btn" data-tier-id="${Number(tier.id || 0)}">🗑️ Löschen</button>
             </div>
         </div>
     `).join('');
@@ -143,16 +149,16 @@ function displayUsers() {
         <div class="user-item">
             <div class="user-info">
                 <div class="user-name">
-                    ${user.username || user.user_id}
-                    ${user.last_tier_reached > 0 ? `<span class="user-tier-badge">${tierName}</span>` : ''}
+                    ${escapeHtml(user.username || user.user_id)}
+                    ${user.last_tier_reached > 0 ? `<span class="user-tier-badge">${escapeHtml(tierName)}</span>` : ''}
                 </div>
                 <div class="user-coins">
-                    💰 ${user.cumulative_coins.toLocaleString()} Coins gesamt
+                    💰 ${Number(user.cumulative_coins || 0).toLocaleString()} Coins gesamt
                     ${user.last_trigger_at ? `| Letzter Meilenstein: ${new Date(user.last_trigger_at).toLocaleString('de-DE')}` : ''}
                 </div>
             </div>
             <div class="user-actions">
-                <button class="small-button delete-btn delete-user-btn" data-user-id="${user.user_id}">🗑️ Zurücksetzen</button>
+                <button class="small-button delete-btn delete-user-btn" data-user-id="${encodeURIComponent(user.user_id)}">🗑️ Zurücksetzen</button>
             </div>
         </div>
     `;
@@ -357,7 +363,7 @@ async function deleteUser(userId) {
     if (!confirm('Statistiken für diesen Benutzer wirklich zurücksetzen?')) return;
     
     try {
-        const response = await fetch(`/api/gift-milestone/users/${userId}`, {
+        const response = await fetch(`/api/gift-milestone/users/${encodeURIComponent(userId)}`, {
             method: 'DELETE'
         });
         const data = await response.json();
@@ -757,9 +763,9 @@ document.getElementById('userStatsList').addEventListener('click', (e) => {
     if (!button) return;
     
     if (button.classList.contains('delete-user-btn')) {
-        const userId = button.getAttribute('data-user-id');
-        if (userId) {
-            deleteUser(userId);
+        const encodedUserId = button.getAttribute('data-user-id');
+        if (encodedUserId) {
+            deleteUser(decodeURIComponent(encodedUserId));
         }
     }
 });

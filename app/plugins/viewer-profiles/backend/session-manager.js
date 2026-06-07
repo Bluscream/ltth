@@ -137,6 +137,12 @@ class SessionManager {
 
       this.api.log(`Session ended for ${username} (duration: ${durationSeconds}s)`, 'debug');
 
+      this.api.emit('viewer:updated', {
+        username,
+        reason: 'session-ended',
+        viewer: this.db.getViewerInsights(username)
+      });
+
       // Emit socket event
       this.api.emit('viewer:offline', { username });
 

@@ -1081,82 +1081,112 @@ async function startBenchmark() {
     resultsDiv.style.display = 'none';
     
     // Open overlay window for benchmark
-    const overlayUrl = `${window.location.origin}/fireworks/obs-overlay?benchmark=true`;
+    const overlayUrl = `${window.location.origin}/fireworks/overlay?benchmark=true`;
     benchmarkWindow = window.open(overlayUrl, 'FireworksBenchmark', 'width=1920,height=1080');
     
     if (!benchmarkWindow) {
         const msg = window.i18n ? window.i18n.t('fireworks.benchmark.popup_blocked') : 'Could not open benchmark window. Please allow pop-ups.';
         showToast(msg, 'error');
-        stopBenchmark();
+        benchmarkRunning = false;
+        resetBenchmarkUi();
         return;
     }
     
-    // Wait for window to load
-    await new Promise(resolve => setTimeout(resolve, BENCHMARK_CONFIG.WINDOW_LOAD_DELAY));
-    
-    // Run benchmark for each preset
-    const presets = ['ultra', 'high', 'medium', 'low', 'toaster', 'potato'];
-    const totalSteps = presets.length;
-    
-    document.getElementById('benchmark-total').textContent = totalSteps;
-    
-    for (let i = 0; i < presets.length && benchmarkRunning; i++) {
-        const presetName = presets[i];
+    try {
+        // Wait for window to load
+        await new Promise(resolve => setTimeout(resolve, BENCHMARK_CONFIG.WINDOW_LOAD_DELAY));
         
-        document.getElementById('current-test-name').textContent = presetName.toUpperCase();
-        document.getElementById('benchmark-step').textContent = i + 1;
-        document.getElementById('benchmark-progress-bar').style.width = `${((i + 1) / totalSteps) * 100}%`;
+        // Run benchmark for each preset
+        const presets = ['ultra', 'high', 'medium', 'low', 'toaster', 'potato'];
+        const totalSteps = presets.length;
         
-        const result = await runBenchmarkTest(presetName);
-        benchmarkResults.push(result);
+        document.getElementById('benchmark-total').textContent = totalSteps;
         
-        // Wait between tests
-        await new Promise(resolve => setTimeout(resolve, BENCHMARK_CONFIG.INTER_TEST_DELAY));
+        for (let i = 0; i < presets.length && benchmarkRunning; i++) {
+            const presetName = presets[i];
+            
+            document.getElementById('current-test-name').textContent = presetName.toUpperCase();
+            document.getElementById('benchmark-step').textContent = i + 1;
+            document.getElementById('benchmark-progress-bar').style.width = `${((i + 1) / totalSteps) * 100}%`;
+            
+            const result = await runBenchmarkTest(presetName);
+            benchmarkResults.push(result);
+            
+            // Wait between tests
+            await new Promise(resolve => setTimeout(resolve, BENCHMARK_CONFIG.INTER_TEST_DELAY));
+        }
+        
+        if (benchmarkRunning && benchmarkResults.length > 0) {
+            displayBenchmarkResults();
+            saveBenchmarkResults();
+        }
+    } catch (e) {
+        console.error('Benchmark failed:', e);
+        showToast('Benchmark failed', 'error');
+    } finally {
+        await restoreBenchmarkPreset();
+        closeBenchmarkWindow();
+        benchmarkRunning = false;
+        resetBenchmarkUi();
     }
-    
-    // Close benchmark window
-    if (benchmarkWindow && !benchmarkWindow.closed) {
-        benchmarkWindow.close();
-    }
-    
-    // Show results
-    displayBenchmarkResults();
-    saveBenchmarkResults();
-    
-    benchmarkRunning = false;
-    startBtn.style.display = 'block';
-    stopBtn.style.display = 'none';
-    progressDiv.style.display = 'none';
 }
 
 function stopBenchmark() {
     benchmarkRunning = false;
+    closeBenchmarkWindow();
+    resetBenchmarkUi();
+    restoreBenchmarkPreset();
     
+    const msg = window.i18n ? window.i18n.t('fireworks.benchmark.cancelled') : 'Benchmark cancelled';
+    showToast(msg, 'error');
+}
+
+function closeBenchmarkWindow() {
     if (benchmarkWindow && !benchmarkWindow.closed) {
         benchmarkWindow.close();
     }
     
+    benchmarkWindow = null;
+}
+
+function resetBenchmarkUi() {
     const startBtn = document.getElementById('start-benchmark');
     const stopBtn = document.getElementById('stop-benchmark');
     const progressDiv = document.getElementById('benchmark-progress');
     
-    startBtn.style.display = 'block';
-    stopBtn.style.display = 'none';
-    progressDiv.style.display = 'none';
-    
-    const msg = window.i18n ? window.i18n.t('fireworks.benchmark.cancelled') : 'Benchmark cancelled';
-    showToast(msg, 'error');
+    if (startBtn) startBtn.style.display = 'block';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (progressDiv) progressDiv.style.display = 'none';
+}
+
+async function restoreBenchmarkPreset() {
+    try {
+        const response = await fetch('/api/fireworks/benchmark/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Restore failed with status ${response.status}`);
+        }
+    } catch (e) {
+        console.error('Failed to restore benchmark preset:', e);
+    }
 }
 
 async function runBenchmarkTest(presetName) {
     const preset = PRESETS[presetName];
     
     // Apply preset temporarily via API
-    await fetch('/api/fireworks/benchmark/set-preset', {
+    const response = await fetch('/api/fireworks/benchmark/set-preset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preset })
     });
+    
+    if (!response.ok) {
+        throw new Error(`Failed to apply benchmark preset: ${response.status}`);
+    }
     
     // Trigger test fireworks and measure FPS
     const fpsData = await measureFPS();

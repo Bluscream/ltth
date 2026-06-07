@@ -33,7 +33,7 @@ describe('Soundboard Queue Functionality', () => {
     describe('Queue-All Mode (Global Sequential)', () => {
         test('should check for queue-all mode in playDashboardSoundboard', () => {
             expect(dashboardSoundboardJs).toContain("currentPlayMode === 'queue-all'");
-            expect(dashboardSoundboardJs).toContain('globalSoundQueue.push(data)');
+            expect(dashboardSoundboardJs).toContain("enqueueSound(globalSoundQueue, data, 'global queue', { enforceLimit: enforceQueueLimit })");
         });
         
         test('should have processGlobalQueue function for global queue processing', () => {
@@ -78,6 +78,14 @@ describe('Soundboard Queue Functionality', () => {
             expect(dashboardSoundboardJs).toContain('globalSoundQueue = []');
             expect(dashboardSoundboardJs).toContain('isProcessingGlobalQueue = false');
             expect(dashboardSoundboardJs).toContain('perGiftSoundQueues = {}');
+        });
+
+        test('should enforce configured max queue length before enqueueing', () => {
+            expect(dashboardSoundboardJs).toContain('let currentMaxQueueLength = 10');
+            expect(dashboardSoundboardJs).toContain('function enqueueSound(queue, data, queueLabel, options = {})');
+            expect(dashboardSoundboardJs).toContain('const enforceLimit = options.enforceLimit !== false');
+            expect(dashboardSoundboardJs).toContain('queue.length >= currentMaxQueueLength');
+            expect(dashboardSoundboardJs).toContain('function updateCurrentMaxQueueLength(value)');
         });
         
         test('should update currentPlayMode when settings are loaded', () => {

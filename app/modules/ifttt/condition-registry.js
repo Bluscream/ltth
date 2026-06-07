@@ -8,6 +8,48 @@ class ConditionRegistry {
         this.logger = logger;
         this.conditions = new Map();
         this.operators = new Map();
+        this.operatorAliases = new Map(Object.entries({
+            '==': 'equals',
+            '=': 'equals',
+            '!=': 'not_equals',
+            '<>': 'not_equals',
+            '>': 'greater_than',
+            '<': 'less_than',
+            '>=': 'greater_or_equal',
+            '<=': 'less_or_equal',
+            notEquals: 'not_equals',
+            notequals: 'not_equals',
+            greaterThan: 'greater_than',
+            greaterthan: 'greater_than',
+            lessThan: 'less_than',
+            lessthan: 'less_than',
+            greaterThanOrEqual: 'greater_or_equal',
+            greaterthanorequal: 'greater_or_equal',
+            greaterOrEqual: 'greater_or_equal',
+            greaterorequal: 'greater_or_equal',
+            lessThanOrEqual: 'less_or_equal',
+            lessthanorequal: 'less_or_equal',
+            lessOrEqual: 'less_or_equal',
+            lessorequal: 'less_or_equal',
+            notContains: 'not_contains',
+            notcontains: 'not_contains',
+            startsWith: 'starts_with',
+            startswith: 'starts_with',
+            endsWith: 'ends_with',
+            endswith: 'ends_with',
+            matchesRegex: 'matches_regex',
+            matchesregex: 'matches_regex',
+            inList: 'in_list',
+            inlist: 'in_list',
+            notInList: 'not_in_list',
+            notinlist: 'not_in_list',
+            isTrue: 'is_true',
+            istrue: 'is_true',
+            isFalse: 'is_false',
+            isfalse: 'is_false',
+            notExists: 'not_exists',
+            notexists: 'not_exists'
+        }));
         this.registerCoreConditions();
         this.registerCoreOperators();
     }
@@ -76,7 +118,16 @@ class ConditionRegistry {
      * Get operator
      */
     getOperator(id) {
-        return this.operators.get(id);
+        return this.operators.get(this.normalizeOperatorId(id));
+    }
+
+    normalizeOperatorId(id) {
+        if (!id) {
+            return 'equals';
+        }
+
+        const raw = String(id).trim();
+        return this.operatorAliases.get(raw) || this.operatorAliases.get(raw.toLowerCase()) || raw;
     }
 
     /**
@@ -207,7 +258,10 @@ class ConditionRegistry {
     getAllOperatorsForFrontend() {
         return Array.from(this.operators.values()).map(operator => {
             const { evaluator, ...operatorWithoutEvaluator } = operator;
-            return operatorWithoutEvaluator;
+            return {
+                ...operatorWithoutEvaluator,
+                label: operator.name
+            };
         });
     }
 
@@ -222,10 +276,39 @@ class ConditionRegistry {
      * Evaluate a condition
      */
     evaluate(condition, context) {
+        if (!condition) {
+            return true;
+        }
+
+        if (condition.logic) {
+            return this.evaluateComplex(condition, context);
+        }
+
+        if (!condition.type && condition.field) {
+            return this.evaluateFieldValueCondition(condition, context);
+        }
+
         const conditionDef = this.conditions.get(condition.type);
         if (!conditionDef) {
             this.logger?.warn(`Unknown condition type: ${condition.type}`);
             return false;
+        }
+
+        switch (condition.type) {
+            case 'field_value':
+                return this.evaluateFieldValueCondition(condition, context);
+            case 'variable_check':
+                return this.evaluateVariableCondition(condition, context);
+            case 'user_level':
+                return this.evaluateUserLevelCondition(condition, context);
+            case 'user_follower':
+                return this.evaluateUserFollowerCondition(condition, context);
+            case 'username_check':
+                return this.evaluateUsernameCondition(condition, context);
+            case 'execution_count':
+                return this.evaluateExecutionCountCondition(condition, context);
+            default:
+                break;
         }
 
         // Use custom evaluator if provided
@@ -234,13 +317,129 @@ class ConditionRegistry {
         }
 
         // Default evaluation using operators
-        const operator = this.operators.get(condition.operator);
+        return this.evaluateWithOperator(condition.value, condition.operator, condition.compareValue, context);
+    }
+
+    /**
+     * Compare event data field against a configured value.
+     */
+    evaluateFieldValueCondition(condition, context) {
+        const fieldValue = this.getNestedValue(context?.data || {}, condition.field);
+        const compareValue = Object.prototype.hasOwnProperty.call(condition, 'compareValue')
+            ? condition.compareValue
+            : condition.value;
+
+        return this.evaluateWithOperator(fieldValue, condition.operator, compareValue, context);
+    }
+
+    /**
+     * Compare a custom variable against a configured value.
+     */
+    evaluateVariableCondition(condition, context) {
+        const variableName = condition.variableName || condition.field || condition.name;
+        const value = context?.variables?.get(variableName);
+        const compareValue = Object.prototype.hasOwnProperty.call(condition, 'compareValue')
+            ? condition.compareValue
+            : condition.value;
+
+        return this.evaluateWithOperator(value, condition.operator, compareValue, context);
+    }
+
+    /**
+     * Compare viewer level fields from event data.
+     */
+    evaluateUserLevelCondition(condition, context) {
+        const data = context?.data || {};
+        const value = data.level ?? data.userLevel ?? data.subscriberLevel ?? data.memberLevel ?? data.subMonth ?? 0;
+        const compareValue = condition.level ?? condition.value ?? 0;
+
+        return this.evaluateWithOperator(value, condition.operator, compareValue, context);
+    }
+
+    /**
+     * Check whether the event user is a follower.
+     */
+    evaluateUserFollowerCondition(condition, context) {
+        const data = context?.data || {};
+        const value = this.toBoolean(data.isFollower ?? data.follower ?? data.following ?? false);
+        const compareValue = Object.prototype.hasOwnProperty.call(condition, 'isFollower')
+            ? this.toBoolean(condition.isFollower)
+            : true;
+
+        if (condition.operator) {
+            return this.evaluateWithOperator(value, condition.operator, compareValue, context);
+        }
+
+        return value === compareValue;
+    }
+
+    /**
+     * Compare username fields from event data.
+     */
+    evaluateUsernameCondition(condition, context) {
+        const data = context?.data || {};
+        const value = data.username || data.uniqueId || data.nickname || '';
+        const compareValue = condition.username ?? condition.value ?? '';
+
+        return this.evaluateWithOperator(value, condition.operator, compareValue, context);
+    }
+
+    /**
+     * Compare the current flow execution counter.
+     */
+    evaluateExecutionCountCondition(condition, context) {
+        const value = context?.executionCount ?? 0;
+        const compareValue = condition.count ?? condition.value ?? 0;
+
+        return this.evaluateWithOperator(value, condition.operator, compareValue, context);
+    }
+
+    /**
+     * Evaluate a configured operator.
+     */
+    evaluateWithOperator(value, operatorId = 'equals', compareValue, context) {
+        const normalizedOperatorId = this.normalizeOperatorId(operatorId);
+        const operator = this.operators.get(normalizedOperatorId);
         if (!operator) {
-            this.logger?.warn(`Unknown operator: ${condition.operator}`);
+            this.logger?.warn(`Unknown operator: ${operatorId}`);
             return false;
         }
 
-        return operator.evaluator(condition.value, condition.compareValue, context);
+        return operator.evaluator(value, compareValue, context);
+    }
+
+    toComparableString(value) {
+        return value === null || value === undefined ? '' : String(value);
+    }
+
+    toComparableList(value) {
+        if (Array.isArray(value)) {
+            return value.map(item => this.toComparableString(item).trim());
+        }
+
+        return this.toComparableString(value)
+            .split(',')
+            .map(item => item.trim());
+    }
+
+    /**
+     * Get a nested property without depending on the engine's variable store.
+     */
+    getNestedValue(obj, path) {
+        if (!path) return undefined;
+        return String(path).split('.').reduce((current, key) => current?.[key], obj);
+    }
+
+    /**
+     * Normalize boolean form values.
+     */
+    toBoolean(value) {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value !== 0;
+        if (typeof value === 'string') {
+            return !['false', '0', 'off', 'no', ''].includes(value.toLowerCase());
+        }
+        return Boolean(value);
     }
 
     /**
@@ -296,7 +495,7 @@ class ConditionRegistry {
             symbol: 'contains',
             valueTypes: ['text'],
             evaluator: (value, compareValue) => 
-                String(value).toLowerCase().includes(String(compareValue).toLowerCase())
+                this.toComparableString(value).toLowerCase().includes(this.toComparableString(compareValue).toLowerCase())
         });
 
         this.registerOperator('not_contains', {
@@ -304,7 +503,7 @@ class ConditionRegistry {
             symbol: 'not contains',
             valueTypes: ['text'],
             evaluator: (value, compareValue) => 
-                !String(value).toLowerCase().includes(String(compareValue).toLowerCase())
+                !this.toComparableString(value).toLowerCase().includes(this.toComparableString(compareValue).toLowerCase())
         });
 
         this.registerOperator('starts_with', {
@@ -312,7 +511,7 @@ class ConditionRegistry {
             symbol: 'starts with',
             valueTypes: ['text'],
             evaluator: (value, compareValue) => 
-                String(value).toLowerCase().startsWith(String(compareValue).toLowerCase())
+                this.toComparableString(value).toLowerCase().startsWith(this.toComparableString(compareValue).toLowerCase())
         });
 
         this.registerOperator('ends_with', {
@@ -320,7 +519,7 @@ class ConditionRegistry {
             symbol: 'ends with',
             valueTypes: ['text'],
             evaluator: (value, compareValue) => 
-                String(value).toLowerCase().endsWith(String(compareValue).toLowerCase())
+                this.toComparableString(value).toLowerCase().endsWith(this.toComparableString(compareValue).toLowerCase())
         });
 
         this.registerOperator('matches_regex', {
@@ -330,7 +529,7 @@ class ConditionRegistry {
             evaluator: (value, compareValue) => {
                 try {
                     const regex = new RegExp(compareValue, 'i');
-                    return regex.test(String(value));
+                    return regex.test(this.toComparableString(value));
                 } catch (e) {
                     return false;
                 }
@@ -343,8 +542,8 @@ class ConditionRegistry {
             symbol: 'in',
             valueTypes: ['text', 'number'],
             evaluator: (value, compareValue) => {
-                const list = Array.isArray(compareValue) ? compareValue : String(compareValue).split(',').map(v => v.trim());
-                return list.includes(String(value));
+                const list = this.toComparableList(compareValue);
+                return list.includes(this.toComparableString(value));
             }
         });
 
@@ -353,8 +552,8 @@ class ConditionRegistry {
             symbol: 'not in',
             valueTypes: ['text', 'number'],
             evaluator: (value, compareValue) => {
-                const list = Array.isArray(compareValue) ? compareValue : String(compareValue).split(',').map(v => v.trim());
-                return !list.includes(String(value));
+                const list = this.toComparableList(compareValue);
+                return !list.includes(this.toComparableString(value));
             }
         });
 
@@ -363,14 +562,14 @@ class ConditionRegistry {
             name: 'Is True',
             symbol: 'is true',
             valueTypes: ['boolean'],
-            evaluator: (value) => Boolean(value) === true
+            evaluator: (value) => this.toBoolean(value) === true
         });
 
         this.registerOperator('is_false', {
             name: 'Is False',
             symbol: 'is false',
             valueTypes: ['boolean'],
-            evaluator: (value) => Boolean(value) === false
+            evaluator: (value) => this.toBoolean(value) === false
         });
 
         // Existence Operators
@@ -441,13 +640,20 @@ class ConditionRegistry {
             metadata: { requiresCooldownTracking: true },
             evaluator: (condition, context) => {
                 const key = condition.key || 'default';
-                const seconds = condition.value || 60;
+                const seconds = condition.seconds || condition.value || 60;
                 const lastTrigger = context.cooldowns?.get(key);
                 
-                if (!lastTrigger) return true;
+                if (!lastTrigger) {
+                    context.cooldowns?.set(key, Date.now());
+                    return true;
+                }
                 
                 const elapsed = (Date.now() - lastTrigger) / 1000;
-                return elapsed >= seconds;
+                const allowed = elapsed >= seconds;
+                if (allowed) {
+                    context.cooldowns?.set(key, Date.now());
+                }
+                return allowed;
             }
         });
 
@@ -470,7 +676,14 @@ class ConditionRegistry {
                 // Remove old entries
                 const recent = queue.filter(t => t > cutoff);
                 
-                return recent.length < maxCount;
+                if (recent.length >= maxCount) {
+                    context.rateLimits?.set(key, recent);
+                    return false;
+                }
+
+                recent.push(now);
+                context.rateLimits?.set(key, recent);
+                return true;
             }
         });
 
@@ -488,7 +701,7 @@ class ConditionRegistry {
                 if (condition.operator === 'between') {
                     return currentTime >= condition.startTime && currentTime <= condition.endTime;
                 } else if (condition.operator === 'equals') {
-                    return currentTime === condition.value;
+                    return currentTime === (condition.value || condition.startTime);
                 }
                 
                 return false;
@@ -504,7 +717,7 @@ class ConditionRegistry {
             evaluator: (condition, context) => {
                 const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                 const currentDay = days[new Date().getDay()];
-                const allowedDays = condition.value || [];
+                const allowedDays = condition.days || condition.value || [];
                 
                 return allowedDays.includes(currentDay);
             }
@@ -552,7 +765,7 @@ class ConditionRegistry {
             icon: 'shuffle',
             valueType: 'number',
             evaluator: (condition, context) => {
-                const chance = condition.value || 50; // Default 50%
+                const chance = condition.percentage ?? condition.value ?? 50; // Default 50%
                 return Math.random() * 100 < chance;
             }
         });
@@ -575,11 +788,17 @@ class ConditionRegistry {
         if (!conditionTree) return true;
 
         // Handle logical operators
-        if (conditionTree.logic === 'AND') {
-            return conditionTree.conditions.every(c => this.evaluateComplex(c, context));
-        } else if (conditionTree.logic === 'OR') {
-            return conditionTree.conditions.some(c => this.evaluateComplex(c, context));
-        } else if (conditionTree.logic === 'NOT') {
+        const logic = typeof conditionTree.logic === 'string'
+            ? conditionTree.logic.toUpperCase()
+            : conditionTree.logic;
+
+        if (logic === 'AND') {
+            const conditions = Array.isArray(conditionTree.conditions) ? conditionTree.conditions : [];
+            return conditions.every(c => this.evaluateComplex(c, context));
+        } else if (logic === 'OR') {
+            const conditions = Array.isArray(conditionTree.conditions) ? conditionTree.conditions : [];
+            return conditions.some(c => this.evaluateComplex(c, context));
+        } else if (logic === 'NOT') {
             return !this.evaluateComplex(conditionTree.condition, context);
         }
 

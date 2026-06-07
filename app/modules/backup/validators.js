@@ -9,8 +9,8 @@
 
 const path = require('path');
 
-/** Maximum total backup size accepted for import (500 MB). */
-const MAX_BACKUP_SIZE_BYTES = 500 * 1024 * 1024;
+/** Maximum total backup size accepted for import (10 GB). */
+const MAX_BACKUP_SIZE_BYTES = 10 * 1024 * 1024 * 1024;
 
 /** Maximum number of files in a single backup archive. */
 const MAX_BACKUP_FILES = 10000;
@@ -45,21 +45,25 @@ function validateEntryPath(entryPath) {
         return { valid: false, error: 'Entry path must be a non-empty string' };
     }
 
-    // Normalise separators and resolve dots without an absolute base
-    const normalised = path.normalize(entryPath);
-
-    // Reject paths that start with .. or contain absolute path components
-    if (
-        normalised.startsWith('..') ||
-        normalised.startsWith('/') ||
-        /^[A-Za-z]:/.test(normalised) // Windows absolute path
-    ) {
-        return { valid: false, error: `Unsafe archive entry path: ${entryPath}` };
-    }
-
-    // Reject null bytes
+    // Reject null bytes before any normalisation.
     if (entryPath.includes('\0')) {
         return { valid: false, error: 'Entry path contains null byte' };
+    }
+
+    const zipPath = entryPath.replace(/\\/g, '/');
+    const normalised = path.posix.normalize(zipPath);
+    const segments = zipPath.split('/');
+
+    // Reject absolute paths, drive-qualified Windows paths, and traversal segments.
+    if (
+        zipPath.startsWith('/') ||
+        normalised.startsWith('/') ||
+        /^[A-Za-z]:($|\/)/.test(zipPath) ||
+        segments.includes('..') ||
+        normalised === '..' ||
+        normalised.startsWith('../')
+    ) {
+        return { valid: false, error: `Unsafe archive entry path: ${entryPath}` };
     }
 
     return { valid: true };

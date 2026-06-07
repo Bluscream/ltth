@@ -332,8 +332,7 @@ FPS: 60
 #### Fireworks Superplugin
 **URLs:**
 ```
-WebGPU: http://localhost:3000/fireworks-webgpu/overlay
-WebGL: http://localhost:3000/fireworks/overlay
+Stable: http://localhost:3000/fireworks/overlay
 ```
 
 **Features:**
@@ -417,13 +416,16 @@ http://localhost:3000/gcce-hud/overlay
 #### LastEvent Spotlight
 **URLs:**
 ```
-Alle Events: http://localhost:3000/lastevent-spotlight/overlay
-Follower: http://localhost:3000/lastevent-spotlight/follower
-Gifter: http://localhost:3000/lastevent-spotlight/gifter
-Chatter: http://localhost:3000/lastevent-spotlight/chatter
-Sharer: http://localhost:3000/lastevent-spotlight/sharer
-Liker: http://localhost:3000/lastevent-spotlight/liker
-Subscriber: http://localhost:3000/lastevent-spotlight/subscriber
+Plugin UI: http://localhost:3000/lastevent-spotlight/ui
+Follower: http://localhost:3000/overlay/lastevent/follower
+Like: http://localhost:3000/overlay/lastevent/like
+Chatter: http://localhost:3000/overlay/lastevent/chatter
+Share: http://localhost:3000/overlay/lastevent/share
+Gifter: http://localhost:3000/overlay/lastevent/gifter
+Subscriber: http://localhost:3000/overlay/lastevent/subscriber
+Top Gift: http://localhost:3000/overlay/lastevent/topgift
+Gift Streak: http://localhost:3000/overlay/lastevent/giftstreak
+Multi-HUD: http://localhost:3000/overlay/lastevent/multihud
 ```
 
 **Auflösung:** 400x200 pro Event-Typ

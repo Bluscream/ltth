@@ -21,13 +21,15 @@ class BackupManager {
      * @param {import('./plugin-loader').PluginLoader} deps.pluginLoader
      * @param {object} deps.logger - Winston-compatible logger
      * @param {string} [deps.appVersion]
+     * @param {string} [deps.activeProfile]
      */
-    constructor({ db, configPathManager, pluginLoader, logger, appVersion }) {
+    constructor({ db, configPathManager, pluginLoader, logger, appVersion, activeProfile }) {
         this.db = db;
         this.configPathManager = configPathManager;
         this.pluginLoader = pluginLoader;
         this.logger = logger;
         this.appVersion = appVersion || 'unknown';
+        this.activeProfile = activeProfile || (pluginLoader ? pluginLoader.activeProfile : null);
 
         /** @type {Map<string, { exportConfig?: Function, importConfig?: Function }>} */
         this.backupProviders = new Map();
@@ -95,7 +97,7 @@ class BackupManager {
                 pluginLoader: this.pluginLoader,
                 backupProviders: Object.fromEntries(this.backupProviders),
                 appVersion: this.appVersion,
-                activeProfile
+                activeProfile: activeProfile || this.activeProfile || (this.pluginLoader ? this.pluginLoader.activeProfile : null)
             },
             opts
         );
@@ -155,7 +157,8 @@ class BackupManager {
                 {
                     db: this.db,
                     configPathManager: this.configPathManager,
-                    backupProviders: Object.fromEntries(this.backupProviders)
+                    backupProviders: Object.fromEntries(this.backupProviders),
+                    activeProfile: this.activeProfile || (this.pluginLoader ? this.pluginLoader.activeProfile : null)
                 },
                 opts
             );
@@ -190,7 +193,7 @@ class BackupManager {
         return {
             supportsExport: true,
             supportsImport: true,
-            supportedSections: ['globalSettings', 'pluginSettings', 'pluginData', 'uploads', 'userdata'],
+            supportedSections: ['globalSettings', 'pluginSettings', 'pluginData', 'userConfigs', 'uploads', 'userdata'],
             supportedImportModes: ['merge', 'replace'],
             loadedPlugins,
             customBackupProviders: customProviders,

@@ -24,15 +24,16 @@ import (
 )
 
 type Launcher struct {
-	nodePath        string
-	appDir          string
-	progress        int
-	status          string
-	clients         map[chan string]bool
-	logFile         *os.File
-	logger          *log.Logger
-	envFileFixed    bool // Track if we auto-created .env file
-	serverPort      int  // Actual port the server responded on
+	nodePath     string
+	appDir       string
+	progress     int
+	status       string
+	clients      map[chan string]bool
+	logFile      *os.File
+	logger       *log.Logger
+	logPath      string
+	envFileFixed bool // Track if we auto-created .env file
+	serverPort   int  // Actual port the server responded on
 }
 
 func NewLauncher() *Launcher {
@@ -66,12 +67,72 @@ func getCurrentNodePort() int {
 	return port
 }
 
-// setupLogging creates a log file in the app directory
+func rootLogDirForApp(appDir string) string {
+	return filepath.Join(filepath.Dir(appDir), "logs")
+}
+
+func uniqueArchivePath(destination string) string {
+	if _, err := os.Stat(destination); os.IsNotExist(err) {
+		return destination
+	}
+
+	ext := filepath.Ext(destination)
+	base := strings.TrimSuffix(destination, ext)
+	for index := 1; index < 1000; index++ {
+		candidate := fmt.Sprintf("%s-%d%s", base, index, ext)
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+
+	return fmt.Sprintf("%s-%d%s", base, time.Now().UnixNano(), ext)
+}
+
+func archiveExistingLogFiles(logDir string) (int, error) {
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	archiveDir := filepath.Join(logDir, "archive", time.Now().Format("2006-01-02_15-04-05"), "root")
+	archived := 0
+	var firstErr error
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		sourcePath := filepath.Join(logDir, entry.Name())
+		if archived == 0 {
+			if err := os.MkdirAll(archiveDir, 0755); err != nil {
+				return archived, err
+			}
+		}
+
+		destinationPath := uniqueArchivePath(filepath.Join(archiveDir, entry.Name()))
+		if err := os.Rename(sourcePath, destinationPath); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		archived++
+	}
+
+	return archived, firstErr
+}
+
+// setupLogging creates a log file in the root logs directory
 func (l *Launcher) setupLogging(appDir string) error {
-	logDir := filepath.Join(appDir, "logs")
+	logDir := rootLogDirForApp(appDir)
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %v", err)
 	}
+	archivedCount, archiveErr := archiveExistingLogFiles(logDir)
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	logPath := filepath.Join(logDir, fmt.Sprintf("launcher_%s.log", timestamp))
@@ -83,6 +144,7 @@ func (l *Launcher) setupLogging(appDir string) error {
 	}
 
 	l.logFile = logFile
+	l.logPath = logPath
 
 	// DEV MODE: Logger writes to file only, but server output goes to both file and console
 	// This ensures launcher progress is logged while server errors are visible in terminal
@@ -94,8 +156,15 @@ func (l *Launcher) setupLogging(appDir string) error {
 	l.logger.Printf("Log file: %s\n", logPath)
 	l.logger.Printf("Platform: %s\n", runtime.GOOS)
 	l.logger.Printf("Architecture: %s\n", runtime.GOARCH)
+	l.logger.Printf("Root log directory: %s\n", logDir)
+	if archivedCount > 0 {
+		l.logger.Printf("[INFO] Archived %d previous log file(s)\n", archivedCount)
+	}
+	if archiveErr != nil {
+		l.logger.Printf("[WARNING] Some previous log files could not be archived: %v\n", archiveErr)
+	}
 	l.logger.Println("========================================")
-	
+
 	// Force sync to ensure header is written
 	if err := logFile.Sync(); err != nil {
 		return fmt.Errorf("failed to sync log file: %v", err)
@@ -120,7 +189,7 @@ func (l *Launcher) closeLogging() {
 func (l *Launcher) logAndSync(format string, args ...interface{}) {
 	if l.logger != nil {
 		if len(args) > 0 {
-			l.logger.Printf(format, args...)
+			l.logger.Printf(format+"\n", args...)
 		} else {
 			l.logger.Println(format)
 		}
@@ -184,30 +253,62 @@ func (l *Launcher) checkNodeModules() bool {
 	return info.IsDir()
 }
 
+func sanitizeNodeEnvironment(env []string) []string {
+	sanitized := make([]string, 0, len(env))
+	for _, entry := range env {
+		upper := strings.ToUpper(entry)
+		if strings.HasPrefix(upper, "NODE_OPTIONS=") ||
+			strings.HasPrefix(upper, "NPM_CONFIG_NODE_OPTIONS=") {
+			continue
+		}
+		sanitized = append(sanitized, entry)
+	}
+	return sanitized
+}
+
+func (l *Launcher) verifyNativeModules() error {
+	if l.nodePath == "" {
+		return fmt.Errorf("Node.js path is empty")
+	}
+
+	script := "const Database = require('better-sqlite3'); const db = new Database(':memory:'); db.close(); console.log('native-modules-ok')"
+	cmd := exec.Command(l.nodePath, "-e", script)
+	cmd.Dir = l.appDir
+	cmd.Env = sanitizeNodeEnvironment(os.Environ())
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v\n%s", err, strings.TrimSpace(string(output)))
+	}
+
+	l.logAndSync("[SUCCESS] Native Node modules verified: %s", strings.TrimSpace(string(output)))
+	return nil
+}
+
 func (l *Launcher) installDependencies() error {
 	l.logger.Println("[INFO] Starting npm install...")
 	l.updateProgress(45, "npm install wird gestartet...")
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Show initial warning about potential delay
 	l.updateProgress(45, "HINWEIS: npm install kann mehrere Minuten dauern, besonders bei langsamer Internetverbindung. Bitte warten...")
 	time.Sleep(2 * time.Second)
-	
+
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.Command("cmd", "/C", "npm", "install", "--cache", "false")
 	} else {
 		cmd = exec.Command("npm", "install", "--cache", "false")
 	}
-	
+
 	cmd.Dir = l.appDir
 
 	// Set environment variables to skip problematic preinstall checks
-	cmd.Env = append(os.Environ(),
+	cmd.Env = sanitizeNodeEnvironment(append(os.Environ(),
 		"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
 		"PUPPETEER_SKIP_DOWNLOAD=true",
-	)
-	
+	))
+
 	// Capture output for logging and progress updates
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -217,26 +318,26 @@ func (l *Launcher) installDependencies() error {
 	if err != nil {
 		return fmt.Errorf("Failed to create stderr pipe: %v", err)
 	}
-	
+
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		l.logger.Printf("[ERROR] Failed to start npm install: %v\n", err)
 		return fmt.Errorf("Failed to start npm install: %v", err)
 	}
-	
+
 	// Track progress with live updates
 	progressCounter := 0
 	maxProgress := 75
 	lastUpdate := time.Now()
 	installComplete := false
-	
+
 	// Heartbeat ticker to show activity even when npm produces no output
 	heartbeatTicker := time.NewTicker(3 * time.Second)
 	defer heartbeatTicker.Stop()
-	
+
 	// Channel to signal when stdout reading is done
 	stdoutDone := make(chan bool)
-	
+
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -250,7 +351,7 @@ func (l *Launcher) installDependencies() error {
 				if currentProgress > maxProgress {
 					currentProgress = maxProgress
 				}
-				
+
 				// Don't truncate - show full line for better visibility
 				displayLine := line
 				if len(displayLine) > 120 {
@@ -262,7 +363,7 @@ func (l *Launcher) installDependencies() error {
 		}
 		stdoutDone <- true
 	}()
-	
+
 	// Log errors and collect stderr output for fallback error reporting
 	var stderrBuf bytes.Buffer
 	go func() {
@@ -273,7 +374,7 @@ func (l *Launcher) installDependencies() error {
 			stderrBuf.WriteString(line + "\n")
 		}
 	}()
-	
+
 	// Heartbeat goroutine to show activity
 	go func() {
 		for !installComplete {
@@ -294,14 +395,14 @@ func (l *Launcher) installDependencies() error {
 			}
 		}
 	}()
-	
+
 	// Wait for command to complete
 	err = cmd.Wait()
 	installComplete = true
-	
+
 	// Wait for stdout processing to complete
 	<-stdoutDone
-	
+
 	if err != nil {
 		stderrOutput := stderrBuf.String()
 		l.logger.Printf("[ERROR] npm install (with --cache false) failed: %v\n", err)
@@ -338,7 +439,7 @@ func (l *Launcher) installDependencies() error {
 
 		l.logger.Println("[SUCCESS] npm install retry (without --cache) succeeded")
 	}
-	
+
 	l.logger.Println("[SUCCESS] npm install completed successfully")
 	return nil
 }
@@ -357,9 +458,22 @@ func (l *Launcher) startTool() (*exec.Cmd, error) {
 		if strings.HasPrefix(e, "OPEN_BROWSER=") {
 			continue
 		}
+		if strings.HasPrefix(e, "LTTH_LOG_DIR=") || strings.HasPrefix(e, "LTTH_LOG_ARCHIVE_DONE=") || strings.HasPrefix(e, "LTTH_CURRENT_LAUNCHER_LOG=") {
+			continue
+		}
+		upper := strings.ToUpper(e)
+		if strings.HasPrefix(upper, "NODE_OPTIONS=") || strings.HasPrefix(upper, "NPM_CONFIG_NODE_OPTIONS=") {
+			continue
+		}
 		env = append(env, e)
 	}
+	rootLogDir := rootLogDirForApp(l.appDir)
 	env = append(env, "OPEN_BROWSER=false")
+	env = append(env, fmt.Sprintf("LTTH_LOG_DIR=%s", rootLogDir))
+	env = append(env, "LTTH_LOG_ARCHIVE_DONE=true")
+	if l.logPath != "" {
+		env = append(env, fmt.Sprintf("LTTH_CURRENT_LAUNCHER_LOG=%s", l.logPath))
+	}
 
 	// DEV MODE: Force unbuffered output from Node.js
 	env = append(env, "NODE_NO_WARNINGS=1") // Reduce noise
@@ -386,13 +500,16 @@ func (l *Launcher) startTool() (*exec.Cmd, error) {
 	l.logAndSync("Command: %s %s", l.nodePath, launchJS)
 	l.logAndSync("Working directory: %s", l.appDir)
 	l.logAndSync("OPEN_BROWSER environment variable set to: false")
+	l.logAndSync("LTTH_LOG_DIR environment variable set to: %s", rootLogDir)
 	l.logAndSync("--- Node.js Server Output Start ---")
-	
+
 	// Print to console as well
-	fmt.Println("\n================================================")
+	fmt.Println()
+	fmt.Println("================================================")
 	fmt.Println("  DEV MODE: Server output will be visible below")
 	fmt.Println("  Output wird in Echtzeit angezeigt (unbuffered)")
-	fmt.Println("================================================\n")
+	fmt.Println("================================================")
+	fmt.Println()
 
 	err := cmd.Start()
 	if err != nil {
@@ -441,41 +558,41 @@ func (l *Launcher) waitForServer(timeout time.Duration) error {
 func (l *Launcher) autoFixEnvFile() error {
 	envPath := filepath.Join(l.appDir, ".env")
 	envExamplePath := filepath.Join(l.appDir, ".env.example")
-	
+
 	// Check if .env already exists
 	if _, err := os.Stat(envPath); err == nil {
 		l.logger.Println("[INFO] .env file already exists")
 		return nil
 	}
-	
+
 	// Check if .env.example exists
 	if _, err := os.Stat(envExamplePath); os.IsNotExist(err) {
 		l.logger.Println("[WARNING] .env.example not found, cannot auto-create .env")
 		return fmt.Errorf(".env.example not found")
 	}
-	
+
 	l.logger.Println("[AUTO-FIX] Creating .env from .env.example...")
 	l.updateProgress(85, "🔧 Auto-Fix: Erstelle .env Datei...")
-	
+
 	// Read .env.example
 	input, err := os.ReadFile(envExamplePath)
 	if err != nil {
 		l.logger.Printf("[ERROR] Failed to read .env.example: %v\n", err)
 		return err
 	}
-	
+
 	// Write to .env
 	err = os.WriteFile(envPath, input, 0644)
 	if err != nil {
 		l.logger.Printf("[ERROR] Failed to write .env: %v\n", err)
 		return err
 	}
-	
+
 	l.logger.Println("[SUCCESS] .env file created successfully")
 	l.updateProgress(86, "✅ .env Datei erstellt!")
 	l.envFileFixed = true // Mark that we fixed the .env file
 	time.Sleep(1 * time.Second)
-	
+
 	return nil
 }
 
@@ -591,18 +708,18 @@ func (l *Launcher) runLauncher() {
 	l.updateProgress(82, "Prüfe Konfiguration...")
 	l.logger.Println("[Phase 3.5] Auto-fixing common issues...")
 	time.Sleep(300 * time.Millisecond)
-	
+
 	// Auto-fix: Create .env file if missing
 	if err := l.autoFixEnvFile(); err != nil {
 		l.logger.Printf("[WARNING] Could not auto-create .env: %v\n", err)
 	}
-	
+
 	// Auto-fix: Check port availability
 	l.autoFixPort()
-	
+
 	// Auto-fix: Install yt-dlp if missing
 	l.autoFixYtDlp()
-	
+
 	l.updateProgress(89, "Konfiguration geprüft!")
 	time.Sleep(300 * time.Millisecond)
 
@@ -616,7 +733,7 @@ func (l *Launcher) runLauncher() {
 	if err != nil {
 		l.logger.Printf("[ERROR] Failed to start server: %v\n", err)
 		l.updateProgress(90, fmt.Sprintf("FEHLER beim Starten: %v", err))
-		l.updateProgress(90, "Prüfe bitte die Log-Datei in app/logs/ für Details.")
+		l.updateProgress(90, "Prüfe bitte die Log-Dateien im logs/ Ordner für Details.")
 		time.Sleep(30 * time.Second)
 		l.closeLogging()
 		os.Exit(1)
@@ -641,26 +758,29 @@ func (l *Launcher) runLauncher() {
 	serverReady := false
 	attemptCount := 0
 	lastLogTime := time.Now()
-	
+
 	for !serverReady {
 		select {
 		case err := <-processDied:
 			// Process exited before server was ready
 			// CRITICAL: Give time for buffered output to flush
 			time.Sleep(500 * time.Millisecond)
-			
+
 			// Force flush all output streams
 			os.Stdout.Sync()
 			os.Stderr.Sync()
-			
+
 			// Ensure log file is flushed to capture all server output
 			if l.logFile != nil {
 				l.logFile.Sync()
 				time.Sleep(200 * time.Millisecond)
 			}
-			
-			fmt.Println("\n\n❌❌❌ SERVER CRASHED BEIM START! ❌❌❌\n")
-			
+
+			fmt.Println()
+			fmt.Println()
+			fmt.Println("❌❌❌ SERVER CRASHED BEIM START! ❌❌❌")
+			fmt.Println()
+
 			l.logAndSync("--- Node.js Server Output End ---")
 			l.logAndSync("[ERROR] ===========================================")
 			l.logAndSync("[ERROR] Node.js process exited prematurely: %v", err)
@@ -673,16 +793,16 @@ func (l *Launcher) runLauncher() {
 			l.logAndSync("[ERROR]  - Fehlende Dependencies (führe 'npm install' aus)")
 			l.logAndSync("[ERROR]  - Syntax-Fehler im Code")
 			l.logAndSync("[ERROR] ===========================================")
-			
+
 			// Check if we just fixed the .env file - if so, retry once
 			if l.envFileFixed {
 				l.logAndSync("[AUTO-FIX] .env file was just created - attempting restart...")
 				l.updateProgress(95, "🔄 .env erstellt - starte Server neu...")
 				time.Sleep(3 * time.Second)
-				
+
 				// Mark that we already tried the fix
 				l.envFileFixed = false
-				
+
 				// Start server again
 				cmd, err = l.startTool()
 				if err != nil {
@@ -692,47 +812,47 @@ func (l *Launcher) runLauncher() {
 					go func() {
 						processDied <- cmd.Wait()
 					}()
-					
+
 					l.updateProgress(96, "🔄 Server neugestartet - warte auf Antwort...")
 					l.logAndSync("[INFO] Server restarted after .env fix - waiting for health check...")
-					
+
 					// Reset the ticker for another try
 					continue
 				}
 			}
-			
+
 			l.updateProgress(95, "⚠️ Server konnte nicht starten!")
 			time.Sleep(2 * time.Second)
 			l.updateProgress(96, "📋 Alle Auto-Fixes wurden versucht")
 			time.Sleep(2 * time.Second)
-			l.updateProgress(97, "💡 Prüfe app/logs/launcher_*.log für Details")
+			l.updateProgress(97, "💡 Prüfe logs/launcher_*.log für Details")
 			time.Sleep(2 * time.Second)
 			l.updateProgress(98, "💡 Oder führe manuell: cd app && npm install")
 			time.Sleep(2 * time.Second)
 			l.updateProgress(99, "💡 Oder prüfe ob Port 3000 frei ist")
 			time.Sleep(2 * time.Second)
-			
+
 			// DEV MODE: Wait for user input instead of auto-closing
 			fmt.Println("\n================================================")
 			fmt.Println("  ❌ SERVER START FEHLGESCHLAGEN")
 			fmt.Println("================================================")
 			fmt.Println("\nFehlerdetails siehe oben.")
-			fmt.Println("Log-Datei: app/logs/launcher_*.log")
+			fmt.Println("Log-Datei: logs/launcher_*.log")
 			fmt.Println("\nDrücke Enter zum Beenden...")
 			bufio.NewReader(os.Stdin).ReadBytes('\n')
-			
+
 			l.closeLogging()
 			os.Exit(1)
 		case <-healthCheckTicker.C:
 			attemptCount++
-			
+
 			// Log progress every 5 seconds
-			if time.Since(lastLogTime) >= 5 * time.Second {
+			if time.Since(lastLogTime) >= 5*time.Second {
 				l.logger.Printf("[INFO] Health check attempt %d (waiting for server to respond)...\n", attemptCount)
-				l.updateProgress(93 + (attemptCount / 5), fmt.Sprintf("Warte auf Server... (Versuch %d)", attemptCount))
+				l.updateProgress(93+(attemptCount/5), fmt.Sprintf("Warte auf Server... (Versuch %d)", attemptCount))
 				lastLogTime = time.Now()
 			}
-			
+
 			if l.checkServerHealth() {
 				resolvedPort := getCurrentNodePort()
 				l.logger.Printf("[SUCCESS] Server responded on port %d!\n", resolvedPort)
@@ -749,25 +869,25 @@ func (l *Launcher) runLauncher() {
 			l.logger.Println("[ERROR]  - Datenbank-Migration läuft")
 			l.logger.Println("[ERROR]  - Portbereich 3000-3050 ist blockiert durch Firewall")
 			l.logger.Println("[ERROR] ===========================================")
-			
+
 			l.updateProgress(95, "⏱️ Server-Start Timeout (60s)")
 			time.Sleep(2 * time.Second)
-			l.updateProgress(96, "📋 Server antwortet nicht - prüfe app/logs/")
+			l.updateProgress(96, "📋 Server antwortet nicht - prüfe logs/")
 			time.Sleep(2 * time.Second)
 			l.updateProgress(97, "💡 Server läuft evtl. noch im Hintergrund")
 			time.Sleep(2 * time.Second)
 			l.updateProgress(98, fmt.Sprintf("💡 Warte 2-3 Minuten und öffne localhost:%d", getCurrentNodePort()))
 			time.Sleep(2 * time.Second)
-			
+
 			// DEV MODE: Wait for user input instead of auto-closing
 			fmt.Println("\n================================================")
 			fmt.Println("  ⏱️ SERVER TIMEOUT")
 			fmt.Println("================================================")
 			fmt.Println("\nServer antwortet nicht nach 60 Sekunden.")
-			fmt.Println("Prüfe app/logs/ für Details oder warte noch etwas.")
+			fmt.Println("Prüfe logs/ für Details oder warte noch etwas.")
 			fmt.Println("\nDrücke Enter zum Beenden...")
 			bufio.NewReader(os.Stdin).ReadBytes('\n')
-			
+
 			l.closeLogging()
 			os.Exit(1)
 		}
@@ -783,48 +903,51 @@ func (l *Launcher) runLauncher() {
 
 	// DEV MODE: Keep launcher running to monitor server and catch crashes
 	time.Sleep(3 * time.Second)
-	
-	fmt.Println("\n================================================")
+
+	fmt.Println()
+	fmt.Println("================================================")
 	fmt.Println("  DEV MODE: Launcher bleibt aktiv")
 	fmt.Println("  Server-Prozess wird überwacht")
 	fmt.Println("  Bei Crash bleibt Terminal offen für Logs")
-	fmt.Println("================================================\n")
+	fmt.Println("================================================")
+	fmt.Println()
 	l.logger.Println("[DEV MODE] Launcher staying active to monitor server process")
-	
+
 	// Wait for server process to exit (crash or shutdown)
 	// The processDied channel is still being monitored by the goroutine from line 530
 	err = <-processDied
-	
+
 	// CRITICAL: Give time for buffered output to flush before showing crash message
 	// This ensures we can see the actual error that caused the crash
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Force flush stdout/stderr
 	os.Stdout.Sync()
 	os.Stderr.Sync()
-	
+
 	// Server has crashed or exited - flush log file
 	if l.logFile != nil {
 		l.logFile.Sync()
 		time.Sleep(200 * time.Millisecond)
 	}
-	
+
 	// Print prominent crash message to console
-	fmt.Println("\n\n")
+	fmt.Println()
+	fmt.Println()
 	fmt.Println("████████████████████████████████████████████████")
 	fmt.Println("██                                            ██")
 	fmt.Println("██        ❌ SERVER CRASH DETECTED! ❌         ██")
 	fmt.Println("██                                            ██")
 	fmt.Println("████████████████████████████████████████████████")
 	fmt.Println()
-	
+
 	l.logAndSync("--- Node.js Server Output End ---")
 	l.logAndSync("[ERROR] ===========================================")
 	l.logAndSync("[ERROR] Server crashed after successful startup!")
 	l.logAndSync("[ERROR] Exit status: %v", err)
 	l.logAndSync("[ERROR] Check the server output above for error details")
 	l.logAndSync("[ERROR] ===========================================")
-	
+
 	fmt.Println("❌ Der Server ist abgestürzt!")
 	if err != nil {
 		fmt.Printf("   Exit-Status: %v\n", err)
@@ -833,7 +956,7 @@ func (l *Launcher) runLauncher() {
 	fmt.Println("📋 LETZTE AUSGABE VOR DEM CRASH:")
 	fmt.Println("   Sieh dir die Zeilen DIREKT ÜBER dieser Meldung an!")
 	fmt.Println()
-	fmt.Println("💾 Vollständige Logs in: app/logs/launcher_*.log")
+	fmt.Println("💾 Vollständige Logs in: logs/launcher_*.log")
 	fmt.Println()
 	fmt.Println("⚠️  HÄUFIGE CRASH-URSACHEN:")
 	fmt.Println("   - Ungültige TikTok Username")
@@ -843,10 +966,10 @@ func (l *Launcher) runLauncher() {
 	fmt.Println()
 	fmt.Println("👉 Drücke Enter zum Beenden...")
 	fmt.Println()
-	
+
 	// Wait for user to press Enter before closing
 	bufio.NewReader(os.Stdin).ReadBytes('\n')
-	
+
 	l.closeLogging()
 	os.Exit(1)
 }

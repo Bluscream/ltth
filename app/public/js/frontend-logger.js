@@ -65,7 +65,6 @@
 
       // Always write to the browser/worker console for immediate developer visibility.
       var prefix = '[' + level.toUpperCase() + '] [' + ctx + ']';
-      /* eslint-disable no-console */
       switch (level) {
         case 'error':
           data !== undefined ? console.error(prefix, message, data) : console.error(prefix, message);
@@ -80,7 +79,6 @@
           data !== undefined ? console.info(prefix, message, data) : console.info(prefix, message);
           break;
       }
-      /* eslint-enable no-console */
     }
 
     return {

@@ -2824,7 +2824,13 @@
       try {
         const response = await fetch(`/api/viewer-xp/search?q=${encodeURIComponent(term)}&limit=8`);
         const results = await response.json();
-        awardSuggestions.innerHTML = results.map((viewer) => `<option value="${viewer.username}">Lvl ${viewer.level}</option>`).join('');
+        awardSuggestions.innerHTML = '';
+        results.forEach((viewer) => {
+          const option = document.createElement('option');
+          option.value = viewer.username || '';
+          option.textContent = `Lvl ${viewer.level}`;
+          awardSuggestions.appendChild(option);
+        });
       } catch (error) {
         console.error('Suggestion search failed', error);
       }
@@ -2901,7 +2907,7 @@
         resultDiv.innerHTML = `
           <div class="alert alert-danger">
             <span>❌</span>
-            <div><strong>Error:</strong> ${error.message}</div>
+            <div><strong>Error:</strong> ${escapeHtml(error.message || 'Unknown error')}</div>
           </div>
         `;
       }
@@ -3156,7 +3162,7 @@
             <td colspan="4">
               <div class="alert alert-danger">
                 <span>❌</span>
-                <div><strong>Error:</strong> Failed to load viewer history. ${error.message}</div>
+            <div><strong>Error:</strong> Failed to load viewer history. ${escapeHtml(error.message || 'Unknown error')}</div>
               </div>
             </td>
           </tr>

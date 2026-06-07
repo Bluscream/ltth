@@ -1078,7 +1078,7 @@ async function testPermissions() {
       data.testResults.forEach(test => {
         const icon = test.eligible ? '✅' : '❌';
         const color = test.eligible ? 'color: #10b981;' : 'color: #ef4444;';
-        html += `<div style="margin-bottom: 4px;"><span style="${color}">${icon}</span> <strong>${test.userType}:</strong> ${test.reason}</div>`;
+        html += `<div style="margin-bottom: 4px;"><span style="${color}">${icon}</span> <strong>${escapeHtml(test.userType || '')}:</strong> ${escapeHtml(test.reason || '')}</div>`;
       });
       
       html += '</div>';
@@ -1089,13 +1089,13 @@ async function testPermissions() {
       
       showNotification('Berechtigungs-Test abgeschlossen', 'info');
     } else {
-      resultDiv.innerHTML = `<strong>Fehler:</strong> ${data.error}`;
+      resultDiv.innerHTML = `<strong>Fehler:</strong> ${escapeHtml(data.error || 'Unbekannter Fehler')}`;
       resultDiv.className = 'alert alert-warning';
       resultDiv.style.display = 'block';
     }
   } catch (error) {
     console.error('Permission test failed:', error);
-    resultDiv.innerHTML = `<strong>Fehler:</strong> ${error.message}`;
+    resultDiv.innerHTML = `<strong>Fehler:</strong> ${escapeHtml(error.message || 'Unbekannter Fehler')}`;
     resultDiv.className = 'alert alert-warning';
     resultDiv.style.display = 'block';
   } finally {
@@ -1428,4 +1428,3 @@ async function assignTalkingHead(userId, username, profileImageUrl, isRegenerati
     showNotification('Fehler: ' + error.message, 'error');
   }
 }
-

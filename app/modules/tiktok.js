@@ -24,7 +24,7 @@ class TikTokConnector extends EventEmitter {
   constructor(io, db, logger = console) {
     super();
     this.io = io;
-    this.db = db;
+    this.db = this._withDbDefaults(db);
     this.logger = logger;
     this.setMaxListeners(50);
     this._adapter = null;
@@ -32,6 +32,30 @@ class TikTokConnector extends EventEmitter {
     this._eventForwarders = {};
     const source = this.db.getSetting('tiktok_data_source') || 'eulerstream';
     this._switchAdapter(source);
+  }
+
+  _withDbDefaults(db = {}) {
+    const noop = () => {};
+    const dbWithDefaults = db && typeof db === 'object' ? db : {};
+    const defaults = {
+      getSetting: () => null,
+      setSetting: noop,
+      deleteSetting: noop,
+      loadStreamStats: () => null,
+      saveStreamStats: noop,
+      resetStreamStats: noop,
+      logEvent: noop,
+      updateGiftCatalog: () => 0,
+      getGiftCatalog: () => []
+    };
+
+    Object.entries(defaults).forEach(([key, defaultValue]) => {
+      if (typeof dbWithDefaults[key] !== 'function') {
+        dbWithDefaults[key] = defaultValue;
+      }
+    });
+
+    return dbWithDefaults;
   }
 
   _createAdapterForSource(source) {
@@ -308,6 +332,13 @@ class TikTokConnector extends EventEmitter {
     }
     return { username: null, nickname: null, userId: null,
       profilePictureUrl: '', teamMemberLevel: 0, isModerator: false, isSubscriber: false };
+  }
+
+  extractProfilePictureUrl(user) {
+    if (this._adapter && typeof this._adapter.extractProfilePictureUrl === 'function') {
+      return this._adapter.extractProfilePictureUrl(user);
+    }
+    return '';
   }
 
   extractGiftData(data) {

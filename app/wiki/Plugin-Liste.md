@@ -1,121 +1,121 @@
-# Plugin-Liste - Little TikTool Helper v1.2.1
+﻿# Plugin-Liste - Little TikTool Helper v1.2.1
 
-[← Plugin-Dokumentation](Plugin-Dokumentation) | [→ Entwickler-Leitfaden](Entwickler-Leitfaden)
+[â† Plugin-Dokumentation](Plugin-Dokumentation) | [â†’ Entwickler-Leitfaden](Entwickler-Leitfaden)
 
 ---
 
-## 📑 Inhaltsverzeichnis
+## ðŸ“‘ Inhaltsverzeichnis
 
-1. [Übersicht](#übersicht)
-2. [Plugin-Status Erklärung](#plugin-status-erklärung)
-3. [🔴 Early Beta Plugins](#-early-beta-plugins)
-4. [🟡 Beta Plugins](#-beta-plugins)
-5. [🟢 Alpha Plugins](#-alpha-plugins)
-6. [🔵 Final/Stable Plugins](#-finalstable-plugins)
+1. [Ãœbersicht](#Ã¼bersicht)
+2. [Plugin-Status ErklÃ¤rung](#plugin-status-erklÃ¤rung)
+3. [ðŸ”´ Early Beta Plugins](#-early-beta-plugins)
+4. [ðŸŸ¡ Beta Plugins](#-beta-plugins)
+5. [ðŸŸ¢ Alpha Plugins](#-alpha-plugins)
+6. [ðŸ”µ Final/Stable Plugins](#-finalstable-plugins)
 7. [Plugin-Installation](#plugin-installation)
 8. [Plugin-Konfiguration](#plugin-konfiguration)
 
 ---
 
-## 🔍 Übersicht
+## ðŸ” Ãœbersicht
 
-Little TikTool Helper (LTTH) v1.2.1 enthält **31 integrierte Plugins**, die das Tool um vielfältige Funktionen erweitern. Alle Plugins sind modular aufgebaut und können einzeln aktiviert oder deaktiviert werden.
+Little TikTool Helper (LTTH) v1.2.1 enthÃ¤lt **31 integrierte Plugins**, die das Tool um vielfÃ¤ltige Funktionen erweitern. Alle Plugins sind modular aufgebaut und kÃ¶nnen einzeln aktiviert oder deaktiviert werden.
 
 ### Statistik
 
 | Status | Anzahl | Beschreibung |
 |--------|--------|--------------|
-| 🔴 Early Beta | 6 | Experimentelle Features, aktive Entwicklung |
-| 🟡 Beta | 10 | Feature-komplett, in Testphase |
-| 🟢 Alpha | 8 | Stabile Features, finale Tests |
-| 🔵 Final | 7 | Produktionsreif, vollständig getestet |
+| ðŸ”´ Early Beta | 6 | Experimentelle Features, aktive Entwicklung |
+| ðŸŸ¡ Beta | 10 | Feature-komplett, in Testphase |
+| ðŸŸ¢ Alpha | 8 | Stabile Features, finale Tests |
+| ðŸ”µ Final | 7 | Produktionsreif, vollstÃ¤ndig getestet |
 | **Gesamt** | **31** | **Alle Plugins** |
 
 ---
 
-## 📊 Plugin-Status Erklärung
+## ðŸ“Š Plugin-Status ErklÃ¤rung
 
-### 🔴 Early Beta
+### ðŸ”´ Early Beta
 **Entwicklungsphase:** Aktive Feature-Entwicklung  
-**Stabilität:** Experimentell, kann Bugs enthalten  
-**Empfehlung:** Nur für Test-Streams verwenden  
-**Updates:** Häufige Änderungen möglich
+**StabilitÃ¤t:** Experimentell, kann Bugs enthalten  
+**Empfehlung:** Nur fÃ¼r Test-Streams verwenden  
+**Updates:** HÃ¤ufige Ã„nderungen mÃ¶glich
 
-### 🟡 Beta
+### ðŸŸ¡ Beta
 **Entwicklungsphase:** Feature-komplett, in Testing  
-**Stabilität:** Weitgehend stabil, kleinere Bugs möglich  
+**StabilitÃ¤t:** Weitgehend stabil, kleinere Bugs mÃ¶glich  
 **Empfehlung:** Kann in Produktions-Streams verwendet werden  
 **Updates:** Gelegentliche Bug-Fixes
 
-### 🟢 Alpha
+### ðŸŸ¢ Alpha
 **Entwicklungsphase:** Finale Testphase  
-**Stabilität:** Stabil, nur kleine Optimierungen ausstehend  
+**StabilitÃ¤t:** Stabil, nur kleine Optimierungen ausstehend  
 **Empfehlung:** Produktionsreif  
 **Updates:** Selten, meist nur Optimierungen
 
-### 🔵 Final/Stable
+### ðŸ”µ Final/Stable
 **Entwicklungsphase:** Abgeschlossen  
-**Stabilität:** Vollständig stabil und getestet  
+**StabilitÃ¤t:** VollstÃ¤ndig stabil und getestet  
 **Empfehlung:** Produktionsreif, empfohlen  
-**Updates:** Nur bei größeren Feature-Anfragen oder kritischen Fixes
+**Updates:** Nur bei grÃ¶ÃŸeren Feature-Anfragen oder kritischen Fixes
 
 ---
 
-## 🔴 Early Beta Plugins
+## ðŸ”´ Early Beta Plugins
 
 ### 1. Advanced Timer
-**Status:** 🔴 Early Beta  
+**Status:** ðŸ”´ Early Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Professionelles Multi-Timer-System mit Event-Triggern, Automatisierung, Zuschauer-Interaktion und anpassbaren Overlays. Perfekt für Subathons, Challenges, Stream-Zeitpläne und Ziele.
+Professionelles Multi-Timer-System mit Event-Triggern, Automatisierung, Zuschauer-Interaktion und anpassbaren Overlays. Perfekt fÃ¼r Subathons, Challenges, Stream-ZeitplÃ¤ne und Ziele.
 
 **Features:**
-- ⏱️ Mehrere unabhängige Timer (Countdown/Count-Up)
-- 🎁 Event-Trigger (Gift, Follow, Subscribe, etc.)
-- 🎨 Anpassbare Overlays für OBS
-- 👥 Zuschauer-Interaktion über Chat-Commands
-- ⚡ Flow-System-Integration
-- 📊 Timer-Historie und Statistiken
-- 🔊 Audio-Alerts bei Timer-Events
-- 💾 Persistente Timer-Speicherung
+- â±ï¸ Mehrere unabhÃ¤ngige Timer (Countdown/Count-Up)
+- ðŸŽ Event-Trigger (Gift, Follow, Subscribe, etc.)
+- ðŸŽ¨ Anpassbare Overlays fÃ¼r OBS
+- ðŸ‘¥ Zuschauer-Interaktion Ã¼ber Chat-Commands
+- âš¡ Flow-System-Integration
+- ðŸ“Š Timer-Historie und Statistiken
+- ðŸ”Š Audio-Alerts bei Timer-Events
+- ðŸ’¾ Persistente Timer-Speicherung
 
 **Endpoints:**
 - `GET /api/advanced-timer/timers` - Alle Timer abrufen
 - `POST /api/advanced-timer/create` - Timer erstellen
 - `POST /api/advanced-timer/start/:id` - Timer starten
 - `POST /api/advanced-timer/pause/:id` - Timer pausieren
-- `DELETE /api/advanced-timer/delete/:id` - Timer löschen
+- `DELETE /api/advanced-timer/delete/:id` - Timer lÃ¶schen
 
 **Overlay-URL:**
 ```
 http://localhost:3000/advanced-timer/overlay
 ```
 
-**Konfiguration:** Admin UI verfügbar unter Plugins → Advanced Timer
+**Konfiguration:** Admin UI verfÃ¼gbar unter Plugins â†’ Advanced Timer
 
-**Bekannte Einschränkungen:**
-- ⚠️ Early Beta: Gelegentliche Timer-Desync möglich
-- ⚠️ Overlay-Styling noch in Entwicklung
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Early Beta: Gelegentliche Timer-Desync mÃ¶glich
+- âš ï¸ Overlay-Styling noch in Entwicklung
 
 ---
 
 ### 2. Chatango Integration
-**Status:** 🔴 Early Beta  
+**Status:** ðŸ”´ Early Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Integriert Chatango-Chaträume in deinen Stream. Konfiguriere einbettbare Chat-Widgets, passe das Erscheinungsbild an und empfange Chat-Nachrichten als Events für Flows und Automatisierungen.
+Integriert Chatango-ChatrÃ¤ume in deinen Stream. Konfiguriere einbettbare Chat-Widgets, passe das Erscheinungsbild an und empfange Chat-Nachrichten als Events fÃ¼r Flows und Automatisierungen.
 
 **Features:**
-- 💬 Chatango-Chatroom-Integration
-- 🎨 Anpassbares Widget-Design
-- 📡 Echtzeit-Chat-Nachrichten als Events
-- 🔗 Flow-System-Kompatibilität
-- 👥 Moderations-Tools
-- 🌐 Multi-Chatroom-Support
+- ðŸ’¬ Chatango-Chatroom-Integration
+- ðŸŽ¨ Anpassbares Widget-Design
+- ðŸ“¡ Echtzeit-Chat-Nachrichten als Events
+- ðŸ”— Flow-System-KompatibilitÃ¤t
+- ðŸ‘¥ Moderations-Tools
+- ðŸŒ Multi-Chatroom-Support
 
 **Endpoints:**
 - `GET /api/chatango/status` - Verbindungsstatus
@@ -125,32 +125,32 @@ Integriert Chatango-Chaträume in deinen Stream. Konfiguriere einbettbare Chat-W
 **Events:**
 - `chatango:message` - Neue Chat-Nachricht
 - `chatango:user-join` - Benutzer betritt Chatroom
-- `chatango:user-leave` - Benutzer verlässt Chatroom
+- `chatango:user-leave` - Benutzer verlÃ¤sst Chatroom
 
-**Konfiguration:** Admin UI verfügbar
+**Konfiguration:** Admin UI verfÃ¼gbar
 
-**Bekannte Einschränkungen:**
-- ⚠️ Early Beta: Reconnection-Logic noch nicht optimiert
-- ⚠️ Einige Chatango-Features noch nicht unterstützt
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Early Beta: Reconnection-Logic noch nicht optimiert
+- âš ï¸ Einige Chatango-Features noch nicht unterstÃ¼tzt
 
 ---
 
 ### 3. GCCE HUD Overlay
-**Status:** 🔴 Early Beta  
+**Status:** ðŸ”´ Early Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Anpassbares HUD-Overlay-System mit Text- und Bildanzeige über Chat-Commands. Integriert mit der Global Chat Command Engine.
+Anpassbares HUD-Overlay-System mit Text- und Bildanzeige Ã¼ber Chat-Commands. Integriert mit der Global Chat Command Engine.
 
 **Features:**
-- 📺 Dynamische HUD-Elemente
-- 🎨 Text- und Bild-Overlays
-- 💬 Chat-Command-gesteuert (via GCCE)
-- ⏱️ Zeitbasierte Auto-Hide-Funktion
-- 🎭 Animations-Effekte
-- 📍 Positionierung konfigurierbar
-- 🌈 CSS-Styling-Optionen
+- ðŸ“º Dynamische HUD-Elemente
+- ðŸŽ¨ Text- und Bild-Overlays
+- ðŸ’¬ Chat-Command-gesteuert (via GCCE)
+- â±ï¸ Zeitbasierte Auto-Hide-Funktion
+- ðŸŽ­ Animations-Effekte
+- ðŸ“ Positionierung konfigurierbar
+- ðŸŒˆ CSS-Styling-Optionen
 
 **Commands:**
 - `!hud show <text>` - Text im HUD anzeigen
@@ -163,53 +163,53 @@ Anpassbares HUD-Overlay-System mit Text- und Bildanzeige über Chat-Commands. In
 http://localhost:3000/gcce-hud/overlay
 ```
 
-**Integration:** Benötigt GCCE-Plugin (Global Chat Command Engine)
+**Integration:** BenÃ¶tigt GCCE-Plugin (Global Chat Command Engine)
 
-**Bekannte Einschränkungen:**
-- ⚠️ Early Beta: Performance-Optimierungen ausstehend
-- ⚠️ Begrenzter Bildformat-Support
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Early Beta: Performance-Optimierungen ausstehend
+- âš ï¸ Begrenzter Bildformat-Support
 
 ---
 
 ### 4. Stream Alchemy
-**Status:** 🔴 Early Beta  
+**Status:** ðŸ”´ Early Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Verwandle TikTok-Geschenke in virtuelle RPG-Items mit Crafting-Mechaniken und KI-generierten Icons. Gamification-System für Streams.
+Verwandle TikTok-Geschenke in virtuelle RPG-Items mit Crafting-Mechaniken und KI-generierten Icons. Gamification-System fÃ¼r Streams.
 
 **Features:**
-- 🎁 Gift-to-Item-Transformation
-- ⚔️ RPG-Itemsystem (Common, Rare, Epic, Legendary)
-- 🔨 Crafting-Mechanik (Items kombinieren)
-- 🤖 KI-generierte Item-Icons
-- 📦 Inventar-System pro Zuschauer
-- 📊 Item-Statistiken und Seltenheit
-- 🎨 Overlay-Anzeige für neue Items
-- 💱 Item-Trading (geplant)
+- ðŸŽ Gift-to-Item-Transformation
+- âš”ï¸ RPG-Itemsystem (Common, Rare, Epic, Legendary)
+- ðŸ”¨ Crafting-Mechanik (Items kombinieren)
+- ðŸ¤– KI-generierte Item-Icons
+- ðŸ“¦ Inventar-System pro Zuschauer
+- ðŸ“Š Item-Statistiken und Seltenheit
+- ðŸŽ¨ Overlay-Anzeige fÃ¼r neue Items
+- ðŸ’± Item-Trading (geplant)
 
 **Endpoints:**
 - `GET /api/streamalchemy/inventory/:user` - Benutzer-Inventar
 - `POST /api/streamalchemy/craft` - Items craften
-- `GET /api/streamalchemy/items` - Alle verfügbaren Items
+- `GET /api/streamalchemy/items` - Alle verfÃ¼gbaren Items
 
 **Overlay-URL:**
 ```
 http://localhost:3000/streamalchemy/overlay
 ```
 
-**Integration:** Optional mit GCCE für Chat-Commands
+**Integration:** Optional mit GCCE fÃ¼r Chat-Commands
 
-**Bekannte Einschränkungen:**
-- ⚠️ Early Beta: KI-Generierung kann langsam sein
-- ⚠️ Trading-System noch nicht implementiert
-- ⚠️ Crafting-Rezepte in Entwicklung
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Early Beta: KI-Generierung kann langsam sein
+- âš ï¸ Trading-System noch nicht implementiert
+- âš ï¸ Crafting-Rezepte in Entwicklung
 
 ---
 
 ### 5. WebGPU Emoji Rain
-**Status:** 🔴 Early Beta  
+**Status:** ðŸ”´ Early Beta  
 **Version:** 2.0.0  
 **Autor:** Pup Cid
 
@@ -217,16 +217,16 @@ http://localhost:3000/streamalchemy/overlay
 GPU-beschleunigter Emoji-Partikel-Effekt mit WebGPU instanziertem Rendering. 1:1 funktionaler Port des originalen Emoji Rain Plugins mit deutlich besserer Performance.
 
 **Features:**
-- 🚀 WebGPU-beschleunigtes Rendering
-- 🎨 Custom Emoji-Sets (konfigurierbar)
-- 👤 Benutzer-spezifische Emoji-Mappings
-- 🖼️ Custom Image-Upload (PNG/JPG/GIF/WebP/SVG)
-- 🎁 TikTok-Event-Integration (Gift, Like, Follow, Share, Subscribe)
-- ⭐ SuperFan-Burst-Effekte
-- 🔗 Flow-System-Kompatibilität
-- 📺 OBS-HUD-Overlay (1920x1080 Fixed)
-- 💾 Persistent Storage (Update-sicher)
-- 🌍 Lokalisierung (DE/EN)
+- ðŸš€ WebGPU-beschleunigtes Rendering
+- ðŸŽ¨ Custom Emoji-Sets (konfigurierbar)
+- ðŸ‘¤ Benutzer-spezifische Emoji-Mappings
+- ðŸ–¼ï¸ Custom Image-Upload (PNG/JPG/GIF/WebP/SVG)
+- ðŸŽ TikTok-Event-Integration (Gift, Like, Follow, Share, Subscribe)
+- â­ SuperFan-Burst-Effekte
+- ðŸ”— Flow-System-KompatibilitÃ¤t
+- ðŸ“º OBS-HUD-Overlay (1920x1080 Fixed)
+- ðŸ’¾ Persistent Storage (Update-sicher)
+- ðŸŒ Lokalisierung (DE/EN)
 
 **Endpoints:**
 - `GET /api/webgpu-emoji-rain/status` - Status und Config
@@ -241,71 +241,22 @@ OBS HUD (1920x1080): http://localhost:3000/webgpu-emoji-rain/obs-hud
 ```
 
 **Performance:**
-- 🎯 60 FPS konstant
-- 🚀 10x schneller als Canvas-Version
-- 💾 Niedriger Memory-Footprint
-- 🔋 GPU-Offloading entlastet CPU
+- ðŸŽ¯ 60 FPS konstant
+- ðŸš€ 10x schneller als Canvas-Version
+- ðŸ’¾ Niedriger Memory-Footprint
+- ðŸ”‹ GPU-Offloading entlastet CPU
 
-**Bekannte Einschränkungen:**
-- ⚠️ Early Beta: WebGPU-Browser-Support erforderlich (Chrome 113+, Edge 113+)
-- ⚠️ Safari/Firefox: Noch kein WebGPU-Support
-- ⚠️ Fallback auf Canvas-Version bei fehlendem WebGPU
-
----
-
-### 6. Vulkan Rockets (WebGPU)
-**Status:** 🔴 Early Beta  
-**Version:** 1.0.0  
-**Autor:** Pup Cid
-
-**Beschreibung:**  
-WebGPU-beschleunigter Feuerwerks-Effekt mit Gift-spezifischen Displays, Combo-Systemen und interaktiven Triggern. Native WebGPU-Rendering mit Compute-Shadern für maximale Performance. (Zuvor „Fireworks Superplugin WEBGPU“)
-
-**Features:**
-- 🎆 WebGPU-Compute-Shader-basierte Partikel
-- 🎁 Gift-spezifische Feuerwerks-Designs
-- 🔥 Combo-Streak-System
-- 📈 Eskalations-System (mehr Gifts = größeres Feuerwerk)
-- 🎨 Custom Shapes & Farben
-- 🔊 Audio-Effekte synchronisiert
-- 🎯 Goal-Finale-Effekte
-- 🖱️ Interaktive Trigger (Mausklick)
-- 🎲 Random-Feuerwerk-Generator
-- 🔌 API-Hooks für externe Trigger
-
-**Multi-Stage Firework System:**
-1. **Launch Stage** - Rakete steigt auf
-2. **Burst Stage** - Erste Explosion
-3. **Trail Stage** - Partikel-Trails
-4. **Secondary Burst** - Zweite Explosion (optional)
-5. **Fade Stage** - Ausblenden
-
-**Endpoints:**
-- `GET /api/fireworks-webgpu/status` - Status
-- `POST /api/fireworks-webgpu/trigger` - Manuelles Feuerwerk
-- `POST /api/fireworks-webgpu/combo` - Combo-Feuerwerk
-
-**Overlay-URL:**
-```
-http://localhost:3000/fireworks-webgpu/overlay
-```
-
-**Performance:**
-- 🎯 60 FPS mit 10.000+ Partikeln
-- 🚀 GPU-Compute-Shader-Physik
-- 💾 Instanziertes Rendering
-
-**Bekannte Einschränkungen:**
-- ⚠️ Early Beta: WebGPU-Browser-Support erforderlich
-- ⚠️ Compute-Shader-Support erforderlich (Chrome 113+)
-- ⚠️ Fallback auf WebGL-Version bei fehlendem WebGPU
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Early Beta: WebGPU-Browser-Support erforderlich (Chrome 113+, Edge 113+)
+- âš ï¸ Safari/Firefox: Noch kein WebGPU-Support
+- âš ï¸ Fallback auf Canvas-Version bei fehlendem WebGPU
 
 ---
 
-## 🟡 Beta Plugins
+## ðŸŸ¡ Beta Plugins
 
 ### 7. Minecraft Connect
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
@@ -313,28 +264,28 @@ http://localhost:3000/fireworks-webgpu/overlay
 Bidirektionale Echtzeit-Integration zwischen TikTok Live Events und Minecraft (Java Edition). Verbindet Stream-Events mit In-Game-Actions.
 
 **Features:**
-- 🎮 WebSocket-Bridge zu Minecraft
-- 🎁 Gift-Events → Minecraft-Aktionen
-- 💬 Chat-Nachrichten synchronisiert
-- 🔔 Follow/Subscribe → Spawn Items/Effekte
-- ⚡ Echtzeit-Kommunikation
-- 📊 Event-Mapping konfigurierbar
+- ðŸŽ® WebSocket-Bridge zu Minecraft
+- ðŸŽ Gift-Events â†’ Minecraft-Aktionen
+- ðŸ’¬ Chat-Nachrichten synchronisiert
+- ðŸ”” Follow/Subscribe â†’ Spawn Items/Effekte
+- âš¡ Echtzeit-Kommunikation
+- ðŸ“Š Event-Mapping konfigurierbar
 
 **Endpoints:**
 - `GET /api/minecraft-connect/status` - Verbindungsstatus
 - `POST /api/minecraft-connect/send` - Command zu Minecraft senden
 
 **Setup:**
-Benötigt Minecraft Mod/Plugin (WebSocket-Server) - Siehe separate Dokumentation
+BenÃ¶tigt Minecraft Mod/Plugin (WebSocket-Server) - Siehe separate Dokumentation
 
-**Bekannte Einschränkungen:**
-- ⚠️ Benötigt Minecraft Java Edition
-- ⚠️ Mod/Plugin-Installation erforderlich
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ BenÃ¶tigt Minecraft Java Edition
+- âš ï¸ Mod/Plugin-Installation erforderlich
 
 ---
 
 ### 8. Thermal Printer
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
@@ -342,12 +293,12 @@ Benötigt Minecraft Mod/Plugin (WebSocket-Server) - Siehe separate Dokumentation
 Druckt TikTok Live Events (Chat, Gifts, Follows) physisch auf einem Thermodrucker (ESC/POS).
 
 **Features:**
-- 🖨️ ESC/POS-Thermodrucker-Support
-- 🎁 Gift-Receipts (Name, Coins, Zeit)
-- 💬 Chat-Druck mit Username
-- 👥 Follow-Notifications
-- 🎨 Customizable Templates
-- 📄 QR-Code-Generierung (optional)
+- ðŸ–¨ï¸ ESC/POS-Thermodrucker-Support
+- ðŸŽ Gift-Receipts (Name, Coins, Zeit)
+- ðŸ’¬ Chat-Druck mit Username
+- ðŸ‘¥ Follow-Notifications
+- ðŸŽ¨ Customizable Templates
+- ðŸ“„ QR-Code-Generierung (optional)
 
 **Endpoints:**
 - `GET /api/thermal-printer/status` - Drucker-Status
@@ -355,38 +306,38 @@ Druckt TikTok Live Events (Chat, Gifts, Follows) physisch auf einem Thermodrucke
 - `POST /api/thermal-printer/print` - Manueller Druck
 
 **Setup:**
-1. ESC/POS-Thermodrucker anschließen (USB/Serial)
+1. ESC/POS-Thermodrucker anschlieÃŸen (USB/Serial)
 2. Port in Config eintragen
-3. Test-Druck durchführen
+3. Test-Druck durchfÃ¼hren
 
-**Bekannte Einschränkungen:**
-- ⚠️ Nur ESC/POS-kompatible Drucker
-- ⚠️ Windows: USB-Treiber erforderlich
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Nur ESC/POS-kompatible Drucker
+- âš ï¸ Windows: USB-Treiber erforderlich
 
 ---
 
 ### 9. Quiz Show
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Interaktives Quiz-Show-Plugin für TikTok-Livestreams mit Chat-Integration, Jokern und Leaderboard.
+Interaktives Quiz-Show-Plugin fÃ¼r TikTok-Livestreams mit Chat-Integration, Jokern und Leaderboard.
 
 **Features:**
-- ❓ Multiple-Choice-Fragen
-- 💬 Chat-basierte Antworten
-- 🃏 Joker-System (50:50, Publikum, Zeitbonus)
-- 🏆 Leaderboard mit Punkten
-- ⏱️ Zeitlimits pro Frage
-- 📊 Statistiken und Auswertungen
-- 🎨 Overlay für Fragen und Antworten
-- 📚 Custom Quiz-Sets
+- â“ Multiple-Choice-Fragen
+- ðŸ’¬ Chat-basierte Antworten
+- ðŸƒ Joker-System (50:50, Publikum, Zeitbonus)
+- ðŸ† Leaderboard mit Punkten
+- â±ï¸ Zeitlimits pro Frage
+- ðŸ“Š Statistiken und Auswertungen
+- ðŸŽ¨ Overlay fÃ¼r Fragen und Antworten
+- ðŸ“š Custom Quiz-Sets
 
 **Endpoints:**
 - `GET /api/quiz-show/status` - Quiz-Status
 - `POST /api/quiz-show/start` - Quiz starten
-- `POST /api/quiz-show/next` - Nächste Frage
+- `POST /api/quiz-show/next` - NÃ¤chste Frage
 - `POST /api/quiz-show/stop` - Quiz beenden
 
 **Overlay-URL:**
@@ -394,67 +345,67 @@ Interaktives Quiz-Show-Plugin für TikTok-Livestreams mit Chat-Integration, Joke
 http://localhost:3000/quiz-show/overlay
 ```
 
-**Bekannte Einschränkungen:**
-- ⚠️ Beta: Joker-Balance noch in Optimierung
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Beta: Joker-Balance noch in Optimierung
 
 ---
 
 ### 10. Viewer XP System
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Umfassendes Zuschauer-XP- und Leveling-System mit persistenter Speicherung, täglichen Boni, Streaks, Badges und Leaderboards. Gamifiziert Zuschauer-Engagement über mehrere Streams hinweg.
+Umfassendes Zuschauer-XP- und Leveling-System mit persistenter Speicherung, tÃ¤glichen Boni, Streaks, Badges und Leaderboards. Gamifiziert Zuschauer-Engagement Ã¼ber mehrere Streams hinweg.
 
 **Features:**
-- ⭐ XP-System mit Levels
-- 🎁 XP für Gifts, Chat, Follow, etc.
-- 🔥 Daily Streaks & Boni
-- 🏅 Badges und Achievements
-- 🏆 Leaderboard (Top XP, Top Level)
-- 💾 Persistent Storage
-- 📊 Statistiken pro Benutzer
-- 🎨 Overlay-Anzeige
+- â­ XP-System mit Levels
+- ðŸŽ XP fÃ¼r Gifts, Chat, Follow, etc.
+- ðŸ”¥ Daily Streaks & Boni
+- ðŸ… Badges und Achievements
+- ðŸ† Leaderboard (Top XP, Top Level)
+- ðŸ’¾ Persistent Storage
+- ðŸ“Š Statistiken pro Benutzer
+- ðŸŽ¨ Overlay-Anzeige
 
 **XP-Quellen:**
-- 💬 Chat-Nachricht: 5 XP
-- 🎁 Gift: Coins × 2 XP
-- 👥 Follow: 50 XP
-- ⭐ Subscribe: 200 XP
-- 🔥 Daily Streak: Bonus XP
+- ðŸ’¬ Chat-Nachricht: 5 XP
+- ðŸŽ Gift: Coins Ã— 2 XP
+- ðŸ‘¥ Follow: 50 XP
+- â­ Subscribe: 200 XP
+- ðŸ”¥ Daily Streak: Bonus XP
 
 **Endpoints:**
 - `GET /api/viewer-xp/leaderboard` - Top Zuschauer
 - `GET /api/viewer-xp/user/:username` - Benutzer-Daten
-- `POST /api/viewer-xp/reset` - XP zurücksetzen (Admin)
+- `POST /api/viewer-xp/reset` - XP zurÃ¼cksetzen (Admin)
 
 **Overlay-URL:**
 ```
 http://localhost:3000/viewer-xp/leaderboard-overlay
 ```
 
-**Bekannte Einschränkungen:**
-- ⚠️ Beta: Level-Balance wird noch angepasst
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Beta: Level-Balance wird noch angepasst
 
 ---
 
 ### 11. Leaderboard
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.1.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Echtzeit-Leaderboard für Top-Gifter mit 5 Theme-Designs, Session- und All-Time-Tracking und Vorschaumodus. Zeigt Top-Contributors als OBS-Overlay mit Überholungs-Animationen.
+Echtzeit-Leaderboard fÃ¼r Top-Gifter mit 5 Theme-Designs, Session- und All-Time-Tracking und Vorschaumodus. Zeigt Top-Contributors als OBS-Overlay mit Ãœberholungs-Animationen.
 
 **Features:**
-- 🏆 Top Gifters (nach Coins sortiert)
-- 📊 Session/All-Time-Tracking
-- 🎨 5 Theme-Designs
-- 🎬 Überholungs-Animationen
-- 👁️ Preview-Modus
-- 💾 Persistent Storage
-- 📺 OBS-Overlay
+- ðŸ† Top Gifters (nach Coins sortiert)
+- ðŸ“Š Session/All-Time-Tracking
+- ðŸŽ¨ 5 Theme-Designs
+- ðŸŽ¬ Ãœberholungs-Animationen
+- ðŸ‘ï¸ Preview-Modus
+- ðŸ’¾ Persistent Storage
+- ðŸ“º OBS-Overlay
 
 **Themes:**
 1. Classic Gold
@@ -465,85 +416,85 @@ Echtzeit-Leaderboard für Top-Gifter mit 5 Theme-Designs, Session- und All-Time-
 
 **Endpoints:**
 - `GET /api/leaderboard/top` - Top 10 Gifters
-- `POST /api/leaderboard/reset` - Leaderboard zurücksetzen
+- `POST /api/leaderboard/reset` - Leaderboard zurÃ¼cksetzen
 
 **Overlay-URL:**
 ```
 http://localhost:3000/leaderboard/overlay
 ```
 
-**Bekannte Einschränkungen:**
-- ⚠️ Beta: Theme-Customization noch begrenzt
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Beta: Theme-Customization noch begrenzt
 
 ---
 
 ### 12. OpenShock Integration
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Vollständige OpenShock API-Integration für TikTok Live Events mit Event-Mapping, Pattern-System, Safety-Layer, Queue-Management und professionellem Overlay.
+VollstÃ¤ndige OpenShock API-Integration fÃ¼r TikTok Live Events mit Event-Mapping, Pattern-System, Safety-Layer, Queue-Management und professionellem Overlay.
 
 **Features:**
-- ⚡ OpenShock API-Integration
-- 🎁 Gift-zu-Shock-Mapping
-- 🎨 Pattern-System (Sequenzen)
-- 🛡️ Safety-Layer (Limits, Cooldowns)
-- 📊 Queue-Management
-- 📺 Overlay-Anzeige
-- 🔒 Permission-System
+- âš¡ OpenShock API-Integration
+- ðŸŽ Gift-zu-Shock-Mapping
+- ðŸŽ¨ Pattern-System (Sequenzen)
+- ðŸ›¡ï¸ Safety-Layer (Limits, Cooldowns)
+- ðŸ“Š Queue-Management
+- ðŸ“º Overlay-Anzeige
+- ðŸ”’ Permission-System
 
 **Safety:**
-- ⚠️ Maximale Intensität: 100% (konfigurierbar)
-- ⏱️ Cooldown zwischen Shocks
-- 🚫 Blacklist für Benutzer
-- 📊 Statistiken und Logs
+- âš ï¸ Maximale IntensitÃ¤t: 100% (konfigurierbar)
+- â±ï¸ Cooldown zwischen Shocks
+- ðŸš« Blacklist fÃ¼r Benutzer
+- ðŸ“Š Statistiken und Logs
 
 **Endpoints:**
 - `GET /api/openshock/status` - API-Status
 - `POST /api/openshock/trigger` - Manueller Trigger
 - `POST /api/openshock/config` - Config speichern
 
-**Bekannte Einschränkungen:**
-- ⚠️ Beta: Pattern-Editor noch in Entwicklung
-- ⚠️ Benötigt OpenShock API-Key
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Beta: Pattern-Editor noch in Entwicklung
+- âš ï¸ BenÃ¶tigt OpenShock API-Key
 
 ---
 
 ### 13. Multi-Cam Switcher
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Wechselt OBS-Szenen über Gifts oder Chat-Commands. Unterstützt Spout-Feeds und Kamera 1–5.
+Wechselt OBS-Szenen Ã¼ber Gifts oder Chat-Commands. UnterstÃ¼tzt Spout-Feeds und Kamera 1â€“5.
 
 **Features:**
-- 🎥 OBS WebSocket v5-Integration
-- 💬 Chat-Commands (`!cam 1-5`)
-- 🎁 Gift-Mappings
-- 🎬 Macro-System
-- ⏱️ Cooldowns
-- 🔗 Spout-Feed-Support
+- ðŸŽ¥ OBS WebSocket v5-Integration
+- ðŸ’¬ Chat-Commands (`!cam 1-5`)
+- ðŸŽ Gift-Mappings
+- ðŸŽ¬ Macro-System
+- â±ï¸ Cooldowns
+- ðŸ”— Spout-Feed-Support
 
 **Commands:**
 - `!cam 1` bis `!cam 5` - Kamera wechseln
 - `!scene <name>` - Szene wechseln
-- `!macro <name>` - Macro ausführen
+- `!macro <name>` - Macro ausfÃ¼hren
 
 **Endpoints:**
 - `GET /api/multicam/state` - Aktueller Status
 - `POST /api/multicam/connect` - OBS verbinden
-- `POST /api/multicam/action` - Aktion ausführen
+- `POST /api/multicam/action` - Aktion ausfÃ¼hren
 
-**Bekannte Einschränkungen:**
-- ⚠️ Beta: Macro-System noch in Optimierung
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Beta: Macro-System noch in Optimierung
 
 ---
 
 ### 14. Gift Milestone Celebration
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
@@ -551,76 +502,76 @@ Wechselt OBS-Szenen über Gifts oder Chat-Commands. Unterstützt Spout-Feeds und
 Feiert Coin-Meilensteine mit Custom-Animationen (GIF, MP4) und Audio. Triggert spezielle Celebrations, wenn kumulative Gift-Coins konfigurierte Schwellenwerte erreichen.
 
 **Features:**
-- 🎉 Meilenstein-Celebrations
-- 🎬 GIF/MP4-Animationen
-- 🔊 Audio-Support
-- 📊 Kumulative Coin-Tracking
-- 🎨 Custom Milestones (100, 500, 1000, etc.)
-- 📺 Overlay-Anzeige
+- ðŸŽ‰ Meilenstein-Celebrations
+- ðŸŽ¬ GIF/MP4-Animationen
+- ðŸ”Š Audio-Support
+- ðŸ“Š Kumulative Coin-Tracking
+- ðŸŽ¨ Custom Milestones (100, 500, 1000, etc.)
+- ðŸ“º Overlay-Anzeige
 
 **Endpoints:**
 - `GET /api/gift-milestone/progress` - Aktueller Fortschritt
 - `POST /api/gift-milestone/milestones` - Milestones konfigurieren
-- `POST /api/gift-milestone/reset` - Progress zurücksetzen
+- `POST /api/gift-milestone/reset` - Progress zurÃ¼cksetzen
 
 **Overlay-URL:**
 ```
 http://localhost:3000/gift-milestone/overlay
 ```
 
-**Bekannte Einschränkungen:**
-- ⚠️ Beta: Große Video-Dateien können Performance beeinflussen
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Beta: GroÃŸe Video-Dateien kÃ¶nnen Performance beeinflussen
 
 ---
 
 ### 15. VDO.Ninja Multi-Guest Manager
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-VDO.Ninja-Integration für Multi-Guest-Streaming. Verwaltet Räume, Guests, Layouts und Audio-Kontrollen für professionelle Multi-Cam-Setups.
+VDO.Ninja-Integration fÃ¼r Multi-Guest-Streaming. Verwaltet RÃ¤ume, Guests, Layouts und Audio-Kontrollen fÃ¼r professionelle Multi-Cam-Setups.
 
 **Features:**
-- 🌐 VDO.Ninja Room-Management
-- 👥 Guest-Verwaltung
-- 📺 Layout-Kontrolle (Grid, Spotlight, Custom)
-- 🔗 Guest-Link-Generierung
-- 🎙️ Individuelle Audio-Kontrolle
-- 🎬 OBS-Integration
-- 📊 Guest-Status-Monitoring
+- ðŸŒ VDO.Ninja Room-Management
+- ðŸ‘¥ Guest-Verwaltung
+- ðŸ“º Layout-Kontrolle (Grid, Spotlight, Custom)
+- ðŸ”— Guest-Link-Generierung
+- ðŸŽ™ï¸ Individuelle Audio-Kontrolle
+- ðŸŽ¬ OBS-Integration
+- ðŸ“Š Guest-Status-Monitoring
 
 **Endpoints:**
-- `GET /api/vdoninja/rooms` - Alle Räume
+- `GET /api/vdoninja/rooms` - Alle RÃ¤ume
 - `POST /api/vdoninja/create-room` - Raum erstellen
 - `POST /api/vdoninja/invite` - Guest einladen
 - `DELETE /api/vdoninja/kick/:guest` - Guest kicken
 
-**Bekannte Einschränkungen:**
-- ⚠️ Beta: Layout-System noch in Entwicklung
-- ⚠️ Benötigt VDO.Ninja-Account (kostenlos)
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Beta: Layout-System noch in Entwicklung
+- âš ï¸ BenÃ¶tigt VDO.Ninja-Account (kostenlos)
 
 **Siehe auch:** [VDO.Ninja Plugin-Dokumentation](Plugins/VDO-Ninja)
 
 ---
 
 ### 16. Global Chat Command Engine (GCCE)
-**Status:** 🟡 Beta  
+**Status:** ðŸŸ¡ Beta  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Universaler Chat-Command-Interpreter und Framework für alle Plugins. Zentrale Verwaltung aller Chat-Commands.
+Universaler Chat-Command-Interpreter und Framework fÃ¼r alle Plugins. Zentrale Verwaltung aller Chat-Commands.
 
 **Features:**
-- 📋 Zentrales Command-Registry
-- 🔒 Permission-System (broadcaster > moderator > vip > subscriber > all)
-- ✅ Syntax-Validierung
-- ⏱️ Rate-Limiting (pro User & global)
-- 📺 Overlay-Integration
-- 📊 Statistik-Tracking
-- ❓ Auto-generiertes Help-System
-- ⚙️ Dynamic Configuration
+- ðŸ“‹ Zentrales Command-Registry
+- ðŸ”’ Permission-System (broadcaster > moderator > vip > subscriber > all)
+- âœ… Syntax-Validierung
+- â±ï¸ Rate-Limiting (pro User & global)
+- ðŸ“º Overlay-Integration
+- ðŸ“Š Statistik-Tracking
+- â“ Auto-generiertes Help-System
+- âš™ï¸ Dynamic Configuration
 
 **Plugin-Integration:**
 ```javascript
@@ -639,31 +590,31 @@ gcce.registerCommand({
 - `GET /api/gcce/commands` - Alle registrierten Commands
 - `GET /api/gcce/stats` - Command-Statistiken
 
-**Bekannte Einschränkungen:**
-- ⚠️ Beta: Permission-System wird noch erweitert
+**Bekannte EinschrÃ¤nkungen:**
+- âš ï¸ Beta: Permission-System wird noch erweitert
 
 ---
 
-## 🟢 Alpha Plugins
+## ðŸŸ¢ Alpha Plugins
 
 ### 17. Weather Control
-**Status:** 🟢 Alpha  
+**Status:** ðŸŸ¢ Alpha  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Professionelles Wetter-Effekt-Plugin mit Regen, Schnee, Sturm, Nebel, Donner, Sonnenstrahl und Glitch-Cloud-Effekten für TikTok Live Overlays.
+Professionelles Wetter-Effekt-Plugin mit Regen, Schnee, Sturm, Nebel, Donner, Sonnenstrahl und Glitch-Cloud-Effekten fÃ¼r TikTok Live Overlays.
 
 **Features:**
-- 🌧️ Regen-Effekt (WebGL)
-- ❄️ Schnee-Effekt
-- ⛈️ Sturm mit Blitzen
-- 🌫️ Nebel-Effekt
-- ⚡ Donner-Effekte
-- ☀️ Sonnenstrahl-Effekt
-- 👾 Glitch-Cloud-Effekt
-- 🎁 Gift-Trigger
-- ⏱️ Timer-basierte Wetter-Wechsel
+- ðŸŒ§ï¸ Regen-Effekt (WebGL)
+- â„ï¸ Schnee-Effekt
+- â›ˆï¸ Sturm mit Blitzen
+- ðŸŒ«ï¸ Nebel-Effekt
+- âš¡ Donner-Effekte
+- â˜€ï¸ Sonnenstrahl-Effekt
+- ðŸ‘¾ Glitch-Cloud-Effekt
+- ðŸŽ Gift-Trigger
+- â±ï¸ Timer-basierte Wetter-Wechsel
 
 **Endpoints:**
 - `POST /api/weather-control/trigger` - Wetter-Effekt triggern
@@ -675,13 +626,13 @@ Professionelles Wetter-Effekt-Plugin mit Regen, Schnee, Sturm, Nebel, Donner, So
 http://localhost:3000/weather-control/overlay
 ```
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 18. Emoji Rain v2.0
-**Status:** 🟢 Alpha  
+**Status:** ðŸŸ¢ Alpha  
 **Version:** 2.0.0  
 **Autor:** Pup Cid
 
@@ -689,12 +640,12 @@ http://localhost:3000/weather-control/overlay
 Erweiterte Physik-basierte Emoji-Rain mit OBS HUD-Support, Game-Quality-Grafiken und 60 FPS Performance. (Canvas/Matter.js-Version)
 
 **Features:**
-- 🎨 Physik-Engine (Matter.js)
-- 🎁 Gift-spezifische Emojis
-- 👤 User-Emoji-Mappings
-- 📺 OBS HUD-Overlay
-- 🎯 60 FPS
-- 💾 Persistent Configuration
+- ðŸŽ¨ Physik-Engine (Matter.js)
+- ðŸŽ Gift-spezifische Emojis
+- ðŸ‘¤ User-Emoji-Mappings
+- ðŸ“º OBS HUD-Overlay
+- ðŸŽ¯ 60 FPS
+- ðŸ’¾ Persistent Configuration
 
 **Overlay-URLs:**
 ```
@@ -702,100 +653,110 @@ Standard: http://localhost:3000/emoji-rain/overlay
 OBS HUD: http://localhost:3000/emoji-rain/obs-hud
 ```
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 19. Soundboard Configuration
-**Status:** 🟢 Alpha  
+**Status:** ðŸŸ¢ Alpha  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Gift-spezifische Sounds, Audio-Queue-Management und MyInstants-Integration für TikTok-Events.
+Gift-spezifische Sounds, Audio-Queue-Management und MyInstants-Integration fÃ¼r TikTok-Events.
 
 **Features:**
-- 🎵 100.000+ Sounds (MyInstants)
-- 🎁 Gift-zu-Sound-Mapping
-- 🎵 Event-Sounds (Follow, Subscribe, Share)
-- ⚡ Like-Threshold-System
-- 📦 Custom Upload (MP3)
-- ⭐ Favorites & Trending
-- 🔊 Volume-Kontrolle
-- 📊 Queue-Management
+- ðŸŽµ 100.000+ Sounds (MyInstants)
+- ðŸŽ Gift-zu-Sound-Mapping
+- ðŸŽµ Event-Sounds (Follow, Subscribe, Share)
+- âš¡ Like-Threshold-System
+- ðŸ“¦ Custom Upload (MP3)
+- â­ Favorites & Trending
+- ðŸ”Š Volume-Kontrolle
+- ðŸ“Š Queue-Management
 
 **Endpoints:**
 - `GET /api/soundboard/sounds` - Alle Sounds
 - `POST /api/soundboard/play` - Sound abspielen
 - `POST /api/soundboard/upload` - Custom Sound hochladen
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 20. ClarityHUD
-**Status:** 🟢 Alpha  
+**Status:** ðŸŸ¢ Alpha  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Ultra-minimalistisches, VR-optimiertes und barrierefreies HUD-Overlay für Chat und Activity-Feeds.
+Ultra-minimalistisches, VR-optimiertes und barrierefreies HUD-Overlay fÃ¼r Chat und Activity-Feeds.
 
 **Features:**
-- 📺 Minimalistisches Design
-- 🥽 VR-optimiert
-- ♿ Accessibility-Features
-- 💬 Chat-Feed
-- 📊 Activity-Feed
-- 🎨 Customizable Farben
-- 📱 Responsive Layout
+- ðŸ“º Minimalistisches Design
+- ðŸ¥½ VR-optimiert
+- â™¿ Accessibility-Features
+- ðŸ’¬ Chat-Feed
+- ðŸ“Š Activity-Feed
+- ðŸŽ¨ Customizable Farben
+- ðŸ“± Responsive Layout
 
 **Overlay-URL:**
 ```
 http://localhost:3000/clarityhud/overlay
 ```
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 21. LastEvent Spotlight
-**Status:** 🟢 Alpha  
+**Status:** ðŸŸ¢ Alpha  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Live-Overlays, die den letzten aktiven Benutzer für jeden Event-Typ anzeigen (Follower, Like, Chatter, Share, Gifter, Subscriber).
+Live-Overlays, die den letzten aktiven Benutzer fÃ¼r jeden Event-Typ anzeigen (Follower, Like, Chatter, Share, Gifter, Subscriber, Top Gift, Gift Streak) und mehrere Events im Multi-HUD rotieren kÃ¶nnen.
 
 **Features:**
-- 👥 Letzter Follower
-- ❤️ Letzter Liker
-- 💬 Letzter Chatter
-- 🔗 Letzter Sharer
-- 🎁 Letzter Gifter
-- ⭐ Letzter Subscriber
-- 📺 Individuelle Overlays pro Event-Typ
-- 🎨 Customizable Styling
-- 🖼️ Profilbild-Anzeige
+- ðŸ‘¥ Letzter Follower
+- â¤ï¸ Letzter Liker
+- ðŸ’¬ Letzter Chatter
+- ðŸ”— Letzter Sharer
+- ðŸŽ Letzter Gifter
+- â­ Letzter Subscriber
+- ðŸ’Ž Top Gift des Streams
+- ðŸ”¥ Gift Streak
+- ðŸ“º Multi-HUD Rotation
+- ðŸ“º Individuelle Overlays pro Event-Typ
+- ðŸŽ¨ Customizable Styling
+- ðŸ–¼ï¸ Profilbild-Anzeige
 
 **Overlay-URLs:**
 ```
-Alle Events: http://localhost:3000/lastevent-spotlight/overlay
-Follower: http://localhost:3000/lastevent-spotlight/follower
-Gifter: http://localhost:3000/lastevent-spotlight/gifter
-(etc.)
+Follower: http://localhost:3000/overlay/lastevent/follower
+Like: http://localhost:3000/overlay/lastevent/like
+Chatter: http://localhost:3000/overlay/lastevent/chatter
+Share: http://localhost:3000/overlay/lastevent/share
+Gifter: http://localhost:3000/overlay/lastevent/gifter
+Subscriber: http://localhost:3000/overlay/lastevent/subscriber
+Top Gift: http://localhost:3000/overlay/lastevent/topgift
+Gift Streak: http://localhost:3000/overlay/lastevent/giftstreak
+Multi-HUD: http://localhost:3000/overlay/lastevent/multihud
 ```
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Konfiguration:** Plugin UI unter `http://localhost:3000/lastevent-spotlight/ui`
+
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 22. TTS v2.0
-**Status:** 🟢 Alpha  
+**Status:** ðŸŸ¢ Alpha  
 **Version:** 2.0.0  
 **Autor:** Pup Cid
 
@@ -803,16 +764,16 @@ Gifter: http://localhost:3000/lastevent-spotlight/gifter
 Enterprise-Grade TTS-Plugin mit Multi-Engine-Support, Permission-System, Language-Detection, Caching und Queue-Management.
 
 **Features:**
-- 🎙️ 75+ TikTok-Stimmen (kostenlos)
-- 🎙️ 30+ Google Cloud-Stimmen (optional, API-Key erforderlich)
-- 👤 User-Voice-Mappings
-- 📝 Auto-TTS für Chat
-- 🚫 Blacklist-Filter (Wörter/Nutzer)
-- 🎚️ Volume & Speed-Kontrolle
-- 🔒 Permission-System
-- 🌍 Language-Detection
-- 💾 Audio-Caching
-- 📊 Queue-Management
+- ðŸŽ™ï¸ 75+ TikTok-Stimmen (kostenlos)
+- ðŸŽ™ï¸ 30+ Google Cloud-Stimmen (optional, API-Key erforderlich)
+- ðŸ‘¤ User-Voice-Mappings
+- ðŸ“ Auto-TTS fÃ¼r Chat
+- ðŸš« Blacklist-Filter (WÃ¶rter/Nutzer)
+- ðŸŽšï¸ Volume & Speed-Kontrolle
+- ðŸ”’ Permission-System
+- ðŸŒ Language-Detection
+- ðŸ’¾ Audio-Caching
+- ðŸ“Š Queue-Management
 
 **Engines:**
 1. TikTok TTS (Default, kostenlos)
@@ -820,17 +781,17 @@ Enterprise-Grade TTS-Plugin mit Multi-Engine-Support, Permission-System, Languag
 3. Elevenlabs (geplant)
 
 **Endpoints:**
-- `GET /api/tts/voices` - Verfügbare Stimmen
+- `GET /api/tts/voices` - VerfÃ¼gbare Stimmen
 - `POST /api/tts/speak` - TTS triggern
 - `POST /api/tts/test` - Test-TTS
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 23. Live Goals
-**Status:** 🟢 Alpha  
+**Status:** ðŸŸ¢ Alpha  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
@@ -838,21 +799,21 @@ Enterprise-Grade TTS-Plugin mit Multi-Engine-Support, Permission-System, Languag
 Komplettes Live-Goals-System mit Coin-, Likes-, Follower- und Custom-Goal-Typen. Echtzeit-Tracking mit Event-API und anpassbaren Overlays.
 
 **Features:**
-- 🪙 Coins-Goal
-- ❤️ Likes-Goal
-- 👥 Follower-Goal
-- 🎯 Custom Goals
-- 📊 Progress-Bars
-- 🎨 Customizable Overlays
-- 📡 Event-API
-- 💾 Persistent Storage
-- 🎉 Goal-Complete-Celebrations
+- ðŸª™ Coins-Goal
+- â¤ï¸ Likes-Goal
+- ðŸ‘¥ Follower-Goal
+- ðŸŽ¯ Custom Goals
+- ðŸ“Š Progress-Bars
+- ðŸŽ¨ Customizable Overlays
+- ðŸ“¡ Event-API
+- ðŸ’¾ Persistent Storage
+- ðŸŽ‰ Goal-Complete-Celebrations
 
 **Endpoints:**
 - `GET /api/goals/list` - Alle Goals
 - `POST /api/goals/create` - Goal erstellen
 - `POST /api/goals/update/:id` - Goal aktualisieren
-- `DELETE /api/goals/delete/:id` - Goal löschen
+- `DELETE /api/goals/delete/:id` - Goal lÃ¶schen
 
 **Overlay-URLs:**
 ```
@@ -862,30 +823,30 @@ Goal 3: http://localhost:3000/goals/goal3
 Goal 4: http://localhost:3000/goals/goal4
 ```
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
-## 🔵 Final/Stable Plugins
+## ðŸ”µ Final/Stable Plugins
 
 ### 24. OSC-Bridge (VRChat)
-**Status:** 🔵 Final  
+**Status:** ðŸ”µ Final  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Dauerhafte OSC-Brücke für VRChat-Integration. Ermöglicht bidirektionale Kommunikation zwischen TikTok-Events und VRChat-Avataren über standardisierte OSC-Parameter.
+Dauerhafte OSC-BrÃ¼cke fÃ¼r VRChat-Integration. ErmÃ¶glicht bidirektionale Kommunikation zwischen TikTok-Events und VRChat-Avataren Ã¼ber standardisierte OSC-Parameter.
 
 **Features:**
-- 🔌 OSC-Protokoll-Integration
-- 🎮 VRChat-Avatar-Steuerung
-- 👋 Gesten-Trigger (Wave, Celebrate, Dance)
-- ❤️ Effekte (Hearts, Confetti)
-- 🎁 Gift-basierte Trigger
-- 📊 Bidirektionale Kommunikation
-- ⚙️ Custom Parameter-Support
-- ⏱️ Latenz < 50 ms
+- ðŸ”Œ OSC-Protokoll-Integration
+- ðŸŽ® VRChat-Avatar-Steuerung
+- ðŸ‘‹ Gesten-Trigger (Wave, Celebrate, Dance)
+- â¤ï¸ Effekte (Hearts, Confetti)
+- ðŸŽ Gift-basierte Trigger
+- ðŸ“Š Bidirektionale Kommunikation
+- âš™ï¸ Custom Parameter-Support
+- â±ï¸ Latenz < 50 ms
 
 **Endpoints:**
 - `POST /api/osc/start` - OSC-Server starten
@@ -898,37 +859,37 @@ Dauerhafte OSC-Brücke für VRChat-Integration. Ermöglicht bidirektionale Kommu
 2. OSC-Port: 9000 (Standard)
 3. Avatar-Parameter konfigurieren
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 25. Config Import Tool
-**Status:** 🔵 Final  
+**Status:** ðŸ”µ Final  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Importiert Einstellungen von alten Installationspfaden zur aktuellen Config-Location. Migration-Tool für Updates.
+Importiert Einstellungen von alten Installationspfaden zur aktuellen Config-Location. Migration-Tool fÃ¼r Updates.
 
 **Features:**
-- 📂 Auto-Detection alter Configs
-- 🔄 Automatischer Import
-- 💾 Backup vor Import
-- 📊 Import-Report
-- 🔒 Validierung importierter Daten
+- ðŸ“‚ Auto-Detection alter Configs
+- ðŸ”„ Automatischer Import
+- ðŸ’¾ Backup vor Import
+- ðŸ“Š Import-Report
+- ðŸ”’ Validierung importierter Daten
 
 **Endpoints:**
 - `GET /api/config-import/scan` - Nach alten Configs suchen
-- `POST /api/config-import/import` - Import durchführen
+- `POST /api/config-import/import` - Import durchfÃ¼hren
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 26. Fireworks Superplugin (Canvas/WebGL)
-**Status:** 🔵 Final  
+**Status:** ðŸ”µ Final  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
@@ -936,50 +897,50 @@ Importiert Einstellungen von alten Installationspfaden zur aktuellen Config-Loca
 GPU-beschleunigte Feuerwerks-Effekte mit Gift-spezifischen Displays, Combo-Systemen und interaktiven Triggern. WebGL/Canvas-basierte Fallback-Version.
 
 **Features:**
-- 🎆 WebGL/Canvas-Rendering
-- 🎁 Gift-spezifische Designs
-- 🔥 Combo-System
-- 📈 Eskalations-Mechanik
-- 🎨 Custom Shapes & Farben
-- 🔊 Audio-Effekte
+- ðŸŽ† WebGL/Canvas-Rendering
+- ðŸŽ Gift-spezifische Designs
+- ðŸ”¥ Combo-System
+- ðŸ“ˆ Eskalations-Mechanik
+- ðŸŽ¨ Custom Shapes & Farben
+- ðŸ”Š Audio-Effekte
 
 **Overlay-URL:**
 ```
 http://localhost:3000/fireworks/overlay
 ```
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 27. API Bridge
-**Status:** 🔵 Final  
+**Status:** ðŸ”µ Final  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Ermöglicht externen Anwendungen die Steuerung des Tools via HTTP und WebSocket.
+ErmÃ¶glicht externen Anwendungen die Steuerung des Tools via HTTP und WebSocket.
 
 **Features:**
-- 🌐 REST-API
-- 📡 WebSocket-API
-- 🔒 API-Key-Authentication
-- 📊 Event-Streaming
-- 🔌 Webhook-Support
+- ðŸŒ REST-API
+- ðŸ“¡ WebSocket-API
+- ðŸ”’ API-Key-Authentication
+- ðŸ“Š Event-Streaming
+- ðŸ”Œ Webhook-Support
 
 **Endpoints:**
 - `GET /api/bridge/events` - Event-Stream
 - `POST /api/bridge/trigger` - Event triggern
 - `POST /api/bridge/webhook` - Webhook registrieren
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 28. CoinBattle
-**Status:** 🔵 Final  
+**Status:** ðŸ”µ Final  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
@@ -987,13 +948,13 @@ Ermöglicht externen Anwendungen die Steuerung des Tools via HTTP und WebSocket.
 Live-Battle-Game-Modul, bei dem Zuschauer durch TikTok-Gifts konkurrieren, um Coins zu sammeln. Features Team-Battles, Multiplier-Events, historische Rankings, Badges und anpassbare Overlays.
 
 **Features:**
-- ⚔️ Team-Battles (2-4 Teams)
-- 🪙 Coin-Collection
-- 🔥 Multiplier-Events
-- 🏆 Rankings & Leaderboards
-- 🏅 Badges & Achievements
-- 📺 Live-Overlay
-- 📊 Historische Statistiken
+- âš”ï¸ Team-Battles (2-4 Teams)
+- ðŸª™ Coin-Collection
+- ðŸ”¥ Multiplier-Events
+- ðŸ† Rankings & Leaderboards
+- ðŸ… Badges & Achievements
+- ðŸ“º Live-Overlay
+- ðŸ“Š Historische Statistiken
 
 **Endpoints:**
 - `GET /api/coinbattle/status` - Battle-Status
@@ -1005,100 +966,100 @@ Live-Battle-Game-Modul, bei dem Zuschauer durch TikTok-Gifts konkurrieren, um Co
 http://localhost:3000/coinbattle/overlay
 ```
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 29. Flame Overlay
-**Status:** 🔵 Final  
+**Status:** ðŸ”µ Final  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Konfigurierbares WebGL-Flame-Border-Overlay für TikTok-Livestreams. Features anpassbare Farben, Intensität, Geschwindigkeit und Frame-Dicke mit transparentem Hintergrund für OBS.
+Konfigurierbares WebGL-Flame-Border-Overlay fÃ¼r TikTok-Livestreams. Features anpassbare Farben, IntensitÃ¤t, Geschwindigkeit und Frame-Dicke mit transparentem Hintergrund fÃ¼r OBS.
 
 **Features:**
-- 🔥 WebGL-Flammen-Effekt
-- 🎨 Anpassbare Farben
-- ⚡ Intensität & Geschwindigkeit
-- 📐 Frame-Dicke konfigurierbar
-- 🎬 Transparenter Hintergrund (OBS)
-- 🎁 Gift-Trigger (optional)
+- ðŸ”¥ WebGL-Flammen-Effekt
+- ðŸŽ¨ Anpassbare Farben
+- âš¡ IntensitÃ¤t & Geschwindigkeit
+- ðŸ“ Frame-Dicke konfigurierbar
+- ðŸŽ¬ Transparenter Hintergrund (OBS)
+- ðŸŽ Gift-Trigger (optional)
 
 **Overlay-URL:**
 ```
 http://localhost:3000/flame-overlay/overlay
 ```
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 30. HybridShock Integration
-**Status:** 🔵 Final  
+**Status:** ðŸ”µ Final  
 **Version:** 1.0.0  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-Bidirektionale Bridge zwischen TikTok Live Events und HybridShock API (HTTP/WebSocket). Ermöglicht das Triggern von HybridShock-Actions durch TikTok-Events mit flexiblem Mapping-System, Action-Queue, Rate-Limiting und erweiterten Debugging-Tools.
+Bidirektionale Bridge zwischen TikTok Live Events und HybridShock API (HTTP/WebSocket). ErmÃ¶glicht das Triggern von HybridShock-Actions durch TikTok-Events mit flexiblem Mapping-System, Action-Queue, Rate-Limiting und erweiterten Debugging-Tools.
 
 **Features:**
-- ⚡ HybridShock API-Integration (HTTP/WS)
-- 🎁 Gift-zu-Action-Mapping
-- 📊 Queue-Management
-- ⏱️ Rate-Limiting
-- 🛡️ Safety-Layer
-- 🔒 Permission-System
-- 📺 Status-Overlay
-- 🐛 Debug-Tools
+- âš¡ HybridShock API-Integration (HTTP/WS)
+- ðŸŽ Gift-zu-Action-Mapping
+- ðŸ“Š Queue-Management
+- â±ï¸ Rate-Limiting
+- ðŸ›¡ï¸ Safety-Layer
+- ðŸ”’ Permission-System
+- ðŸ“º Status-Overlay
+- ðŸ› Debug-Tools
 
 **Endpoints:**
 - `GET /api/hybridshock/status` - API-Status
 - `POST /api/hybridshock/trigger` - Manueller Trigger
 - `POST /api/hybridshock/config` - Config speichern
 
-**Bekannte Einschränkungen:**
-- Keine bekannten Einschränkungen
+**Bekannte EinschrÃ¤nkungen:**
+- Keine bekannten EinschrÃ¤nkungen
 
 ---
 
 ### 31. IFTTT Automation Flows (Geplant)
-**Status:** 🔵 Final (In Planung)  
+**Status:** ðŸ”µ Final (In Planung)  
 **Version:** 1.0.0 (Geplant)  
 **Autor:** Pup Cid
 
 **Beschreibung:**  
-IFTTT-Integration für erweiterte Automatisierungen. Verbindet TikTok-Events mit 700+ externen Services.
+IFTTT-Integration fÃ¼r erweiterte Automatisierungen. Verbindet TikTok-Events mit 700+ externen Services.
 
 **Geplante Features:**
-- 🔗 IFTTT Webhook-Integration
-- 📧 E-Mail-Notifications
-- 💡 Smart Home (Philips Hue, etc.)
-- 📱 Mobile Push-Notifications
-- 📊 Google Sheets-Logging
-- 🌐 Unzählige weitere Integrationen
+- ðŸ”— IFTTT Webhook-Integration
+- ðŸ“§ E-Mail-Notifications
+- ðŸ’¡ Smart Home (Philips Hue, etc.)
+- ðŸ“± Mobile Push-Notifications
+- ðŸ“Š Google Sheets-Logging
+- ðŸŒ UnzÃ¤hlige weitere Integrationen
 
-**Status:** In Planung für Version 1.3.0
+**Status:** In Planung fÃ¼r Version 1.3.0
 
 ---
 
-## 🔧 Plugin-Installation
+## ðŸ”§ Plugin-Installation
 
 ### Automatische Installation
-Alle 31 Plugins sind bereits vorinstalliert und können direkt über das Admin-UI aktiviert werden.
+Alle 36 Plugins sind bereits vorinstalliert und kÃ¶nnen direkt Ã¼ber das Admin-UI aktiviert werden.
 
 ### Plugin aktivieren
-1. Dashboard öffnen: `http://localhost:3000`
-2. Navigation → **Plugins**
+1. Dashboard Ã¶ffnen: `http://localhost:3000`
+2. Navigation â†’ **Plugins**
 3. Plugin in der Liste finden
 4. **Enable**-Button klicken
-5. Plugin-Konfiguration durchführen (falls erforderlich)
+5. Plugin-Konfiguration durchfÃ¼hren (falls erforderlich)
 
 ### Plugin deaktivieren
-1. Dashboard → Plugins
-2. Plugin auswählen
+1. Dashboard â†’ Plugins
+2. Plugin auswÃ¤hlen
 3. **Disable**-Button klicken
 
 ### Plugin neu laden
@@ -1108,7 +1069,7 @@ POST http://localhost:3000/api/plugins/reload
 
 ---
 
-## ⚙️ Plugin-Konfiguration
+## âš™ï¸ Plugin-Konfiguration
 
 ### Via Admin UI
 Die meisten Plugins bieten ein Admin-UI zur Konfiguration:
@@ -1123,7 +1084,7 @@ http://localhost:3000/plugins/advanced-timer/ui.html
 ```
 
 ### Via API
-Plugins können auch programmatisch konfiguriert werden:
+Plugins kÃ¶nnen auch programmatisch konfiguriert werden:
 
 ```bash
 # Config abrufen
@@ -1142,16 +1103,16 @@ Key-Format: `plugin:<plugin-id>:<key>`
 
 ---
 
-## 🔗 Weiterführende Dokumentation
+## ðŸ”— WeiterfÃ¼hrende Dokumentation
 
-- **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Entwickler-Leitfaden für eigene Plugins
-- **[API-Reference](API-Reference.md)** - Vollständige API-Dokumentation
+- **[Plugin-Dokumentation](Plugin-Dokumentation.md)** - Entwickler-Leitfaden fÃ¼r eigene Plugins
+- **[API-Reference](API-Reference.md)** - VollstÃ¤ndige API-Dokumentation
 - **[Entwickler-Leitfaden](Entwickler-Leitfaden.md)** - Code-Standards und Best Practices
 - **[Architektur](Architektur.md)** - System-Architektur verstehen
 
 ---
 
-[← Plugin-Dokumentation](Plugin-Dokumentation) | [→ Entwickler-Leitfaden](Entwickler-Leitfaden)
+[â† Plugin-Dokumentation](Plugin-Dokumentation) | [â†’ Entwickler-Leitfaden](Entwickler-Leitfaden)
 
 ---
 

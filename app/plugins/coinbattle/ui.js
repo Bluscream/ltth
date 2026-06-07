@@ -644,11 +644,16 @@
   function renderHistoryItem(match) {
     const date = new Date(match.start_time * 1000).toLocaleString();
     const duration = formatDuration(match.duration || 0);
+    const modeLabel = match.mode === 'team'
+      ? 'Team Battle'
+      : match.mode === 'pyramid'
+        ? 'Pyramid Battle'
+        : 'Solo';
     
     return `
       <div class="history-item">
         <div class="history-info">
-          <div><strong>Match #${match.id}</strong> - ${match.mode === 'team' ? 'Team Battle' : 'Solo'}</div>
+          <div><strong>Match #${match.id}</strong> - ${modeLabel}</div>
           <div class="history-meta">${date} • Duration: ${duration} • Coins: ${match.total_coins || 0}</div>
         </div>
         <button class="btn btn-sm btn-secondary" onclick="exportMatch(${match.id})">📥 Export</button>
@@ -1335,7 +1340,7 @@
         
         container.innerHTML = `
           <div class="alert alert-success">
-            <strong>Active Season:</strong> ${season.season_name}<br>
+            <strong>Active Season:</strong> ${escapeHtml(season.season_name)}<br>
             <strong>Period:</strong> ${startDate} - ${endDate}
           </div>
         `;

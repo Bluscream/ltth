@@ -1,8 +1,8 @@
 {
   "id": "weather-control",
   "name": "Weather Control",
-  "version": "1.0.0",
-  "description": "Professional weather effects plugin with rain, snow, storm, fog, thunder, sunbeam, and glitch cloud effects for TikTok Live overlays",
+  "version": "1.1.0",
+  "description": "Professional weather effects plugin with community weather gamification, quests, streaks, rewards, and rain, snow, storm, fog, thunder, sunbeam, glitchclouds, aurora, fireflies, meteors, sakura, embers, and heatwave effects for TikTok Live overlays",
   "author": "Pup Cid",
   "entry": "main.js",
   "enabled": false,
@@ -13,10 +13,25 @@
     "tiktok-events",
     "database"
   ],
+  "supportedEffects": [
+    "rain",
+    "snow",
+    "storm",
+    "fog",
+    "thunder",
+    "sunbeam",
+    "glitchclouds",
+    "aurora",
+    "fireflies",
+    "meteors",
+    "sakura",
+    "embers",
+    "heatwave"
+  ],
   "descriptions": {
-    "en": "Professional weather effects plugin with rain, snow, storm, fog, thunder, sunbeam, and glitch cloud effects for TikTok Live overlays. Features customizable intensity and layering.",
-    "de": "Professionelles Wettereffekt-Plugin mit Regen, Schnee, Sturm, Nebel, Donner, Sonnenstrahl und Glitch-Cloud-Effekten für TikTok-Live-Overlays. Bietet anpassbare Intensität und Layering.",
-    "es": "Plugin profesional de efectos climáticos con lluvia, nieve, tormenta, niebla, trueno, rayo de sol y efectos de nube con falla para overlays de TikTok Live. Presenta intensidad y capas personalizables.",
-    "fr": "Plugin d'effets météorologiques professionnel avec pluie, neige, tempête, brouillard, tonnerre, rayon de soleil et effets de nuage glitch pour overlays TikTok Live. Comprend intensité et superposition personnalisables."
+    "en": "Professional weather effects plugin with 13 stream overlay effects, community gamification, presets, sequences, audio, event triggers, quality controls, and per-effect layering.",
+    "de": "Professionelles Wettereffekt-Plugin mit 13 Stream-Overlay-Effekten, Community-Gamification, Presets, Sequenzen, Audio, Event-Triggern, Qualitaetssteuerung und Layering pro Effekt.",
+    "es": "Plugin profesional de efectos climaticos con 13 efectos de overlay, gamificacion comunitaria, presets, secuencias, audio, disparadores de eventos, calidad configurable y capas por efecto.",
+    "fr": "Plugin professionnel d'effets meteo avec 13 effets d'overlay, gamification communautaire, presets, sequences, audio, declencheurs d'evenements, qualite configurable et calques par effet."
   }
 }

@@ -23,7 +23,7 @@ describe('WebGPU Emoji Rain - Spawn Position Safety', () => {
    * This replicates the logic from webgpu-emoji-rain-engine.js
    */
   function calculateSpawnX(normalizedX, size, canvasWidth) {
-    const minMargin = WALL_THICKNESS / 2 + size / 2;
+    const minMargin = WALL_THICKNESS / 2 + size / 2 + 1;
     const safeWidth = canvasWidth - (minMargin * 2);
     
     if (safeWidth > 0) {

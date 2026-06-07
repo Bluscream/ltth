@@ -11,7 +11,7 @@
  */
 
 const OpenAI = require('openai');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const config = require('./config');
 
 class CraftingService {
@@ -89,7 +89,7 @@ class CraftingService {
         }
 
         // Create base item structure
-        const itemId = uuidv4();
+        const itemId = randomUUID();
         const item = {
             itemId,
             giftId: gift.id,
@@ -155,7 +155,7 @@ class CraftingService {
         const rarityTier = this.getRarityTier(totalCoins);
 
         // Create crafted item structure
-        const itemId = uuidv4();
+        const itemId = randomUUID();
         const craftedName = this.generateCraftedName(itemA.name, itemB.name, rarityTier.name);
         
         const item = {

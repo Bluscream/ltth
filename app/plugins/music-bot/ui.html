@@ -18,58 +18,38 @@
       <div class="status" id="playback-state">Idle</div>
     </header>
 
-    <div id="setup-issues-banner" style="display:none; border-left: 4px solid #f59e0b; margin-bottom: 1rem; padding: 1rem; background: rgba(245,158,11,0.08); border-radius: 6px;">
-      <h3 style="margin: 0 0 0.5rem 0; color: #f59e0b;">⚠️ Music Bot – Einrichtung erforderlich</h3>
+    <section id="musicbot-onboarding" class="onboarding-panel" hidden>
+      <div class="onboarding-avatar" aria-hidden="true">
+        <svg viewBox="0 0 64 64" role="img" focusable="false">
+          <path d="M23 13c7.2 0 13 5.8 13 13v13c0 4.4 3.6 8 8 8s8-3.6 8-8V25c0-8.8-7.2-16-16-16s-16 7.2-16 16v16c0 13.3 10.7 24 24 24s24-10.7 24-24" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" transform="translate(-10 -4)"/>
+          <circle cx="27" cy="25" r="2.6" fill="currentColor"/>
+          <circle cx="37" cy="25" r="2.6" fill="currentColor"/>
+          <path d="M27 33c2.2 2 7.8 2 10 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="onboarding-copy">
+        <div class="card-header onboarding-head">
+          <div>
+            <p class="eyebrow">First run assistant</p>
+            <h2>Clip richtet deinen Music Bot ein</h2>
+            <p class="text-secondary">Ich zeige dir, wo du die wichtigen Stellen findest und was zuerst erledigt werden sollte.</p>
+          </div>
+          <span class="pill" id="musicbot-onboarding-status">Erststart</span>
+        </div>
+        <ol class="onboarding-steps" id="musicbot-onboarding-steps"></ol>
+        <div class="onboarding-help" id="musicbot-onboarding-help"></div>
+        <div class="actions onboarding-actions">
+          <button id="musicbot-onboarding-settings" class="btn primary" type="button">Zu den Einstellungen</button>
+          <button id="musicbot-onboarding-overlay" class="btn ghost" type="button">OBS Overlay</button>
+          <button id="musicbot-onboarding-complete" class="btn ghost" type="button">Ich bin fertig</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="setup-issues-banner" class="setup-banner" style="display:none;">
+      <h3>⚠️ Music Bot – Einrichtung erforderlich</h3>
       <div id="setup-issues-list"></div>
     </div>
-
-    <script>
-      (function () {
-        const banner = document.getElementById('setup-issues-banner');
-        const list = document.getElementById('setup-issues-list');
-
-        function renderIssues(issues) {
-          if (!issues || issues.length === 0) {
-            banner.style.display = 'none';
-            return;
-          }
-          banner.style.display = 'block';
-          list.innerHTML = '';
-          issues.forEach(function (issue) {
-            const div = document.createElement('div');
-            div.style.marginBottom = '0.75rem';
-            div.style.padding = '0.5rem';
-            div.style.background = issue.severity === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)';
-            div.style.borderRadius = '6px';
-            const icon = issue.severity === 'error' ? '❌' : '⚠️';
-            let html = '<strong>' + icon + ' ' + issue.title + '</strong><br>';
-            html += '<span style="font-size:0.9em;">' + (issue.description || '') + '</span>';
-            const instructions = issue.installInstructions;
-            if (instructions && instructions.length > 0) {
-              html += '<ul style="margin:0.5rem 0 0 1.2rem;padding:0;font-size:0.85em;">';
-              instructions.forEach(function (instr) {
-                html += '<li style="margin-bottom:0.25rem;"><code>' + instr + '</code></li>';
-              });
-              html += '</ul>';
-            }
-            div.innerHTML = html;
-            list.appendChild(div);
-          });
-        }
-
-        if (typeof io !== 'undefined') {
-          var setupSocket = io();
-          setupSocket.on('music-bot:setup-status', function (data) {
-            renderIssues(data.issues || []);
-          });
-        }
-
-        fetch('/api/plugins/music-bot/setup-status')
-          .then(function (r) { return r.json(); })
-          .then(function (data) { if (data.success) { renderIssues(data.issues || []); } })
-          .catch(function () {});
-      })();
-    </script>
 
     <nav class="tab-bar" id="tab-bar">
       <button class="tab active" data-tab="player">🎵 Player</button>
@@ -187,6 +167,11 @@
           <span>yt-dlp Pfad</span>
           <input type="text" id="ytdlp-path" placeholder="z.B. /usr/local/bin/yt-dlp">
           <small class="text-secondary">Benötigt für YouTube/SoundCloud. Standard: yt-dlp</small>
+        </label>
+        <label class="field">
+          <span>mpv Pfad</span>
+          <input type="text" id="mpv-path" placeholder="z.B. C:\tools\mpv\mpv.exe oder /usr/bin/mpv">
+          <small class="text-secondary">Benötigt für die Audio-Wiedergabe. Standard: mpv</small>
         </label>
         <label class="checkbox-field">
           <input type="checkbox" id="cooldown-bypass-gifts">

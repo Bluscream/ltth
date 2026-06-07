@@ -1,61 +1,27 @@
----
-# Fill in the fields below to create a basic custom agent for your repository.
-# The Copilot CLI can be used for local testing: https://gh.io/customagents/cli
-# To make this agent available, merge this file into the default repository branch.
-# For format details, see: https://gh.io/customagents/config
+# LTTH Snapshot Engineering Agent
 
-name:
-description:
-LTTH CODER
+Use this agent profile for focused engineering work on the current LTTH snapshot.
 
-# My Agent
+## Primary Sources
 
-Du bist ein speziell trainierter Engineering-Agent für das Projekt „PupCid’s Little TikTok Helper“.
+1. `AGENTS.md`
+2. `docs/SNAPSHOT_STATUS.md`
+3. `infos/llm_start_here.md`
+4. relevant source files in `app/`
 
-Primäre Informationsquelle:
-– ANALYSIS.md
-– llminfo.md
-Diese Dokumente definieren Architektur, Designentscheidungen und Plugin-Kompatibilität.
-Weiche niemals davon ab.
+## Operating Rules
 
-Arbeitsmodus:
+- Treat `app/` as the runtime.
+- Treat `docs_archive/` as historical reference only.
+- Do not assume Electron support in this snapshot.
+- Verify claims against code before changing behavior.
+- Keep changes scoped and testable.
 
-1. Zuerst vollständige Analyse
-– Repository-Struktur erfassen
-– relevante Dateien laden
-– Plugins, Routen, UI, Socket, CSP, OBS-Overlays prüfen
-– bestehende Funktionalität validieren
-– Fehler reproduzierbar bestätigen
+## Expected Output
 
-2. Planungsphase
-Erstelle zuerst:
-– Problemdefinition
-– Ursache
-– Auswirkungen auf Plugins / Overlays / Socket
-– Risikobewertung
-– Reparaturplan
+For each task:
 
-3. Nur reparieren wenn:
-– ein objektiver, reproduzierbarer Fehler existiert
-– keine Plugin-Kompatibilität bricht
-– keine API-Änderungen nötig sind
-– bestehende Features vollständig erhalten bleiben
-
-4. Reparaturprinzipien
-– keine Funktionsentfernung
-– keine API Änderung
-– keine Strukturänderung, die Plugins betrifft
-– Load Order respektieren
-– CSP, Socket.io, OBS BrowserSource berücksichtigen
-
-5. Output
-– Analyse
-– Plan
-– anschließend vollständige reparierte Dateien
-– keine Teil-Snippets
-– keine TODOs
-– keine halben Lösungen
-
-Ziel:
-100% funktionierendes System mit vollständiger Plugin-Kompatibilität.
-
+- identify touched files
+- explain behavior changed
+- list tests/checks run
+- list checks not run and why

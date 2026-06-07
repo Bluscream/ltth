@@ -1,7 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const { getRootLogsDir } = require('../modules/log-paths');
 const { extract } = require('zip-lib');
+const {
+    assertPluginId,
+    resolvePluginChildPath,
+    resolvePluginEntryPath
+} = require('../modules/plugin-paths');
 
 /**
  * Plugin Routes - Verwaltet Plugin-Upload, Aktivierung, Deaktivierung, etc.
@@ -45,27 +51,15 @@ function setupPluginRoutes(app, pluginLoader, apiLimiter, uploadLimiter, logger,
     app.get('/api/plugins', limiter, (req, res) => {
         try {
             const locale = req.query.locale || 'en';
-            const plugins = pluginLoader.getAllPlugins(locale);
-
-            // Zusätzlich auch disabled Plugins aus dem State laden
             const pluginsDir = pluginLoader.pluginsDir;
             const entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
-
             const allPlugins = [];
+            const installedPluginIds = new Set();
 
-            // Geladene Plugins hinzufügen
-            // Note: Plugin loader already filters out disabled plugins during load,
-            // so loaded plugins never have disabled=true
-            for (const plugin of plugins) {
-                allPlugins.push({
-                    ...plugin,
-                    enabled: true
-                });
-            }
-
-            // Nicht geladene Plugins checken
+            // The filesystem is the source of truth for the Plugin Manager.
+            // Loaded in-memory plugins are only used to enrich existing manifests.
             for (const entry of entries) {
-                if (entry.isDirectory() && entry.name !== '_uploads') {
+                if (entry.isDirectory() && !entry.name.startsWith('_')) {
                     const pluginPath = path.join(pluginsDir, entry.name);
                     const manifestPath = path.join(pluginPath, 'plugin.json');
 
@@ -79,34 +73,48 @@ function setupPluginRoutes(app, pluginLoader, apiLimiter, uploadLimiter, logger,
                                 continue;
                             }
 
-                            // Ist das Plugin bereits in der Liste?
-                            const exists = allPlugins.find(p => p.id === manifest.id);
-
-                            if (!exists) {
-                                // Plugin ist nicht geladen - Status aus State-Datei lesen
-                                const state = pluginLoader.state[manifest.id] || {};
-                                
-                                // Get localized description
-                                const description = pluginLoader.getLocalizedDescription(manifest, locale);
-                                
-                                allPlugins.push({
-                                    id: manifest.id,
-                                    name: manifest.name,
-                                    description: description,
-                                    descriptions: manifest.descriptions, // Include all descriptions
-                                    version: manifest.version,
-                                    author: manifest.author,
-                                    type: manifest.type,
-                                    devStatus: manifest.devStatus, // Include development status
-                                    enabled: state.enabled === true,
-                                    loadedAt: null
-                                });
+                            if (!manifest.id || !manifest.name || !manifest.entry) {
+                                logger.warn(`Skipping plugin ${entry.name} due to incomplete plugin.json`);
+                                continue;
                             }
+
+                            if (installedPluginIds.has(manifest.id)) {
+                                logger.warn(`Skipping duplicate plugin id "${manifest.id}" in ${entry.name}`);
+                                continue;
+                            }
+
+                            const state = pluginLoader.state[manifest.id] || {};
+                            const loadedPlugin = pluginLoader.plugins.get(manifest.id);
+                            const isLoadedFromThisPath = loadedPlugin && path.resolve(loadedPlugin.path) === path.resolve(pluginPath);
+                            const isEnabled = isLoadedFromThisPath
+                                ? true
+                                : (state.enabled !== undefined ? state.enabled === true : manifest.enabled !== false);
+                            const description = pluginLoader.getLocalizedDescription(manifest, locale);
+
+                            installedPluginIds.add(manifest.id);
+                            allPlugins.push({
+                                id: manifest.id,
+                                name: manifest.name,
+                                description: description,
+                                descriptions: manifest.descriptions, // Include all descriptions
+                                version: manifest.version,
+                                author: manifest.author,
+                                type: manifest.type,
+                                devStatus: manifest.devStatus, // Include development status
+                                enabled: isEnabled,
+                                loadedAt: isLoadedFromThisPath ? loadedPlugin.loadedAt : null
+                            });
                         } catch (error) {
                             // Skip plugins with invalid or malformed plugin.json
                             logger.warn(`Skipping plugin ${entry.name} due to malformed plugin.json: ${error.message}`);
                         }
                     }
+                }
+            }
+
+            for (const stalePluginId of pluginLoader.plugins.keys()) {
+                if (!installedPluginIds.has(stalePluginId)) {
+                    logger.warn(`Plugin ${stalePluginId} is loaded but no longer exists on disk; hiding from manager`);
                 }
             }
 
@@ -130,7 +138,7 @@ function setupPluginRoutes(app, pluginLoader, apiLimiter, uploadLimiter, logger,
      */
     app.get('/api/plugins/:id', limiter, (req, res) => {
         try {
-            const { id } = req.params;
+            const id = assertPluginId(req.params.id);
             const locale = req.query.locale || 'en';
             const plugin = pluginLoader.getPlugin(id);
 
@@ -242,7 +250,20 @@ function setupPluginRoutes(app, pluginLoader, apiLimiter, uploadLimiter, logger,
             }
 
             // Entry-Datei prüfen
-            const entryPath = path.join(pluginDir, manifest.entry);
+            let safePluginId;
+            let entryPath;
+            try {
+                safePluginId = assertPluginId(manifest.id);
+                entryPath = resolvePluginEntryPath(pluginDir, manifest.entry);
+            } catch (error) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                fs.unlinkSync(zipPath);
+
+                return res.status(400).json({
+                    success: false,
+                    error: error.message
+                });
+            }
             if (!fs.existsSync(entryPath)) {
                 // Cleanup
                 fs.rmSync(tempDir, { recursive: true, force: true });
@@ -255,7 +276,7 @@ function setupPluginRoutes(app, pluginLoader, apiLimiter, uploadLimiter, logger,
             }
 
             // Ziel-Verzeichnis vorbereiten
-            const targetDir = path.join(pluginLoader.pluginsDir, manifest.id);
+            const targetDir = resolvePluginChildPath(pluginLoader.pluginsDir, safePluginId);
 
             // Falls Plugin bereits existiert, löschen
             if (fs.existsSync(targetDir)) {
@@ -480,7 +501,7 @@ function setupPluginRoutes(app, pluginLoader, apiLimiter, uploadLimiter, logger,
     app.get('/api/plugins/:id/log', limiter, (req, res) => {
         try {
             const { id } = req.params;
-            const logPath = path.join(__dirname, '..', 'logs', `${id}.log`);
+            const logPath = path.join(getRootLogsDir(), `${id}.log`);
 
             if (!fs.existsSync(logPath)) {
                 return res.json({
@@ -509,4 +530,8 @@ function setupPluginRoutes(app, pluginLoader, apiLimiter, uploadLimiter, logger,
     logger.info('✅ Plugin routes registered');
 }
 
-module.exports = { setupPluginRoutes };
+module.exports = {
+    setupPluginRoutes,
+    assertPluginId,
+    resolvePluginChildPath
+};

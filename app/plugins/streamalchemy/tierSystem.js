@@ -12,7 +12,7 @@
 
 const path = require('path');
 const fs = require('fs').promises;
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 
 /**
  * Default tier configuration
@@ -266,7 +266,7 @@ class TierSystem {
 
         // Create new upgraded item
         const upgradedItem = {
-            itemId: uuidv4(),
+            itemId: randomUUID(),
             originalItemId: originalItem.itemId,
             name: `${tierInfo.name} ${originalItem.name}`,
             tier: newTier,

@@ -86,6 +86,22 @@ class WebGPUEmojiRainPlugin {
     this.debugMode = false;
     this.debugLogCount = 0;
     this.debugLogLimit = 100; // Rate limit debug logs
+
+    // Heart balloons: stable per-user colors for like events
+    this.heartBalloonUserColors = new Map();
+    this.heartBalloonColorIndex = 0;
+    this.heartBalloonPalette = [
+      '#ff4d8d',
+      '#ff6b6b',
+      '#ff9f43',
+      '#feca57',
+      '#1dd1a1',
+      '#48dbfb',
+      '#54a0ff',
+      '#5f27cd',
+      '#c56cf0',
+      '#ff7eb3'
+    ];
   }
 
   async init() {
@@ -191,6 +207,40 @@ class WebGPUEmojiRainPlugin {
     ];
   }
 
+  getSpawnAreaPresets() {
+    return {
+      full: {
+        id: 'full',
+        label: 'Standard Regen',
+        allowedAreas: null
+      }
+    };
+  }
+
+  getSpawnAreaPreset(presetId) {
+    const presets = this.getSpawnAreaPresets();
+    return presets[presetId] || presets.full;
+  }
+
+  pickSpawnAreaCoordinates(presetId) {
+    const preset = this.getSpawnAreaPreset(presetId);
+
+    if (!preset.allowedAreas || preset.allowedAreas.length === 0) {
+      return null;
+    }
+
+    const area = preset.allowedAreas[Math.floor(Math.random() * preset.allowedAreas.length)];
+    return {
+      x: area.x[0] + Math.random() * (area.x[1] - area.x[0]),
+      y: area.y[0] + Math.random() * (area.y[1] - area.y[0]),
+      spawnAreaPreset: preset.id
+    };
+  }
+
+  isNormalizedCoordinate(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+  }
+
   /**
    * Load presets from file
    */
@@ -218,6 +268,15 @@ class WebGPUEmojiRainPlugin {
     }
   }
 
+  emitOverlaySpawn(spawnData) {
+    const isHeartBalloons = spawnData?.mode === 'heart-balloons' || spawnData?.type === 'heart-balloons';
+    const isGiftBalls = spawnData?.mode === 'gift-balls' || spawnData?.type === 'gift-balls';
+    const eventName = isHeartBalloons
+      ? 'webgpu-emoji-rain:heart-balloons'
+      : (isGiftBalls ? 'webgpu-emoji-rain:gift-balls' : 'webgpu-emoji-rain:spawn');
+    this.api.emit(eventName, spawnData);
+  }
+
   /**
    * Start spawn batch processor for performance optimization
    */
@@ -226,7 +285,7 @@ class WebGPUEmojiRainPlugin {
       if (this.spawnQueue.length > 0) {
         const batch = this.spawnQueue.splice(0, this.spawnBatchSize);
         batch.forEach(spawnData => {
-          this.api.emit('webgpu-emoji-rain:spawn', spawnData);
+          this.emitOverlaySpawn(spawnData);
         });
       }
     }, 50); // Process every 50ms
@@ -313,6 +372,21 @@ class WebGPUEmojiRainPlugin {
             global: 10000 // 10 seconds globally
           },
           handler: async (args, context) => await this.handleStormCommand(args, context)
+        },
+        {
+          name: 'herzballons',
+          description: 'Trigger heart balloons for the current user',
+          syntax: '/herzballons [count]',
+          permission: 'all',
+          enabled: true,
+          minArgs: 0,
+          maxArgs: 1,
+          category: 'Effects',
+          cooldown: {
+            user: 10000,
+            global: 2000
+          },
+          handler: async (args, context) => await this.handleHeartBalloonsCommand(args, context)
         },
         {
           name: 'rainstop',
@@ -544,6 +618,46 @@ class WebGPUEmojiRainPlugin {
     };
   }
 
+  async handleHeartBalloonsCommand(args, context) {
+    const config = this.api.getDatabase().getEmojiRainConfig();
+
+    if (!config.enabled || config.heart_balloons_enabled === false) {
+      return {
+        success: false,
+        message: 'Herzballons are currently disabled',
+        displayOverlay: true
+      };
+    }
+
+    if (!this.checkAntiSpam(context.username)) {
+      this.metrics.droppedEvents++;
+      return {
+        success: false,
+        message: 'Please wait before using this command again',
+        displayOverlay: true
+      };
+    }
+
+    const requestedCount = parseInt(args[0], 10);
+    const count = Number.isFinite(requestedCount) ? requestedCount : (config.heart_balloon_test_count || 8);
+
+    this.triggerHeartBalloons({
+      count,
+      username: context.username,
+      profilePictureUrl: context.profilePictureUrl || null,
+      reason: 'command',
+      source: '/herzballons'
+    });
+
+    this.metrics.commandTriggers++;
+
+    return {
+      success: true,
+      message: `${context.username} triggered Herzballons`,
+      displayOverlay: true
+    };
+  }
+
   async handleRainStopCommand(args, context) {
     // Clear all rain
     this.api.emit('webgpu-emoji-rain:clear', {});
@@ -589,30 +703,271 @@ class WebGPUEmojiRainPlugin {
     return true;
   }
 
+  getHeartBalloonColor(username) {
+    const key = String(username || 'Unknown').toLowerCase();
+
+    if (this.heartBalloonUserColors.has(key)) {
+      return this.heartBalloonUserColors.get(key);
+    }
+
+    const color = this.heartBalloonPalette[this.heartBalloonColorIndex % this.heartBalloonPalette.length];
+    this.heartBalloonColorIndex++;
+    this.heartBalloonUserColors.set(key, color);
+    return color;
+  }
+
+  getProfilePictureUrl(data = {}) {
+    return data.profilePictureUrl ||
+      data.profilePicture ||
+      data.avatarUrl ||
+      data.avatar ||
+      data.user?.profilePictureUrl ||
+      data.user?.avatarUrl ||
+      null;
+  }
+
+  getHeartBalloonCount(config, data = {}) {
+    const rawLikeCount = parseInt(data.likeCount || data.count || data.likes || 1, 10);
+    const likeCount = Number.isFinite(rawLikeCount) && rawLikeCount > 0 ? rawLikeCount : 1;
+    const divisor = Math.max(1, parseInt(config.heart_balloon_like_divisor || 1, 10));
+    const minHearts = Math.max(1, parseInt(config.heart_balloon_min_hearts || 1, 10));
+    const maxHearts = Math.max(minHearts, parseInt(config.heart_balloon_max_hearts || 24, 10));
+    const scaledCount = Math.floor(likeCount / divisor);
+
+    return Math.max(minHearts, Math.min(maxHearts, scaledCount || minHearts));
+  }
+
+  getGiftSeriesCount(data = {}) {
+    const candidates = [
+      data.repeatCount,
+      data.repeat_count,
+      data.comboCount,
+      data.combo_count,
+      data.seriesCount,
+      data.series_count,
+      data.gift?.repeatCount,
+      data.gift?.repeat_count,
+      data.gift?.comboCount,
+      data.gift?.combo_count
+    ];
+
+    for (const candidate of candidates) {
+      const count = Number(candidate);
+      if (Number.isFinite(count) && count > 0) {
+        return Math.max(1, Math.floor(count));
+      }
+    }
+
+    return 1;
+  }
+
+  getGiftBallMetrics(price, config = {}, seriesCount = 1) {
+    const minSize = Math.max(12, parseInt(config.gift_ball_min_size_px || 44, 10));
+    const maxSize = Math.max(minSize, parseInt(config.gift_ball_max_size_px || 128, 10));
+    const referencePrice = Math.max(1, parseFloat(config.gift_ball_price_reference_coins || 1000));
+    const safePrice = Math.max(1, Number(price) || 1);
+    const safeSeriesCount = Math.max(1, Math.floor(Number(seriesCount) || 1));
+    const totalPrice = safePrice * safeSeriesCount;
+    const priceRatio = Math.min(1, Math.log10(safePrice + 1) / Math.log10(referencePrice + 1));
+    const baseSize = minSize + (maxSize - minSize) * priceRatio;
+    const seriesScale = Math.min(1.35, 1 + Math.log10(safeSeriesCount) * 0.12);
+    const size = Math.round(Math.max(minSize, Math.min(maxSize, baseSize * seriesScale)));
+
+    const configuredMinDespawn = Math.max(1000, parseInt(config.gift_ball_min_despawn_ms || 9000, 10));
+    const emojiLifetime = parseInt(config.emoji_lifetime_ms || 7000, 10);
+    const minDespawn = Math.max(configuredMinDespawn, (Number.isFinite(emojiLifetime) ? emojiLifetime : 7000) + 2000);
+    const maxDespawn = Math.max(minDespawn, parseInt(config.gift_ball_max_despawn_ms || 20000, 10));
+    const perCoinMs = Math.max(0, parseFloat(config.gift_ball_despawn_per_coin_ms || 25));
+    const multiplier = Math.max(0.1, parseFloat(config.gift_ball_despawn_multiplier || 1));
+    const despawnMs = Math.round(Math.min(maxDespawn, Math.max(minDespawn, (minDespawn + totalPrice * perCoinMs) * multiplier)));
+
+    const baseCount = Math.max(1, parseInt(config.gift_ball_base_count || 1, 10));
+    const seriesDivisor = Math.max(1, parseInt(config.gift_ball_series_count_divisor || 3, 10));
+    const maxCount = Math.max(baseCount, parseInt(config.gift_ball_max_count || 24, 10));
+    const count = Math.min(maxCount, baseCount + Math.floor((safeSeriesCount - 1) / seriesDivisor));
+
+    return { size, despawnMs, count, seriesCount: safeSeriesCount, totalPrice };
+  }
+
+  getGiftCatalogEntry(giftId) {
+    if (!giftId && giftId !== 0) {
+      return null;
+    }
+
+    try {
+      const db = this.api.getDatabase();
+      if (db && typeof db.getGift === 'function') {
+        return db.getGift(giftId) || null;
+      }
+    } catch (error) {
+      this.debugLog(`Gift catalog lookup failed for ${giftId}: ${error.message}`);
+    }
+
+    return null;
+  }
+
+  getGiftImageUrl(data = {}, catalogGift = null) {
+    return data.giftPictureUrl ||
+      data.giftImageUrl ||
+      data.imageUrl ||
+      data.image_url ||
+      data.gift?.image_url ||
+      data.gift?.imageUrl ||
+      catalogGift?.image_url ||
+      catalogGift?.imageUrl ||
+      null;
+  }
+
+  getGiftPrice(data = {}, catalogGift = null) {
+    const candidates = [
+      data.diamondCount,
+      data.diamond_count,
+      data.coins,
+      data.giftValue,
+      data.gift?.diamond_count,
+      data.gift?.diamondCount,
+      catalogGift?.diamond_count,
+      catalogGift?.diamondCount,
+      catalogGift?.coins
+    ];
+
+    for (const candidate of candidates) {
+      const price = Number(candidate);
+      if (Number.isFinite(price) && price > 0) {
+        return price;
+      }
+    }
+
+    return 1;
+  }
+
+  triggerGiftBall(params = {}) {
+    const config = this.api.getDatabase().getEmojiRainConfig();
+
+    if (!config.enabled || config.gift_balls_enabled !== true) {
+      return null;
+    }
+
+    const catalogGift = this.getGiftCatalogEntry(params.giftId);
+    const giftImageUrl = this.getGiftImageUrl(params, catalogGift);
+    const price = this.getGiftPrice(params, catalogGift);
+    const seriesCount = this.getGiftSeriesCount(params);
+    const metrics = this.getGiftBallMetrics(price, config, seriesCount);
+    const username = params.username || 'Unknown';
+
+    const spawnData = {
+      mode: 'gift-balls',
+      type: 'gift-balls',
+      giftId: params.giftId || catalogGift?.id || null,
+      giftName: params.giftName || params.gift?.name || catalogGift?.name || 'Gift',
+      giftImageUrl,
+      price,
+      totalPrice: metrics.totalPrice,
+      seriesCount: metrics.seriesCount,
+      count: metrics.count,
+      size: metrics.size,
+      despawnMs: metrics.despawnMs,
+      x: typeof params.x === 'number' && params.x >= 0 && params.x <= 1 ? params.x : Math.random(),
+      y: typeof params.y === 'number' ? params.y : 0,
+      username,
+      reason: params.reason || 'gift',
+      source: params.source || 'event:gift'
+    };
+
+    this.metrics.totalTriggers++;
+    this.metrics.totalEmojisSpawned += spawnData.count;
+    this.metrics.avgCount = this.metrics.totalEmojisSpawned / this.metrics.totalTriggers;
+
+    if (this.overlayState.paused) {
+      this.debugLog('Overlay paused, queueing gift ball');
+      this.spawnQueue.push(spawnData);
+      return spawnData;
+    }
+
+    this.emitOverlaySpawn(spawnData);
+    this.debugLog(`Gift ball triggered for ${username}: ${spawnData.giftName} (${price} x${seriesCount})`);
+
+    return spawnData;
+  }
+
+  triggerHeartBalloons(params = {}) {
+    const config = this.api.getDatabase().getEmojiRainConfig();
+
+    if (!config.enabled || config.heart_balloons_enabled === false) {
+      return null;
+    }
+
+    const username = params.username || 'Unknown';
+    const maxCount = Math.max(1, parseInt(config.heart_balloon_max_hearts || config.max_count_per_event || 24, 10));
+    const profileEvery = Math.max(1, parseInt(config.heart_balloon_profile_every || 4, 10));
+    const count = Math.max(1, Math.min(parseInt(params.count || config.heart_balloon_test_count || 8, 10), maxCount));
+
+    const spawnData = {
+      mode: 'heart-balloons',
+      type: 'heart-balloons',
+      count,
+      x: typeof params.x === 'number' && params.x >= 0 && params.x <= 1 ? params.x : Math.random(),
+      y: 1,
+      username,
+      profilePictureUrl: params.profilePictureUrl || null,
+      heartColor: params.heartColor || this.getHeartBalloonColor(username),
+      profileEvery,
+      popY: typeof config.heart_balloon_pop_y === 'number' ? config.heart_balloon_pop_y : 0.5,
+      windStrength: typeof config.heart_balloon_wind_strength === 'number' ? config.heart_balloon_wind_strength : 0.45,
+      reason: params.reason || 'heart-balloons',
+      source: params.source || 'herzballons'
+    };
+
+    this.metrics.totalTriggers++;
+    this.metrics.totalEmojisSpawned += spawnData.count;
+    this.metrics.avgCount = this.metrics.totalEmojisSpawned / this.metrics.totalTriggers;
+
+    if (this.overlayState.paused) {
+      this.debugLog('Overlay paused, queueing heart balloons');
+      this.spawnQueue.push(spawnData);
+      return spawnData;
+    }
+
+    this.emitOverlaySpawn(spawnData);
+    this.debugLog(`Heart balloons triggered: ${spawnData.count} for ${username}`);
+
+    return spawnData;
+  }
+
   /**
    * Validate and sanitize spawn coordinates
    * @param {any} x - X coordinate (0-1 range)
    * @param {any} y - Y coordinate (0-1 range)
    * @param {object} spawnArea - Optional spawn area with default x/y
+   * @param {string} spawnAreaPreset - Optional configured screen-area preset
    * @returns {object} Validated {x, y} coordinates
    */
-  validateSpawnCoordinates(x, y, spawnArea = null) {
+  validateSpawnCoordinates(x, y, spawnArea = null, spawnAreaPreset = 'full') {
+    const presetCoordinates = this.pickSpawnAreaCoordinates(spawnAreaPreset);
+    let usedPreset = false;
+
     // Validate X coordinate - must be a valid number, default to random if invalid
     let validX;
-    if (typeof x === 'number' && !isNaN(x) && x >= 0 && x <= 1) {
+    if (this.isNormalizedCoordinate(x)) {
       validX = x;
-    } else if (spawnArea?.x !== undefined && typeof spawnArea.x === 'number' && !isNaN(spawnArea.x) && spawnArea.x >= 0 && spawnArea.x <= 1) {
+    } else if (this.isNormalizedCoordinate(spawnArea?.x)) {
       validX = spawnArea.x;
+    } else if (presetCoordinates) {
+      validX = presetCoordinates.x;
+      usedPreset = true;
     } else {
       validX = Math.random(); // Random horizontal position
     }
 
     // Validate Y coordinate - must be a valid number, default to 0 (top) if invalid
     let validY;
-    if (typeof y === 'number' && !isNaN(y) && y >= 0 && y <= 1) {
+    if (this.isNormalizedCoordinate(y)) {
       validY = y;
-    } else if (spawnArea?.y !== undefined && typeof spawnArea.y === 'number' && !isNaN(spawnArea.y) && spawnArea.y >= 0 && spawnArea.y <= 1) {
+    } else if (this.isNormalizedCoordinate(spawnArea?.y)) {
       validY = spawnArea.y;
+    } else if (presetCoordinates) {
+      validY = presetCoordinates.y;
+      usedPreset = true;
     } else {
       validY = 0; // Top of screen
     }
@@ -622,7 +977,11 @@ class WebGPUEmojiRainPlugin {
       this.debugLog(`Warning: Spawn coordinates were explicitly set to (0,0), using validated: (${validX}, ${validY})`);
     }
 
-    return { x: validX, y: validY };
+    return {
+      x: validX,
+      y: validY,
+      ...(usedPreset && { spawnAreaPreset: presetCoordinates.spawnAreaPreset })
+    };
   }
 
   /**
@@ -640,7 +999,12 @@ class WebGPUEmojiRainPlugin {
     const maxIntensity = config.max_intensity || 3.0;
 
     // Validate and sanitize spawn coordinates
-    const coordinates = this.validateSpawnCoordinates(params.x, params.y, params.spawnArea);
+    const coordinates = this.validateSpawnCoordinates(
+      params.x,
+      params.y,
+      params.spawnArea,
+      params.spawnAreaPreset || 'full'
+    );
 
     const spawnData = {
       count: Math.min(params.count || 10, maxCount),
@@ -650,8 +1014,10 @@ class WebGPUEmojiRainPlugin {
       username: params.username || null,
       profilePictureUrl: params.profilePictureUrl || null,
       reason: params.reason || 'manual',
+      source: params.source || 'manual',
       burst: params.burst || false,
-      intensity: Math.min(params.intensity || 1.0, maxIntensity)
+      intensity: Math.min(params.intensity || 1.0, maxIntensity),
+      ...(coordinates.spawnAreaPreset && { spawnAreaPreset: coordinates.spawnAreaPreset })
     };
 
     // Update metrics
@@ -664,11 +1030,11 @@ class WebGPUEmojiRainPlugin {
     if (this.overlayState.paused) {
       this.debugLog('Overlay paused, queueing spawn');
       this.spawnQueue.push(spawnData);
-      return;
+      return spawnData;
     }
 
     // Emit spawn event
-    this.api.emit('webgpu-emoji-rain:spawn', spawnData);
+    this.emitOverlaySpawn(spawnData);
     if (spawnData.emoji === '{{profilePicture}}') {
       if (spawnData.profilePictureUrl) {
         this.api.log(`🖼️ [WebGPU Emoji Rain] Profile picture spawn for ${spawnData.username}: ${spawnData.profilePictureUrl}`, 'debug');
@@ -689,7 +1055,7 @@ class WebGPUEmojiRainPlugin {
           return;
         }
 
-        this.api.emit('webgpu-emoji-rain:spawn', {
+        this.emitOverlaySpawn({
           ...spawnData,
           x: Math.random()
         });
@@ -697,6 +1063,7 @@ class WebGPUEmojiRainPlugin {
     }
 
     this.debugLog(`Emoji rain triggered: ${spawnData.count}x ${spawnData.emoji} (reason: ${params.reason})`);
+    return spawnData;
   }
 
   /**
@@ -858,6 +1225,30 @@ class WebGPUEmojiRainPlugin {
     }
   }
 
+  getObsHudRoutePaths() {
+    return [
+      '/webgpu-emoji-rain/obs-hud',
+      '/webgpu-emoji-rain/obs-hud/emojiregen',
+      '/webgpu-emoji-rain/obs-hud/herzballons',
+      '/webgpu-emoji-rain/obs-hud/geschenkeregen',
+      '/webgpu-emoji-rain/obs-hud/emojiregen-geschenkeregen',
+      '/webgpu-emoji-rain/obs-hud/emojis',
+      '/webgpu-emoji-rain/obs-hud/hearts',
+      '/webgpu-emoji-rain/obs-hud/gifts',
+      '/webgpu-emoji-rain/obs-hud/emoji-gifts'
+    ];
+  }
+
+  sendObsHudOverlay(res) {
+    const obsHudPath = path.join(__dirname, 'obs-hud.html');
+    if (fs.existsSync(obsHudPath)) {
+      res.sendFile(obsHudPath);
+      return;
+    }
+
+    res.sendFile(path.join(__dirname, 'overlay.html'));
+  }
+
   registerRoutes() {
     // Serve plugin UI (configuration page)
     this.api.registerRoute('get', '/webgpu-emoji-rain/ui', (req, res) => {
@@ -871,15 +1262,11 @@ class WebGPUEmojiRainPlugin {
       res.sendFile(overlayPath);
     });
 
-    // Serve OBS HUD overlay (high-quality, fixed resolution)
-    this.api.registerRoute('get', '/webgpu-emoji-rain/obs-hud', (req, res) => {
-      const obsHudPath = path.join(__dirname, 'obs-hud.html');
-      if (fs.existsSync(obsHudPath)) {
-        res.sendFile(obsHudPath);
-      } else {
-        // Fallback to regular overlay
-        res.sendFile(path.join(__dirname, 'overlay.html'));
-      }
+    // Serve OBS HUD overlays (same renderer, URL-selected effect layers)
+    this.getObsHudRoutePaths().forEach((routePath) => {
+      this.api.registerRoute('get', routePath, (req, res) => {
+        this.sendObsHudOverlay(res);
+      });
     });
 
     // Serve uploaded emoji images
@@ -968,7 +1355,7 @@ class WebGPUEmojiRainPlugin {
 
     // Test emoji rain
     this.api.registerRoute('post', '/api/webgpu-emoji-rain/test', (req, res) => {
-      const { count, emoji, x, y } = req.body;
+      const { count, emoji, x, y, spawnAreaPreset } = req.body;
 
       try {
         const db = this.api.getDatabase();
@@ -978,24 +1365,83 @@ class WebGPUEmojiRainPlugin {
           return res.status(400).json({ success: false, error: 'Emoji rain is disabled' });
         }
 
-        // Create test spawn data
-        const testData = {
+        const parsedX = x !== undefined && x !== null && x !== '' ? parseFloat(x) : undefined;
+        const parsedY = y !== undefined && y !== null && y !== '' ? parseFloat(y) : undefined;
+        const testData = this.triggerEmojiRain({
           count: parseInt(count) || 1,
           emoji: emoji || config.emoji_set[Math.floor(Math.random() * config.emoji_set.length)],
-          x: parseFloat(x) || Math.random(),
-          y: parseFloat(y) || 0,
+          x: Number.isFinite(parsedX) ? parsedX : undefined,
+          y: Number.isFinite(parsedY) ? parsedY : undefined,
+          spawnAreaPreset,
           username: 'Test User',
-          reason: 'test'
-        };
+          reason: 'test',
+          source: 'test-api'
+        });
 
         this.api.log(`🧪 Testing WebGPU emoji rain: ${testData.count}x ${testData.emoji}`, 'info');
-
-        // Emit to overlay
-        this.api.emit('webgpu-emoji-rain:spawn', testData);
 
         res.json({ success: true, message: 'Test emojis spawned', data: testData });
       } catch (error) {
         this.api.log(`Error testing emoji rain: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Test heart balloons
+    this.api.registerRoute('post', '/api/webgpu-emoji-rain/test-heart-balloons', (req, res) => {
+      try {
+        const { count, username, profilePictureUrl } = req.body || {};
+        const config = this.api.getDatabase().getEmojiRainConfig();
+
+        if (!config.enabled) {
+          return res.status(400).json({ success: false, error: 'Emoji rain is disabled' });
+        }
+
+        if (config.heart_balloons_enabled === false) {
+          return res.status(400).json({ success: false, error: 'Herzballons are disabled' });
+        }
+
+        const spawnData = this.triggerHeartBalloons({
+          count: parseInt(count, 10) || config.heart_balloon_test_count || 8,
+          username: username || 'Test User',
+          profilePictureUrl: profilePictureUrl || null,
+          reason: 'test',
+          source: 'test-heart-balloons'
+        });
+
+        res.json({ success: true, message: 'Herzballons spawned', data: spawnData });
+      } catch (error) {
+        this.api.log(`Error testing heart balloons: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Test gift ball
+    this.api.registerRoute('post', '/api/webgpu-emoji-rain/test-gift-ball', (req, res) => {
+      try {
+        const { giftName, giftImageUrl, price, username } = req.body || {};
+        const config = this.api.getDatabase().getEmojiRainConfig();
+
+        if (!config.enabled) {
+          return res.status(400).json({ success: false, error: 'Emoji rain is disabled' });
+        }
+
+        if (config.gift_balls_enabled !== true) {
+          return res.status(400).json({ success: false, error: 'Geschenk-Kugeln are disabled' });
+        }
+
+        const spawnData = this.triggerGiftBall({
+          giftName: giftName || 'Test Gift',
+          giftImageUrl: giftImageUrl || null,
+          diamondCount: parseFloat(price) || 100,
+          username: username || 'Geschenk Test',
+          reason: 'test',
+          source: 'test-gift-ball'
+        });
+
+        res.json({ success: true, message: 'Geschenk-Kugel spawned', data: spawnData });
+      } catch (error) {
+        this.api.log(`Error testing gift ball: ${error.message}`, 'error');
         res.status(500).json({ success: false, error: error.message });
       }
     });
@@ -1273,7 +1719,7 @@ class WebGPUEmojiRainPlugin {
     // Trigger emoji rain via API (for flows) - uses centralized trigger method
     this.api.registerRoute('post', '/api/webgpu-emoji-rain/trigger', (req, res) => {
       try {
-        const { emoji, count, duration, intensity, x, y, username, burst } = req.body;
+        const { emoji, count, duration, intensity, x, y, username, burst, spawnAreaPreset } = req.body;
 
         const config = this.api.getDatabase().getEmojiRainConfig();
 
@@ -1308,6 +1754,7 @@ class WebGPUEmojiRainPlugin {
           intensity: parseFloat(intensity) || 1.0,
           x: parsedX,
           y: parsedY,
+          spawnAreaPreset,
           username: username || null,
           burst: Boolean(burst),
           reason: 'api',
@@ -1324,6 +1771,48 @@ class WebGPUEmojiRainPlugin {
         });
       } catch (error) {
         this.api.log(`❌ [WebGPU Emoji Rain] Error triggering emoji rain: ${error.message}`, 'error');
+        this.metrics.lastError = error.message;
+        this.metrics.lastErrorTime = new Date().toISOString();
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Trigger Herzballons via API
+    this.api.registerRoute('post', '/api/webgpu-emoji-rain/herzballons', (req, res) => {
+      try {
+        const { count, username, profilePictureUrl, x } = req.body || {};
+        const config = this.api.getDatabase().getEmojiRainConfig();
+
+        if (!config.enabled) {
+          return res.status(400).json({ success: false, error: 'Emoji rain is disabled' });
+        }
+
+        if (config.heart_balloons_enabled === false) {
+          return res.status(400).json({ success: false, error: 'Herzballons are disabled' });
+        }
+
+        let parsedX = undefined;
+        if (x !== undefined && x !== null && x !== '') {
+          parsedX = parseFloat(x);
+          if (isNaN(parsedX) || parsedX < 0 || parsedX > 1) {
+            parsedX = undefined;
+          }
+        }
+
+        const spawnData = this.triggerHeartBalloons({
+          count: parseInt(count, 10) || config.heart_balloon_test_count || 8,
+          username: username || 'API User',
+          profilePictureUrl: profilePictureUrl || null,
+          x: parsedX,
+          reason: 'api',
+          source: 'api:herzballons'
+        });
+
+        this.metrics.flowTriggers++;
+
+        res.json({ success: true, message: 'Herzballons triggered', data: spawnData });
+      } catch (error) {
+        this.api.log(`Error triggering Herzballons: ${error.message}`, 'error');
         this.metrics.lastError = error.message;
         this.metrics.lastErrorTime = new Date().toISOString();
         res.status(500).json({ success: false, error: error.message });
@@ -1511,7 +2000,7 @@ class WebGPUEmojiRainPlugin {
           const queued = [...this.spawnQueue];
           this.spawnQueue = [];
           queued.forEach(spawnData => {
-            this.api.emit('webgpu-emoji-rain:spawn', spawnData);
+            this.emitOverlaySpawn(spawnData);
           });
           this.api.log(`▶️ [WebGPU Emoji Rain] Overlay resumed, processed ${queued.length} queued spawns`, 'info');
         } else {
@@ -1763,6 +2252,39 @@ class WebGPUEmojiRainPlugin {
       }
 
       const username = data.uniqueId || data.username || 'Unknown';
+
+      if (reason === 'gift' && config.gift_balls_enabled === true) {
+        this.triggerGiftBall({
+          giftId: data.giftId,
+          giftName: data.giftName,
+          giftPictureUrl: data.giftPictureUrl,
+          giftImageUrl: data.giftImageUrl,
+          imageUrl: data.imageUrl,
+          diamondCount: data.diamondCount,
+          diamond_count: data.diamond_count,
+          coins: data.coins,
+          repeatCount: data.repeatCount,
+          repeat_count: data.repeat_count,
+          comboCount: data.comboCount,
+          combo_count: data.combo_count,
+          seriesCount: data.seriesCount,
+          series_count: data.series_count,
+          gift: data.gift,
+          username,
+          reason,
+          source: 'event:gift'
+        });
+      }
+
+      if (reason === 'like' && config.heart_balloons_enabled !== false) {
+        this.triggerHeartBalloons({
+          count: this.getHeartBalloonCount(config, data),
+          username,
+          profilePictureUrl: this.getProfilePictureUrl(data),
+          reason,
+          source: 'event:like'
+        });
+      }
       
       // Check anti-spam (less strict for events than commands)
       const now = Date.now();
@@ -2109,6 +2631,39 @@ class WebGPUEmojiRainPlugin {
       }
     });
 
+    // Register "Herzballons" action
+    this.api.registerFlowAction('webgpu_emoji_rain_heart_balloons', {
+      name: 'Herzballons',
+      description: 'Spawn rising heart balloons with the viewer profile picture every fourth balloon',
+      icon: '♥',
+      category: 'effects',
+      parameters: {
+        count: {
+          type: 'number',
+          label: 'Count',
+          description: 'Number of heart balloons to spawn',
+          default: 8,
+          min: 1,
+          max: 50
+        }
+      },
+      execute: async (params, eventData) => {
+        try {
+          this.triggerHeartBalloons({
+            count: params.count || 8,
+            username: eventData.username || eventData.uniqueId || null,
+            profilePictureUrl: this.getProfilePictureUrl(eventData),
+            reason: 'flow',
+            source: 'flow-heart-balloons'
+          });
+          return { success: true, message: 'Herzballons triggered' };
+        } catch (error) {
+          this.api.log(`Error triggering Herzballons flow: ${error.message}`, 'error');
+          return { success: false, error: error.message };
+        }
+      }
+    });
+
     // Register "Clear Overlay" action
     this.api.registerFlowAction('webgpu_emoji_rain_clear', {
       name: 'Clear WebGPU Emoji Rain',
@@ -2128,7 +2683,7 @@ class WebGPUEmojiRainPlugin {
       }
     });
 
-    this.api.log('✅ [WebGPU Emoji Rain] Enhanced flow actions registered (4 actions)', 'info');
+    this.api.log('✅ [WebGPU Emoji Rain] Enhanced flow actions registered (5 actions)', 'info');
   }
 
   async destroy() {

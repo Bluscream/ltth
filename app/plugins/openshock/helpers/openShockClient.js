@@ -59,12 +59,12 @@ class OpenShockClient {
         this.minCooldownMs = 100; // Minimum 100ms between commands to same device
 
         // Axios instance with default config
-        // Note: OpenShock API uses 'OpenShockToken' header (no hyphen) for authentication
+        // OpenShock API uses 'Open-Shock-Token' for authentication.
         this.axiosInstance = axios.create({
             baseURL: this.baseUrl,
             timeout: this.defaultTimeout,
             headers: {
-                'OpenShockToken': this.apiKey,
+                'Open-Shock-Token': this.apiKey,
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
                 'User-Agent': 'TikTokHelper/1.0 OpenShockClient'
@@ -219,7 +219,7 @@ class OpenShockClient {
                 baseURL: this.baseUrl,
                 timeout: this.defaultTimeout,
                 headers: {
-                    'OpenShockToken': this.apiKey,
+                    'Open-Shock-Token': this.apiKey,
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
                     'User-Agent': 'TikTokHelper/1.0 OpenShockClient'

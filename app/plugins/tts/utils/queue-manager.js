@@ -22,7 +22,6 @@ class QueueManager {
 
         // Pre-generation system
         this.preGenerationInProgress = new Map(); // Track ongoing pre-generations by item ID
-        this.preGenerateCount = 3; // Number of items to pre-generate
         this.synthesizeCallback = null; // Callback for synthesis (set by TTSPlugin)
 
         // Queue statistics
@@ -36,6 +35,22 @@ class QueueManager {
             preGenerationMisses: 0,
             preGenerationErrors: 0
         };
+
+        this.updateConfig(config);
+    }
+
+    updateConfig(config) {
+        this.config = config;
+        this.preGenerateCount = Number.isInteger(config.preGenerateCount) ? config.preGenerateCount : 3;
+        this.adaptivePreGeneration = config.adaptivePreGeneration !== false;
+        this.calmQueueThreshold = Number.isInteger(config.calmQueueThreshold) ? config.calmQueueThreshold : 2;
+        this.calmPreGenerateCount = Number.isInteger(config.calmPreGenerateCount)
+            ? config.calmPreGenerateCount
+            : Math.max(this.preGenerateCount, 5);
+        this.minPreGenerateCount = Number.isInteger(config.minPreGenerateCount) ? config.minPreGenerateCount : 1;
+        this.preGenerationErrorThreshold = Number.isFinite(config.preGenerationErrorThreshold)
+            ? config.preGenerationErrorThreshold
+            : 0.5;
     }
 
     /**
@@ -242,7 +257,7 @@ class QueueManager {
             return; // No callback registered, skip pre-generation
         }
 
-        const nextItems = this.peek(this.preGenerateCount);
+        const nextItems = this.peek(this._getAdaptivePreGenerateCount());
         
         for (const item of nextItems) {
             // Skip if already has audio data or is streaming
@@ -374,6 +389,32 @@ class QueueManager {
     }
 
     /**
+     * Pick pre-generation depth from queue pressure and recent error rate.
+     */
+    _getAdaptivePreGenerateCount() {
+        if (!this.adaptivePreGeneration) {
+            return this.preGenerateCount;
+        }
+
+        const totalAttempts = this.stats.preGenerationHits +
+            this.stats.preGenerationMisses +
+            this.stats.preGenerationErrors;
+
+        if (totalAttempts > 0) {
+            const errorRate = this.stats.preGenerationErrors / totalAttempts;
+            if (errorRate >= this.preGenerationErrorThreshold) {
+                return this.minPreGenerateCount;
+            }
+        }
+
+        if (this.queue.length > 0 && this.queue.length <= this.calmQueueThreshold) {
+            return this.calmPreGenerateCount;
+        }
+
+        return this.preGenerateCount;
+    }
+
+    /**
      * Process next item in queue (optimized with pre-generation)
      */
     async _processNextOptimized(playCallback) {
@@ -461,13 +502,69 @@ class QueueManager {
     }
 
     /**
+     * Convert external priority forms to a number.
+     */
+    _normalizePriority(priority) {
+        if (typeof priority === 'number' && Number.isFinite(priority)) {
+            return priority;
+        }
+
+        if (priority === 'high') {
+            return 50;
+        }
+
+        if (priority === 'low') {
+            return -10;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Calculate age-based priority boost so old normal messages are not starved.
+     */
+    _getPriorityAgingBoost(item) {
+        if (this.config.priorityAgingEnabled === false) {
+            return 0;
+        }
+
+        const intervalMs = Number.isFinite(this.config.priorityAgingIntervalMs)
+            ? this.config.priorityAgingIntervalMs
+            : 30000;
+        const boostPerInterval = Number.isFinite(this.config.priorityAgingBoost)
+            ? this.config.priorityAgingBoost
+            : 1;
+        const maxBoost = Number.isFinite(this.config.maxPriorityAgingBoost)
+            ? this.config.maxPriorityAgingBoost
+            : 50;
+
+        if (!item.timestamp || intervalMs <= 0 || boostPerInterval <= 0 || maxBoost <= 0) {
+            return 0;
+        }
+
+        const ageMs = Math.max(0, Date.now() - item.timestamp);
+        const boost = Math.floor(ageMs / intervalMs) * boostPerInterval;
+        return Math.min(maxBoost, boost);
+    }
+
+    /**
+     * Effective priority combines configured priority with bounded queue aging.
+     */
+    _getEffectivePriority(item) {
+        return this._normalizePriority(item.priority) + this._getPriorityAgingBoost(item);
+    }
+
+    /**
      * Sort queue by priority (descending)
      */
     _sortQueue() {
         this.queue.sort((a, b) => {
             // Higher priority first
-            if (a.priority !== b.priority) {
-                return b.priority - a.priority;
+            const aPriority = this._getEffectivePriority(a);
+            const bPriority = this._getEffectivePriority(b);
+
+            if (aPriority !== bPriority) {
+                return bPriority - aPriority;
             }
             // Same priority -> FIFO (older first)
             return a.timestamp - b.timestamp;
@@ -612,6 +709,7 @@ class QueueManager {
                 username: this.currentItem.username,
                 text: this.currentItem.text.substring(0, 50),
                 priority: this.currentItem.priority,
+                effectivePriority: this._getEffectivePriority(this.currentItem),
                 hasAudio: !!this.currentItem.audioData,
                 isPreGenerating: this.preGenerationInProgress.has(this.currentItem.id)
             } : null,
@@ -620,6 +718,7 @@ class QueueManager {
                 username: item.username,
                 text: item.text.substring(0, 50),
                 priority: item.priority,
+                effectivePriority: this._getEffectivePriority(item),
                 hasAudio: !!item.audioData,
                 isPreGenerating: this.preGenerationInProgress.has(item.id)
             }))

@@ -1,145 +1,325 @@
-/**
- * Test suite for Euler Backup Key Warning
- * Tests that the backup key triggers the appropriate warning system
- */
+const EventEmitter = require('events');
 
-const assert = require('assert');
+const FALLBACK_KEY = 'a'.repeat(64);
+const USER_KEY = 'b'.repeat(64);
 
-// Mock dependencies
-class MockIO {
-    constructor() {
-        this.emittedEvents = [];
-    }
-    
-    emit(event, data) {
-        this.emittedEvents.push({ event, data });
-    }
-    
-    getEmittedEvent(eventName) {
-        return this.emittedEvents.find(e => e.event === eventName);
-    }
+function createMockDb(initialSettings = {}) {
+  const settings = { ...initialSettings };
+
+  return {
+    getSetting: jest.fn((key) => settings[key] || null),
+    getAllSettings: jest.fn(() => ({ ...settings })),
+    setSetting: jest.fn((key, value) => {
+      settings[key] = String(value);
+    }),
+    loadStreamStats: jest.fn(() => null),
+    saveStreamStats: jest.fn(),
+    resetStreamStats: jest.fn(),
+    getGift: jest.fn(() => null),
+    getGiftCatalog: jest.fn(() => []),
+    updateGiftCatalog: jest.fn(() => 0),
+    logEvent: jest.fn()
+  };
 }
 
-class MockDB {
-    constructor() {
-        this.settings = {};
-    }
-    
-    setSetting(key, value) {
-        this.settings[key] = value;
-    }
-    
-    getSetting(key) {
-        return this.settings[key] || null;
-    }
-    
-    getGift() { return null; }
-    getGiftCatalog() { return []; }
-    updateGiftCatalog() { return 0; }
-    logEvent() {}
+function createMockLogger() {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn()
+  };
 }
 
-// Load the TikTokConnector class
-const TikTokConnector = require('../modules/tiktok.js');
+function loadAdapterWithMockedNetwork(options = {}) {
+  const {
+    createWebSocketUrl = jest.fn(() => 'ws://eulerstream.test/socket'),
+    deserializeWebSocketMessage = jest.fn(),
+    SchemaVersion = {}
+  } = options;
 
-// Simple test runner
-console.log('🧪 Running Euler Backup Key Warning Tests...\n');
-
-let passed = 0;
-let failed = 0;
-
-const testSuites = [
-    {
-        name: 'Backup Key Detection',
-        tests: [
-            { name: 'Detects when backup key is in use', fn: () => {
-                // This test verifies that the backup key constant is properly defined
-                // The actual key value comes from environment variable EULER_BACKUP_API_KEY
-                const backupKey = process.env.EULER_BACKUP_API_KEY;
-                
-                if (backupKey) {
-                    assert.ok(typeof backupKey === 'string', 'Backup key should be a string');
-                    assert.ok(backupKey.length > 0, 'Backup key should not be empty');
-                    console.log(`     ℹ️  Backup key configured: ${backupKey.substring(0, 8)}...${backupKey.substring(backupKey.length - 4)}`);
-                } else {
-                    console.log('     ⚠️  EULER_BACKUP_API_KEY not set in environment - test skipped');
-                }
-            }},
-            
-            { name: 'Warning event structure is correct', fn: () => {
-                const io = new MockIO();
-                const db = new MockDB();
-                const connector = new TikTokConnector(io, db);
-                
-                // Manually emit the warning to test the event structure
-                io.emit('euler-backup-key-warning', {
-                    message: 'Euler Backup Key wird verwendet',
-                    duration: 10000
-                });
-                
-                const warningEvent = io.getEmittedEvent('euler-backup-key-warning');
-                assert.ok(warningEvent !== undefined, 'Warning event should be emitted');
-                assert.strictEqual(warningEvent.data.message, 'Euler Backup Key wird verwendet', 'Message should match');
-                assert.strictEqual(warningEvent.data.duration, 10000, 'Duration should be 10 seconds');
-            }},
-            
-            { name: 'Backup key is distinct from fallback key', fn: () => {
-                const backupKey = process.env.EULER_BACKUP_API_KEY;
-                const fallbackKey = process.env.EULER_FALLBACK_API_KEY;
-                
-                // If both are set, they should be different
-                if (backupKey && fallbackKey) {
-                    assert.notStrictEqual(backupKey, fallbackKey, 
-                        'Backup key and fallback key should be different');
-                } else {
-                    console.log('     ℹ️  Only one or neither key is set - comparison skipped');
-                }
-            }},
-        ]
-    },
-    {
-        name: 'Warning Message Content',
-        tests: [
-            { name: 'Warning message is in German', fn: () => {
-                const expectedMessage = 'Euler Backup Key wird verwendet';
-                assert.ok(expectedMessage.includes('verwendet'), 'Should contain German text');
-                assert.ok(!expectedMessage.includes('using'), 'Should not contain English text');
-            }},
-            
-            { name: 'Warning duration is 10 seconds', fn: () => {
-                const io = new MockIO();
-                const expectedDuration = 10000; // 10 seconds in milliseconds
-                
-                // Emit a warning event to test the duration
-                io.emit('euler-backup-key-warning', {
-                    message: 'Euler Backup Key wird verwendet',
-                    duration: expectedDuration
-                });
-                
-                const warningEvent = io.getEmittedEvent('euler-backup-key-warning');
-                assert.strictEqual(warningEvent.data.duration, 10000, 'Duration should be 10000ms (10 seconds)');
-            }},
-        ]
+  class MockWebSocket extends EventEmitter {
+    constructor(url) {
+      super();
+      this.url = url;
     }
-];
 
-testSuites.forEach(suite => {
-    console.log(`\n📋 ${suite.name}:`);
-    suite.tests.forEach(test => {
-        try {
-            test.fn();
-            console.log(`  ✅ ${test.name}`);
-            passed++;
-        } catch (err) {
-            console.log(`  ❌ ${test.name}`);
-            console.log(`     Error: ${err.message}`);
-            failed++;
-        }
+    close() {}
+    ping() {
+      this.emit('pong');
+    }
+  }
+
+  class MockWebcastEventEmitter extends EventEmitter {}
+
+  jest.doMock('ws', () => MockWebSocket);
+  jest.doMock('@eulerstream/euler-websocket-sdk', () => ({
+    WebcastEventEmitter: MockWebcastEventEmitter,
+    createWebSocketUrl,
+    ClientCloseCode: {},
+    deserializeWebSocketMessage,
+    SchemaVersion
+  }));
+
+  return require('../modules/adapters/EulerstreamAdapter');
+}
+
+async function finishConnect(adapter, connectPromise) {
+  if (!adapter.ws) {
+    await jest.advanceTimersByTimeAsync(10000);
+  }
+  await Promise.resolve();
+  expect(adapter.ws).toBeTruthy();
+  adapter.ws.emit('open');
+  await connectPromise;
+}
+
+describe('Eulerstream backup key warning', () => {
+  const originalEnv = process.env;
+  let adapter;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.useFakeTimers();
+    process.env = {
+      ...originalEnv,
+      EULER_FALLBACK_API_KEY: FALLBACK_KEY,
+      EULER_BACKUP_API_KEY: FALLBACK_KEY
+    };
+    delete process.env.EULER_API_KEY;
+    delete process.env.SIGN_API_KEY;
+    adapter = null;
+  });
+
+  afterEach(() => {
+    if (adapter) {
+      adapter.disconnect();
+    }
+    jest.clearAllTimers();
+    jest.useRealTimers();
+    jest.dontMock('ws');
+    jest.dontMock('@eulerstream/euler-websocket-sdk');
+    process.env = originalEnv;
+  });
+
+  test('does not show backup warning when automatic fallback key matches backup key', async () => {
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork();
+    const io = { emit: jest.fn() };
+
+    adapter = new EulerstreamAdapter(io, createMockDb(), createMockLogger());
+    adapter.fetchRoomInfo = jest.fn(async () => null);
+    adapter.updateGiftCatalog = jest.fn(async () => ({ message: 'skipped' }));
+
+    const connectPromise = adapter.connect('testuser');
+    await finishConnect(adapter, connectPromise);
+
+    expect(io.emit).toHaveBeenCalledWith('fallback-key-warning', {
+      message: 'Fallback API Key wird verwendet',
+      duration: 10000
     });
+    expect(io.emit).not.toHaveBeenCalledWith('euler-backup-key-warning', expect.any(Object));
+  });
+
+  test('shows backup warning when a configured user key is the backup key', async () => {
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork();
+    const io = { emit: jest.fn() };
+    const db = createMockDb({ tiktok_euler_api_key: FALLBACK_KEY });
+
+    adapter = new EulerstreamAdapter(io, db, createMockLogger());
+    adapter.fetchRoomInfo = jest.fn(async () => null);
+    adapter.updateGiftCatalog = jest.fn(async () => ({ message: 'skipped' }));
+
+    const connectPromise = adapter.connect('testuser');
+    await finishConnect(adapter, connectPromise);
+
+    expect(io.emit).toHaveBeenCalledWith('euler-backup-key-warning', {
+      message: 'Euler Backup Key wird verwendet',
+      duration: 10000
+    });
+  });
+
+  test('does not show backup warning for a configured non-backup user key', async () => {
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork();
+    const io = { emit: jest.fn() };
+    const db = createMockDb({ tiktok_euler_api_key: USER_KEY });
+
+    adapter = new EulerstreamAdapter(io, db, createMockLogger());
+    adapter.fetchRoomInfo = jest.fn(async () => null);
+    adapter.updateGiftCatalog = jest.fn(async () => ({ message: 'skipped' }));
+
+    const connectPromise = adapter.connect('testuser');
+    await finishConnect(adapter, connectPromise);
+
+    expect(io.emit).not.toHaveBeenCalledWith('euler-backup-key-warning', expect.any(Object));
+    expect(io.emit).not.toHaveBeenCalledWith('fallback-key-warning', expect.any(Object));
+  });
+
+  test('reports configured database key as non-fallback in diagnostics', () => {
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork();
+    adapter = new EulerstreamAdapter(
+      { emit: jest.fn() },
+      createMockDb({ tiktok_euler_api_key: USER_KEY }),
+      createMockLogger()
+    );
+
+    expect(adapter.getEulerApiKeyInfo()).toEqual(expect.objectContaining({
+      activeSource: 'Database Setting',
+      configured: true,
+      usingFallback: false
+    }));
+  });
+
+  test('falls back to settings listing when direct setting lookup misses database key', () => {
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork();
+    const db = createMockDb({ tiktok_euler_api_key: USER_KEY });
+    db.getSetting.mockReturnValue(null);
+    adapter = new EulerstreamAdapter(
+      { emit: jest.fn() },
+      db,
+      createMockLogger()
+    );
+
+    expect(adapter.getEulerApiKeyInfo()).toEqual(expect.objectContaining({
+      activeSource: 'Database Setting',
+      configured: true,
+      usingFallback: false
+    }));
+  });
+
+  test('uses configured database key when creating WebSocket URL', async () => {
+    const createWebSocketUrl = jest.fn(() => 'ws://eulerstream.test/socket');
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork({ createWebSocketUrl });
+    const io = { emit: jest.fn() };
+
+    adapter = new EulerstreamAdapter(io, createMockDb({ tiktok_euler_api_key: USER_KEY }), createMockLogger());
+    adapter.fetchRoomInfo = jest.fn(async () => null);
+    adapter.updateGiftCatalog = jest.fn(async () => ({ message: 'skipped' }));
+
+    const connectPromise = adapter.connect('testuser');
+    await finishConnect(adapter, connectPromise);
+
+    expect(createWebSocketUrl).toHaveBeenCalledWith(expect.objectContaining({
+      uniqueId: 'testuser',
+      apiKey: USER_KEY
+    }));
+  });
+
+  test('uses an euler API key as the built-in fallback when no key is configured', async () => {
+    delete process.env.EULER_FALLBACK_API_KEY;
+    const createWebSocketUrl = jest.fn(() => 'ws://eulerstream.test/socket');
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork({ createWebSocketUrl });
+    const io = { emit: jest.fn() };
+
+    adapter = new EulerstreamAdapter(io, createMockDb(), createMockLogger());
+    adapter.fetchRoomInfo = jest.fn(async () => null);
+    adapter.updateGiftCatalog = jest.fn(async () => ({ message: 'skipped' }));
+
+    const connectPromise = adapter.connect('testuser');
+    await finishConnect(adapter, connectPromise);
+
+    expect(createWebSocketUrl).toHaveBeenCalledWith(expect.objectContaining({
+      uniqueId: 'testuser',
+      apiKey: expect.stringMatching(/^euler_/)
+    }));
+    expect(io.emit).toHaveBeenCalledWith('fallback-key-warning', expect.any(Object));
+  });
+
+  test('uses lowercase SDK v2 schema when decoding protobuf websocket frames', async () => {
+    const deserializeWebSocketMessage = jest.fn(() => ({
+      protoMessageFetchResult: {
+        messages: []
+      }
+    }));
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork({
+      deserializeWebSocketMessage,
+      SchemaVersion: { v2: 'v2' }
+    });
+    const io = { emit: jest.fn() };
+    const db = createMockDb({ tiktok_euler_api_key: USER_KEY });
+
+    adapter = new EulerstreamAdapter(io, db, createMockLogger());
+    adapter.fetchRoomInfo = jest.fn(async () => null);
+    adapter.updateGiftCatalog = jest.fn(async () => ({ message: 'skipped' }));
+
+    const connectPromise = adapter.connect('testuser');
+    await finishConnect(adapter, connectPromise);
+
+    adapter.ws.emit('message', Buffer.from([0, 1, 2, 3]));
+
+    expect(deserializeWebSocketMessage).toHaveBeenCalledWith(expect.any(Uint8Array), 'v2');
+  });
+
+  test('logs protobuf SDK decoded chat messages to the event log', async () => {
+    const decodedChat = {
+      type: 'WebcastChatMessage',
+      data: {
+        comment: 'hello from protobuf',
+        user: {
+          uniqueId: 'viewer_one',
+          nickname: 'Viewer One',
+          userId: 'user-1'
+        }
+      }
+    };
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork({
+      deserializeWebSocketMessage: jest.fn(() => ({
+        protoMessageFetchResult: {
+          messages: [
+            {
+              type: 'WebcastChatMessage',
+              decodedData: decodedChat
+            }
+          ]
+        }
+      }))
+    });
+    const io = { emit: jest.fn() };
+    const db = createMockDb({ tiktok_euler_api_key: USER_KEY });
+
+    adapter = new EulerstreamAdapter(io, db, createMockLogger());
+    adapter.fetchRoomInfo = jest.fn(async () => null);
+    adapter.updateGiftCatalog = jest.fn(async () => ({ message: 'skipped' }));
+
+    const connectPromise = adapter.connect('testuser');
+    await finishConnect(adapter, connectPromise);
+
+    adapter.ws.emit('message', Buffer.from([0, 1, 2, 3]));
+
+    expect(io.emit).toHaveBeenCalledWith('tiktok:event', {
+      type: 'chat',
+      data: expect.objectContaining({
+        username: 'viewer_one',
+        nickname: 'Viewer One',
+        message: 'hello from protobuf'
+      })
+    });
+    expect(db.logEvent).toHaveBeenCalledWith(
+      'chat',
+      'viewer_one',
+      expect.objectContaining({
+        username: 'viewer_one',
+        message: 'hello from protobuf'
+      })
+    );
+  });
+
+  test('cancels pending not-live reconnects when manually disconnecting', async () => {
+    const EulerstreamAdapter = loadAdapterWithMockedNetwork();
+    const io = { emit: jest.fn() };
+
+    adapter = new EulerstreamAdapter(io, createMockDb({ tiktok_euler_api_key: USER_KEY }), createMockLogger());
+    adapter.fetchRoomInfo = jest.fn(async () => null);
+    adapter.updateGiftCatalog = jest.fn(async () => ({ message: 'skipped' }));
+
+    const connectPromise = adapter.connect('old_streamer');
+    await finishConnect(adapter, connectPromise);
+
+    const reconnectSpy = jest.spyOn(adapter, 'connect').mockImplementation(async () => {});
+    adapter.ws.emit('close', 4404, 'not live');
+    adapter.disconnect();
+
+    await jest.advanceTimersByTimeAsync(30000);
+
+    expect(reconnectSpy).not.toHaveBeenCalled();
+  });
 });
-
-console.log(`\n${'='.repeat(50)}`);
-console.log(`📊 Test Results: ${passed} passed, ${failed} failed`);
-console.log(`${'='.repeat(50)}\n`);
-
-process.exit(failed > 0 ? 1 : 0);

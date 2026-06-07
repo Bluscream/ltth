@@ -1,18 +1,19 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pup Cid´s Little Quiz Show Plugin</title>
+    <title>Pup Cid's Little Quiz Show Plugin</title>
     <link rel="stylesheet" href="/quiz-show/quiz_show.css">
+    <link rel="stylesheet" href="/css/themes.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="/js/lucide.min.js"></script>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎯 Pup Cid´s Little Quiz Show Plugin</h1>
+            <h1> Pup Cid's Little Quiz Show Plugin</h1>
             <div class="header-status">
                 <div id="connectionStatus" class="status-badge status-connected">Verbunden</div>
                 <div id="quizStatus" class="status-badge status-idle">Bereit</div>
@@ -22,25 +23,31 @@
         <!-- Tab Navigation -->
         <div class="tabs">
             <button class="tab-button active" data-tab="dashboard">
-                <span>📊 Dashboard</span>
+                <span> Dashboard</span>
             </button>
             <button class="tab-button" data-tab="questions">
-                <span>❓ Fragen</span>
+                <span> Fragen</span>
             </button>
             <button class="tab-button" data-tab="ai-packages">
-                <span>🤖 AI Fragenpakete</span>
+                <span> AI Fragenpakete</span>
             </button>
             <button class="tab-button" data-tab="settings">
-                <span>⚙️ Einstellungen</span>
+                <span> Einstellungen</span>
             </button>
             <button class="tab-button" data-tab="leaderboard">
-                <span>🏆 Leaderboard</span>
+                <span> Leaderboard</span>
             </button>
             <button class="tab-button" data-tab="overlay-config">
-                <span>🎨 Overlay Konfiguration</span>
+                <span> Overlay Konfiguration</span>
             </button>
             <button class="tab-button" data-tab="gift-jokers">
-                <span>🎁 Gift-Joker</span>
+                <span>Gift-Joker</span>
+            </button>
+            <button class="tab-button" data-tab="expansion">
+                <span>Erweiterungen</span>
+            </button>
+            <button class="tab-button hidden" data-tab="gift-jokers-legacy">
+                <span> Gift-Joker</span>
             </button>
         </div>
 
@@ -57,11 +64,12 @@
                                 <option value="fastestFinger">Schnellste Finger</option>
                                 <option value="elimination">Elimination</option>
                                 <option value="marathon">Marathon</option>
+                                <option value="duel">Duel</option>
                             </select>
                             <div class="category-filter-container">
                                 <button type="button" id="categoryFilterButton" class="category-filter-button">
                                     <span id="categoryFilterLabel">Alle Kategorien</span>
-                                    <span class="category-filter-arrow">▼</span>
+                                    <span class="category-filter-arrow"></span>
                                 </button>
                                 <div id="categoryFilterDropdown" class="category-dropdown">
                                     <div class="category-dropdown-header">
@@ -75,9 +83,9 @@
                                     </div>
                                 </div>
                             </div>
-                            <button id="startQuizBtn" class="btn btn-primary">▶️ Quiz Starten</button>
-                            <button id="nextQuestionBtn" class="btn btn-secondary" disabled>⏭️ Nächste Frage</button>
-                            <button id="stopQuizBtn" class="btn btn-danger" disabled>⏹️ Stoppen</button>
+                            <button id="startQuizBtn" class="btn btn-primary"> Quiz Starten</button>
+                            <button id="nextQuestionBtn" class="btn btn-secondary" disabled> Nächste Frage</button>
+                            <button id="stopQuizBtn" class="btn btn-danger" disabled> Stoppen</button>
                         </div>
                     </div>
                     <div class="panel-body">
@@ -165,8 +173,8 @@
   }
 ]'></textarea>
                             <div class="button-group">
-                                <button id="uploadQuestionsBtn" class="btn btn-primary">📤 Hochladen</button>
-                                <button id="exportQuestionsBtn" class="btn btn-secondary">📥 Exportieren</button>
+                                <button id="uploadQuestionsBtn" class="btn btn-primary"> Hochladen</button>
+                                <button id="exportQuestionsBtn" class="btn btn-secondary"> Exportieren</button>
                             </div>
                         </div>
                     </div>
@@ -223,11 +231,11 @@
                             <div class="form-group">
                                 <label>Schwierigkeit:</label>
                                 <select id="questionDifficulty" class="form-control">
-                                    <option value="1">⭐ Leicht</option>
-                                    <option value="2" selected>⭐⭐ Mittel</option>
-                                    <option value="3">⭐⭐⭐ Schwer</option>
-                                    <option value="4">⭐⭐⭐⭐ Experte</option>
-                                    <option value="5">⭐⭐⭐⭐⭐ Master</option>
+                                    <option value="1"> Leicht</option>
+                                    <option value="2" selected> Mittel</option>
+                                    <option value="3"> Schwer</option>
+                                    <option value="4"> Experte</option>
+                                    <option value="5"> Master</option>
                                 </select>
                             </div>
                         </div>
@@ -238,9 +246,9 @@
                         </div>
 
                         <div class="button-group">
-                            <button id="addQuestionBtn" class="btn btn-primary">➕ Frage Hinzufügen</button>
-                            <button id="updateQuestionBtn" class="btn btn-secondary hidden">💾 Frage Aktualisieren</button>
-                            <button id="cancelEditBtn" class="btn btn-secondary hidden">❌ Abbrechen</button>
+                            <button id="addQuestionBtn" class="btn btn-primary"> Frage Hinzufügen</button>
+                            <button id="updateQuestionBtn" class="btn btn-secondary hidden"> Frage Aktualisieren</button>
+                            <button id="cancelEditBtn" class="btn btn-secondary hidden">X Abbrechen</button>
                         </div>
                     </div>
                 </div>
@@ -266,13 +274,13 @@
         <div id="ai-packages" class="tab-content">
             <div class="panel">
                 <div class="panel-header">
-                    <h2>🤖 AI Fragenpakete mit OpenAI</h2>
+                    <h2> AI Fragenpakete mit OpenAI</h2>
                 </div>
                 <div class="panel-body">
                     <!-- Info about OpenAI Configuration -->
                     <div class="info-message" style="margin-bottom: 20px; padding: 15px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px;">
-                        <strong>ℹ️ OpenAI Konfiguration</strong><br>
-                        Der OpenAI API-Schlüssel wird jetzt zentral im <strong>Haupteinstellungspanel</strong> (Einstellungen → OpenAI API Configuration) verwaltet.
+                        <strong> OpenAI Konfiguration</strong><br>
+                        Der OpenAI API-Schlüssel wird jetzt zentral im <strong>Haupteinstellungspanel</strong> (Einstellungen  OpenAI API Configuration) verwaltet.
                     </div>
 
                     <!-- Generate Question Package Section -->
@@ -282,7 +290,7 @@
                         </div>
                         <div class="panel-body">
                             <div id="generateWarning" class="warning-message" style="margin-bottom: 15px; display: none;">
-                                ⚠️ Bitte konfigurieren Sie zuerst Ihren OpenAI API-Schlüssel im Haupteinstellungspanel.
+                                  Bitte konfigurieren Sie zuerst Ihren OpenAI API-Schlüssel im Haupteinstellungspanel.
                             </div>
 
                             <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
@@ -321,12 +329,12 @@
                             </div>
 
                             <div class="info-box" style="margin: 15px 0; padding: 10px; background: #f0f9ff; border-left: 4px solid #3b82f6; border-radius: 4px;">
-                                <strong>ℹ️ Schwierigkeitsverteilung:</strong>
+                                <strong> Schwierigkeitsverteilung:</strong>
                                 <ul style="margin: 5px 0 0 20px; padding: 0;">
-                                    <li>50% Einfach (⭐)</li>
-                                    <li>~17% Mittel (⭐⭐)</li>
-                                    <li>~17% Schwer (⭐⭐⭐)</li>
-                                    <li>~16% Expert (⭐⭐⭐⭐)</li>
+                                    <li>50% Einfach (</li>
+                                    <li>~17% Mittel (</li>
+                                    <li>~17% Schwer (</li>
+                                    <li>~16% Expert (</li>
                                 </ul>
                                 <p style="margin: 5px 0 0 0; font-size: 0.9em; color: #666;">
                                     Vorhandene Fragen in der Kategorie werden automatisch erkannt, um Duplikate zu vermeiden.
@@ -334,7 +342,7 @@
                             </div>
 
                             <div class="form-actions">
-                                <button id="generatePackageBtn" class="btn btn-success">🤖 Fragenpaket Generieren</button>
+                                <button id="generatePackageBtn" class="btn btn-success"> Fragenpaket Generieren</button>
                             </div>
                             <div id="generateMessage" class="message hidden" style="margin-top: 10px;"></div>
                             <div id="generationProgress" class="progress-container hidden" style="margin-top: 15px;">
@@ -349,11 +357,11 @@
                     <!-- Batch Generate Question Packages Section -->
                     <div class="panel" style="margin-bottom: 20px;">
                         <div class="panel-header">
-                            <h3>🚀 Batch Fragenpakete Generieren</h3>
+                            <h3> Batch Fragenpakete Generieren</h3>
                         </div>
                         <div class="panel-body">
                             <div id="batchGenerateWarning" class="warning-message" style="margin-bottom: 15px; display: none;">
-                                ⚠️ Bitte konfigurieren Sie zuerst Ihren OpenAI API-Schlüssel oben.
+                                  Bitte konfigurieren Sie zuerst Ihren OpenAI API-Schlüssel oben.
                             </div>
 
                             <div class="form-group">
@@ -384,7 +392,7 @@
                             </div>
 
                             <div class="info-box" style="margin: 15px 0; padding: 10px; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px;">
-                                <strong>ℹ️ Batch-Generierung:</strong>
+                                <strong> Batch-Generierung:</strong>
                                 <ul style="margin: 5px 0 0 20px; padding: 0;">
                                     <li>Die Generierung läuft im Hintergrund</li>
                                     <li>Sie können die Seite während der Generierung nutzen</li>
@@ -394,7 +402,7 @@
                             </div>
 
                             <div class="form-actions">
-                                <button id="batchGenerateBtn" class="btn btn-success">🤖 Batch Generierung Starten</button>
+                                <button id="batchGenerateBtn" class="btn btn-success"> Batch Generierung Starten</button>
                             </div>
                             <div id="batchGenerateMessage" class="message hidden" style="margin-top: 10px;"></div>
                             <div id="batchGenerationProgress" class="hidden" style="margin-top: 15px;">
@@ -416,14 +424,14 @@
                     <!-- Question Packages List -->
                     <div class="panel">
                         <div class="panel-header">
-                            <h3>📦 Verfügbare Fragenpakete</h3>
+                            <h3> Verfügbare Fragenpakete</h3>
                             <div class="panel-controls">
                                 <span id="packageCount" class="badge">0 Pakete</span>
                             </div>
                         </div>
                         <div class="panel-body">
                             <div class="info-box" style="margin-bottom: 15px; padding: 10px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
-                                <strong>💡 Tipp:</strong> Wählen Sie ein oder mehrere Pakete aus, um nur Fragen aus diesen Paketen im Quiz zu verwenden. Wenn keine Pakete ausgewählt sind, werden alle Fragen verwendet.
+                                <strong> Tipp:</strong> Wählen Sie ein oder mehrere Pakete aus, um nur Fragen aus diesen Paketen im Quiz zu verwenden. Wenn keine Pakete ausgewählt sind, werden alle Fragen verwendet.
                             </div>
                             <div id="packagesList" class="packages-list">
                                 <p class="no-data">Keine Pakete vorhanden. Generieren Sie Ihr erstes Paket oben!</p>
@@ -577,11 +585,11 @@
                 <!-- Chat Commands Settings -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>💬 Chat Befehle</h2>
+                        <h2> Chat Befehle</h2>
                     </div>
                     <div class="panel-body">
                         <div class="help-text" style="margin-bottom: 20px; padding: 12px; background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; border-radius: 4px;">
-                            <strong>📝 Hinweis:</strong> Konfigurieren Sie, wie Zuschauer antworten können. Mehrere Prefixe können gleichzeitig verwendet werden (z.B. sowohl !a als auch /a).
+                            <strong> Hinweis:</strong> Konfigurieren Sie, wie Zuschauer antworten können. Mehrere Prefixe können gleichzeitig verwendet werden (z.B. sowohl !a als auch /a).
                         </div>
 
                         <!-- Answer Commands -->
@@ -675,7 +683,7 @@
                 <!-- TTS Settings -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>🗣️ TTS Einstellungen</h2>
+                        <h2> TTS Einstellungen</h2>
                     </div>
                     <div class="panel-body">
                         <div class="form-group checkbox-group">
@@ -719,7 +727,7 @@
                 <!-- Marathon Mode Settings -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>🏃 Marathon Modus</h2>
+                        <h2> Marathon Modus</h2>
                     </div>
                     <div class="panel-body">
                         <div class="form-group">
@@ -733,7 +741,7 @@
                 <!-- Auto Mode Settings -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>⚡ Auto Modus</h2>
+                        <h2> Auto Modus</h2>
                     </div>
                     <div class="panel-body">
                         <div class="form-group checkbox-group">
@@ -769,7 +777,7 @@
                 <!-- Voter Icons Settings -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>👥 Voter Icons (Antwortvisualisierung)</h2>
+                        <h2> Voter Icons (Antwortvisualisierung)</h2>
                     </div>
                     <div class="panel-body">
                         <div class="form-group checkbox-group">
@@ -833,7 +841,7 @@
                 <!-- Slot Machine Settings -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>🎰 Slot Machine Modus</h2>
+                        <h2> Slot Machine Modus</h2>
                     </div>
                     <div class="panel-body">
                         <div class="form-group checkbox-group">
@@ -866,7 +874,7 @@
 
                         <div class="form-group">
                             <button id="triggerSlotMachineBtn" class="btn btn-secondary" style="margin-top: 10px;">
-                                🎰 Slot Machine Manuell Testen
+                                 Slot Machine Manuell Testen
                             </button>
                             <div class="help-text small">Testet die Slot Machine Animation im Overlay (unabhängig vom Quiz)</div>
                         </div>
@@ -876,7 +884,7 @@
                 <!-- Save Button -->
                 <div class="panel full-width">
                     <div class="panel-body">
-                        <button id="saveSettingsBtn" class="btn btn-primary btn-large">💾 Einstellungen Speichern</button>
+                        <button id="saveSettingsBtn" class="btn btn-primary btn-large"> Einstellungen Speichern</button>
                         <div id="saveMessage" class="message hidden"></div>
                     </div>
                 </div>
@@ -887,16 +895,16 @@
         <div id="leaderboard" class="tab-content">
             <div class="panel">
                 <div class="panel-header">
-                    <h2>🏆 Leaderboard</h2>
+                    <h2> Leaderboard</h2>
                     <div class="panel-controls">
                         <select id="seasonSelect" class="form-control" style="width: auto; display: inline-block; margin-right: 10px;">
                             <option value="active">Aktuelle Saison</option>
                             <!-- Seasons will be populated dynamically -->
                         </select>
-                        <button id="newSeasonBtn" class="btn btn-secondary">🆕 Neue Saison</button>
-                        <button id="exportLeaderboardBtn" class="btn btn-secondary">📥 Exportieren</button>
-                        <button id="importLeaderboardBtn" class="btn btn-secondary">📤 Importieren</button>
-                        <button id="resetLeaderboardBtn" class="btn btn-danger">🗑️ Zurücksetzen</button>
+                        <button id="newSeasonBtn" class="btn btn-secondary"> Neue Saison</button>
+                        <button id="exportLeaderboardBtn" class="btn btn-secondary"> Exportieren</button>
+                        <button id="importLeaderboardBtn" class="btn btn-secondary"> Importieren</button>
+                        <button id="resetLeaderboardBtn" class="btn btn-danger"> Zurücksetzen</button>
                     </div>
                 </div>
                 <div class="panel-body">
@@ -948,17 +956,19 @@
             <!-- Quick Actions Header -->
             <div class="panel">
                 <div class="panel-header">
-                    <h2>🎬 Overlay Konfiguration</h2>
+                    <h2> Overlay Konfiguration</h2>
                     <div class="panel-controls">
-                        <button id="openOverlayBtn" class="btn btn-secondary">🔗 Overlay öffnen</button>
-                        <button id="openLeaderboardOverlayBtn" class="btn btn-secondary">🏆 Leaderboard öffnen</button>
-                        <button id="refreshPreviewBtn" class="btn btn-secondary">🔄 Vorschau aktualisieren</button>
+                        <button id="openOverlayBtn" class="btn btn-secondary"> Overlay öffnen</button>
+                        <button id="openSplitscreenOverlayBtn" class="btn btn-secondary"> Splitscreen öffnen</button>
+                        <button id="openLeaderboardOverlayBtn" class="btn btn-secondary"> Leaderboard öffnen</button>
+                        <button id="refreshPreviewBtn" class="btn btn-secondary"> Vorschau aktualisieren</button>
                     </div>
                 </div>
                 <div class="panel-body">
                     <div class="help-text" style="padding: 15px; background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; border-radius: 6px;">
-                        <strong>📺 OBS Browser-Quellen URLs:</strong><br>
+                        <strong> OBS Browser-Quellen URLs:</strong><br>
                         <code style="display: block; margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 4px;">/quiz-show/overlay</code>
+                        <code style="display: block; margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 4px;">/quiz-show/overlay/splitscreen</code>
                         <code style="display: block; margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 4px;">/quiz-show/leaderboard-overlay</code>
                     </div>
                 </div>
@@ -970,9 +980,9 @@
                 <!-- Section 1: Layout Management -->
                 <div class="accordion-section">
                     <button class="accordion-header" data-section="layouts">
-                        <span class="accordion-icon">📐</span>
+                        <span class="accordion-icon"></span>
                         <span class="accordion-title">Layout Management</span>
-                        <span class="accordion-arrow">▼</span>
+                        <span class="accordion-arrow"></span>
                     </button>
                     <div class="accordion-content" data-content="layouts">
                         <div class="accordion-inner">
@@ -982,7 +992,7 @@
                                 <div class="help-text" style="margin-bottom: 15px;">
                                     Layouts speichern Element-Positionen und Größen für verschiedene Auflösungen.
                                 </div>
-                                <button id="createNewLayoutBtn" class="btn btn-primary btn-sm" style="margin-bottom: 15px;">➕ Neues Layout erstellen</button>
+                                <button id="createNewLayoutBtn" class="btn btn-primary btn-sm" style="margin-bottom: 15px;"> Neues Layout erstellen</button>
                                 <div id="layoutsList" class="layouts-list">
                                     <!-- Layouts will be populated here -->
                                 </div>
@@ -1021,12 +1031,12 @@
                                 
                                 <!-- Grid-Based Element Positioning -->
                                 <div class="help-text" style="background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 12px; margin: 15px 0; border-radius: 4px;">
-                                    <strong>💡 Grid-System (wie Schiffe versenken):</strong><br>
-                                    • <strong>Spalte (X):</strong> A-Z (horizontal von links nach rechts)<br>
-                                    • <strong>Zeile (Y):</strong> 1-20 (vertikal von oben nach unten)<br>
-                                    • <strong>Größe:</strong> Vordefinierte Größen für konsistentes Layout<br>
-                                    • <strong>Sichtbarkeit:</strong> Ein/Aus schalten mit Checkbox<br>
-                                    • Beispiel: "C-5" = Spalte C, Zeile 5
+                                    <strong> Grid-System (wie Schiffe versenken):</strong><br>
+                                     <strong>Spalte (X):</strong> A-Z (horizontal von links nach rechts)<br>
+                                     <strong>Zeile (Y):</strong> 1-20 (vertikal von oben nach unten)<br>
+                                     <strong>Größe:</strong> Vordefinierte Größen für konsistentes Layout<br>
+                                     <strong>Sichtbarkeit:</strong> Ein/Aus schalten mit Checkbox<br>
+                                     Beispiel: "C-5" = Spalte C, Zeile 5
                                 </div>
 
                                 <!-- Elements Configuration Table -->
@@ -1043,7 +1053,7 @@
                                         </thead>
                                         <tbody>
                                             <tr data-element="question">
-                                                <td><strong>❓ Frage</strong></td>
+                                                <td><strong> Frage</strong></td>
                                                 <td>
                                                     <select class="grid-column" data-element="question">
                                                         <option value="A">A</option>
@@ -1084,7 +1094,7 @@
                                                 </td>
                                             </tr>
                                             <tr data-element="answers">
-                                                <td><strong>🅰️ Antworten</strong></td>
+                                                <td><strong> Antworten</strong></td>
                                                 <td>
                                                     <select class="grid-column" data-element="answers">
                                                         <option value="A">A</option>
@@ -1125,7 +1135,7 @@
                                                 </td>
                                             </tr>
                                             <tr data-element="timer">
-                                                <td><strong>⏱️ Timer</strong></td>
+                                                <td><strong> Timer</strong></td>
                                                 <td>
                                                     <select class="grid-column" data-element="timer">
                                                         <option value="A">A</option>
@@ -1166,7 +1176,7 @@
                                                 </td>
                                             </tr>
                                             <tr data-element="leaderboard">
-                                                <td><strong>🏆 Leaderboard</strong></td>
+                                                <td><strong> Leaderboard</strong></td>
                                                 <td>
                                                     <select class="grid-column" data-element="leaderboard">
                                                         <option value="A">A</option>
@@ -1207,7 +1217,7 @@
                                                 </td>
                                             </tr>
                                             <tr data-element="jokerInfo">
-                                                <td><strong>🎯 Joker Info</strong></td>
+                                                <td><strong> Joker Info</strong></td>
                                                 <td>
                                                     <select class="grid-column" data-element="jokerInfo">
                                                         <option value="A">A</option>
@@ -1253,7 +1263,7 @@
 
                                 <!-- Visual Grid Preview -->
                                 <div class="help-text" style="margin-top: 20px; margin-bottom: 10px;">
-                                    <strong>📊 Visuelle Vorschau:</strong> Die unten gezeigte Vorschau zeigt die Elemente in ihrer Position im Grid.
+                                    <strong> Visuelle Vorschau:</strong> Die unten gezeigte Vorschau zeigt die Elemente in ihrer Position im Grid.
                                 </div>
                                 <div class="grid-visual-preview" id="gridVisualPreview">
                                     <div class="grid-overlay">
@@ -1265,9 +1275,9 @@
                                 </div>
 
                                 <div class="button-group" style="margin-top: 15px;">
-                                    <button id="saveLayoutBtn" class="btn btn-primary">💾 Layout Speichern</button>
-                                    <button id="deleteLayoutBtn" class="btn btn-danger">🗑️ Layout Löschen</button>
-                                    <button id="cancelLayoutBtn" class="btn btn-secondary">❌ Abbrechen</button>
+                                    <button id="saveLayoutBtn" class="btn btn-primary"> Layout Speichern</button>
+                                    <button id="deleteLayoutBtn" class="btn btn-danger"> Layout Löschen</button>
+                                    <button id="cancelLayoutBtn" class="btn btn-secondary">X Abbrechen</button>
                                 </div>
                                 <div id="layoutSaveMessage" class="message hidden"></div>
                             </div>
@@ -1280,9 +1290,9 @@
                 <!-- Section 2: Visual Settings -->
                 <div class="accordion-section">
                     <button class="accordion-header" data-section="visual">
-                        <span class="accordion-icon">🎨</span>
+                        <span class="accordion-icon"></span>
                         <span class="accordion-title">Theme & Visuals</span>
-                        <span class="accordion-arrow">▼</span>
+                        <span class="accordion-arrow"></span>
                     </button>
                     <div class="accordion-content" data-content="visual">
                         <div class="accordion-inner">
@@ -1330,7 +1340,7 @@
                             </div>
 
                             <div class="button-group">
-                                <button id="saveVisualSettingsBtn" class="btn btn-primary">💾 Visuelle Einstellungen Speichern</button>
+                                <button id="saveVisualSettingsBtn" class="btn btn-primary"> Visuelle Einstellungen Speichern</button>
                             </div>
                             <div id="visualSaveMessage" class="message hidden"></div>
                         </div>
@@ -1340,9 +1350,9 @@
                 <!-- Section 3: Animations -->
                 <div class="accordion-section">
                     <button class="accordion-header" data-section="animations">
-                        <span class="accordion-icon">✨</span>
+                        <span class="accordion-icon"></span>
                         <span class="accordion-title">Animationen</span>
-                        <span class="accordion-arrow">▼</span>
+                        <span class="accordion-arrow"></span>
                     </button>
                     <div class="accordion-content" data-content="animations">
                         <div class="accordion-inner">
@@ -1381,7 +1391,7 @@
                             </div>
 
                             <div class="button-group">
-                                <button id="saveAnimationSettingsBtn" class="btn btn-primary">💾 Animations-Einstellungen Speichern</button>
+                                <button id="saveAnimationSettingsBtn" class="btn btn-primary"> Animations-Einstellungen Speichern</button>
                             </div>
                             <div id="animationSaveMessage" class="message hidden"></div>
                         </div>
@@ -1391,9 +1401,9 @@
                 <!-- Section 4: Colors & Fonts -->
                 <div class="accordion-section">
                     <button class="accordion-header" data-section="colors">
-                        <span class="accordion-icon">🎨</span>
+                        <span class="accordion-icon"></span>
                         <span class="accordion-title">Farben & Schriftarten</span>
-                        <span class="accordion-arrow">▼</span>
+                        <span class="accordion-arrow"></span>
                     </button>
                     <div class="accordion-content" data-content="colors">
                         <div class="accordion-inner">
@@ -1448,7 +1458,7 @@
                             </div>
 
                             <div class="button-group">
-                                <button id="saveColorFontSettingsBtn" class="btn btn-primary">💾 Farben & Schriften Speichern</button>
+                                <button id="saveColorFontSettingsBtn" class="btn btn-primary"> Farben & Schriften Speichern</button>
                             </div>
                             <div id="colorFontSaveMessage" class="message hidden"></div>
                         </div>
@@ -1458,9 +1468,9 @@
                 <!-- Section 5: Advanced (Custom CSS) -->
                 <div class="accordion-section">
                     <button class="accordion-header" data-section="advanced">
-                        <span class="accordion-icon">💻</span>
+                        <span class="accordion-icon"></span>
                         <span class="accordion-title">Erweitert (Custom CSS)</span>
-                        <span class="accordion-arrow">▼</span>
+                        <span class="accordion-arrow"></span>
                     </button>
                     <div class="accordion-content" data-content="advanced">
                         <div class="accordion-inner">
@@ -1474,7 +1484,7 @@
 }"></textarea>
 
                             <div class="button-group" style="margin-top: 15px;">
-                                <button id="saveCustomCSSBtn" class="btn btn-primary">💾 Custom CSS Speichern</button>
+                                <button id="saveCustomCSSBtn" class="btn btn-primary"> Custom CSS Speichern</button>
                             </div>
                             <div id="customCSSSaveMessage" class="message hidden"></div>
                         </div>
@@ -1484,7 +1494,7 @@
                 <!-- Global Save/Reset -->
                 <div class="panel" style="margin-top: 20px;">
                     <div class="panel-header">
-                        <h2>💾 Alle Einstellungen</h2>
+                        <h2> Alle Einstellungen</h2>
                     </div>
                     <div class="panel-body">
                         <div class="help-text" style="margin-bottom: 15px;">
@@ -1492,8 +1502,8 @@
                             oder speichern Sie einzelne Abschnitte über die jeweiligen Buttons in den Accordion-Bereichen.
                         </div>
                         <div class="button-group">
-                            <button id="saveHUDConfigBtn" class="btn btn-primary btn-large">💾 Alle Einstellungen Speichern</button>
-                            <button id="resetHUDConfigBtn" class="btn btn-danger">🔄 Auf Standard zurücksetzen</button>
+                            <button id="saveHUDConfigBtn" class="btn btn-primary btn-large"> Alle Einstellungen Speichern</button>
+                            <button id="resetHUDConfigBtn" class="btn btn-danger"> Auf Standard zurücksetzen</button>
                         </div>
                         <div id="hudSaveMessage" class="message hidden"></div>
                     </div>
@@ -1502,7 +1512,7 @@
                 <!-- Live Preview -->
                 <div class="panel" style="margin-top: 20px;">
                     <div class="panel-header">
-                        <h2>👁️ Live Vorschau</h2>
+                        <h2> Live Vorschau</h2>
                     </div>
                     <div class="panel-body">
                         <div class="preview-wrapper" id="previewWrapper">
@@ -1518,7 +1528,7 @@
             <div class="content-grid">
                 <div class="panel full-width">
                     <div class="panel-header">
-                        <h2>🎁 Gift-Einstellungen</h2>
+                        <h2> Gift-Einstellungen</h2>
                     </div>
                     <div class="panel-body">
                         <div class="help-text">
@@ -1530,7 +1540,7 @@
                 <!-- Quiz-Start Gift Configuration -->
                 <div class="panel full-width">
                     <div class="panel-header">
-                        <h2>🎮 Quiz-Start per Geschenk</h2>
+                        <h2> Quiz-Start per Geschenk</h2>
                     </div>
                     <div class="panel-body">
                         <div class="help-text" style="margin-bottom: 20px;">
@@ -1566,14 +1576,14 @@
                             </div>
 
                             <div class="help-text" style="margin-top: 15px; padding: 10px; background: #f0f9ff; border-left: 4px solid #3b82f6;">
-                                <strong>ℹ️ Hinweis:</strong> Wenn ein Viewer dieses Geschenk sendet, wird automatisch ein Quiz gestartet. 
+                                <strong> Hinweis:</strong> Wenn ein Viewer dieses Geschenk sendet, wird automatisch ein Quiz gestartet. 
                                 Der Auto-Modus wird aktiviert und das Quiz läuft mit den Einstellungen aus dem Settings-Tab 
                                 (z.B. Auto-Modus Verzögerung, Rundenzahl, etc.).
                             </div>
                         </div>
 
                         <div class="button-group" style="margin-top: 20px;">
-                            <button id="saveQuizStartGiftBtn" class="btn btn-primary">💾 Einstellungen Speichern</button>
+                            <button id="saveQuizStartGiftBtn" class="btn btn-primary"> Einstellungen Speichern</button>
                         </div>
                         <div id="quizStartGiftSaveMessage" class="message hidden"></div>
                     </div>
@@ -1582,8 +1592,8 @@
                 <!-- Gift-Joker List -->
                 <div class="panel full-width">
                     <div class="panel-header">
-                        <h2>📋 Aktive Zuordnungen</h2>
-                        <button id="addGiftJokerBtn" class="btn btn-primary btn-sm">➕ Zuordnung Hinzufügen</button>
+                        <h2> Aktive Zuordnungen</h2>
+                        <button id="addGiftJokerBtn" class="btn btn-primary btn-sm"> Zuordnung Hinzufügen</button>
                     </div>
                     <div class="panel-body">
                         <table class="data-table" id="giftJokerTable">
@@ -1606,7 +1616,7 @@
                 <!-- Add/Edit Gift-Joker Mapping -->
                 <div class="panel full-width" id="giftJokerFormPanel" style="display: none;">
                     <div class="panel-header">
-                        <h2>➕ Zuordnung Hinzufügen/Bearbeiten</h2>
+                        <h2> Zuordnung Hinzufügen/Bearbeiten</h2>
                     </div>
                     <div class="panel-body">
                         <div class="form-row">
@@ -1647,8 +1657,8 @@
                         </div>
 
                         <div class="button-group">
-                            <button id="saveGiftJokerBtn" class="btn btn-primary">💾 Zuordnung Speichern</button>
-                            <button id="cancelGiftJokerBtn" class="btn btn-secondary">❌ Abbrechen</button>
+                            <button id="saveGiftJokerBtn" class="btn btn-primary"> Zuordnung Speichern</button>
+                            <button id="cancelGiftJokerBtn" class="btn btn-secondary">X Abbrechen</button>
                         </div>
                         <div id="giftJokerSaveMessage" class="message hidden"></div>
                     </div>
@@ -1657,7 +1667,7 @@
                 <!-- TTS Configuration -->
                 <div class="panel full-width">
                     <div class="panel-header">
-                        <h2>🔊 TTS Lautstärke</h2>
+                        <h2> TTS Lautstärke</h2>
                     </div>
                     <div class="panel-body">
                         <div class="form-group">
@@ -1679,7 +1689,7 @@
                             </label>
                         </div>
 
-                        <button id="saveTTSConfigBtn" class="btn btn-primary">💾 TTS Einstellungen Speichern</button>
+                        <button id="saveTTSConfigBtn" class="btn btn-primary"> TTS Einstellungen Speichern</button>
                         <div id="ttsConfigSaveMessage" class="message hidden"></div>
                     </div>
                 </div>
@@ -1687,7 +1697,7 @@
                 <!-- Leaderboard Display Configuration -->
                 <div class="panel full-width">
                     <div class="panel-header">
-                        <h2>🏆 Leaderboard Anzeige</h2>
+                        <h2> Leaderboard Anzeige</h2>
                     </div>
                     <div class="panel-body">
                         <div class="form-group">
@@ -1762,9 +1772,173 @@
                             </select>
                         </div>
 
-                        <button id="saveLeaderboardConfigBtn" class="btn btn-primary">💾 Leaderboard Einstellungen Speichern</button>
+                        <button id="saveLeaderboardConfigBtn" class="btn btn-primary"> Leaderboard Einstellungen Speichern</button>
                         <div id="leaderboardConfigSaveMessage" class="message hidden"></div>
                     </div>
+                </div>
+            </div>
+        </div>
+        <!-- Expansion Tab -->
+        <div id="expansion" class="tab-content">
+            <div class="settings-grid expansion-grid">
+                <div class="panel">
+                    <h2>Setup-Wizard</h2>
+                    <div class="form-group">
+                        <label>Aktueller Schritt</label>
+                        <select id="setupWizardStep" class="form-control">
+                            <option value="questions">Fragen</option>
+                            <option value="categories">Kategorien</option>
+                            <option value="overlay">Overlay</option>
+                            <option value="sounds">Sounds</option>
+                            <option value="show">Erste Show</option>
+                        </select>
+                    </div>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="setupWizardCompleted">
+                        <span>Setup abgeschlossen</span>
+                    </label>
+                    <button id="saveSetupWizardBtn" class="btn btn-primary">Setup speichern</button>
+                    <div id="setupWizardMessage" class="message hidden"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>Plugin-Health</h2>
+                    <div id="quizHealthPanel" class="health-grid"></div>
+                    <button id="refreshHealthBtn" class="btn btn-secondary">Health aktualisieren</button>
+                </div>
+
+                <div class="panel">
+                    <h2>Cooldown & Kategorie-Voting</h2>
+                    <div class="form-group">
+                        <label>Fragen-Cooldown in Stunden</label>
+                        <input type="number" id="questionCooldownHours" class="form-control" min="0" max="168" step="1" value="24">
+                    </div>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="categoryVotingEnabled">
+                        <span>Publikumsvoting aktivieren</span>
+                    </label>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="categoryVoteBeforeQuestion">
+                        <span>Vor der naechsten Frage abstimmen lassen</span>
+                    </label>
+                    <div class="form-group">
+                        <label>Voting-Dauer (Sekunden)</label>
+                        <input type="number" id="categoryVoteDuration" class="form-control" min="5" max="120" value="20">
+                    </div>
+                    <div class="form-group">
+                        <label>Kategorien fuer manuelles Voting</label>
+                        <textarea id="categoryVoteOptions" class="form-control" rows="4" placeholder="Sport&#10;Musik&#10;Gaming&#10;Allgemein"></textarea>
+                    </div>
+                    <button id="saveVotingConfigBtn" class="btn btn-primary">Voting speichern</button>
+                    <button id="startCategoryVoteBtn" class="btn btn-secondary">Voting starten</button>
+                    <button id="finishCategoryVoteBtn" class="btn btn-secondary">Voting beenden</button>
+                    <div id="categoryVoteStatus" class="message hidden"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>Shows / Playlists</h2>
+                    <div class="form-grid compact">
+                        <input type="text" id="showName" class="form-control" placeholder="Show-Name">
+                        <input type="number" id="showRoundCount" class="form-control" min="1" max="250" value="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Kategorien (eine pro Zeile)</label>
+                        <textarea id="showCategories" class="form-control" rows="4"></textarea>
+                    </div>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="showAudienceVoting">
+                        <span>Publikum waehlt Kategorie je Frage</span>
+                    </label>
+                    <button id="saveShowBtn" class="btn btn-primary">Show speichern</button>
+                    <div id="showsList" class="compact-list"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>Duel-Modus</h2>
+                    <div class="form-grid compact">
+                        <input type="text" id="duelLeftLabel" class="form-control" value="Team A">
+                        <input type="text" id="duelRightLabel" class="form-control" value="Team B">
+                    </div>
+                    <div class="form-grid compact">
+                        <input type="text" id="duelLeftUsers" class="form-control" placeholder="user1,user2">
+                        <input type="text" id="duelRightUsers" class="form-control" placeholder="user3,user4">
+                    </div>
+                    <button id="startDuelBtn" class="btn btn-primary">Duel starten</button>
+                    <button id="stopDuelBtn" class="btn btn-secondary">Duel beenden</button>
+                    <div id="duelStatus" class="message hidden"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>Theme & Accessibility</h2>
+                    <div class="form-group">
+                        <label>Theme-Preset</label>
+                        <select id="hudThemePreset" class="form-control">
+                            <option value="minimal">Minimal</option>
+                            <option value="neon">Neon</option>
+                            <option value="retro">Retro</option>
+                            <option value="casino">Casino</option>
+                            <option value="highContrast">High Contrast</option>
+                        </select>
+                    </div>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="reducedMotion">
+                        <span>Reduced Motion</span>
+                    </label>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="highContrast">
+                        <span>High Contrast erzwingen</span>
+                    </label>
+                    <div class="form-group">
+                        <label>Avatar-Performance</label>
+                        <select id="avatarPerformanceMode" class="form-control">
+                            <option value="full">Voll</option>
+                            <option value="balanced">Ausbalanciert</option>
+                            <option value="minimal">Minimal</option>
+                        </select>
+                    </div>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="avatarCacheEnabled">
+                        <span>Avatar-Cache verwenden</span>
+                    </label>
+                    <button id="saveVisualExpansionBtn" class="btn btn-primary">Visuals speichern</button>
+                </div>
+
+                <div class="panel">
+                    <h2>Sound-Upload</h2>
+                    <div class="form-grid compact">
+                        <input type="text" id="soundEventName" class="form-control" placeholder="event_name">
+                        <input type="number" id="soundVolume" class="form-control" min="0" max="1" step="0.1" value="1">
+                    </div>
+                    <input type="file" id="soundFileInput" class="form-control" accept=".mp3,.wav,.ogg,.m4a,.aac,audio/*">
+                    <button id="uploadSoundBtn" class="btn btn-primary">Sound speichern</button>
+                    <button id="testSoundBtn" class="btn btn-secondary">Sound testen</button>
+                    <div id="soundsList" class="compact-list"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>Achievements & Seasons</h2>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="achievementsEnabled">
+                        <span>Achievements aktivieren</span>
+                    </label>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="achievementPopupsEnabled">
+                        <span>Achievement-Popups im Overlay</span>
+                    </label>
+                    <div id="achievementRulesList" class="compact-list"></div>
+                    <div class="form-group">
+                        <label>Season-Automation</label>
+                        <select id="seasonAutomationMode" class="form-control">
+                            <option value="manual">Manuell</option>
+                            <option value="weekly">Woechentlich</option>
+                            <option value="monthly">Monatlich</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Rollover-Tag (Woche 0-6, Monat 1-28)</label>
+                        <input type="number" id="seasonAutomationDay" class="form-control" min="0" max="28" value="1">
+                    </div>
+                    <button id="saveAchievementSeasonBtn" class="btn btn-primary">Achievements & Seasons speichern</button>
                 </div>
             </div>
         </div>
@@ -1774,3 +1948,5 @@
     <script src="/quiz-show/quiz_show.js"></script>
 </body>
 </html>
+
+

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os/exec"
 	"syscall"
 	"time"
@@ -26,4 +27,19 @@ func killNodeProcessOS(cmd *exec.Cmd, pid int) {
 			syscall.Kill(-pid, syscall.SIGKILL) //nolint:errcheck
 		}
 	})
+}
+
+func terminateProcessTreeByPIDOS(pid int) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid PID %d", pid)
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		return fmt.Errorf("failed to send SIGTERM to PID %d: %w", pid, err)
+	}
+	time.AfterFunc(3*time.Second, func() {
+		if syscall.Kill(pid, 0) == nil {
+			syscall.Kill(pid, syscall.SIGKILL) //nolint:errcheck
+		}
+	})
+	return nil
 }

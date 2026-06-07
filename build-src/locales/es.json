@@ -56,7 +56,11 @@
     "env_creating": "🔧 Auto-Fix: Creando archivo .env...",
     "env_created": "✅ Archivo .env creado!",
     "port_in_use": "⚠️ Puerto 3000 en uso: el servidor usará un puerto alternativo",
-    "server_already_running": "ℹ️ El servidor ya se está ejecutando en el puerto 3000"
+    "server_already_running": "ℹ️ El servidor ya se está ejecutando en el puerto 3000",
+    "port_delegated": "🔌 La gestión de puertos se delega a Node.js (.ltth_port)...",
+    "port_selected": "Puerto %d seleccionado",
+    "manual_starting": "Inicio manual del servidor en el puerto %d...",
+    "manual_start_available": "El inicio manual está disponible en el lanzador. Revisa los logs y elige un puerto."
   },
   "api_keys": {
     "title": "Información de claves API",

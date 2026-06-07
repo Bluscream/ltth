@@ -40,6 +40,29 @@ const statsMenuData = {
 let activeStatsPanel = null;
 const MAX_PANEL_ITEMS = 50; // Maximum items to keep in each panel list
 
+document.addEventListener('error', (event) => {
+    const image = event.target;
+    if (!image || !image.classList || !image.classList.contains('js-stats-avatar-img')) {
+        return;
+    }
+
+    const fallback = image.getAttribute('data-fallback-icon') || 'user';
+    const parent = image.parentNode;
+    if (!parent) {
+        return;
+    }
+
+    if (fallback === 'gift') {
+        parent.textContent = '🎁';
+        return;
+    }
+
+    parent.innerHTML = `<i data-lucide="${fallback}"></i>`;
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}, true);
+
 // ========== INITIALIZATION ==========
 document.addEventListener('DOMContentLoaded', async () => {
     // Initialize UI first
@@ -180,6 +203,11 @@ function initializeButtons() {
     if (importFlowBtn && importFlowFile) {
         importFlowBtn.addEventListener('click', () => importFlowFile.click());
         importFlowFile.addEventListener('change', handleFlowImport);
+    }
+
+    const flowsGlobalEnabled = document.getElementById('flows-global-enabled');
+    if (flowsGlobalEnabled) {
+        flowsGlobalEnabled.addEventListener('change', () => setFlowsGlobalEnabled(flowsGlobalEnabled.checked));
     }
 
     // Select-all checkbox for bulk actions
@@ -675,13 +703,19 @@ async function connect() {
                       `Profile wurde automatisch zu "${result.newProfile}" gewechselt. Die Anwendung wird neu gestartet...`
                     : `Profile automatically switched to "${result.newProfile}". Application will restart...`);
                 
-                alert(message);
-                
-                // Trigger automatic page reload after short delay
-                setTimeout(() => {
-                    console.log('♻️ Reloading application to activate new profile...');
-                    window.location.reload();
-                }, 2000);
+                console.log(message);
+
+                if (window.profileManager && typeof window.profileManager.beginProfileRestart === 'function') {
+                    window.profileManager.beginProfileRestart({
+                        to: result.newProfile,
+                        requiresRestart: true,
+                        restartScheduled: result.restartScheduled === true
+                    });
+                } else {
+                    alert(message);
+                    fetch('/api/server/restart', { method: 'POST' }).catch(() => {});
+                    setTimeout(() => window.location.reload(), 5000);
+                }
             } else {
                 console.log('✅ Connected to TikTok:', username);
                 // Button state will be updated by updateConnectionStatus via socket event
@@ -1316,7 +1350,7 @@ function refreshStatsPanelContent(panelName) {
                     <div class="stats-panel-item">
                         <div class="stats-panel-item-avatar">
                             ${v.profilePictureUrl ? 
-                                `<img src="${escapeHtml(v.profilePictureUrl)}" alt="${escapeHtml(v.nickname)}" onerror="this.style.display='none';this.parentNode.innerHTML='<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'16\\' height=\\'16\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\'><path d=\\'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\\'></path><circle cx=\\'12\\' cy=\\'7\\' r=\\'4\\'></circle></svg>';">` :
+                                `<img class="js-stats-avatar-img" data-fallback-icon="user" src="${escapeHtml(v.profilePictureUrl)}" alt="${escapeHtml(v.nickname)}">` :
                                 '<i data-lucide="user"></i>'
                             }
                         </div>
@@ -1341,7 +1375,7 @@ function refreshStatsPanelContent(panelName) {
                     <div class="stats-panel-item chat-item">
                         <div class="stats-panel-item-avatar">
                             ${c.profilePictureUrl ? 
-                                `<img src="${escapeHtml(c.profilePictureUrl)}" alt="${escapeHtml(c.nickname)}" onerror="this.style.display='none';this.parentNode.innerHTML='<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'16\\' height=\\'16\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\'><path d=\\'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\\'></path><circle cx=\\'12\\' cy=\\'7\\' r=\\'4\\'></circle></svg>';">` :
+                                `<img class="js-stats-avatar-img" data-fallback-icon="user" src="${escapeHtml(c.profilePictureUrl)}" alt="${escapeHtml(c.nickname)}">` :
                                 '<i data-lucide="user"></i>'
                             }
                         </div>
@@ -1369,7 +1403,7 @@ function refreshStatsPanelContent(panelName) {
                     <div class="stats-panel-item">
                         <div class="stats-panel-item-avatar">
                             ${l.profilePictureUrl ? 
-                                `<img src="${escapeHtml(l.profilePictureUrl)}" alt="${escapeHtml(l.nickname)}" onerror="this.style.display='none';this.parentNode.innerHTML='<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'16\\' height=\\'16\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\'><path d=\\'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\\'></path><circle cx=\\'12\\' cy=\\'7\\' r=\\'4\\'></circle></svg>';">` :
+                                `<img class="js-stats-avatar-img" data-fallback-icon="user" src="${escapeHtml(l.profilePictureUrl)}" alt="${escapeHtml(l.nickname)}">` :
                                 '<i data-lucide="user"></i>'
                             }
                         </div>
@@ -1395,7 +1429,7 @@ function refreshStatsPanelContent(panelName) {
                     <div class="stats-panel-item">
                         <div class="stats-panel-item-avatar">
                             ${c.profilePictureUrl ? 
-                                `<img src="${escapeHtml(c.profilePictureUrl)}" alt="${escapeHtml(c.nickname)}" onerror="this.style.display='none';this.parentNode.innerHTML='<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'16\\' height=\\'16\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\'><path d=\\'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\\'></path><circle cx=\\'12\\' cy=\\'7\\' r=\\'4\\'></circle></svg>';">` :
+                                `<img class="js-stats-avatar-img" data-fallback-icon="user" src="${escapeHtml(c.profilePictureUrl)}" alt="${escapeHtml(c.nickname)}">` :
                                 '<i data-lucide="user"></i>'
                             }
                         </div>
@@ -1421,7 +1455,7 @@ function refreshStatsPanelContent(panelName) {
                     <div class="stats-panel-item">
                         <div class="stats-panel-item-avatar">
                             ${f.profilePictureUrl ? 
-                                `<img src="${escapeHtml(f.profilePictureUrl)}" alt="${escapeHtml(f.nickname)}" onerror="this.style.display='none';this.parentNode.innerHTML='<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'16\\' height=\\'16\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\'><path d=\\'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\\'></path><circle cx=\\'12\\' cy=\\'7\\' r=\\'4\\'></circle></svg>';">` :
+                                `<img class="js-stats-avatar-img" data-fallback-icon="user" src="${escapeHtml(f.profilePictureUrl)}" alt="${escapeHtml(f.nickname)}">` :
                                 '<i data-lucide="user"></i>'
                             }
                         </div>
@@ -1446,7 +1480,7 @@ function refreshStatsPanelContent(panelName) {
                     <div class="stats-panel-item subscriber-item">
                         <div class="stats-panel-item-avatar">
                             ${s.profilePictureUrl ? 
-                                `<img src="${escapeHtml(s.profilePictureUrl)}" alt="${escapeHtml(s.nickname)}" onerror="this.style.display='none';this.parentNode.innerHTML='<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'16\\' height=\\'16\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\'><path d=\\'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\\'></path><circle cx=\\'12\\' cy=\\'7\\' r=\\'4\\'></circle></svg>';">` :
+                                `<img class="js-stats-avatar-img" data-fallback-icon="crown" src="${escapeHtml(s.profilePictureUrl)}" alt="${escapeHtml(s.nickname)}">` :
                                 '<i data-lucide="crown"></i>'
                             }
                         </div>
@@ -1471,7 +1505,7 @@ function refreshStatsPanelContent(panelName) {
                     <div class="stats-panel-item gift-item">
                         <div class="stats-panel-item-avatar">
                             ${g.giftPictureUrl ? 
-                                `<img src="${escapeHtml(g.giftPictureUrl)}" alt="${escapeHtml(g.giftName)}" onerror="this.style.display='none';this.parentNode.innerHTML='🎁';">` :
+                                `<img class="js-stats-avatar-img" data-fallback-icon="gift" src="${escapeHtml(g.giftPictureUrl)}" alt="${escapeHtml(g.giftName)}">` :
                                 '🎁'
                             }
                         </div>
@@ -1528,6 +1562,7 @@ async function loadSettings() {
 
         // Settings in UI laden (falls Elemente existieren)
         // TTS-Settings werden nun vom tts_core_v2 Plugin verwaltet
+        updateFlowsGlobalToggle();
 
         // Load TikTok/Eulerstream API Key with masking
         const tiktokApiKeyInput = document.getElementById('tiktok-euler-api-key');
@@ -2120,6 +2155,39 @@ async function deleteVoiceMapping(username) {
 }
 
 // ========== FLOWS ==========
+function updateFlowsGlobalToggle() {
+    const checkbox = document.getElementById('flows-global-enabled');
+    const label = document.getElementById('flows-global-enabled-label');
+    if (!checkbox) return;
+
+    const enabled = settings.flows_enabled !== 'false';
+    checkbox.checked = enabled;
+    if (label) {
+        label.textContent = enabled ? 'Aktiv' : 'Pausiert';
+    }
+}
+
+async function setFlowsGlobalEnabled(enabled) {
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ flows_enabled: enabled ? 'true' : 'false' })
+        });
+        const result = await response.json();
+        if (!result.success) {
+            throw new Error(result.error || 'Unknown error');
+        }
+        settings.flows_enabled = enabled ? 'true' : 'false';
+        updateFlowsGlobalToggle();
+        loadFlows();
+    } catch (error) {
+        console.error('Error updating global flow setting:', error);
+        alert('Fehler beim Speichern des globalen Flow-Schalters.');
+        updateFlowsGlobalToggle();
+    }
+}
+
 async function loadFlows() {
     try {
         const response = await fetch('/api/flows');
@@ -2194,6 +2262,11 @@ async function loadFlows() {
                                 title="Im Wizard bearbeiten">
                             🧙 Bearbeiten
                         </button>
+                        <a href="/ifttt-flow-editor.html?id=${encodeURIComponent(flow.id)}" target="_blank"
+                                class="px-3 py-1 rounded text-sm bg-indigo-600 hover:bg-indigo-700"
+                                title="Im Visual Editor bearbeiten">
+                            Visual
+                        </a>
                         <button data-action="clone-flow" data-flow-id="${flow.id}"
                                 class="px-3 py-1 rounded text-sm bg-gray-600 hover:bg-gray-500"
                                 title="Flow duplizieren">
@@ -2287,7 +2360,10 @@ async function cloneFlow(id) {
             trigger_condition: flow.trigger_condition,
             actions: flow.actions,
             enabled: false, // Start disabled for safety
-            cooldown: flow.cooldown || 0
+            cooldown: flow.cooldown || 0,
+            priority: flow.priority || 'normal',
+            schema_version: flow.schema_version || 1,
+            flow_graph: flow.flow_graph || null
         };
 
         const createResponse = await fetch('/api/flows', {
@@ -2323,13 +2399,21 @@ async function exportFlow(id) {
         }
 
         const exportData = {
-            name: flow.name,
-            description: flow.description || '',
-            trigger_type: flow.trigger_type,
-            trigger_condition: flow.trigger_condition,
-            actions: flow.actions,
-            enabled: flow.enabled,
-            cooldown: flow.cooldown || 0
+            schema_version: 2,
+            exported_at: new Date().toISOString(),
+            kind: 'ltth.ifttt.flow',
+            flow: {
+                name: flow.name,
+                description: flow.description || '',
+                trigger_type: flow.trigger_type,
+                trigger_condition: flow.trigger_condition,
+                actions: flow.actions,
+                enabled: flow.enabled,
+                cooldown: flow.cooldown || 0,
+                priority: flow.priority || 'normal',
+                schema_version: flow.schema_version || 1,
+                flow_graph: flow.flow_graph || null
+            }
         };
 
         const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -2358,7 +2442,8 @@ async function handleFlowImport(event) {
 
     try {
         const text = await file.text();
-        const flowData = JSON.parse(text);
+        const importPayload = JSON.parse(text);
+        const flowData = normalizeImportedFlow(importPayload);
 
         if (!flowData.name || !flowData.trigger_type || !Array.isArray(flowData.actions)) {
             alert('Ungültiges Flow-Format: name, trigger_type und actions sind erforderlich.');
@@ -2381,6 +2466,26 @@ async function handleFlowImport(event) {
         console.error('Error importing flow:', error);
         alert('Fehler beim Lesen der JSON-Datei.');
     }
+}
+
+function normalizeImportedFlow(payload) {
+    const flow = payload && payload.flow ? payload.flow : payload;
+    if (!flow || typeof flow !== 'object') {
+        return {};
+    }
+
+    return {
+        name: flow.name,
+        description: flow.description || '',
+        trigger_type: flow.trigger_type,
+        trigger_condition: flow.trigger_condition || null,
+        actions: Array.isArray(flow.actions) ? flow.actions : [],
+        enabled: flow.enabled !== false,
+        cooldown: flow.cooldown || 0,
+        priority: flow.priority || 'normal',
+        schema_version: flow.schema_version || payload.schema_version || 1,
+        flow_graph: flow.flow_graph || null
+    };
 }
 
 /**
@@ -2834,30 +2939,9 @@ function initializeProfileAutoRestartToggle() {
     const toggle = document.getElementById('profile-auto-restart-toggle');
     if (!toggle) return;
 
-    // Load current setting from localStorage
-    const isEnabled = localStorage.getItem('profile_autoRestart') === 'true';
-    toggle.checked = isEnabled;
-
-    // Handle toggle changes
-    toggle.addEventListener('change', (e) => {
-        if (e.target.checked) {
-            localStorage.setItem('profile_autoRestart', 'true');
-            console.log('✅ Auto-restart on profile switch: ENABLED');
-            showNotification(
-                'Auto-Restart Enabled',
-                'The app will restart automatically 5 seconds after switching profiles.',
-                'success'
-            );
-        } else {
-            localStorage.removeItem('profile_autoRestart');
-            console.log('❌ Auto-restart on profile switch: DISABLED');
-            showNotification(
-                'Auto-Restart Disabled',
-                'You will need to manually restart after switching profiles.',
-                'info'
-            );
-        }
-    });
+    toggle.checked = true;
+    toggle.disabled = true;
+    toggle.title = 'Profile switches always restart automatically so the correct database is loaded.';
 }
 
 // Lädt alle verfügbaren Profile mit Filter- und Suchunterstützung
@@ -3057,8 +3141,19 @@ async function switchProfile(username) {
 
         if (result.success) {
             hideProfileModal();
-            // profile-manager.js handles the actual restart via socket event 'profile:switched'
-            // No alert needed – the restart overlay will appear automatically
+            localStorage.setItem('selectedProfile', result.newProfile || username);
+
+            if (result.requiresRestart && window.profileManager && typeof window.profileManager.beginProfileRestart === 'function') {
+                window.profileManager.beginProfileRestart({
+                    from: result.activeProfile,
+                    to: result.newProfile || username,
+                    requiresRestart: true,
+                    restartScheduled: result.restartScheduled === true
+                });
+            } else if (result.requiresRestart) {
+                fetch('/api/server/restart', { method: 'POST' }).catch(() => {});
+                setTimeout(() => window.location.reload(), 5000);
+            }
         } else {
             alert('❌ Fehler beim Wechseln des Profils: ' + (result.error || 'Unknown error'));
         }
@@ -4320,6 +4415,8 @@ document.getElementById('run-diagnostics-btn')?.addEventListener('click', async 
         html += '<div style="margin-bottom: 1rem;"><strong>🔑 Euler API Key:</strong><br>';
         const keyInfo = diagnostics.eulerApiKey || {};
         if (keyInfo.activeKey) {
+            const keyMode = keyInfo.usingFallback ? 'Fallback wird verwendet' : 'Eigener Key wird verwendet';
+            html += `Quelle: ${keyMode}<br>`;
             html += `✅ Aktiv (${keyInfo.activeSource}): ${keyInfo.activeKey}<br>`;
         } else {
             html += '❌ Nicht konfiguriert<br>';
@@ -4349,6 +4446,7 @@ document.getElementById('run-diagnostics-btn')?.addEventListener('click', async 
         // Configuration
         html += '<div style="margin-bottom: 1rem;"><strong>⚙️ Konfiguration:</strong><br>';
         const connectionConfig = diagnostics.connectionConfig || {};
+        html += `Fallback aktuell verwendet: ${keyInfo.usingFallback ? 'Ja' : 'Nein'}<br>`;
         html += `Euler Fallbacks: ${connectionConfig.enableEulerFallbacks ? '✅ Aktiviert' : '❌ Deaktiviert'}<br>`;
         html += `Connect with Unique ID: ${connectionConfig.connectWithUniqueId ? '✅ Aktiviert' : '❌ Deaktiviert'}<br>`;
         html += `Timeout: ${connectionConfig.connectionTimeout ? connectionConfig.connectionTimeout / 1000 : 30}s<br>`;

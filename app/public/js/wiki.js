@@ -71,6 +71,10 @@
             wikiStructure = await response.json();
             log.info('Structure loaded', wikiStructure);
 
+            // Resolve language before the first page request so standalone and dashboard
+            // views load the expected language section immediately.
+            currentLanguage = getPreferredLanguage();
+
             // Build navigation
             buildNavigation();
 
@@ -80,9 +84,6 @@
             // Load initial page based on hash or default to home
             const hashPage = getPageFromHash();
             await loadPage(hashPage || 'home');
-
-            // Initialize language from localStorage or browser
-            currentLanguage = getPreferredLanguage();
 
             // Re-initialize Lucide icons once
             if (typeof lucide !== 'undefined') {
@@ -268,7 +269,7 @@
                 content = wikiCache.get(cacheKey);
             } else {
                 // Fetch from server with language preference
-                const response = await fetch(`${WIKI_API_BASE}/page/${pageId}?lang=${currentLanguage}`);
+                const response = await fetch(`${WIKI_API_BASE}/page/${encodeURIComponent(pageId)}?lang=${encodeURIComponent(currentLanguage)}`);
                 if (!response.ok) throw new Error(`Failed to load page: ${pageId}`);
                 
                 content = await response.json();
@@ -507,6 +508,7 @@
             resultsContainer = document.createElement('div');
             resultsContainer.id = 'wiki-search-results';
             resultsContainer.className = 'wiki-search-results';
+            resultsContainer.addEventListener('click', handleSearchResultClick);
             
             const searchContainer = document.querySelector('.wiki-search-container');
             if (searchContainer) {
@@ -522,31 +524,42 @@
                 </div>
             `;
         } else {
-            resultsContainer.innerHTML = results.map(result => `
-                <a href="#wiki:${result.id}" class="wiki-search-result" data-page="${result.id}">
-                    <div class="wiki-search-result-title">${highlightMatch(result.title, result.matches)}</div>
-                    <div class="wiki-search-result-excerpt">${highlightMatch(result.excerpt, result.matches)}</div>
-                </a>
-            `).join('');
+            resultsContainer.innerHTML = '';
+            results.forEach(result => {
+                const resultLink = document.createElement('a');
+                resultLink.href = `#wiki:${result.id}`;
+                resultLink.className = 'wiki-search-result';
+                resultLink.dataset.page = result.id;
+
+                const title = document.createElement('div');
+                title.className = 'wiki-search-result-title';
+                appendHighlightedText(title, result.title, result.matches);
+
+                const excerpt = document.createElement('div');
+                excerpt.className = 'wiki-search-result-excerpt';
+                appendHighlightedText(excerpt, result.excerpt, result.matches);
+
+                resultLink.appendChild(title);
+                resultLink.appendChild(excerpt);
+                resultsContainer.appendChild(resultLink);
+            });
         }
 
-        // Event delegation for search results (already handled by navigation click handler)
         resultsContainer.style.display = 'block';
         
         if (typeof lucide !== 'undefined') {
             lucide.createIcons();
         }
+    }
 
-        // Add click handler for search results
-        resultsContainer.addEventListener('click', (e) => {
-            const result = e.target.closest('.wiki-search-result');
-            if (result) {
-                e.preventDefault();
-                loadPage(result.dataset.page);
-                hideSearchResults();
-                document.getElementById('wiki-search').value = '';
-            }
-        }, { once: false }); // Reusable handler
+    function handleSearchResultClick(e) {
+        const result = e.target.closest('.wiki-search-result');
+        if (result) {
+            e.preventDefault();
+            loadPage(result.dataset.page);
+            hideSearchResults();
+            document.getElementById('wiki-search').value = '';
+        }
     }
 
     function hideSearchResults() {
@@ -566,6 +579,48 @@
             highlighted = highlighted.replace(regex, '<mark>$1</mark>');
         });
         return highlighted;
+    }
+
+    function appendHighlightedText(container, text, matches) {
+        const source = String(text || '');
+        const normalizedMatches = (matches || [])
+            .map(match => String(match || '').toLowerCase())
+            .filter(Boolean);
+
+        if (normalizedMatches.length === 0) {
+            container.textContent = source;
+            return;
+        }
+
+        const lowerSource = source.toLowerCase();
+        let index = 0;
+
+        while (index < source.length) {
+            let nextMatch = null;
+
+            normalizedMatches.forEach(match => {
+                const foundIndex = lowerSource.indexOf(match, index);
+                if (foundIndex === -1) return;
+                if (!nextMatch || foundIndex < nextMatch.index) {
+                    nextMatch = { index: foundIndex, value: match };
+                }
+            });
+
+            if (!nextMatch) {
+                container.appendChild(document.createTextNode(source.slice(index)));
+                break;
+            }
+
+            if (nextMatch.index > index) {
+                container.appendChild(document.createTextNode(source.slice(index, nextMatch.index)));
+            }
+
+            const mark = document.createElement('mark');
+            const endIndex = nextMatch.index + nextMatch.value.length;
+            mark.textContent = source.slice(nextMatch.index, endIndex);
+            container.appendChild(mark);
+            index = endIndex;
+        }
     }
 
     // ========== IMAGE MODAL ==========

@@ -564,6 +564,28 @@
       margin-bottom: 10px;
     }
 
+    .arena-mapping-list {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .arena-mapping-row {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+      background: #2f3048;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .arena-mapping-meta {
+      color: #b6c2d4;
+      font-size: 12px;
+    }
+
     .gift-placeholder {
       width: 80px;
       height: 80px;
@@ -734,7 +756,6 @@
       font-family: 'Courier New', monospace;
     }
   </style>
-  <script src="/game-engine/assets/theme-manager.js"></script>
 </head>
 <body>
   <div class="container">
@@ -769,6 +790,7 @@
       <button class="tab" data-tab="plinko-test">🧪 Plinko Test</button>
       <button class="tab" data-tab="wheel">🎡 Glücksrad</button>
       <button class="tab" data-tab="slot">🎰 Slot Machine</button>
+      <button class="tab" data-tab="arena">Live Arena</button>
       <button class="tab" data-tab="overlays">OBS Overlays</button>
       <button class="tab" data-tab="overlay-settings">⚙️ Overlay Mode</button>
       <button class="tab" data-tab="triggers">Trigger</button>
@@ -2507,6 +2529,438 @@
       </div>
     </div>
 
+    <!-- Live Arena Tab -->
+    <div class="tab-content" id="tab-arena">
+      <div class="card">
+        <h2>Live Arena</h2>
+        <p>Persistentes Stream-Overlay fuer Zuschauer-Avatare, Food, Wachstum, Waffen und Aktivitaets-Decay.</p>
+      </div>
+
+      <div class="card">
+        <h3>Status</h3>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="arena-active-players">0</div>
+            <div class="stat-label">Aktive Avatare</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="arena-food-count">0</div>
+            <div class="stat-label">Food</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="arena-weapon-count">0</div>
+            <div class="stat-label">Waffen-Pickups</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="arena-fever-state">Aus</div>
+            <div class="stat-label">Fever</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:15px;">
+          <button class="secondary" id="refreshArenaStateBtn">Status aktualisieren</button>
+          <button class="secondary" id="triggerArenaActivityBtn">Test-Aktivitaet</button>
+          <button class="secondary" id="triggerArenaGiftBtn">Test-Geschenk</button>
+          <button class="danger" id="resetArenaBtn">Arena resetten</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Einstellungen</h3>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="arena-enabled" checked>
+            Arena aktiv
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+          <div class="form-group">
+            <label>Spielfeldgroesse:</label>
+            <select id="arena-size-preset">
+              <option value="stream-bottom">OBS unten - 1080 x 1000</option>
+              <option value="standard">Standard 16:9 - 1920 x 1080</option>
+              <option value="wide">Wide Arena - 2560 x 1080</option>
+              <option value="compact">Compact Battle - 1280 x 720</option>
+              <option value="vertical">Tall / Vertical - 1080 x 1920</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Spielfeld-Breite:</label>
+            <input type="number" id="arena-width" min="640" max="7680" step="10">
+          </div>
+          <div class="form-group">
+            <label>Spielfeld-Hoehe:</label>
+            <input type="number" id="arena-height" min="360" max="4320" step="10">
+          </div>
+          <div class="form-group">
+            <label>Max. Avatare:</label>
+            <input type="number" id="arena-max-players" min="1" max="250" step="1">
+          </div>
+          <div class="form-group">
+            <label>Max. Food:</label>
+            <input type="number" id="arena-max-food" min="1" max="300" step="1">
+          </div>
+          <div class="form-group">
+            <label>Gerendertes Food:</label>
+            <input type="number" id="arena-max-food-render" min="1" max="200" step="1">
+          </div>
+          <div class="form-group">
+            <label>Food-Spawn-Intervall (ms):</label>
+            <input type="number" id="arena-food-spawn-interval" min="0" max="30000" step="100">
+          </div>
+          <div class="form-group">
+            <label>Food pro Spawn:</label>
+            <input type="number" id="arena-food-spawn-batch-size" min="1" max="20" step="1">
+          </div>
+          <div class="form-group">
+            <label>Food-Despawn (ms):</label>
+            <input type="number" id="arena-food-despawn-ms" min="0" max="600000" step="1000">
+          </div>
+          <div class="form-group">
+            <label>Burst-Food-Despawn (ms):</label>
+            <input type="number" id="arena-food-burst-despawn-ms" min="0" max="600000" step="1000">
+          </div>
+          <div class="form-group">
+            <label>Render-Aufloesung:</label>
+            <select id="arena-render-scale">
+              <option value="0.5">50% - maximale FPS</option>
+              <option value="0.67">67% - fluessig</option>
+              <option value="0.75">75% - empfohlen</option>
+              <option value="1">100% - scharf</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>FPS-Ziel:</label>
+            <select id="arena-target-fps">
+              <option value="60">60 FPS</option>
+              <option value="45">45 FPS</option>
+              <option value="30">30 FPS</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Max. gerenderte Avatare:</label>
+            <input type="number" id="arena-max-render-players" min="5" max="250" step="1">
+          </div>
+          <div class="form-group">
+            <label>Renderer:</label>
+            <select id="arena-renderer-mode">
+              <option value="auto">Auto</option>
+              <option value="canvas2d">Canvas 2D optimiert</option>
+              <option value="webgpu">WebGPU bevorzugen</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Max. Waffen-Pickups:</label>
+            <input type="number" id="arena-max-weapon-pickups" min="0" max="50" step="1">
+          </div>
+          <div class="form-group">
+            <label>Waffen-Spawn-Chance:</label>
+            <input type="number" id="arena-weapon-pickup-chance" min="0" max="1" step="0.05">
+          </div>
+          <div class="form-group">
+            <label>Waffen-Spawn-Intervall (ms):</label>
+            <input type="number" id="arena-weapon-pickup-interval" min="500" max="60000" step="500">
+          </div>
+          <div class="form-group">
+            <label>Inaktivitaets-Frist (ms):</label>
+            <input type="number" id="arena-inactivity-grace" min="1000" max="120000" step="1000">
+          </div>
+          <div class="form-group">
+            <label>Schrumpfen pro Sekunde:</label>
+            <input type="number" id="arena-shrink-rate" min="0" max="50" step="0.5">
+          </div>
+        </div>
+
+        <h3>Spielfeldrahmen</h3>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="arena-field-frame-enabled" checked>
+            Rahmen aktiv
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+          <div class="form-group">
+            <label>Rahmen-Design:</label>
+            <select id="arena-field-frame-design">
+              <option value="neon-grid">Neon Grid</option>
+              <option value="hazard-zone">Hazard Zone</option>
+              <option value="glass-circuit">Glass Circuit</option>
+              <option value="retro-arcade">Retro Arcade</option>
+              <option value="high-contrast">High Contrast</option>
+              <option value="minimal">Minimal</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Rahmenstaerke:</label>
+            <input type="number" id="arena-field-frame-thickness" min="1" max="18" step="1">
+          </div>
+          <div class="form-group">
+            <label>Glow-Intensitaet:</label>
+            <input type="number" id="arena-field-frame-glow" min="0" max="1.5" step="0.05">
+          </div>
+        </div>
+
+        <h3>Visuelle Klarheit</h3>
+        <div class="form-group">
+          <label>Transparenz grosser Spieler:</label>
+          <select id="arena-large-ball-transparency-mode">
+            <option value="off">Aus</option>
+            <option value="flat">Grosse konstant transparent</option>
+            <option value="scale">Mit Groesse staerker</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+          <div class="form-group">
+            <label>Transparenz ab Masse:</label>
+            <input type="number" id="arena-large-ball-transparency-start-mass" min="10" max="500" step="1">
+          </div>
+          <div class="form-group">
+            <label>Minimale Deckkraft:</label>
+            <input type="number" id="arena-large-ball-min-opacity" min="0.15" max="1" step="0.05">
+          </div>
+        </div>
+
+        <h3>Wachstum & Economy</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+          <div class="form-group">
+            <label>Like-Leben pro Like:</label>
+            <input type="number" id="arena-like-life-value" min="0" max="100" step="0.1">
+          </div>
+          <div class="form-group">
+            <label>Max. direkte Like-Masse:</label>
+            <input type="number" id="arena-like-growth-max-mass" min="0" max="500" step="1">
+          </div>
+          <div class="form-group">
+            <label>Max. Like-Leben pro Event:</label>
+            <input type="number" id="arena-max-like-life-batch" min="1" max="50000" step="1">
+          </div>
+        </div>
+
+        <h3>Geschenk-Waffen</h3>
+        <div id="arena-gift-weapon-mappings-container" class="arena-mapping-list"></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+          <div class="form-group">
+            <label>Geschenk-ID:</label>
+            <input type="text" id="arena-new-gift-id" placeholder="z.B. 5655">
+          </div>
+          <div class="form-group">
+            <label>Geschenk-Name:</label>
+            <input type="text" id="arena-new-gift-name" placeholder="z.B. Rose">
+          </div>
+          <div class="form-group">
+            <label>Waffe:</label>
+            <select id="arena-new-weapon-type">
+              <option value="speed">Speed</option>
+              <option value="shield">Shield</option>
+              <option value="freeze">Freeze</option>
+              <option value="dash">Dash</option>
+              <option value="laser">Laser</option>
+              <option value="magnet">Magnet</option>
+              <option value="pulse">Pulse</option>
+              <option value="vampire">Vampire</option>
+              <option value="missile">Missile</option>
+              <option value="mine">Mine</option>
+              <option value="blackhole">Blackhole</option>
+              <option value="chainsaw">Chainsaw</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Tier:</label>
+            <select id="arena-new-weapon-tier">
+              <option value="small">Small</option>
+              <option value="medium">Medium</option>
+              <option value="large">Large</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Power:</label>
+            <input type="number" id="arena-new-weapon-power" min="0.1" max="10" step="0.1" value="2">
+          </div>
+          <div class="form-group">
+            <label>Dauer (ms):</label>
+            <input type="number" id="arena-new-weapon-duration" min="1000" max="60000" step="500" value="9000">
+          </div>
+          <div class="form-group">
+            <label>Wachstumsbonus:</label>
+            <input type="number" id="arena-new-weapon-growth" min="0" max="40" step="0.5" value="3">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+          <button type="button" class="secondary" id="openArenaGiftCatalogBtn">Geschenk aus Katalog</button>
+          <button type="button" id="addArenaGiftWeaponMappingBtn">Geschenk-Waffe hinzufuegen</button>
+        </div>
+
+        <h3>Overlay-Texte</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;">
+          <div class="form-group">
+            <label>Top Overlay Design:</label>
+            <select id="arena-top-overlay-design">
+              <option value="widescreen">Widescreen</option>
+              <option value="classic">Classic</option>
+              <option value="landscape">Querformat</option>
+              <option value="slim">Slim</option>
+              <option value="high-contrast">High Contrast</option>
+              <option value="tournament-bar">Tournament Bar</option>
+              <option value="esports-caster">Esports Caster</option>
+              <option value="cyber-strip">Cyber Strip</option>
+              <option value="glass-ribbon">Glass Ribbon</option>
+              <option value="compact-scorebug">Compact Scorebug</option>
+              <option value="vertical-stack">Vertical Stack</option>
+              <option value="bottom-ticker">Bottom Ticker</option>
+              <option value="split-corners">Split Corners</option>
+              <option value="minimal-pro">Minimal Pro</option>
+              <option value="alert-feed">Alert Feed</option>
+              <option value="framed-field">Gerahmtes Spielfeld</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Overlay Position:</label>
+            <select id="arena-top-overlay-position">
+              <option value="top-left">Oben links</option>
+              <option value="top-center">Oben mittig</option>
+              <option value="top-right">Oben rechts</option>
+              <option value="bottom-left">Unten links</option>
+              <option value="bottom-center">Unten mittig</option>
+              <option value="bottom-right">Unten rechts</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>HUD Platzierung:</label>
+            <select id="arena-top-overlay-placement">
+              <option value="auto">Auto</option>
+              <option value="inside-field">Im Spielfeld</option>
+              <option value="above-field">Ueber dem Spielfeld</option>
+              <option value="below-field">Unter dem Spielfeld</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Overlay Schriftgroesse:</label>
+            <select id="arena-top-overlay-text-scale">
+              <option value="field-auto">Auto nach Spielfeld</option>
+              <option value="small">Klein</option>
+              <option value="compact">Kompakt</option>
+              <option value="normal">Normal</option>
+              <option value="large">Gross</option>
+              <option value="very-large">Sehr gross</option>
+              <option value="huge">Extrem gross</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Overlay Dichte:</label>
+            <select id="arena-top-overlay-density">
+              <option value="full">Full</option>
+              <option value="compact">Compact</option>
+              <option value="ticker">Ticker</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Accent:</label>
+            <select id="arena-top-overlay-accent">
+              <option value="cyan">Cyan</option>
+              <option value="gold">Gold</option>
+              <option value="red">Rot</option>
+              <option value="green">Gruen</option>
+              <option value="mono">Mono</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Hintergrund:</label>
+            <select id="arena-top-overlay-backdrop">
+              <option value="glass">Glass</option>
+              <option value="transparent">Transparent</option>
+              <option value="solid">Solid</option>
+              <option value="high-contrast">High Contrast</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Rotator-Stil:</label>
+            <select id="arena-top-overlay-rotator-style">
+              <option value="card">Card</option>
+              <option value="ticker">Ticker</option>
+              <option value="badge">Badge</option>
+              <option value="split">Split</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Info-Rotator Sprache:</label>
+            <select id="arena-info-rotator-language">
+              <option value="de-en">Deutsch + English wechselnd</option>
+              <option value="en-de">English + Deutsch wechselnd</option>
+              <option value="de">Nur Deutsch</option>
+              <option value="en">English only</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Info-Ticker Position:</label>
+            <select id="arena-info-rotator-placement">
+              <option value="in-hud">Im HUD</option>
+              <option value="above-field">Ueber dem Spielfeld</option>
+              <option value="below-field">Unter dem Spielfeld</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Info-Rotator Intervall (ms):</label>
+            <input type="number" id="arena-info-rotator-interval" min="1500" max="20000" step="100">
+          </div>
+          <div class="form-group">
+            <label>Leaderboard-Zeilen:</label>
+            <input type="number" id="arena-top-overlay-leaderboard-rows" min="0" max="8" step="1">
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="arena-top-overlay-show-title" checked>
+              Titel anzeigen
+            </label>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="arena-top-overlay-show-count" checked>
+              Spielerzahl anzeigen
+            </label>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="arena-top-overlay-show-leaderboard" checked>
+              Leaderboard anzeigen
+            </label>
+          </div>
+          <div class="form-group">
+            <label>Titel:</label>
+            <input type="text" id="arena-display-title" placeholder="LIVE ARENA">
+          </div>
+          <div class="form-group">
+            <label>Fever-Text:</label>
+            <input type="text" id="arena-display-fever" placeholder="FEVER MODE">
+          </div>
+          <div class="form-group">
+            <label>Leer-Text:</label>
+            <input type="text" id="arena-display-empty" placeholder="Waiting for live activity">
+          </div>
+          <div class="form-group" style="grid-column:1 / -1;">
+            <label>Eigene Rotator-Texte (eine Zeile pro Meldung):</label>
+            <textarea id="arena-info-rotator-messages" rows="4" placeholder="Beta test - expect bugs"></textarea>
+          </div>
+        </div>
+
+        <button id="saveArenaSettingsBtn">Arena-Einstellungen speichern</button>
+      </div>
+
+      <div class="card">
+        <h3>Overlay URL</h3>
+        <div class="form-group">
+          <label>Arena Overlay URL:</label>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <input type="text" id="arena-overlay-url" value="http://localhost:3000/overlay/game-engine/arena" readonly style="flex:1;">
+            <button class="secondary" id="btn-copy-arena-overlay">Kopieren</button>
+            <button class="secondary" id="btn-preview-arena-overlay">Vorschau</button>
+          </div>
+        </div>
+        <div style="background:#3a3a4e;padding:12px;border-radius:8px;margin-top:10px;">
+          <strong>Empfohlene Groesse:</strong> 1920 x 1080, transparenter Hintergrund
+        </div>
+      </div>
+    </div>
+
     <!-- OBS Overlays Tab - ALL GAME OVERLAYS COLLECTED HERE -->
     <div class="tab-content" id="tab-overlays">
       <div class="card">
@@ -2612,6 +3066,25 @@
         </div>
       </div>
 
+      <!-- Live Arena Overlay -->
+      <div class="card">
+        <h3>Live Arena Overlay</h3>
+        <p style="color: #aaa; font-size: 14px; margin-bottom: 10px;">
+          Automatische Zuschauer-Arena mit Kugeln, Food, Wachstum, Inaktivitaets-Schrumpfen und Geschenk-Waffen.
+        </p>
+        <div class="form-group">
+          <label>Overlay URL:</label>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" id="overlay-url-arena" value="http://localhost:3000/overlay/game-engine/arena" readonly style="flex: 1;">
+            <button class="secondary" id="btn-copy-arena-overlay-main">Kopieren</button>
+            <button class="secondary" id="btn-preview-arena-overlay-main">Vorschau</button>
+          </div>
+        </div>
+        <div style="background: #3a3a4e; padding: 12px; border-radius: 8px; margin-top: 10px;">
+          <strong>Empfohlene Groesse:</strong> 1920 x 1080
+        </div>
+      </div>
+
       <!-- Game HUD Overlay -->
       <div class="card">
         <h3>📊 Kompaktes HUD Overlay</h3>
@@ -2698,7 +3171,7 @@
             </label>
           </div>
           <div style="margin-top: 10px; font-size: 13px; color: #888;">
-            <span id="overlay-url-connect4">URL: http://localhost:3000/overlay/game-engine/unified</span>
+            <span id="overlay-url-connect4-mode">URL: http://localhost:3000/overlay/game-engine/unified</span>
           </div>
         </div>
         
@@ -2716,7 +3189,7 @@
             </label>
           </div>
           <div style="margin-top: 10px; font-size: 13px; color: #888;">
-            <span id="overlay-url-chess">URL: http://localhost:3000/overlay/game-engine/unified</span>
+            <span id="overlay-url-chess-mode">URL: http://localhost:3000/overlay/game-engine/unified</span>
           </div>
         </div>
         
@@ -2734,7 +3207,7 @@
             </label>
           </div>
           <div style="margin-top: 10px; font-size: 13px; color: #888;">
-            <span id="overlay-url-plinko">URL: http://localhost:3000/overlay/game-engine/unified</span>
+            <span id="overlay-url-plinko-mode">URL: http://localhost:3000/overlay/game-engine/unified</span>
           </div>
         </div>
         
@@ -2752,13 +3225,49 @@
             </label>
           </div>
           <div style="margin-top: 10px; font-size: 13px; color: #888;">
-            <span id="overlay-url-wheel">URL: http://localhost:3000/overlay/game-engine/unified</span>
+            <span id="overlay-url-wheel-mode">URL: http://localhost:3000/overlay/game-engine/unified</span>
           </div>
         </div>
         
-        <button class="primary" id="btn-save-overlay-settings">💾 Save Overlay Settings</button>
+        <!-- Slot Settings -->
+        <div class="form-group" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <h4 style="margin: 0 0 5px 0; color: #A855F7;">Slot Machine</h4>
+              <p style="margin: 0; color: #aaa; font-size: 14px;">Queued reel game</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="overlay-mode-slot" data-game="slot" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-label" id="overlay-label-slot">Unified</span>
+            </label>
+          </div>
+          <div style="margin-top: 10px; font-size: 13px; color: #888;">
+            <span id="overlay-url-slot-mode">URL: http://localhost:3000/overlay/game-engine/unified</span>
+          </div>
+        </div>
+
+        <!-- Arena Settings -->
+        <div class="form-group" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <h4 style="margin: 0 0 5px 0; color: #38BDF8;">Live Arena</h4>
+              <p style="margin: 0; color: #aaa; font-size: 14px;">Persistent transparent overlay</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="overlay-mode-arena" data-game="arena">
+              <span class="toggle-slider"></span>
+              <span class="toggle-label" id="overlay-label-arena">Legacy</span>
+            </label>
+          </div>
+          <div style="margin-top: 10px; font-size: 13px; color: #888;">
+            <span id="overlay-url-arena-mode">URL: http://localhost:3000/overlay/game-engine/arena</span>
+          </div>
+        </div>
+
+        <button class="primary" id="btn-save-overlay-settings">Save Overlay Settings</button>
       </div>
-      
+
       <!-- Queue Status Card -->
       <div class="card" style="margin-top: 20px;">
         <h2>📋 Game Queue Status</h2>
@@ -3135,7 +3644,10 @@
     <div class="modal-content">
       <div class="modal-header">
         <h3>🎁 Geschenk-Katalog</h3>
-        <button class="modal-close" id="closeGiftCatalogBtn">✕</button>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button type="button" class="secondary" id="refreshGiftCatalogModalBtn">Katalog aktualisieren</button>
+          <button class="modal-close" id="closeGiftCatalogBtn">✕</button>
+        </div>
       </div>
       <div class="catalog-info" id="catalog-info">
         Lade Geschenk-Katalog...
@@ -3535,6 +4047,7 @@
     function closeGiftCatalog() {
       const modal = document.getElementById('gift-catalog-modal');
       modal.classList.remove('show');
+      if (typeof arenaGiftSelectionMode !== 'undefined') arenaGiftSelectionMode = false;
     }
 
     async function loadGiftCatalogData() {
@@ -4119,7 +4632,11 @@
           if (eventType) {
             const display = document.getElementById(eventType.displayId);
             if (display) {
-              display.innerHTML = `<span style="color: #FFC107;">📁 Custom: ${m.file_path.split('/').pop()} (${m.media_type})</span>`;
+              display.innerHTML = '';
+              const label = document.createElement('span');
+              label.style.color = '#FFC107';
+              label.textContent = `📁 Custom: ${(m.file_path || '').split('/').pop()} (${m.media_type || ''})`;
+              display.appendChild(label);
             }
           }
         });
@@ -4185,9 +4702,17 @@
           
           const setting = settings[type];
           if (setting && setting.isCustom && setting.filename) {
-            display.innerHTML = `<span style="color: #2196F3;">Custom: ${setting.filename}</span>`;
+            display.innerHTML = '';
+            const label = document.createElement('span');
+            label.style.color = '#2196F3';
+            label.textContent = `Custom: ${setting.filename}`;
+            display.appendChild(label);
           } else {
-            display.innerHTML = `<span style="color: #4CAF50;">Standard: ${defaultName}</span>`;
+            display.innerHTML = '';
+            const label = document.createElement('span');
+            label.style.color = '#4CAF50';
+            label.textContent = `Standard: ${defaultName}`;
+            display.appendChild(label);
           }
         });
       } catch (error) {
@@ -4491,6 +5016,348 @@
       window.open(url, '_blank', 'width=1200,height=800');
     }
 
+    let arenaConfig = null;
+    let arenaGiftSelectionMode = false;
+    const ARENA_SIZE_PRESETS = {
+      'stream-bottom': { width: 1080, height: 1000 },
+      standard: { width: 1920, height: 1080 },
+      wide: { width: 2560, height: 1080 },
+      compact: { width: 1280, height: 720 },
+      vertical: { width: 1080, height: 1920 }
+    };
+
+    function setArenaField(id, value) {
+      const field = document.getElementById(id);
+      if (field && value !== undefined && value !== null) {
+        field.value = value;
+      }
+    }
+
+    function getArenaNumber(id, fallback) {
+      const field = document.getElementById(id);
+      if (!field) return fallback;
+      const value = Number(field.value);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function setArenaCheckbox(id, value, fallback = true) {
+      const field = document.getElementById(id);
+      if (field) field.checked = value === undefined || value === null ? fallback : value !== false;
+    }
+
+    function getArenaRotatorMessages() {
+      const field = document.getElementById('arena-info-rotator-messages');
+      return String(field?.value || '')
+        .split(/\r?\n/)
+        .map(message => message.trim())
+        .filter(Boolean);
+    }
+
+    function applyArenaSizePresetToFields() {
+      const preset = document.getElementById('arena-size-preset')?.value || 'standard';
+      const size = ARENA_SIZE_PRESETS[preset];
+      if (!size) return;
+      setArenaField('arena-width', size.width);
+      setArenaField('arena-height', size.height);
+    }
+
+    function markArenaSizePresetCustom() {
+      const preset = document.getElementById('arena-size-preset');
+      if (preset) preset.value = 'custom';
+    }
+
+    async function loadArenaSettings() {
+      try {
+        const response = await fetch('/api/game-engine/config/arena');
+        arenaConfig = await response.json();
+
+        const config = arenaConfig || {};
+        const texts = config.displayTexts || {};
+        const enabled = document.getElementById('arena-enabled');
+        if (enabled) enabled.checked = config.enabled !== false;
+        const frameEnabled = document.getElementById('arena-field-frame-enabled');
+        if (frameEnabled) frameEnabled.checked = config.fieldFrameEnabled !== false;
+        const largeBallTransparencyMode = config.largeBallTransparencyEnabled === false
+          ? 'off'
+          : (config.largeBallTransparencyMode || 'scale');
+        setArenaCheckbox('arena-top-overlay-show-title', config.topOverlayShowTitle, true);
+        setArenaCheckbox('arena-top-overlay-show-count', config.topOverlayShowCount, true);
+        setArenaCheckbox('arena-top-overlay-show-leaderboard', config.topOverlayShowLeaderboard, true);
+        setArenaField('arena-size-preset', config.arenaSizePreset || 'stream-bottom');
+        setArenaField('arena-width', config.arenaWidth || 1920);
+        setArenaField('arena-height', config.arenaHeight || 1080);
+        setArenaField('arena-max-players', config.maxPlayers);
+        setArenaField('arena-max-food', config.maxFood);
+        setArenaField('arena-max-food-render', config.maxFoodRender);
+        setArenaField('arena-food-spawn-interval', config.foodSpawnIntervalMs !== undefined ? config.foodSpawnIntervalMs : 1600);
+        setArenaField('arena-food-spawn-batch-size', config.foodSpawnBatchSize !== undefined ? config.foodSpawnBatchSize : 2);
+        setArenaField('arena-food-despawn-ms', config.foodDespawnMs !== undefined ? config.foodDespawnMs : 120000);
+        setArenaField('arena-food-burst-despawn-ms', config.foodBurstDespawnMs !== undefined ? config.foodBurstDespawnMs : 90000);
+        setArenaField('arena-render-scale', config.renderScale !== undefined ? config.renderScale : 0.75);
+        setArenaField('arena-target-fps', config.targetFps || 60);
+        setArenaField('arena-max-render-players', config.maxRenderPlayers || config.maxPlayers || 60);
+        setArenaField('arena-renderer-mode', config.rendererMode || 'auto');
+        setArenaField('arena-max-weapon-pickups', config.maxWeaponPickups);
+        setArenaField('arena-weapon-pickup-chance', config.weaponPickupChance);
+        setArenaField('arena-weapon-pickup-interval', config.weaponPickupSpawnIntervalMs);
+        setArenaField('arena-inactivity-grace', config.inactivityGraceMs || 30000);
+        setArenaField('arena-shrink-rate', config.inactivityShrinkPerSecond || 1.25);
+        setArenaField('arena-field-frame-design', config.fieldFrameDesign || 'minimal');
+        setArenaField('arena-field-frame-thickness', config.fieldFrameThickness !== undefined ? config.fieldFrameThickness : 3);
+        setArenaField('arena-field-frame-glow', config.fieldFrameGlow !== undefined ? config.fieldFrameGlow : 0.45);
+        setArenaField('arena-large-ball-transparency-mode', largeBallTransparencyMode);
+        setArenaField('arena-large-ball-transparency-start-mass', config.largeBallTransparencyStartMass !== undefined ? config.largeBallTransparencyStartMass : 55);
+        setArenaField('arena-large-ball-min-opacity', config.largeBallMinOpacity !== undefined ? config.largeBallMinOpacity : 0.42);
+        setArenaField('arena-like-life-value', config.likeLifeValue !== undefined ? config.likeLifeValue : 1);
+        setArenaField('arena-like-growth-max-mass', config.likeGrowthMaxMass !== undefined ? config.likeGrowthMaxMass : 42);
+        setArenaField('arena-max-like-life-batch', config.maxLikeLifeBatch !== undefined ? config.maxLikeLifeBatch : 500);
+        setArenaField('arena-top-overlay-design', config.topOverlayDesign || 'framed-field');
+        setArenaField('arena-top-overlay-position', config.topOverlayPosition || 'top-center');
+        setArenaField('arena-top-overlay-density', config.topOverlayDensity || 'full');
+        setArenaField('arena-top-overlay-accent', config.topOverlayAccent || 'cyan');
+        setArenaField('arena-top-overlay-backdrop', config.topOverlayBackdrop || 'solid');
+        setArenaField('arena-top-overlay-rotator-style', config.topOverlayRotatorStyle || 'card');
+        setArenaField('arena-top-overlay-placement', config.topOverlayPlacement || 'below-field');
+        setArenaField('arena-top-overlay-text-scale', config.topOverlayTextScale || 'very-large');
+        setArenaField('arena-top-overlay-leaderboard-rows', config.topOverlayLeaderboardRows !== undefined ? config.topOverlayLeaderboardRows : 3);
+        setArenaField('arena-info-rotator-placement', config.infoRotatorPlacement || 'in-hud');
+        setArenaField('arena-info-rotator-language', config.infoRotatorLanguageMode || 'de-en');
+        setArenaField('arena-info-rotator-interval', config.infoRotatorIntervalMs !== undefined ? config.infoRotatorIntervalMs : 4200);
+        setArenaField('arena-display-title', texts.titleText || 'LIVE ARENA');
+        setArenaField('arena-display-fever', texts.feverText || 'FEVER MODE');
+        setArenaField('arena-display-empty', texts.emptyText || 'Waiting for live activity');
+        setArenaField(
+          'arena-info-rotator-messages',
+          Array.isArray(config.infoRotatorMessages)
+            ? config.infoRotatorMessages.join('\n')
+            : String(config.infoRotatorMessages || '')
+        );
+        renderArenaGiftWeaponMappings(config.giftWeaponMappings || {});
+
+        await refreshArenaState();
+      } catch (error) {
+        console.error('Failed to load arena settings:', error);
+        showMessage('Arena-Einstellungen konnten nicht geladen werden', 'error');
+      }
+    }
+
+    async function saveArenaSettings() {
+      const base = arenaConfig || {};
+      const config = {
+        ...base,
+        enabled: document.getElementById('arena-enabled')?.checked !== false,
+        arenaSizePreset: document.getElementById('arena-size-preset')?.value || base.arenaSizePreset || 'stream-bottom',
+        arenaWidth: getArenaNumber('arena-width', base.arenaWidth || 1920),
+        arenaHeight: getArenaNumber('arena-height', base.arenaHeight || 1080),
+        maxPlayers: getArenaNumber('arena-max-players', base.maxPlayers || 80),
+        maxFood: getArenaNumber('arena-max-food', base.maxFood || 90),
+        maxFoodRender: getArenaNumber('arena-max-food-render', base.maxFoodRender || 52),
+        foodSpawnIntervalMs: getArenaNumber('arena-food-spawn-interval', base.foodSpawnIntervalMs !== undefined ? base.foodSpawnIntervalMs : 1600),
+        foodSpawnBatchSize: getArenaNumber('arena-food-spawn-batch-size', base.foodSpawnBatchSize !== undefined ? base.foodSpawnBatchSize : 2),
+        foodDespawnMs: getArenaNumber('arena-food-despawn-ms', base.foodDespawnMs !== undefined ? base.foodDespawnMs : 120000),
+        foodBurstDespawnMs: getArenaNumber('arena-food-burst-despawn-ms', base.foodBurstDespawnMs !== undefined ? base.foodBurstDespawnMs : 90000),
+        renderScale: getArenaNumber('arena-render-scale', base.renderScale || 0.75),
+        targetFps: getArenaNumber('arena-target-fps', base.targetFps || 60),
+        maxRenderPlayers: getArenaNumber('arena-max-render-players', base.maxRenderPlayers || base.maxPlayers || 60),
+        rendererMode: document.getElementById('arena-renderer-mode')?.value || base.rendererMode || 'auto',
+        maxWeaponPickups: getArenaNumber('arena-max-weapon-pickups', base.maxWeaponPickups || 8),
+        weaponPickupChance: getArenaNumber('arena-weapon-pickup-chance', base.weaponPickupChance || 0.45),
+        weaponPickupSpawnIntervalMs: getArenaNumber('arena-weapon-pickup-interval', base.weaponPickupSpawnIntervalMs || 4500),
+        inactivityGraceMs: getArenaNumber('arena-inactivity-grace', base.inactivityGraceMs || 30000),
+        inactivityShrinkPerSecond: getArenaNumber('arena-shrink-rate', base.inactivityShrinkPerSecond || 1.25),
+        fieldFrameEnabled: document.getElementById('arena-field-frame-enabled')?.checked !== false,
+        fieldFrameDesign: document.getElementById('arena-field-frame-design')?.value || base.fieldFrameDesign || 'minimal',
+        fieldFrameThickness: getArenaNumber('arena-field-frame-thickness', base.fieldFrameThickness || 3),
+        fieldFrameGlow: getArenaNumber('arena-field-frame-glow', base.fieldFrameGlow !== undefined ? base.fieldFrameGlow : 0.45),
+        largeBallTransparencyEnabled: document.getElementById('arena-large-ball-transparency-mode')?.value !== 'off',
+        largeBallTransparencyMode: document.getElementById('arena-large-ball-transparency-mode')?.value || base.largeBallTransparencyMode || 'scale',
+        largeBallTransparencyStartMass: getArenaNumber('arena-large-ball-transparency-start-mass', base.largeBallTransparencyStartMass || 55),
+        largeBallMinOpacity: getArenaNumber('arena-large-ball-min-opacity', base.largeBallMinOpacity !== undefined ? base.largeBallMinOpacity : 0.42),
+        likeLifeValue: getArenaNumber('arena-like-life-value', base.likeLifeValue !== undefined ? base.likeLifeValue : 1),
+        likeGrowthMaxMass: getArenaNumber('arena-like-growth-max-mass', base.likeGrowthMaxMass !== undefined ? base.likeGrowthMaxMass : 42),
+        maxLikeLifeBatch: getArenaNumber('arena-max-like-life-batch', base.maxLikeLifeBatch !== undefined ? base.maxLikeLifeBatch : 500),
+        topOverlayDesign: document.getElementById('arena-top-overlay-design')?.value || base.topOverlayDesign || 'framed-field',
+        topOverlayPosition: document.getElementById('arena-top-overlay-position')?.value || base.topOverlayPosition || 'top-center',
+        topOverlayDensity: document.getElementById('arena-top-overlay-density')?.value || base.topOverlayDensity || 'full',
+        topOverlayAccent: document.getElementById('arena-top-overlay-accent')?.value || base.topOverlayAccent || 'cyan',
+        topOverlayBackdrop: document.getElementById('arena-top-overlay-backdrop')?.value || base.topOverlayBackdrop || 'solid',
+        topOverlayRotatorStyle: document.getElementById('arena-top-overlay-rotator-style')?.value || base.topOverlayRotatorStyle || 'card',
+        topOverlayPlacement: document.getElementById('arena-top-overlay-placement')?.value || base.topOverlayPlacement || 'below-field',
+        topOverlayTextScale: document.getElementById('arena-top-overlay-text-scale')?.value || base.topOverlayTextScale || 'very-large',
+        topOverlayShowTitle: document.getElementById('arena-top-overlay-show-title')?.checked !== false,
+        topOverlayShowCount: document.getElementById('arena-top-overlay-show-count')?.checked !== false,
+        topOverlayShowLeaderboard: document.getElementById('arena-top-overlay-show-leaderboard')?.checked !== false,
+        topOverlayLeaderboardRows: getArenaNumber('arena-top-overlay-leaderboard-rows', base.topOverlayLeaderboardRows !== undefined ? base.topOverlayLeaderboardRows : 3),
+        infoRotatorPlacement: document.getElementById('arena-info-rotator-placement')?.value || base.infoRotatorPlacement || 'in-hud',
+        infoRotatorLanguageMode: document.getElementById('arena-info-rotator-language')?.value || base.infoRotatorLanguageMode || 'de-en',
+        infoRotatorIntervalMs: getArenaNumber('arena-info-rotator-interval', base.infoRotatorIntervalMs || 4200),
+        infoRotatorMessages: getArenaRotatorMessages(),
+        giftWeaponMappings: { ...(base.giftWeaponMappings || {}) },
+        displayTexts: {
+          ...(base.displayTexts || {}),
+          titleText: document.getElementById('arena-display-title')?.value || 'LIVE ARENA',
+          feverText: document.getElementById('arena-display-fever')?.value || 'FEVER MODE',
+          emptyText: document.getElementById('arena-display-empty')?.value || 'Waiting for live activity'
+        }
+      };
+
+      try {
+        const response = await fetch('/api/game-engine/config/arena', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        arenaConfig = config;
+        showMessage('Arena-Einstellungen gespeichert!');
+      } catch (error) {
+        console.error('Failed to save arena settings:', error);
+        showMessage('Arena-Einstellungen konnten nicht gespeichert werden', 'error');
+      }
+    }
+
+    function getArenaGiftWeaponMappings() {
+      if (!arenaConfig || typeof arenaConfig !== 'object') {
+        arenaConfig = {};
+      }
+      if (!arenaConfig.giftWeaponMappings || typeof arenaConfig.giftWeaponMappings !== 'object') {
+        arenaConfig.giftWeaponMappings = {};
+      }
+      return arenaConfig.giftWeaponMappings;
+    }
+
+    function renderArenaGiftWeaponMappings(mappings = getArenaGiftWeaponMappings()) {
+      const container = document.getElementById('arena-gift-weapon-mappings-container');
+      if (!container) return;
+
+      const entries = Object.entries(mappings || {});
+      if (!entries.length) {
+        container.innerHTML = '<div class="arena-mapping-meta">Noch keine Geschenk-Waffen gebunden.</div>';
+        return;
+      }
+
+      container.innerHTML = entries.map(([giftKey, mapping]) => {
+        const weapon = mapping.weaponType || mapping.type || 'speed';
+        const tier = mapping.tier || 'small';
+        const name = mapping.giftName ? ` - ${escapeHtml(mapping.giftName)}` : '';
+        const power = Number(mapping.power || 1).toFixed(1);
+        const duration = Math.round(Number(mapping.durationMs || 0) / 1000);
+        const growth = Number(mapping.growthBonus || 0).toFixed(1);
+        return `
+          <div class="arena-mapping-row">
+            <div>
+              <strong>${escapeHtml(giftKey)}${name}</strong>
+              <div class="arena-mapping-meta">${escapeHtml(weapon)} / ${escapeHtml(tier)} - Power ${power}, ${duration}s, +${growth} Wachstum</div>
+            </div>
+            <span class="arena-mapping-meta">Gift-ID/Name</span>
+            <button type="button" class="danger arena-remove-gift-weapon" data-gift-key="${escapeHtml(giftKey)}">Entfernen</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function addArenaGiftWeaponMapping() {
+      const giftId = document.getElementById('arena-new-gift-id')?.value.trim() || '';
+      const giftName = document.getElementById('arena-new-gift-name')?.value.trim() || '';
+      const giftKey = giftId || giftName;
+      if (!giftKey) {
+        showMessage('Bitte Geschenk-ID oder Geschenk-Name eintragen', 'error');
+        return;
+      }
+
+      const mappings = getArenaGiftWeaponMappings();
+      mappings[giftKey] = {
+        weaponType: document.getElementById('arena-new-weapon-type')?.value || 'speed',
+        tier: document.getElementById('arena-new-weapon-tier')?.value || 'small',
+        power: getArenaNumber('arena-new-weapon-power', 2),
+        durationMs: getArenaNumber('arena-new-weapon-duration', 9000),
+        growthBonus: getArenaNumber('arena-new-weapon-growth', 3),
+        giftName
+      };
+
+      renderArenaGiftWeaponMappings(mappings);
+      await saveArenaSettings();
+      showMessage(`Geschenk-Waffe fuer "${giftKey}" gespeichert`);
+    }
+
+    function handleArenaGiftSelection(gift) {
+      const giftIdField = document.getElementById('arena-new-gift-id');
+      const giftNameField = document.getElementById('arena-new-gift-name');
+      if (giftIdField) giftIdField.value = gift.id || '';
+      if (giftNameField) giftNameField.value = gift.name || '';
+      arenaGiftSelectionMode = false;
+      closeGiftCatalog();
+      showMessage(`Geschenk "${gift.name || gift.id}" fuer Arena-Waffe ausgewaehlt`);
+    }
+
+    async function refreshArenaState() {
+      try {
+        const response = await fetch('/api/game-engine/arena/state');
+        const state = await response.json();
+        const players = state.players || [];
+        const food = state.food || [];
+        const weapons = state.weaponPickups || [];
+        const fever = state.fever || {};
+        const setText = (id, value) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = value;
+        };
+        setText('arena-active-players', players.length);
+        setText('arena-food-count', food.length);
+        setText('arena-weapon-count', weapons.length);
+        setText('arena-fever-state', fever.active ? 'An' : 'Aus');
+      } catch (error) {
+        console.error('Failed to refresh arena state:', error);
+      }
+    }
+
+    async function triggerArenaTestActivity() {
+      try {
+        await fetch('/api/game-engine/arena/test-activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uniqueId: 'arena_test_' + Date.now(),
+            nickname: 'Arena Test',
+            eventType: 'chat'
+          })
+        });
+        await refreshArenaState();
+        showMessage('Arena-Testaktivitaet gesendet!');
+      } catch (error) {
+        showMessage('Arena-Testaktivitaet fehlgeschlagen: ' + error.message, 'error');
+      }
+    }
+
+    async function triggerArenaTestGift() {
+      try {
+        await fetch('/api/game-engine/arena/test-gift', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uniqueId: 'arena_gift_' + Date.now(),
+            nickname: 'Arena Gift',
+            giftName: 'Test Gift',
+            giftValue: 1000
+          })
+        });
+        await refreshArenaState();
+        showMessage('Arena-Testgeschenk gesendet!');
+      } catch (error) {
+        showMessage('Arena-Testgeschenk fehlgeschlagen: ' + error.message, 'error');
+      }
+    }
+
+    async function resetArena() {
+      try {
+        await fetch('/api/game-engine/arena/reset', { method: 'POST' });
+        await refreshArenaState();
+        showMessage('Arena zurueckgesetzt!');
+      } catch (error) {
+        showMessage('Arena konnte nicht zurueckgesetzt werden: ' + error.message, 'error');
+      }
+    }
+
     // ===========================================
     // Event Listeners Setup
     // ===========================================
@@ -4533,6 +5400,11 @@
     const refreshGiftCatalogBtn = document.getElementById('refreshGiftCatalogBtn');
     if (refreshGiftCatalogBtn) {
       refreshGiftCatalogBtn.addEventListener('click', refreshGiftCatalog);
+    }
+
+    const refreshGiftCatalogModalBtn = document.getElementById('refreshGiftCatalogModalBtn');
+    if (refreshGiftCatalogModalBtn) {
+      refreshGiftCatalogModalBtn.addEventListener('click', refreshGiftCatalog);
     }
     
     // Close gift catalog button
@@ -4665,6 +5537,63 @@
         previewOverlay(document.getElementById('overlay-url-slot').value);
       });
     }
+
+    // Arena overlay copy/preview in OBS tab
+    const btnCopyArenaOverlayMain = document.getElementById('btn-copy-arena-overlay-main');
+    if (btnCopyArenaOverlayMain) {
+      btnCopyArenaOverlayMain.addEventListener('click', () => copyOverlayURL('overlay-url-arena'));
+    }
+    const btnPreviewArenaOverlayMain = document.getElementById('btn-preview-arena-overlay-main');
+    if (btnPreviewArenaOverlayMain) {
+      btnPreviewArenaOverlayMain.addEventListener('click', () => {
+        previewOverlay(document.getElementById('overlay-url-arena').value);
+      });
+    }
+
+    const btnCopyArenaOverlay = document.getElementById('btn-copy-arena-overlay');
+    if (btnCopyArenaOverlay) {
+      btnCopyArenaOverlay.addEventListener('click', () => copyOverlayURL('arena-overlay-url'));
+    }
+    const btnPreviewArenaOverlay = document.getElementById('btn-preview-arena-overlay');
+    if (btnPreviewArenaOverlay) {
+      btnPreviewArenaOverlay.addEventListener('click', () => {
+        previewOverlay(document.getElementById('arena-overlay-url').value);
+      });
+    }
+    document.getElementById('saveArenaSettingsBtn')?.addEventListener('click', saveArenaSettings);
+    document.getElementById('arena-size-preset')?.addEventListener('change', applyArenaSizePresetToFields);
+    document.getElementById('arena-width')?.addEventListener('input', markArenaSizePresetCustom);
+    document.getElementById('arena-height')?.addEventListener('input', markArenaSizePresetCustom);
+    document.getElementById('refreshArenaStateBtn')?.addEventListener('click', refreshArenaState);
+    document.getElementById('triggerArenaActivityBtn')?.addEventListener('click', triggerArenaTestActivity);
+    document.getElementById('triggerArenaGiftBtn')?.addEventListener('click', triggerArenaTestGift);
+    document.getElementById('resetArenaBtn')?.addEventListener('click', resetArena);
+    document.getElementById('addArenaGiftWeaponMappingBtn')?.addEventListener('click', addArenaGiftWeaponMapping);
+    document.getElementById('openArenaGiftCatalogBtn')?.addEventListener('click', () => {
+      arenaGiftSelectionMode = true;
+      openGiftCatalog();
+    });
+    document.getElementById('arena-gift-weapon-mappings-container')?.addEventListener('click', async (e) => {
+      const button = e.target.closest('.arena-remove-gift-weapon');
+      if (!button) return;
+      const giftKey = button.dataset.giftKey;
+      const mappings = getArenaGiftWeaponMappings();
+      delete mappings[giftKey];
+      renderArenaGiftWeaponMappings(mappings);
+      await saveArenaSettings();
+    });
+    document.getElementById('gift-grid')?.addEventListener('click', (e) => {
+      if (!arenaGiftSelectionMode) return;
+      const giftCard = e.target.closest('.gift-card');
+      if (!giftCard) return;
+      e.stopPropagation();
+      e.preventDefault();
+      handleArenaGiftSelection({
+        id: giftCard.dataset.giftId,
+        name: giftCard.dataset.giftName
+      });
+    }, true);
+    document.querySelector('.tab[data-tab="arena"]')?.addEventListener('click', loadArenaSettings);
 
     // ===== SLOT MACHINE TAB =====
 
@@ -5901,7 +6830,7 @@
           const result = await resp.json();
           if (resultEl) {
             resultEl.style.display = 'block';
-            resultEl.innerHTML = `<strong>Ergebnis:</strong> ${result.category || 'unknown'} | Gewinn: ${result.isWin ? '✅' : '❌'} | Spin-ID: ${result.spinId || '?'}`;
+            resultEl.textContent = `Ergebnis: ${result.category || 'unknown'} | Gewinn: ${result.isWin ? '✅' : '❌'} | Spin-ID: ${result.spinId || '?'}`;
           }
           await loadSlotStats(currentSlotMachineId);
         } catch(e) {
@@ -6085,6 +7014,7 @@
     // Initialize
     loadSettings();
     loadChessSettings();
+    loadArenaSettings();
     loadTriggers();
     loadXPRewards();
     loadStats();
@@ -8166,14 +9096,19 @@
         Object.entries(settings).forEach(([gameType, useUnified]) => {
           const toggle = document.getElementById(`overlay-mode-${gameType}`);
           const label = document.getElementById(`overlay-label-${gameType}`);
-          const urlSpan = document.getElementById(`overlay-url-${gameType}`);
+          const urlSpan = document.getElementById(`overlay-url-${gameType}-mode`) || document.getElementById(`overlay-url-${gameType}`);
           
           if (toggle) {
             toggle.checked = useUnified;
             label.textContent = useUnified ? 'Unified' : 'Legacy';
-            urlSpan.textContent = useUnified 
-              ? `URL: ${OVERLAY_BASE_URL}/overlay/game-engine/unified`
-              : `URL: ${OVERLAY_BASE_URL}/overlay/game-engine/${gameType}`;
+            const url = useUnified 
+              ? `${OVERLAY_BASE_URL}/overlay/game-engine/unified`
+              : `${OVERLAY_BASE_URL}/overlay/game-engine/${gameType}`;
+            if ('value' in urlSpan) {
+              urlSpan.value = url;
+            } else {
+              urlSpan.textContent = `URL: ${url}`;
+            }
           }
         });
       } catch (error) {
@@ -8184,7 +9119,7 @@
     
     // Save overlay settings
     document.getElementById('btn-save-overlay-settings')?.addEventListener('click', async () => {
-      const games = ['connect4', 'chess', 'plinko', 'wheel'];
+      const games = ['connect4', 'chess', 'plinko', 'wheel', 'slot', 'arena'];
       
       try {
         for (const game of games) {
@@ -8213,12 +9148,17 @@
       toggle.addEventListener('change', (e) => {
         const game = e.target.dataset.game;
         const label = document.getElementById(`overlay-label-${game}`);
-        const urlSpan = document.getElementById(`overlay-url-${game}`);
+        const urlSpan = document.getElementById(`overlay-url-${game}-mode`) || document.getElementById(`overlay-url-${game}`);
         
         label.textContent = e.target.checked ? 'Unified' : 'Legacy';
-        urlSpan.textContent = e.target.checked
-          ? `URL: ${OVERLAY_BASE_URL}/overlay/game-engine/unified`
-          : `URL: ${OVERLAY_BASE_URL}/overlay/game-engine/${game}`;
+        const url = e.target.checked
+          ? `${OVERLAY_BASE_URL}/overlay/game-engine/unified`
+          : `${OVERLAY_BASE_URL}/overlay/game-engine/${game}`;
+        if ('value' in urlSpan) {
+          urlSpan.value = url;
+        } else {
+          urlSpan.textContent = `URL: ${url}`;
+        }
       });
     });
     

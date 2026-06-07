@@ -12,7 +12,7 @@
  * - Async queue for rate limiting
  */
 
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const PromptGenerator = require('./promptGenerator');
 const { STYLE_PRESETS } = require('./promptGenerator');
 const SiliconFlowService = require('./siliconFlowService');
@@ -239,7 +239,7 @@ class FusionService {
 
             // Create fusion item
             const fusionItem = {
-                itemId: uuidv4(),
+                itemId: randomUUID(),
                 fusionKey,
                 name: this.generateFusionName(itemA, itemB, rarityInfo.name),
                 parentItems: [itemA.itemId, itemB.itemId].sort(),

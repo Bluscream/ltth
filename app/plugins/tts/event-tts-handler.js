@@ -18,6 +18,8 @@ class EventTTSHandler {
     this.api = ttsPlugin.api;
     this.logger = ttsPlugin.logger;
     this.cooldowns = new Map(); // key: `${userId}:${eventType}` -> timestamp
+    this.destroyed = false;
+    this.initialized = false;
     
     // Gift combo streak tracking
     this.giftStreaks = new Map(); // key: userId -> { count, lastGiftTime, timeoutId }
@@ -32,6 +34,14 @@ class EventTTSHandler {
   }
 
   init() {
+    if (this.initialized && !this.destroyed) {
+      this.logger.debug('Event TTS Handler already initialized');
+      return;
+    }
+
+    this.destroyed = false;
+    this.initialized = true;
+
     const config = this.tts.config.eventTTS;
     if (!config?.enabled) {
       this.logger.info('Event TTS is disabled');
@@ -47,22 +57,34 @@ class EventTTSHandler {
     const events = this.tts.config.eventTTS.events;
 
     if (events.gift?.enabled) {
-      this.api.registerTikTokEvent('gift', (data) => this._handleGift(data));
+      this.api.registerTikTokEvent('gift', (data) => {
+        if (!this.destroyed) this._handleGift(data);
+      });
     }
     if (events.follow?.enabled) {
-      this.api.registerTikTokEvent('follow', (data) => this._handleFollow(data));
+      this.api.registerTikTokEvent('follow', (data) => {
+        if (!this.destroyed) this._handleFollow(data);
+      });
     }
     if (events.share?.enabled) {
-      this.api.registerTikTokEvent('share', (data) => this._handleShare(data));
+      this.api.registerTikTokEvent('share', (data) => {
+        if (!this.destroyed) this._handleShare(data);
+      });
     }
     if (events.subscribe?.enabled) {
-      this.api.registerTikTokEvent('subscribe', (data) => this._handleSubscribe(data));
+      this.api.registerTikTokEvent('subscribe', (data) => {
+        if (!this.destroyed) this._handleSubscribe(data);
+      });
     }
     if (events.like?.enabled) {
-      this.api.registerTikTokEvent('like', (data) => this._handleLike(data));
+      this.api.registerTikTokEvent('like', (data) => {
+        if (!this.destroyed) this._handleLike(data);
+      });
     }
     if (events.join?.enabled) {
-      this.api.registerTikTokEvent('join', (data) => this._handleJoin(data));
+      this.api.registerTikTokEvent('join', (data) => {
+        if (!this.destroyed) this._handleJoin(data);
+      });
     }
   }
 
@@ -221,6 +243,11 @@ class EventTTSHandler {
   _queueEventTTS(text, userId, username, eventType, voiceOverride = null) {
     const config = this.tts.config.eventTTS;
 
+    if (!this._isStreamActive()) {
+      this.logger.debug(`Event TTS skipped for ${eventType}: TikTok stream is inactive`);
+      return false;
+    }
+
     const ttsRequest = {
       text: text,
       userId: userId || 'event-system',
@@ -236,6 +263,34 @@ class EventTTSHandler {
     });
 
     this.logger.debug(`Event TTS queued: ${eventType} - ${text}`);
+    return true;
+  }
+
+  _isStreamActive() {
+    const tiktok = this.api?.tiktok;
+
+    if (!tiktok) {
+      return true;
+    }
+
+    try {
+      if (typeof tiktok.isActive === 'function') {
+        return tiktok.isActive() === true;
+      }
+
+      if (typeof tiktok.isConnected === 'function') {
+        return tiktok.isConnected() === true;
+      }
+
+      if (typeof tiktok.isConnected === 'boolean') {
+        return tiktok.isConnected === true;
+      }
+    } catch (error) {
+      this.logger.warn(`Event TTS stream status check failed: ${error.message}`);
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -425,6 +480,9 @@ class EventTTSHandler {
   }
 
   destroy() {
+    this.destroyed = true;
+    this.initialized = false;
+
     // Clear all cooldowns
     this.cooldowns.clear();
     

@@ -331,14 +331,3 @@ function toggleDebugLogSection(show) {
     section.style.display = show ? 'block' : 'none';
   }
 }
-
-/**
- * Toggle team level input visibility
- */
-function toggleTeamLevelInput(permission) {
-  const wrapper = document.getElementById('minTeamLevelWrapper');
-  wrapper.style.display = permission === 'team' ? 'block' : 'none';
-}
-    toast.remove();
-  }, 3000);
-}

@@ -8,14 +8,20 @@ const LLMService = require('../engines/llm-service');
 
 // Mock OpenAI SDK
 jest.mock('openai', () => {
-  return jest.fn().mockImplementation(() => ({
+  mockOpenAIChatCreate = jest.fn();
+  mockOpenAIConstructor = jest.fn().mockImplementation((config) => ({
+    __config: config,
     chat: {
       completions: {
-        create: jest.fn()
+        create: mockOpenAIChatCreate
       }
     }
   }));
+  return mockOpenAIConstructor;
 });
+
+var mockOpenAIChatCreate;
+var mockOpenAIConstructor;
 
 // Mock axios for SiliconFlow
 jest.mock('axios', () => ({
@@ -38,6 +44,8 @@ describe('Model Selection Based on Provider', () => {
     };
     mockDebugCallback = jest.fn();
     jest.clearAllMocks();
+    mockOpenAIConstructor.mockClear();
+    mockOpenAIChatCreate.mockClear();
   });
 
   describe('OpenAI Provider', () => {
@@ -118,6 +126,80 @@ describe('Model Selection Based on Provider', () => {
           model: 'gpt-4o-mini'
         })
       );
+    });
+  });
+
+  describe('OpenAI-compatible Providers', () => {
+    test('should pass custom OpenRouter model and base URL through unchanged', async () => {
+      const service = new OpenAILLMService('openrouter-key', mockLogger, mockDebugCallback, {
+        baseURL: 'https://openrouter.ai/api/v1',
+        defaultModel: 'openrouter/free',
+        allowCustomModels: true,
+        defaultHeaders: {
+          'HTTP-Referer': 'http://localhost:3000',
+          'X-OpenRouter-Title': 'LTTH'
+        }
+      });
+
+      expect(OpenAI).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiKey: 'openrouter-key',
+          baseURL: 'https://openrouter.ai/api/v1',
+          defaultHeaders: {
+            'HTTP-Referer': 'http://localhost:3000',
+            'X-OpenRouter-Title': 'LTTH'
+          }
+        })
+      );
+
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [{
+          message: {
+            content: 'OpenRouter response'
+          }
+        }],
+        usage: { total_tokens: 42 }
+      });
+
+      service.client.chat.completions.create = mockCreate;
+
+      await service.generateCompletion('Test prompt', 'meta-llama/llama-3.2-3b-instruct:free', 120, 0.2);
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        model: 'meta-llama/llama-3.2-3b-instruct:free',
+        messages: [{ role: 'user', content: 'Test prompt' }],
+        max_tokens: 120,
+        temperature: 0.2
+      });
+    });
+
+    test('should allow custom Ollama cloud or local models when custom models are enabled', async () => {
+      const service = new OpenAILLMService('ollama', mockLogger, mockDebugCallback, {
+        baseURL: 'https://ollama.com/api/v1',
+        defaultModel: 'gpt-oss:20b-cloud',
+        allowCustomModels: true,
+        fallbackApiKey: 'ollama'
+      });
+
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [{
+          message: {
+            content: 'Ollama response'
+          }
+        }],
+        usage: { total_tokens: 42 }
+      });
+
+      service.client.chat.completions.create = mockCreate;
+
+      await service.generateCompletion('Test prompt', 'qwen3.5:cloud', 80, 0.1);
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        model: 'qwen3.5:cloud',
+        messages: [{ role: 'user', content: 'Test prompt' }],
+        max_tokens: 80,
+        temperature: 0.1
+      });
     });
   });
 
@@ -256,7 +338,7 @@ describe('Model Selection Based on Provider', () => {
       // Should fall back to SiliconFlow default
       await service.generateCompletion('Test', 'gpt-5.2', 100, 0.7);
       
-      // Should use fallback SiliconFlow model, not the OpenAI model name
+      // Should use fallback SiliconFlow model, not the OpenAI model
       expect(axios.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({

@@ -586,6 +586,18 @@
                     <textarea class="form-textarea" id="flow-description-input" placeholder="What does this flow do?"></textarea>
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Cooldown (seconds)</label>
+                    <input type="number" class="form-input" id="flow-cooldown-input" min="0" max="3600" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select class="form-select" id="flow-priority-input">
+                        <option value="low">Low</option>
+                        <option value="normal" selected>Normal</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="flow-enabled-input" checked>
                         <span class="form-label" style="margin: 0;">Enabled</span>
@@ -651,6 +663,7 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/ifttt-flow-compiler.js"></script>
     <script src="/js/ifttt-flow-editor.js"></script>
 </body>
 </html>

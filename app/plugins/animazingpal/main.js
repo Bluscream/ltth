@@ -21,6 +21,11 @@
 const WebSocket = require('ws');
 const path = require('path');
 const BrainEngine = require('./brain/brain-engine');
+const {
+  createPlatformAdapter,
+  getPlatformDefinition,
+  listPlatformDefinitions
+} = require('./platforms');
 
 class AnimazingPalPlugin {
   constructor(api) {
@@ -37,6 +42,9 @@ class AnimazingPalPlugin {
     
     // Brain Engine - AI Intelligence System
     this.brainEngine = null;
+
+    // Avatar platform registry
+    this.platformAdapter = null;
     
     // Configuration
     this.config = null;
@@ -82,13 +90,18 @@ class AnimazingPalPlugin {
     
     // Rate limiting for event triggers
     this.lastEventTimes = new Map();
-    this.eventCooldowns = {
-      gift: 500,      // 500ms between gift triggers
-      chat: 1000,     // 1s between chat messages
-      follow: 2000,   // 2s between follow triggers
-      like: 100,      // 100ms between like triggers
-      share: 2000,    // 2s between share triggers
-      subscribe: 3000 // 3s between subscribe triggers
+    this.eventCooldowns = this.getDefaultEventCooldowns();
+
+    // Viewerbase sync state
+    this.viewerbaseSyncTimer = null;
+    this.viewerbaseSyncPending = null;
+    this.viewerbaseSyncInFlight = false;
+    this.viewerbaseSyncState = {
+      lastSyncAt: null,
+      lastStatus: 'idle',
+      lastError: null,
+      lastReason: null,
+      queueLength: 0
     };
   }
 
@@ -96,7 +109,9 @@ class AnimazingPalPlugin {
     this.api.log('Initializing AnimazingPal Plugin...', 'info');
     
     // Load configuration
-    this.config = this.api.getConfig('config') || this.getDefaultConfig();
+    this.config = this.normalizeConfig(this.api.getConfig('config') || this.getDefaultConfig());
+    this.refreshEventCooldowns();
+    this.platformAdapter = this.getActivePlatformAdapter();
     
     // Initialize Brain Engine with robust error handling
     try {
@@ -125,7 +140,8 @@ class AnimazingPalPlugin {
     this.registerTikTokEvents();
     
     // Auto-connect if enabled
-    if (this.config.enabled && this.config.autoConnect) {
+    const activePlatformProfile = this.getPlatformProfile();
+    if (this.config.enabled && activePlatformProfile.autoConnect) {
       const connected = await this.connect();
       if (!connected) {
         this.api.log('Auto-connect failed, will retry on manual connect', 'warn');
@@ -139,6 +155,37 @@ class AnimazingPalPlugin {
   getDefaultConfig() {
     return {
       enabled: false,
+      platform: {
+        active: 'animaze',
+        profiles: {
+          animaze: {
+            host: '127.0.0.1',
+            port: 8008,
+            autoConnect: true,
+            reconnectOnDisconnect: true,
+            reconnectDelay: 5000,
+            autoRefreshData: true,
+            verboseLogging: false
+          },
+          'vtube-studio': {
+            host: '127.0.0.1',
+            port: 8001,
+            autoConnect: true,
+            reconnectOnDisconnect: true,
+            reconnectDelay: 5000,
+            pluginName: 'AnimazingPal',
+            pluginDeveloper: 'LTTH',
+            authToken: ''
+          },
+          vseeface: {
+            host: '127.0.0.1',
+            port: 39539,
+            autoConnect: true,
+            reconnectOnDisconnect: true,
+            reconnectDelay: 5000
+          }
+        }
+      },
       autoConnect: true,
       host: '127.0.0.1',
       port: 8008,
@@ -154,6 +201,68 @@ class AnimazingPalPlugin {
         useEcho: true,  // Use -echo prefix for TTS only (no AI response)
         prefix: '',
         maxLength: 200
+      },
+      // VRChat OSC bridge integration
+      vrchatIntegration: {
+        enabled: false,
+        targetPluginId: 'osc-bridge',
+        targetLabel: 'OSC-Bridge',
+        forwardChatToChatbox: true,
+        forwardBrainResponses: true,
+        forwardStandaloneResponses: true,
+        sendTypingIndicator: true,
+        eventMappings: {
+          chat: {
+            enabled: true,
+            kind: 'chatbox',
+            messageTemplate: '{username}: {comment}'
+          },
+          gift: {
+            enabled: true,
+            kind: 'gesture',
+            gesture: 'celebrate',
+            duration: 3000,
+            messageTemplate: 'Danke {username} fuer {giftName}!'
+          },
+          follow: {
+            enabled: true,
+            kind: 'gesture',
+            gesture: 'wave',
+            duration: 2000,
+            messageTemplate: 'Willkommen {username}!'
+          },
+          share: {
+            enabled: true,
+            kind: 'gesture',
+            gesture: 'dance',
+            duration: 4000,
+            messageTemplate: '{username} hat den Stream geteilt!'
+          },
+          like: {
+            enabled: true,
+            kind: 'gesture',
+            gesture: 'hearts',
+            duration: 1500,
+            messageTemplate: 'Danke fuer die Likes, {username}!'
+          },
+          subscribe: {
+            enabled: true,
+            kind: 'emote',
+            slot: 0,
+            duration: 2000,
+            messageTemplate: 'Danke {username} fuer das Abo!'
+          },
+          brainResponse: {
+            enabled: true,
+            kind: 'chatbox',
+            messageTemplate: '{message}'
+          },
+          standaloneResponse: {
+            enabled: true,
+            kind: 'chatbox',
+            messageTemplate: '{message}'
+          }
+        }
       },
       // Default actions for TikTok events
       eventActions: {
@@ -205,6 +314,8 @@ class AnimazingPalPlugin {
       overrides: {
         // e.g. 'Breathing Behavior': { enabled: true, amplitude: 0.5, frequency: 1.0 }
       },
+      // Reaction cooldowns in milliseconds per event type
+      eventCooldowns: this.getDefaultEventCooldowns(),
       // Brain/AI settings
       brain: {
         enabled: false,
@@ -263,9 +374,624 @@ class AnimazingPalPlugin {
           // }
         ]
       },
+      // Viewerbase summary and optional outbound sync
+      viewerbase: {
+        enabled: true,
+        showInUI: true,
+        recentLimit: 12,
+        supporterLimit: 10,
+        chatterLimit: 10,
+        syncOnEvents: ['chat', 'gift', 'follow', 'share', 'like', 'subscribe', 'connected', 'disconnected'],
+        externalSync: {
+          enabled: false,
+          endpointUrl: '',
+          authToken: '',
+          timeoutMs: 5000,
+          retryLimit: 3,
+          includeRecentMemories: true,
+          includeTopSupporters: true,
+          includeFrequentChatters: true
+        }
+      },
       // Advanced settings
       verboseLogging: false
     };
+  }
+
+  getDefaultEventCooldowns() {
+    return {
+      gift: 500,      // 500ms between gift triggers
+      chat: 1000,     // 1s between chat messages
+      follow: 2000,   // 2s between follow triggers
+      like: 100,      // 100ms between like triggers
+      share: 2000,    // 2s between share triggers
+      subscribe: 3000 // 3s between subscribe triggers
+    };
+  }
+
+  getPresetDefinitions() {
+    return {
+      'stream-ready': {
+        key: 'stream-ready',
+        label: 'Stream Ready',
+        description: 'Faster reactions, stronger AI chat presence, and more entertaining defaults for live streams.',
+        patch: {
+          enabled: true,
+          autoConnect: true,
+          autoRefreshData: true,
+          chatToAvatar: {
+            enabled: true,
+            useEcho: false,
+            prefix: '[Live]',
+            maxLength: 180
+          },
+          eventActions: {
+            follow: {
+              enabled: true,
+              actionType: 'emote',
+              actionValue: null,
+              chatMessage: 'Welcome {username}! Glad you are here.',
+              useEcho: null
+            },
+            share: {
+              enabled: true,
+              actionType: 'specialAction',
+              actionValue: null,
+              chatMessage: '{username} shared the stream - awesome!',
+              useEcho: null
+            },
+            subscribe: {
+              enabled: true,
+              actionType: 'pose',
+              actionValue: null,
+              chatMessage: 'Huge thanks for subscribing, {username}!',
+              useEcho: null
+            },
+            like: {
+              enabled: true,
+              actionType: 'idle',
+              actionValue: null,
+              chatMessage: null,
+              useEcho: null,
+              threshold: 25
+            },
+            gift: {
+              enabled: true,
+              actionType: 'emote',
+              actionValue: null,
+              chatMessage: 'Thank you {username} for the {giftName}!',
+              useEcho: null
+            },
+            chat: {
+              enabled: true,
+              actionType: null,
+              actionValue: null,
+              chatMessage: null,
+              useEcho: null
+            }
+          },
+          eventCooldowns: {
+            gift: 350,
+            chat: 750,
+            follow: 1200,
+            like: 75,
+            share: 1500,
+            subscribe: 2200
+          },
+          brain: {
+            enabled: true,
+            standaloneMode: false,
+            forceTtsOnlyOnActions: false,
+            openaiApiKey: null,
+            model: 'gpt-4o-mini',
+            activePersonality: null,
+            longTermMemory: true,
+            memoryImportanceThreshold: 0.25,
+            maxContextMemories: 14,
+            archiveAfterDays: 7,
+            pruneAfterDays: 30,
+            memoryDecayHalfLife: 7,
+            autoRespond: {
+              chat: true,
+              gifts: true,
+              follows: true,
+              shares: true,
+              subscribe: true,
+              like: false
+            },
+            maxResponsesPerMinute: 18,
+            chatResponseProbability: 0.45
+          }
+        }
+      }
+    };
+  }
+
+  getPresetDefinition(presetKey) {
+    return this.getPresetDefinitions()[presetKey] || null;
+  }
+
+  refreshEventCooldowns() {
+    this.eventCooldowns = {
+      ...this.getDefaultEventCooldowns(),
+      ...(this.config?.eventCooldowns || {})
+    };
+  }
+
+  applyPreset(presetKey) {
+    const preset = this.getPresetDefinition(presetKey);
+    if (!preset) {
+      throw new Error(`Unknown preset: ${presetKey}`);
+    }
+
+    const currentConfig = this.normalizeConfig(this.config || this.getDefaultConfig());
+    const mergedConfig = this.normalizeConfig(this.mergeConfigPatch(currentConfig, preset.patch));
+    this.config = mergedConfig;
+    this.refreshEventCooldowns();
+
+    if (this.platformAdapter && typeof this.platformAdapter.setConfig === 'function') {
+      this.platformAdapter.setConfig(this.getPlatformProfile());
+    }
+
+    if (typeof this.api.setConfig === 'function') {
+      this.api.setConfig('config', this.config);
+    }
+
+    this.safeEmitStatus();
+    return mergedConfig;
+  }
+
+  getSupportedPlatforms() {
+    return listPlatformDefinitions();
+  }
+
+  getActivePlatformKey() {
+    const platform = this.config?.platform?.active;
+    return platform || 'animaze';
+  }
+
+  getPlatformProfile(platformKey = this.getActivePlatformKey()) {
+    if (!this.config) {
+      return this.getDefaultConfig().platform.profiles[platformKey] || {};
+    }
+
+    const defaults = this.getDefaultConfig().platform.profiles[platformKey] || {};
+    const profiles = this.config.platform?.profiles || {};
+    const profile = profiles[platformKey] || {};
+
+    return {
+      ...defaults,
+      ...profile
+    };
+  }
+
+  getActivePlatformDefinition() {
+    return getPlatformDefinition(this.getActivePlatformKey());
+  }
+
+  getActivePlatformAdapter() {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey === 'animaze') {
+      return null;
+    }
+
+    const profile = this.getPlatformProfile(platformKey);
+    if (!this.platformAdapter || this.platformAdapter.getKey?.() !== platformKey) {
+      this.platformAdapter = createPlatformAdapter(platformKey, this.api, profile);
+    } else if (this.platformAdapter.setConfig) {
+      this.platformAdapter.setConfig(profile);
+    }
+
+    return this.platformAdapter;
+  }
+
+  getPlatformState() {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey === 'animaze') {
+      return {
+        key: platformKey,
+        definition: this.getActivePlatformDefinition(),
+        adapter: null,
+        data: this.animazeData,
+        connected: this.isConnected
+      };
+    }
+
+    const adapter = this.getActivePlatformAdapter();
+    return {
+      key: platformKey,
+      definition: this.getActivePlatformDefinition(),
+      adapter,
+      data: adapter ? adapter.getData() : {},
+      connected: adapter ? !!adapter.isConnected : false
+    };
+  }
+
+  getActivePlatformData() {
+    return this.getPlatformState().data || {};
+  }
+
+  getPlatformActionTypes(platformKey = this.getActivePlatformKey()) {
+    const definition = getPlatformDefinition(platformKey);
+    return Array.isArray(definition.actions) ? definition.actions : [];
+  }
+
+  getViewerbaseConfig() {
+    const defaults = this.getDefaultConfig().viewerbase || {};
+    const viewerbase = this.config?.viewerbase || {};
+    return {
+      ...defaults,
+      ...viewerbase,
+      externalSync: {
+        ...defaults.externalSync,
+        ...(viewerbase.externalSync || {})
+      }
+    };
+  }
+
+  getViewerbaseSyncConfig() {
+    return this.getViewerbaseConfig().externalSync || {};
+  }
+
+  _safeParseJson(value, fallback = null) {
+    if (value === null || value === undefined || value === '') {
+      return fallback;
+    }
+
+    if (typeof value === 'object') {
+      return value;
+    }
+
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  serializeUserProfile(profile) {
+    if (!profile) {
+      return null;
+    }
+
+    return {
+      ...profile,
+      displayName: profile.nickname || profile.username,
+      personality_notes: this._safeParseJson(profile.personality_notes, profile.personality_notes),
+      favorite_topics: this._safeParseJson(profile.favorite_topics, []),
+      custom_tags: this._safeParseJson(profile.custom_tags, []),
+      interaction_history: this._safeParseJson(profile.interaction_history, []),
+      relationship_level: profile.relationship_level || 'stranger'
+    };
+  }
+
+  serializeMemoryEntry(memory) {
+    if (!memory) {
+      return null;
+    }
+
+    return {
+      ...memory,
+      tags: this._safeParseJson(memory.tags, []),
+      context: this._safeParseJson(memory.context, memory.context)
+    };
+  }
+
+  buildViewerbaseSnapshot(options = {}) {
+    const viewerbaseConfig = this.getViewerbaseConfig();
+    const memoryDb = this.brainEngine?.memoryDb || null;
+    const statistics = memoryDb ? memoryDb.getStatistics() : null;
+    const streamerId = statistics?.streamerId || memoryDb?.getStreamerId?.() || 'default';
+    const resolveLimit = (value, fallback) => {
+      if (value === 0) return 0;
+      const parsed = parseInt(value, 10);
+      return Number.isNaN(parsed) ? fallback : Math.max(1, parsed);
+    };
+    const supporterLimit = resolveLimit(options.supporterLimit ?? viewerbaseConfig.supporterLimit, 10);
+    const chatterLimit = resolveLimit(options.chatterLimit ?? viewerbaseConfig.chatterLimit, 10);
+    const recentLimit = resolveLimit(options.recentLimit ?? viewerbaseConfig.recentLimit, 12);
+
+    const topSupporters = memoryDb && supporterLimit > 0 ? memoryDb.getTopSupporters(supporterLimit).map((profile) => this.serializeUserProfile(profile)) : [];
+    const frequentChatters = memoryDb && chatterLimit > 0 ? memoryDb.getFrequentChatters(chatterLimit).map((profile) => this.serializeUserProfile(profile)) : [];
+    const recentMemories = memoryDb && recentLimit > 0 ? memoryDb.getRecentMemories(recentLimit).map((memory) => this.serializeMemoryEntry(memory)) : [];
+    const streamerProfiles = memoryDb ? memoryDb.getStreamerProfiles() : [];
+
+    return {
+      streamerId,
+      generatedAt: new Date().toISOString(),
+      enabled: !!viewerbaseConfig.enabled,
+      showInUI: viewerbaseConfig.showInUI !== false,
+      statistics,
+      topSupporters,
+      frequentChatters,
+      recentMemories,
+      streamerProfiles,
+      viewerCounts: {
+        totalUsers: statistics?.totalUsers || 0,
+        totalMemories: statistics?.totalMemories || 0,
+        totalConversations: statistics?.totalConversations || 0,
+        totalArchives: statistics?.totalArchives || 0
+      },
+      syncState: this.getViewerbaseSyncState()
+    };
+  }
+
+  getViewerbaseSyncState() {
+    return {
+      ...this.viewerbaseSyncState,
+      queueLength: this.viewerbaseSyncPending ? 1 : 0
+    };
+  }
+
+  getViewerbaseStatus() {
+    const viewerbaseConfig = this.getViewerbaseConfig();
+    return {
+      enabled: !!viewerbaseConfig.enabled,
+      showInUI: viewerbaseConfig.showInUI !== false,
+      config: {
+        recentLimit: viewerbaseConfig.recentLimit,
+        supporterLimit: viewerbaseConfig.supporterLimit,
+        chatterLimit: viewerbaseConfig.chatterLimit,
+        syncOnEvents: viewerbaseConfig.syncOnEvents || []
+      },
+      externalSync: {
+        ...this.getViewerbaseSyncConfig(),
+        authToken: '',
+        authTokenConfigured: !!this.getViewerbaseSyncConfig().authToken
+      },
+      summary: this.buildViewerbaseSnapshot(),
+      syncState: this.getViewerbaseSyncState()
+    };
+  }
+
+  recordViewerbaseActivity(eventType, context = {}) {
+    const viewerbaseConfig = this.getViewerbaseConfig();
+    if (!viewerbaseConfig.enabled) {
+      return false;
+    }
+
+    const syncConfig = viewerbaseConfig.externalSync || {};
+    const shouldSync = Array.isArray(viewerbaseConfig.syncOnEvents)
+      ? viewerbaseConfig.syncOnEvents.includes(eventType)
+      : false;
+
+    if (!shouldSync || !syncConfig.enabled || !syncConfig.endpointUrl) {
+      return false;
+    }
+
+    return this.scheduleViewerbaseSync(eventType, context);
+  }
+
+  scheduleViewerbaseSync(reason = 'manual', options = {}) {
+    const viewerbaseConfig = this.getViewerbaseConfig();
+    const syncConfig = viewerbaseConfig.externalSync || {};
+    if (!viewerbaseConfig.enabled || !syncConfig.enabled || !syncConfig.endpointUrl) {
+      return false;
+    }
+
+    this.viewerbaseSyncPending = {
+      reason,
+      options: {
+        recentLimit: options.recentLimit,
+        supporterLimit: options.supporterLimit,
+        chatterLimit: options.chatterLimit
+      },
+      queuedAt: Date.now(),
+      retryCount: 0
+    };
+    this.viewerbaseSyncState.lastReason = reason;
+    this.viewerbaseSyncState.queueLength = 1;
+
+    if (options.immediate) {
+      if (this.viewerbaseSyncTimer) {
+        clearTimeout(this.viewerbaseSyncTimer);
+        this.viewerbaseSyncTimer = null;
+      }
+      return true;
+    }
+
+    if (this.viewerbaseSyncTimer) {
+      return true;
+    }
+
+    const debounceMs = Math.max(0, parseInt(options.delayMs, 10) || 15000);
+    this.viewerbaseSyncTimer = setTimeout(() => {
+      this.viewerbaseSyncTimer = null;
+      this.flushViewerbaseSyncQueue().catch((error) => {
+        this.api.log(`Viewerbase sync flush failed: ${error.message}`, 'warn');
+      });
+    }, debounceMs);
+
+    return true;
+  }
+
+  async flushViewerbaseSyncQueue() {
+    if (this.viewerbaseSyncInFlight) {
+      return false;
+    }
+
+    const pending = this.viewerbaseSyncPending;
+    if (!pending) {
+      return false;
+    }
+
+    const viewerbaseConfig = this.getViewerbaseConfig();
+    const syncConfig = viewerbaseConfig.externalSync || {};
+    if (!viewerbaseConfig.enabled || !syncConfig.enabled || !syncConfig.endpointUrl) {
+      this.viewerbaseSyncPending = null;
+      this.viewerbaseSyncState.lastStatus = 'idle';
+      this.viewerbaseSyncState.queueLength = 0;
+      return false;
+    }
+
+    this.viewerbaseSyncInFlight = true;
+    this.viewerbaseSyncState.lastStatus = 'syncing';
+    this.viewerbaseSyncState.lastError = null;
+
+    let timeoutHandle = null;
+
+    try {
+      const snapshot = this.buildViewerbaseSnapshot({
+        recentLimit: syncConfig.includeRecentMemories === false ? 0 : viewerbaseConfig.recentLimit,
+        supporterLimit: syncConfig.includeTopSupporters === false ? 0 : viewerbaseConfig.supporterLimit,
+        chatterLimit: syncConfig.includeFrequentChatters === false ? 0 : viewerbaseConfig.chatterLimit
+      });
+
+      const payload = {
+        schema: 'animazingpal.viewerbase.snapshot.v1',
+        source: 'animazingpal',
+        generatedAt: snapshot.generatedAt,
+        streamerId: snapshot.streamerId,
+        reason: pending.reason,
+        snapshot
+      };
+
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      if (syncConfig.authToken) {
+        headers.Authorization = `Bearer ${syncConfig.authToken}`;
+      }
+
+      const fetchOptions = {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      };
+
+      const timeoutMs = Math.max(1000, parseInt(syncConfig.timeoutMs, 10) || 5000);
+      if (typeof AbortController !== 'undefined') {
+        const controller = new AbortController();
+        fetchOptions.signal = controller.signal;
+        timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+      }
+
+      if (typeof fetch !== 'function') {
+        throw new Error('Global fetch is not available in this runtime');
+      }
+
+      const response = await fetch(syncConfig.endpointUrl, fetchOptions);
+      if (!response.ok) {
+        throw new Error(`Viewerbase sync failed with status ${response.status}`);
+      }
+
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+
+      if (this.viewerbaseSyncPending === pending) {
+        this.viewerbaseSyncPending = null;
+      }
+      this.viewerbaseSyncState.lastSyncAt = new Date().toISOString();
+      this.viewerbaseSyncState.lastStatus = 'success';
+      this.viewerbaseSyncState.lastError = null;
+      this.viewerbaseSyncState.lastReason = pending.reason;
+      this.viewerbaseSyncState.queueLength = this.viewerbaseSyncPending ? 1 : 0;
+      this.safeEmitStatus();
+      return true;
+    } catch (error) {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      const retryLimit = Math.max(0, parseInt(syncConfig.retryLimit, 10) || 0);
+      this.viewerbaseSyncState.lastStatus = 'error';
+      this.viewerbaseSyncState.lastError = error.message;
+      this.viewerbaseSyncState.lastReason = pending.reason;
+      const currentPending = this.viewerbaseSyncPending;
+      if (currentPending === pending) {
+        pending.retryCount = (pending.retryCount || 0) + 1;
+        this.viewerbaseSyncState.queueLength = 1;
+
+        if (pending.retryCount <= retryLimit) {
+          this.viewerbaseSyncPending = pending;
+          const retryDelay = Math.max(1000, Math.min(30000, (parseInt(syncConfig.timeoutMs, 10) || 5000) * pending.retryCount));
+          this.viewerbaseSyncTimer = setTimeout(() => {
+            this.viewerbaseSyncTimer = null;
+            this.flushViewerbaseSyncQueue().catch((retryError) => {
+              this.api.log(`Viewerbase sync retry failed: ${retryError.message}`, 'warn');
+            });
+          }, retryDelay);
+        } else {
+          this.viewerbaseSyncPending = null;
+          this.viewerbaseSyncState.queueLength = 0;
+        }
+      } else {
+        this.viewerbaseSyncState.queueLength = currentPending ? 1 : 0;
+      }
+
+      this.safeEmitStatus();
+      throw error;
+    } finally {
+      this.viewerbaseSyncInFlight = false;
+    }
+  }
+
+  mergeConfigPatch(target, patch) {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      return patch;
+    }
+
+    const output = { ...(target || {}) };
+
+    for (const [key, value] of Object.entries(patch)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        output[key] = this.mergeConfigPatch(output[key], value);
+      } else {
+        output[key] = value;
+      }
+    }
+
+    return output;
+  }
+
+  normalizeConfig(config = {}) {
+    const defaults = this.getDefaultConfig();
+    const normalized = this.mergeConfigPatch(defaults, config);
+
+    // Preserve legacy top-level Animaze settings while introducing
+    // the platform profile structure for new targets.
+    normalized.platform = normalized.platform || defaults.platform;
+    normalized.platform.profiles = normalized.platform.profiles || defaults.platform.profiles;
+
+    if (!normalized.platform.profiles.animaze) {
+      normalized.platform.profiles.animaze = { ...defaults.platform.profiles.animaze };
+    }
+
+    if (!normalized.platform.profiles['vtube-studio']) {
+      normalized.platform.profiles['vtube-studio'] = { ...defaults.platform.profiles['vtube-studio'] };
+    }
+
+    if (!normalized.platform.profiles.vseeface) {
+      normalized.platform.profiles.vseeface = { ...defaults.platform.profiles.vseeface };
+    }
+
+    // If legacy top-level host/port values were stored before the profile
+    // structure existed, copy them into the active Animaze profile.
+    if (config.host || config.port || config.autoRefreshData !== undefined) {
+      normalized.platform.profiles.animaze = {
+        ...normalized.platform.profiles.animaze,
+        host: config.host || normalized.platform.profiles.animaze.host,
+        port: config.port || normalized.platform.profiles.animaze.port,
+        autoConnect: config.autoConnect !== undefined ? config.autoConnect : normalized.platform.profiles.animaze.autoConnect,
+        reconnectOnDisconnect: config.reconnectOnDisconnect !== undefined ? config.reconnectOnDisconnect : normalized.platform.profiles.animaze.reconnectOnDisconnect,
+        reconnectDelay: config.reconnectDelay !== undefined ? config.reconnectDelay : normalized.platform.profiles.animaze.reconnectDelay,
+        autoRefreshData: config.autoRefreshData !== undefined ? config.autoRefreshData : normalized.platform.profiles.animaze.autoRefreshData,
+        verboseLogging: config.verboseLogging !== undefined ? config.verboseLogging : normalized.platform.profiles.animaze.verboseLogging
+      };
+    }
+
+    if (normalized.platform.active === 'animaze') {
+      normalized.host = normalized.platform.profiles.animaze.host;
+      normalized.port = normalized.platform.profiles.animaze.port;
+      normalized.autoConnect = normalized.platform.profiles.animaze.autoConnect;
+      normalized.reconnectOnDisconnect = normalized.platform.profiles.animaze.reconnectOnDisconnect;
+      normalized.reconnectDelay = normalized.platform.profiles.animaze.reconnectDelay;
+      normalized.autoRefreshData = normalized.platform.profiles.animaze.autoRefreshData;
+      normalized.verboseLogging = normalized.platform.profiles.animaze.verboseLogging;
+    }
+
+    return normalized;
   }
 
   registerRoutes() {
@@ -275,14 +1001,39 @@ class AnimazingPalPlugin {
       res.sendFile(uiPath);
     });
 
+    this.api.registerRoute('get', '/api/animazingpal/platforms', (req, res) => {
+      res.json({
+        success: true,
+        platforms: this.getSupportedPlatforms()
+      });
+    });
+
+    this.api.registerRoute('get', '/api/animazingpal/presets', (req, res) => {
+      res.json({
+        success: true,
+        presets: this.getPresetDefinitions()
+      });
+    });
+
     // Get plugin status
     this.api.registerRoute('get', '/api/animazingpal/status', (req, res) => {
+      const platformState = this.getPlatformState();
       res.json({
         success: true,
         isConnected: this.isConnected,
         config: this.getSafeConfig(),
         reconnectAttempts: this.reconnectAttempts,
         animazeData: this.animazeData,
+        platformState: {
+          key: platformState.key,
+          definition: platformState.definition,
+          data: platformState.data,
+          connected: platformState.connected
+        },
+        platformData: platformState.data,
+        platformDefinition: platformState.definition,
+        activePlatform: platformState.key,
+        supportedPlatforms: this.getSupportedPlatforms(),
         overrideBehaviors: this.overrideBehaviors
       });
     });
@@ -299,15 +1050,116 @@ class AnimazingPalPlugin {
     this.api.registerRoute('post', '/api/animazingpal/config', async (req, res) => {
       try {
         const newConfig = req.body;
-        this.config = { ...this.config, ...newConfig };
+        const previousPlatformKey = this.getActivePlatformKey();
+        const mergedConfig = this.normalizeConfig(this.mergeConfigPatch(this.config, newConfig));
+        const nextPlatformKey = mergedConfig.platform?.active || previousPlatformKey;
+        const platformChanged = nextPlatformKey !== previousPlatformKey;
+
+        if (platformChanged && this.isConnected) {
+          this.disconnect();
+        }
+
+        this.config = mergedConfig;
+        this.refreshEventCooldowns();
+        this.platformAdapter = this.getActivePlatformAdapter();
         this.api.setConfig('config', this.config);
-        
+
         this.api.log('AnimazingPal config updated', 'info');
         this.safeEmitStatus();
         
         res.json({ success: true, config: this.getSafeConfig() });
       } catch (error) {
         this.api.log(`Config update error: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    this.api.registerRoute('get', '/api/animazingpal/viewerbase', (req, res) => {
+      res.json({
+        success: true,
+        viewerbase: this.getViewerbaseStatus()
+      });
+    });
+
+    this.api.registerRoute('post', '/api/animazingpal/viewerbase/config', async (req, res) => {
+      try {
+        const patch = req.body || {};
+        const mergedConfig = this.normalizeConfig(this.mergeConfigPatch(this.config, {
+          viewerbase: patch.viewerbase || patch
+        }));
+
+        this.config = mergedConfig;
+        this.api.setConfig('config', this.config);
+        this.safeEmitStatus();
+
+        res.json({
+          success: true,
+          viewerbase: this.getViewerbaseStatus(),
+          config: this.getSafeConfig()
+        });
+      } catch (error) {
+        this.api.log(`Viewerbase config update error: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    this.api.registerRoute('post', '/api/animazingpal/viewerbase/sync', async (req, res) => {
+      try {
+        const immediate = req.body?.immediate !== false;
+        const scheduled = this.scheduleViewerbaseSync(req.body?.reason || 'manual', {
+          immediate,
+          delayMs: req.body?.delayMs
+        });
+
+        if (!scheduled) {
+          return res.status(400).json({
+            success: false,
+            error: 'Viewerbase sync is disabled or not configured'
+          });
+        }
+
+        if (immediate) {
+          await this.flushViewerbaseSyncQueue();
+        }
+
+        res.json({
+          success: true,
+          viewerbase: this.getViewerbaseStatus()
+        });
+      } catch (error) {
+        this.api.log(`Viewerbase sync error: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    this.api.registerRoute('post', '/api/animazingpal/presets/apply', async (req, res) => {
+      try {
+        const presetKey = req.body?.preset || req.body?.presetKey;
+        if (!presetKey) {
+          return res.status(400).json({ success: false, error: 'preset is required' });
+        }
+
+        const preset = this.getPresetDefinition(presetKey);
+        if (!preset) {
+          return res.status(404).json({ success: false, error: `Unknown preset: ${presetKey}` });
+        }
+
+        this.applyPreset(presetKey);
+        this.api.log(`Applied AnimazingPal preset: ${preset.label}`, 'info');
+
+        res.json({
+          success: true,
+          preset,
+          config: this.getSafeConfig(),
+          platformState: {
+            key: this.getActivePlatformKey(),
+            definition: this.getActivePlatformDefinition(),
+            data: this.getActivePlatformData(),
+            connected: this.isConnected
+          }
+        });
+      } catch (error) {
+        this.api.log(`Preset apply error: ${error.message}`, 'error');
         res.status(500).json({ success: false, error: error.message });
       }
     });
@@ -1083,6 +1935,10 @@ class AnimazingPalPlugin {
             importance: 0.6
           });
         }
+
+        this.recordViewerbaseActivity('connected', {
+          streamerId
+        });
       }
     });
 
@@ -1097,6 +1953,8 @@ class AnimazingPalPlugin {
           importance: 0.4
         });
       }
+
+      this.recordViewerbaseActivity('disconnected', {});
     });
 
     // Gift events
@@ -1135,6 +1993,41 @@ class AnimazingPalPlugin {
   // ==================== Connection Management ====================
 
   async connect() {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter) {
+        this.api.log(`Platform ${platformKey} is not supported`, 'error');
+        this.safeEmitStatus();
+        return false;
+      }
+
+      if (adapter.isConnected) {
+        this.isConnected = true;
+        this.safeEmitStatus();
+        return true;
+      }
+
+      const connected = await adapter.connect();
+      this.isConnected = !!adapter.isConnected;
+      if (connected && this.isConnected) {
+        try {
+          const profile = this.getPlatformProfile(platformKey);
+          if (profile.autoRefreshData !== false && typeof adapter.refreshData === 'function') {
+            await adapter.refreshData();
+          }
+        } catch (refreshError) {
+          this.api.log(`Initial data refresh failed for ${adapter.getLabel ? adapter.getLabel() : platformKey}: ${refreshError.message}`, 'warn');
+        }
+        const platformData = adapter.getData ? adapter.getData() : {};
+        this.animazeData = platformData;
+        this.api.emit('animazingpal:data-refreshed', platformData);
+      }
+
+      this.safeEmitStatus();
+      return connected;
+    }
+
     if (this.isConnected) {
       this.api.log('Already connected to Animaze', 'warn');
       return true;
@@ -1310,6 +2203,35 @@ class AnimazingPalPlugin {
   }
 
   disconnect() {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+
+      if (adapter && typeof adapter.disconnect === 'function') {
+        try {
+          adapter.disconnect();
+        } catch (error) {
+          this.api.log(`Error disconnecting ${adapter.getLabel ? adapter.getLabel() : platformKey}: ${error.message}`, 'warn');
+        }
+      }
+
+      if (this.ws) {
+        try {
+          this.ws.close();
+        } catch (error) {
+          if (this.config && this.config.verboseLogging) {
+            this.api.log(`Error closing legacy Animaze socket during adapter disconnect: ${error.message}`, 'debug');
+          }
+        }
+        this.ws = null;
+      }
+
+      this.isConnected = false;
+      this.reconnectAttempts = 0;
+      this.safeEmitStatus();
+      return;
+    }
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -1525,6 +2447,20 @@ class AnimazingPalPlugin {
    * Refresh all Animaze data (avatars, scenes, emotes, etc.)
    */
   async refreshAnimazeData() {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter) {
+        throw new Error(`Platform ${platformKey} is not available`);
+      }
+
+      const data = await adapter.refreshData();
+      const platformData = data || adapter.getData?.() || {};
+      this.animazeData = platformData;
+      this.api.emit('animazingpal:data-refreshed', platformData);
+      return platformData;
+    }
+
     if (!this.isConnected) {
       const errorMsg = 'Cannot refresh data: Not connected to Animaze';
       this.api.log(errorMsg, 'warn');
@@ -1599,6 +2535,10 @@ class AnimazingPalPlugin {
    * Refresh avatar-specific data (special actions, poses, idles)
    */
   async refreshAvatarData() {
+    if (this.getActivePlatformKey() !== 'animaze') {
+      return this.refreshAnimazeData();
+    }
+
     try {
       if (this.config && this.config.verboseLogging) {
         this.api.log('Refreshing avatar-specific data...', 'debug');
@@ -1643,6 +2583,21 @@ class AnimazingPalPlugin {
    * Load an avatar by name
    */
   async loadAvatar(name) {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.loadAvatar !== 'function') {
+        return false;
+      }
+
+      const success = await adapter.loadAvatar(name);
+      if (success) {
+        this.api.log(`Loaded avatar/model on ${adapter.getLabel ? adapter.getLabel() : platformKey}: ${name}`, 'info');
+        this.api.emit('animazingpal:avatar-loading', { name, platform: platformKey });
+      }
+      return success;
+    }
+
     const command = {
       action: 'LoadAvatar',
       name: name
@@ -1662,6 +2617,16 @@ class AnimazingPalPlugin {
    * Load a scene by name
    */
   async loadScene(name) {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.loadScene !== 'function') {
+        return false;
+      }
+
+      return adapter.loadScene(name);
+    }
+
     const command = {
       action: 'LoadScene',
       name: name
@@ -1681,6 +2646,30 @@ class AnimazingPalPlugin {
    * Trigger an emote by itemName
    */
   async triggerEmote(itemName) {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.executeAction !== 'function') {
+        return false;
+      }
+
+      let success = false;
+      if (platformKey === 'vtube-studio') {
+        success = await adapter.executeAction('hotkey', itemName);
+      } else if (platformKey === 'vseeface') {
+        success = await adapter.executeAction('expression', itemName);
+      } else {
+        success = await adapter.executeAction('emote', itemName);
+      }
+
+      if (success) {
+        this.api.log(`Triggered platform action for emote: ${itemName}`, 'info');
+        this.api.emit('animazingpal:emote-triggered', { itemName, platform: platformKey });
+      }
+
+      return success;
+    }
+
     const command = {
       action: 'TriggerEmote',
       itemName: itemName
@@ -1700,6 +2689,30 @@ class AnimazingPalPlugin {
    * Trigger a special action by index
    */
   async triggerSpecialAction(index) {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.executeAction !== 'function') {
+        return false;
+      }
+
+      let success = false;
+      if (platformKey === 'vtube-studio') {
+        success = await adapter.executeAction('hotkey', index);
+      } else if (platformKey === 'vseeface') {
+        success = await adapter.executeAction('motion', index);
+      } else {
+        success = await adapter.executeAction('specialAction', index);
+      }
+
+      if (success) {
+        this.api.log(`Triggered platform action for special action: ${index}`, 'info');
+        this.api.emit('animazingpal:special-action-triggered', { index, platform: platformKey });
+      }
+
+      return success;
+    }
+
     const command = {
       action: 'TriggerSpecialAction',
       index: parseInt(index)
@@ -1720,6 +2733,30 @@ class AnimazingPalPlugin {
    * Trigger a pose by index
    */
   async triggerPose(index) {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.executeAction !== 'function') {
+        return false;
+      }
+
+      let success = false;
+      if (platformKey === 'vtube-studio') {
+        success = await adapter.executeAction('hotkey', index);
+      } else if (platformKey === 'vseeface') {
+        success = await adapter.executeAction('motion', index);
+      } else {
+        success = await adapter.executeAction('pose', index);
+      }
+
+      if (success) {
+        this.api.log(`Triggered platform pose/motion: ${index}`, 'info');
+        this.api.emit('animazingpal:pose-triggered', { index, platform: platformKey });
+      }
+
+      return success;
+    }
+
     const command = {
       action: 'TriggerPose',
       index: parseInt(index)
@@ -1740,6 +2777,30 @@ class AnimazingPalPlugin {
    * Trigger an idle animation by index
    */
   async triggerIdle(index) {
+    const platformKey = this.getActivePlatformKey();
+    if (platformKey !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.executeAction !== 'function') {
+        return false;
+      }
+
+      let success = false;
+      if (platformKey === 'vtube-studio') {
+        success = await adapter.executeAction('hotkey', index);
+      } else if (platformKey === 'vseeface') {
+        success = await adapter.executeAction('reset', index);
+      } else {
+        success = await adapter.executeAction('idle', index);
+      }
+
+      if (success) {
+        this.api.log(`Triggered platform idle/reset: ${index}`, 'info');
+        this.api.emit('animazingpal:idle-triggered', { index, platform: platformKey });
+      }
+
+      return success;
+    }
+
     const command = {
       action: 'TriggerIdle',
       index: parseInt(index)
@@ -1762,6 +2823,19 @@ class AnimazingPalPlugin {
    * @param {boolean} useEcho - If true, use -echo prefix for TTS only (no AI response)
    */
   async sendChatMessage(message, useEcho = false) {
+    if (this.getActivePlatformKey() !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.sendChatMessage !== 'function') {
+        return false;
+      }
+
+      const success = await adapter.sendChatMessage(message, useEcho);
+      if (success) {
+        this.api.emit('animazingpal:chatpal-message-sent', { message, useEcho, platform: this.getActivePlatformKey() });
+      }
+      return success;
+    }
+
     // Ensure -echo prefix is added when echo path is chosen
     // Use a specific check to avoid issues if message naturally starts with '-echo'
     let finalMessage = message;
@@ -1816,6 +2890,15 @@ class AnimazingPalPlugin {
    * Set an override behavior
    */
   async setOverride(behavior, value, params = {}) {
+    if (this.getActivePlatformKey() !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.setOverride !== 'function') {
+        return false;
+      }
+
+      return adapter.setOverride(behavior, value, params);
+    }
+
     const command = {
       action: 'SetOverride',
       behavior: behavior,
@@ -1836,6 +2919,15 @@ class AnimazingPalPlugin {
    * Get an override behavior status
    */
   async getOverride(behavior) {
+    if (this.getActivePlatformKey() !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.getOverride !== 'function') {
+        return null;
+      }
+
+      return adapter.getOverride(behavior);
+    }
+
     const command = {
       action: 'GetOverride',
       behavior: behavior
@@ -1849,6 +2941,15 @@ class AnimazingPalPlugin {
    * Calibrate the tracker
    */
   async calibrateTracker() {
+    if (this.getActivePlatformKey() !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.calibrateTracker !== 'function') {
+        return false;
+      }
+
+      return adapter.calibrateTracker();
+    }
+
     const command = { action: 'CalibrateTracker' };
     
     const success = this.sendCommand(command);
@@ -1864,6 +2965,15 @@ class AnimazingPalPlugin {
    * Enable/disable virtual camera broadcast
    */
   async setBroadcast(toggle) {
+    if (this.getActivePlatformKey() !== 'animaze') {
+      const adapter = this.getActivePlatformAdapter();
+      if (!adapter || typeof adapter.setBroadcast !== 'function') {
+        return false;
+      }
+
+      return adapter.setBroadcast(toggle);
+    }
+
     const command = {
       action: 'Broadcast',
       toggle: !!toggle
@@ -1947,6 +3057,144 @@ class AnimazingPalPlugin {
     }
     
     return message;
+  }
+
+  isVrchatIntegrationEnabled() {
+    return !!this.config?.vrchatIntegration?.enabled;
+  }
+
+  getVrchatIntegrationConfig() {
+    const defaults = this.getDefaultConfig().vrchatIntegration || {};
+    const config = this.config?.vrchatIntegration || {};
+    return {
+      ...defaults,
+      ...config,
+      eventMappings: {
+        ...(defaults.eventMappings || {}),
+        ...(config.eventMappings || {})
+      }
+    };
+  }
+
+  getVrchatEventMapping(eventType) {
+    const integration = this.getVrchatIntegrationConfig();
+    const defaults = this.getDefaultConfig().vrchatIntegration?.eventMappings || {};
+    const eventDefaults = defaults[eventType] || {};
+    const eventConfig = integration.eventMappings?.[eventType] || {};
+    return {
+      ...eventDefaults,
+      ...eventConfig
+    };
+  }
+
+  formatTemplate(template, data = {}) {
+    if (!template || typeof template !== 'string') {
+      return '';
+    }
+
+    let message = template;
+    for (const [key, value] of Object.entries(data)) {
+      const replacement = value === null || value === undefined ? '' : String(value);
+      message = message.replace(new RegExp(`\\{${key}\\}`, 'g'), replacement);
+    }
+
+    return message;
+  }
+
+  buildVrchatIntent(eventType, payload = {}) {
+    const integration = this.getVrchatIntegrationConfig();
+    const mapping = this.getVrchatEventMapping(eventType);
+    const kind = payload.kind || mapping.kind || 'chatbox';
+    const messageTemplate = payload.messageTemplate || mapping.messageTemplate || '';
+    const message = payload.message !== undefined
+      ? payload.message
+      : this.formatTemplate(messageTemplate, payload);
+
+    return {
+      source: 'animazingpal',
+      targetPluginId: payload.targetPluginId || integration.targetPluginId || 'osc-bridge',
+      targetLabel: payload.targetLabel || integration.targetLabel || 'OSC-Bridge',
+      eventType,
+      kind,
+      username: payload.username || null,
+      message: message || null,
+      gesture: payload.gesture !== undefined ? payload.gesture : mapping.gesture,
+      slot: payload.slot !== undefined ? payload.slot : mapping.slot,
+      duration: payload.duration !== undefined ? payload.duration : mapping.duration,
+      showTyping: payload.showTyping !== undefined ? payload.showTyping : integration.sendTypingIndicator,
+      parameters: payload.parameters || mapping.parameters || null,
+      metadata: {
+        ...(payload.metadata || {}),
+        mapping,
+        integrationEnabled: true
+      },
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  emitVrchatIntent(eventType, payload = {}) {
+    if (!this.isVrchatIntegrationEnabled()) {
+      return false;
+    }
+
+    const mapping = this.getVrchatEventMapping(eventType);
+    if (mapping.enabled === false) {
+      return false;
+    }
+
+    const intent = this.buildVrchatIntent(eventType, payload);
+    this.api.emit('animazingpal:vrchat-intent', intent);
+    return intent;
+  }
+
+  relayChatMessage(message, options = {}) {
+    const useEcho = options.useEcho ?? false;
+
+    if (this.isConnected) {
+      try {
+        const result = this.sendChatMessage(message, useEcho);
+        if (result && typeof result.catch === 'function') {
+          result.catch((error) => {
+            this.api.log(`Failed to relay chat message to local platform: ${error.message}`, 'warn');
+          });
+        }
+      } catch (error) {
+        this.api.log(`Failed to relay chat message to local platform: ${error.message}`, 'warn');
+      }
+    }
+
+    const integration = this.getVrchatIntegrationConfig();
+    const shouldForwardToVrchat = (() => {
+      switch (options.eventType) {
+        case 'chat':
+          return integration.forwardChatToChatbox !== false;
+        case 'brainResponse':
+          return integration.forwardBrainResponses !== false;
+        case 'standaloneResponse':
+          return integration.forwardStandaloneResponses !== false;
+        default:
+          return true;
+      }
+    })();
+
+    if (this.isVrchatIntegrationEnabled() && shouldForwardToVrchat) {
+      this.emitVrchatIntent(options.eventType || 'chatbox', {
+        kind: options.kind || 'chatbox',
+        username: options.username || null,
+        message,
+        messageTemplate: options.messageTemplate || null,
+        showTyping: options.showTyping,
+        gesture: options.gesture,
+        slot: options.slot,
+        duration: options.duration,
+        parameters: options.parameters,
+        targetPluginId: options.targetPluginId,
+        targetLabel: options.targetLabel,
+        metadata: options.metadata || {}
+      });
+    }
+
+    return true;
   }
 
   /**
@@ -2045,6 +3293,8 @@ class AnimazingPalPlugin {
     if (!actionConfig || !actionConfig.actionType) return;
 
     const { actionType, actionValue, chatMessage, useEcho } = actionConfig;
+    const platformKey = this.getActivePlatformKey();
+    const adapter = platformKey === 'animaze' ? null : this.getActivePlatformAdapter();
 
     // Execute the main action
     switch (actionType) {
@@ -2070,6 +3320,31 @@ class AnimazingPalPlugin {
         break;
       case 'chatMessage':
         // Only send chat message, no animation
+        break;
+      case 'hotkey':
+        if (adapter) {
+          await adapter.executeAction('hotkey', actionValue);
+        }
+        break;
+      case 'expression':
+        if (adapter) {
+          await adapter.executeAction('expression', actionValue);
+        }
+        break;
+      case 'motion':
+        if (adapter) {
+          await adapter.executeAction('motion', actionValue);
+        }
+        break;
+      case 'reset':
+        if (adapter) {
+          await adapter.executeAction('reset', actionValue);
+        }
+        break;
+      case 'loadAvatar':
+        if (actionValue !== null && actionValue !== undefined) {
+          await this.loadAvatar(actionValue);
+        }
         break;
     }
 
@@ -2098,7 +3373,7 @@ class AnimazingPalPlugin {
   }
 
   handleGiftEvent(data) {
-    if (!this.config.enabled || !this.isConnected) return;
+    if (!this.config.enabled || (!this.isConnected && !this.isVrchatIntegrationEnabled())) return;
     const username = data.uniqueId || 'Someone';
     if (!this.canTriggerEvent('gift', username)) return;
 
@@ -2127,8 +3402,22 @@ class AnimazingPalPlugin {
       count: data.repeatCount || 1
     };
 
+    this.emitVrchatIntent('gift', {
+      username,
+      giftId,
+      giftName,
+      giftValue,
+      messageTemplate: this.getVrchatEventMapping('gift').messageTemplate,
+      metadata: {
+        giftId,
+        giftName,
+        giftValue,
+        repeatCount: data.repeatCount || 1
+      }
+    });
+
     // Execute logic matrix action if matched
-    if (logicMatrixAction) {
+    if (logicMatrixAction && this.isConnected) {
       if (logicMatrixAction.emote) {
         this.triggerEmote(logicMatrixAction.emote);
       }
@@ -2149,7 +3438,18 @@ class AnimazingPalPlugin {
         
         const useEcho = this.resolveEchoSetting('gift');
         
-        this.sendChatMessage(message, useEcho);
+        this.relayChatMessage(message, {
+          eventType: 'gift',
+          kind: 'chatbox',
+          username,
+          useEcho,
+          metadata: {
+            giftId,
+            giftName,
+            giftValue,
+            source: 'logicMatrix'
+          }
+        });
       }
       
       if (logicMatrixAction.stopOnMatch) {
@@ -2159,7 +3459,7 @@ class AnimazingPalPlugin {
     }
 
     // Execute gift mapping if exists
-    if (mapping) {
+    if (mapping && this.isConnected) {
       this.api.log(`Gift mapping triggered: ${giftName} (${giftId})`, 'info');
       this.executeAction(mapping, placeholders);
     }
@@ -2183,7 +3483,18 @@ class AnimazingPalPlugin {
         if (message) {
           const useEcho = this.resolveEchoSetting('gift');
           
-          this.sendChatMessage(message, useEcho);
+          this.relayChatMessage(message, {
+            eventType: 'standaloneResponse',
+            kind: 'chatbox',
+            username,
+            useEcho,
+            metadata: {
+              sourceEvent: 'gift',
+              giftId,
+              giftName,
+              giftValue
+            }
+          });
           this.api.emit('animazingpal:standalone-response', {
             type: 'gift',
             username,
@@ -2195,9 +3506,21 @@ class AnimazingPalPlugin {
         this.brainEngine.processGift(username, giftName, giftValue, {
           nickname: data.nickname
         }).then(response => {
-          if (response && this.isConnected) {
+          if (response) {
             // Send AI-generated thank you message to Animaze
-            this.sendChatMessage(response.text, false);
+            this.relayChatMessage(response.text, {
+              eventType: 'brainResponse',
+              kind: 'chatbox',
+              username,
+              useEcho: false,
+              metadata: {
+                sourceEvent: 'gift',
+                giftId,
+                giftName,
+                giftValue,
+                emotion: response.emotion
+              }
+            });
             this.api.emit('animazingpal:brain-response', {
               type: 'gift',
               username,
@@ -2211,6 +3534,13 @@ class AnimazingPalPlugin {
       }
     }
 
+    this.recordViewerbaseActivity('gift', {
+      username,
+      nickname: data.nickname || username,
+      giftName,
+      giftValue
+    });
+
     this.api.emit('animazingpal:gift-handled', {
       giftId,
       giftName,
@@ -2221,7 +3551,7 @@ class AnimazingPalPlugin {
   }
 
   handleChatEvent(data) {
-    if (!this.config.enabled || !this.isConnected) return;
+    if (!this.config.enabled || (!this.isConnected && !this.isVrchatIntegrationEnabled())) return;
     const username = data.uniqueId || 'Someone';
     if (!this.canTriggerEvent('chat', username)) return;
 
@@ -2235,6 +3565,19 @@ class AnimazingPalPlugin {
       comment
     };
 
+    if (this.getVrchatIntegrationConfig().forwardChatToChatbox !== false) {
+      this.emitVrchatIntent('chat', {
+        username,
+        comment,
+        messageTemplate: this.getVrchatEventMapping('chat').messageTemplate,
+        metadata: {
+          comment,
+          nickname: data.nickname || username,
+          sourceEvent: 'chat'
+        }
+      });
+    }
+
     // Evaluate logic matrix first
     const logicMatrixAction = this.evaluateLogicMatrix('chat', {
       username,
@@ -2243,7 +3586,7 @@ class AnimazingPalPlugin {
     });
 
     // Execute logic matrix action if matched
-    if (logicMatrixAction) {
+    if (logicMatrixAction && this.isConnected) {
       if (logicMatrixAction.emote) {
         this.triggerEmote(logicMatrixAction.emote);
       }
@@ -2264,7 +3607,16 @@ class AnimazingPalPlugin {
         
         const useEcho = this.resolveEchoSetting('chat');
         
-        this.sendChatMessage(message, useEcho);
+        this.relayChatMessage(message, {
+          eventType: 'chat',
+          kind: 'chatbox',
+          username,
+          useEcho,
+          metadata: {
+            comment,
+            source: 'logicMatrix'
+          }
+        });
       }
       
       if (logicMatrixAction.stopOnMatch) {
@@ -2274,7 +3626,7 @@ class AnimazingPalPlugin {
     }
 
     // Execute configured action
-    if (this.config.eventActions?.chat?.enabled) {
+    if (this.isConnected && this.config.eventActions?.chat?.enabled) {
       this.executeAction(this.config.eventActions.chat, placeholders);
     }
 
@@ -2288,7 +3640,16 @@ class AnimazingPalPlugin {
         message = message.substring(0, maxLength - 3) + '...';
       }
 
-      this.sendChatMessage(message, this.config.chatToAvatar.useEcho);
+      this.relayChatMessage(message, {
+        eventType: 'chat',
+        kind: 'chatbox',
+        username,
+        useEcho: this.config.chatToAvatar.useEcho,
+        metadata: {
+          comment,
+          source: 'chatToAvatar'
+        }
+      });
 
       this.api.emit('animazingpal:chat-forwarded', {
         username,
@@ -2316,7 +3677,16 @@ class AnimazingPalPlugin {
         if (message) {
           const useEcho = this.resolveEchoSetting('chat');
           
-          this.sendChatMessage(message, useEcho);
+          this.relayChatMessage(message, {
+            eventType: 'standaloneResponse',
+            kind: 'chatbox',
+            username,
+            useEcho,
+            metadata: {
+              sourceEvent: 'chat',
+              comment
+            }
+          });
           this.api.emit('animazingpal:standalone-response', {
             type: 'chat',
             username,
@@ -2329,8 +3699,18 @@ class AnimazingPalPlugin {
         this.brainEngine.processChat(username, comment, {
           nickname: data.nickname
         }).then(response => {
-          if (response && this.isConnected) {
-            this.sendChatMessage(response.text, false);
+          if (response) {
+            this.relayChatMessage(response.text, {
+              eventType: 'brainResponse',
+              kind: 'chatbox',
+              username,
+              useEcho: false,
+              metadata: {
+                sourceEvent: 'chat',
+                comment,
+                emotion: response.emotion
+              }
+            });
             this.api.emit('animazingpal:brain-response', {
               type: 'chat',
               username,
@@ -2345,17 +3725,31 @@ class AnimazingPalPlugin {
       }
     }
 
+    this.recordViewerbaseActivity('chat', {
+      username,
+      nickname: data.nickname || username
+    });
+
     this.api.emit('animazingpal:chat-handled', { username, comment, logicMatrixAction });
   }
 
   handleFollowEvent(data) {
-    if (!this.config.enabled || !this.isConnected) return;
+    if (!this.config.enabled || (!this.isConnected && !this.isVrchatIntegrationEnabled())) return;
     const username = data.uniqueId || 'Someone';
     if (!this.canTriggerEvent('follow', username)) return;
 
     this.api.log(`Follow event from ${username}`, 'info');
 
     const placeholders = { username, nickname: data.nickname || username };
+
+    this.emitVrchatIntent('follow', {
+      username,
+      messageTemplate: this.getVrchatEventMapping('follow').messageTemplate,
+      metadata: {
+        nickname: data.nickname || username,
+        sourceEvent: 'follow'
+      }
+    });
 
     // Evaluate logic matrix
     const logicMatrixAction = this.evaluateLogicMatrix('follow', {
@@ -2364,7 +3758,7 @@ class AnimazingPalPlugin {
     });
 
     // Execute logic matrix action if matched
-    if (logicMatrixAction) {
+    if (logicMatrixAction && this.isConnected) {
       if (logicMatrixAction.emote) {
         this.triggerEmote(logicMatrixAction.emote);
       }
@@ -2379,7 +3773,15 @@ class AnimazingPalPlugin {
         
         const useEcho = this.resolveEchoSetting('follow');
         
-        this.sendChatMessage(message, useEcho);
+        this.relayChatMessage(message, {
+          eventType: 'follow',
+          kind: 'chatbox',
+          username,
+          useEcho,
+          metadata: {
+            source: 'logicMatrix'
+          }
+        });
       }
       
       if (logicMatrixAction.stopOnMatch) {
@@ -2389,7 +3791,7 @@ class AnimazingPalPlugin {
     }
 
     // Execute configured action
-    if (this.config.eventActions?.follow?.enabled) {
+    if (this.isConnected && this.config.eventActions?.follow?.enabled) {
       this.executeAction(this.config.eventActions.follow, placeholders);
     }
 
@@ -2411,7 +3813,15 @@ class AnimazingPalPlugin {
         if (message) {
           const useEcho = this.resolveEchoSetting('follow');
           
-          this.sendChatMessage(message, useEcho);
+          this.relayChatMessage(message, {
+            eventType: 'standaloneResponse',
+            kind: 'chatbox',
+            username,
+            useEcho,
+            metadata: {
+              sourceEvent: 'follow'
+            }
+          });
           this.api.emit('animazingpal:standalone-response', {
             type: 'follow',
             username,
@@ -2423,8 +3833,17 @@ class AnimazingPalPlugin {
         this.brainEngine.processFollow(username, {
           nickname: data.nickname
         }).then(response => {
-          if (response && this.isConnected) {
-            this.sendChatMessage(response.text, false);
+          if (response) {
+            this.relayChatMessage(response.text, {
+              eventType: 'brainResponse',
+              kind: 'chatbox',
+              username,
+              useEcho: false,
+              metadata: {
+                sourceEvent: 'follow',
+                emotion: response.emotion
+              }
+            });
             this.api.emit('animazingpal:brain-response', {
               type: 'follow',
               username,
@@ -2438,17 +3857,31 @@ class AnimazingPalPlugin {
       }
     }
 
+    this.recordViewerbaseActivity('follow', {
+      username,
+      nickname: data.nickname || username
+    });
+
     this.api.emit('animazingpal:follow-handled', { username, logicMatrixAction });
   }
 
   handleShareEvent(data) {
-    if (!this.config.enabled || !this.isConnected) return;
+    if (!this.config.enabled || (!this.isConnected && !this.isVrchatIntegrationEnabled())) return;
     const username = data.uniqueId || 'Someone';
     if (!this.canTriggerEvent('share', username)) return;
 
     this.api.log(`Share event from ${username}`, 'info');
 
     const placeholders = { username, nickname: data.nickname || username };
+
+    this.emitVrchatIntent('share', {
+      username,
+      messageTemplate: this.getVrchatEventMapping('share').messageTemplate,
+      metadata: {
+        nickname: data.nickname || username,
+        sourceEvent: 'share'
+      }
+    });
 
     // Evaluate logic matrix first
     const logicMatrixAction = this.evaluateLogicMatrix('share', {
@@ -2457,7 +3890,7 @@ class AnimazingPalPlugin {
     });
 
     // Execute logic matrix action if matched
-    if (logicMatrixAction) {
+    if (logicMatrixAction && this.isConnected) {
       if (logicMatrixAction.emote) {
         this.triggerEmote(logicMatrixAction.emote);
       }
@@ -2478,7 +3911,15 @@ class AnimazingPalPlugin {
         
         const useEcho = this.resolveEchoSetting('share');
         
-        this.sendChatMessage(message, useEcho);
+        this.relayChatMessage(message, {
+          eventType: 'share',
+          kind: 'chatbox',
+          username,
+          useEcho,
+          metadata: {
+            source: 'logicMatrix'
+          }
+        });
       }
       
       if (logicMatrixAction.stopOnMatch) {
@@ -2488,7 +3929,7 @@ class AnimazingPalPlugin {
     }
 
     // Execute configured action
-    if (this.config.eventActions?.share?.enabled) {
+    if (this.isConnected && this.config.eventActions?.share?.enabled) {
       this.executeAction(this.config.eventActions.share, placeholders);
     }
 
@@ -2510,7 +3951,15 @@ class AnimazingPalPlugin {
         if (message) {
           const useEcho = this.resolveEchoSetting('share');
           
-          this.sendChatMessage(message, useEcho);
+          this.relayChatMessage(message, {
+            eventType: 'standaloneResponse',
+            kind: 'chatbox',
+            username,
+            useEcho,
+            metadata: {
+              sourceEvent: 'share'
+            }
+          });
           this.api.emit('animazingpal:standalone-response', {
             type: 'share',
             username,
@@ -2522,8 +3971,17 @@ class AnimazingPalPlugin {
         this.brainEngine.processShare(username, {
           nickname: data.nickname
         }).then(response => {
-          if (response && this.isConnected) {
-            this.sendChatMessage(response.text, false);
+          if (response) {
+            this.relayChatMessage(response.text, {
+              eventType: 'brainResponse',
+              kind: 'chatbox',
+              username,
+              useEcho: false,
+              metadata: {
+                sourceEvent: 'share',
+                emotion: response.emotion
+              }
+            });
             this.api.emit('animazingpal:brain-response', {
               type: 'share',
               username,
@@ -2537,11 +3995,16 @@ class AnimazingPalPlugin {
       }
     }
 
+    this.recordViewerbaseActivity('share', {
+      username,
+      nickname: data.nickname || username
+    });
+
     this.api.emit('animazingpal:share-handled', { username, logicMatrixAction });
   }
 
   handleLikeEvent(data) {
-    if (!this.config.enabled || !this.isConnected) return;
+    if (!this.config.enabled || (!this.isConnected && !this.isVrchatIntegrationEnabled())) return;
     const username = data.uniqueId || 'Someone';
     if (!this.canTriggerEvent('like', username)) return;
 
@@ -2558,6 +4021,16 @@ class AnimazingPalPlugin {
       likeCount
     };
 
+    this.emitVrchatIntent('like', {
+      username,
+      likeCount,
+      messageTemplate: this.getVrchatEventMapping('like').messageTemplate,
+      metadata: {
+        nickname: data.nickname || username,
+        sourceEvent: 'like'
+      }
+    });
+
     // Evaluate logic matrix first
     const logicMatrixAction = this.evaluateLogicMatrix('like', {
       username,
@@ -2566,7 +4039,7 @@ class AnimazingPalPlugin {
     });
 
     // Execute logic matrix action if matched
-    if (logicMatrixAction) {
+    if (logicMatrixAction && this.isConnected) {
       if (logicMatrixAction.emote) {
         this.triggerEmote(logicMatrixAction.emote);
       }
@@ -2587,7 +4060,15 @@ class AnimazingPalPlugin {
         
         const useEcho = this.resolveEchoSetting('like');
         
-        this.sendChatMessage(message, useEcho);
+        this.relayChatMessage(message, {
+          eventType: 'like',
+          kind: 'chatbox',
+          username,
+          useEcho,
+          metadata: {
+            source: 'logicMatrix'
+          }
+        });
       }
       
       if (logicMatrixAction.stopOnMatch) {
@@ -2597,7 +4078,7 @@ class AnimazingPalPlugin {
     }
 
     // Execute configured action
-    if (action?.enabled) {
+    if (this.isConnected && action?.enabled) {
       this.executeAction(action, placeholders);
     }
 
@@ -2620,7 +4101,16 @@ class AnimazingPalPlugin {
         if (message) {
           const useEcho = this.resolveEchoSetting('like');
           
-          this.sendChatMessage(message, useEcho);
+          this.relayChatMessage(message, {
+            eventType: 'standaloneResponse',
+            kind: 'chatbox',
+            username,
+            useEcho,
+            metadata: {
+              sourceEvent: 'like',
+              likeCount
+            }
+          });
           this.api.emit('animazingpal:standalone-response', {
             type: 'like',
             username,
@@ -2633,8 +4123,18 @@ class AnimazingPalPlugin {
         this.brainEngine.processLike(username, likeCount, {
           nickname: data.nickname
         }).then(response => {
-          if (response && this.isConnected) {
-            this.sendChatMessage(response.text, false);
+          if (response) {
+            this.relayChatMessage(response.text, {
+              eventType: 'brainResponse',
+              kind: 'chatbox',
+              username,
+              useEcho: false,
+              metadata: {
+                sourceEvent: 'like',
+                likeCount,
+                emotion: response.emotion
+              }
+            });
             this.api.emit('animazingpal:brain-response', {
               type: 'like',
               username,
@@ -2649,17 +4149,32 @@ class AnimazingPalPlugin {
       }
     }
 
+    this.recordViewerbaseActivity('like', {
+      username,
+      nickname: data.nickname || username,
+      likeCount
+    });
+
     this.api.emit('animazingpal:like-handled', { username, likeCount, logicMatrixAction });
   }
 
   handleSubscribeEvent(data) {
-    if (!this.config.enabled || !this.isConnected) return;
+    if (!this.config.enabled || (!this.isConnected && !this.isVrchatIntegrationEnabled())) return;
     const username = data.uniqueId || 'Someone';
     if (!this.canTriggerEvent('subscribe', username)) return;
 
     this.api.log(`Subscribe event from ${username}`, 'info');
 
     const placeholders = { username, nickname: data.nickname || username };
+
+    this.emitVrchatIntent('subscribe', {
+      username,
+      messageTemplate: this.getVrchatEventMapping('subscribe').messageTemplate,
+      metadata: {
+        nickname: data.nickname || username,
+        sourceEvent: 'subscribe'
+      }
+    });
 
     // Evaluate logic matrix first
     const logicMatrixAction = this.evaluateLogicMatrix('subscribe', {
@@ -2668,7 +4183,7 @@ class AnimazingPalPlugin {
     });
 
     // Execute logic matrix action if matched
-    if (logicMatrixAction) {
+    if (logicMatrixAction && this.isConnected) {
       if (logicMatrixAction.emote) {
         this.triggerEmote(logicMatrixAction.emote);
       }
@@ -2689,7 +4204,15 @@ class AnimazingPalPlugin {
         
         const useEcho = this.resolveEchoSetting('subscribe');
         
-        this.sendChatMessage(message, useEcho);
+        this.relayChatMessage(message, {
+          eventType: 'subscribe',
+          kind: 'chatbox',
+          username,
+          useEcho,
+          metadata: {
+            source: 'logicMatrix'
+          }
+        });
       }
       
       if (logicMatrixAction.stopOnMatch) {
@@ -2699,7 +4222,7 @@ class AnimazingPalPlugin {
     }
 
     // Execute configured action
-    if (this.config.eventActions?.subscribe?.enabled) {
+    if (this.isConnected && this.config.eventActions?.subscribe?.enabled) {
       this.executeAction(this.config.eventActions.subscribe, placeholders);
     }
 
@@ -2721,7 +4244,15 @@ class AnimazingPalPlugin {
         if (message) {
           const useEcho = this.resolveEchoSetting('subscribe');
           
-          this.sendChatMessage(message, useEcho);
+          this.relayChatMessage(message, {
+            eventType: 'standaloneResponse',
+            kind: 'chatbox',
+            username,
+            useEcho,
+            metadata: {
+              sourceEvent: 'subscribe'
+            }
+          });
           this.api.emit('animazingpal:standalone-response', {
             type: 'subscribe',
             username,
@@ -2733,8 +4264,17 @@ class AnimazingPalPlugin {
         this.brainEngine.processSubscribe(username, {
           nickname: data.nickname
         }).then(response => {
-          if (response && this.isConnected) {
-            this.sendChatMessage(response.text, false);
+          if (response) {
+            this.relayChatMessage(response.text, {
+              eventType: 'brainResponse',
+              kind: 'chatbox',
+              username,
+              useEcho: false,
+              metadata: {
+                sourceEvent: 'subscribe',
+                emotion: response.emotion
+              }
+            });
             this.api.emit('animazingpal:brain-response', {
               type: 'subscribe',
               username,
@@ -2748,6 +4288,11 @@ class AnimazingPalPlugin {
       }
     }
 
+    this.recordViewerbaseActivity('subscribe', {
+      username,
+      nickname: data.nickname || username
+    });
+
     this.api.emit('animazingpal:subscribe-handled', { username, logicMatrixAction });
   }
 
@@ -2755,6 +4300,22 @@ class AnimazingPalPlugin {
 
   getSafeConfig() {
     // Return config without sensitive data (no API key)
+    const activePlatformKey = this.getActivePlatformKey();
+    const activeProfile = this.getPlatformProfile(activePlatformKey);
+    const sanitizeProfile = (profile = {}) => {
+      const safeProfile = { ...profile };
+      if (Object.prototype.hasOwnProperty.call(safeProfile, 'authToken')) {
+        safeProfile.authToken = '';
+        safeProfile.authTokenConfigured = !!profile.authToken;
+      }
+      return safeProfile;
+    };
+
+    const platformProfiles = {};
+    for (const [key, profile] of Object.entries(this.config.platform?.profiles || {})) {
+      platformProfiles[key] = sanitizeProfile(profile);
+    }
+
     const brainConfig = this.config.brain ? {
       enabled: this.config.brain.enabled,
       standaloneMode: this.config.brain.standaloneMode,
@@ -2773,21 +4334,60 @@ class AnimazingPalPlugin {
       apiKeyConfigured: !!this.config.brain.openaiApiKey
     } : null;
 
+    const viewerbaseConfig = this.config.viewerbase ? {
+      enabled: this.config.viewerbase.enabled,
+      showInUI: this.config.viewerbase.showInUI,
+      recentLimit: this.config.viewerbase.recentLimit,
+      supporterLimit: this.config.viewerbase.supporterLimit,
+      chatterLimit: this.config.viewerbase.chatterLimit,
+      syncOnEvents: this.config.viewerbase.syncOnEvents,
+      externalSync: {
+        enabled: this.config.viewerbase.externalSync?.enabled,
+        endpointUrl: this.config.viewerbase.externalSync?.endpointUrl || '',
+        authToken: '',
+        authTokenConfigured: !!this.config.viewerbase.externalSync?.authToken,
+        timeoutMs: this.config.viewerbase.externalSync?.timeoutMs,
+        retryLimit: this.config.viewerbase.externalSync?.retryLimit,
+        includeRecentMemories: this.config.viewerbase.externalSync?.includeRecentMemories,
+        includeTopSupporters: this.config.viewerbase.externalSync?.includeTopSupporters,
+        includeFrequentChatters: this.config.viewerbase.externalSync?.includeFrequentChatters
+      }
+    } : null;
+
     return {
       enabled: this.config.enabled,
-      autoConnect: this.config.autoConnect,
-      host: this.config.host,
-      port: this.config.port,
-      reconnectOnDisconnect: this.config.reconnectOnDisconnect,
-      reconnectDelay: this.config.reconnectDelay,
-      autoRefreshData: this.config.autoRefreshData,
+      platform: {
+        active: activePlatformKey,
+        definition: this.getActivePlatformDefinition(),
+        profile: sanitizeProfile(activeProfile),
+        profiles: platformProfiles,
+        supported: this.getSupportedPlatforms()
+      },
+      autoConnect: activeProfile.autoConnect,
+      host: activeProfile.host,
+      port: activeProfile.port,
+      reconnectOnDisconnect: activeProfile.reconnectOnDisconnect,
+      reconnectDelay: activeProfile.reconnectDelay,
+      autoRefreshData: activeProfile.autoRefreshData,
       giftMappings: this.config.giftMappings,
       chatToAvatar: this.config.chatToAvatar,
+      vrchatIntegration: this.config.vrchatIntegration ? {
+        enabled: this.config.vrchatIntegration.enabled,
+        targetPluginId: this.config.vrchatIntegration.targetPluginId,
+        targetLabel: this.config.vrchatIntegration.targetLabel,
+        forwardChatToChatbox: this.config.vrchatIntegration.forwardChatToChatbox,
+        forwardBrainResponses: this.config.vrchatIntegration.forwardBrainResponses,
+        forwardStandaloneResponses: this.config.vrchatIntegration.forwardStandaloneResponses,
+        sendTypingIndicator: this.config.vrchatIntegration.sendTypingIndicator,
+        eventMappings: this.config.vrchatIntegration.eventMappings
+      } : null,
       eventActions: this.config.eventActions,
       overrides: this.config.overrides,
+      eventCooldowns: this.config.eventCooldowns,
       brain: brainConfig,
       logicMatrix: this.config.logicMatrix,
-      verboseLogging: this.config.verboseLogging
+      viewerbase: viewerbaseConfig,
+      verboseLogging: activeProfile.verboseLogging
     };
   }
 
@@ -2807,14 +4407,26 @@ class AnimazingPalPlugin {
 
   emitStatus() {
     const brainStats = this.brainEngine ? this.brainEngine.getStatistics() : null;
+    const platformState = this.getPlatformState();
     
     this.api.emit('animazingpal:status', {
       isConnected: this.isConnected,
       config: this.getSafeConfig(),
       reconnectAttempts: this.reconnectAttempts,
       animazeData: this.animazeData,
+      platformState: {
+        key: platformState.key,
+        definition: platformState.definition,
+        data: platformState.data,
+        connected: platformState.connected
+      },
+      platformData: platformState.data,
+      platformDefinition: platformState.definition,
+      activePlatform: platformState.key,
+      supportedPlatforms: this.getSupportedPlatforms(),
       overrideBehaviors: this.overrideBehaviors,
-      brainStatistics: brainStats
+      brainStatistics: brainStats,
+      viewerbase: this.getViewerbaseStatus()
     });
   }
 
@@ -2857,6 +4469,12 @@ class AnimazingPalPlugin {
     
     this.lastEventTimes.clear();
     this.pendingRequests.clear();
+    if (this.viewerbaseSyncTimer) {
+      clearTimeout(this.viewerbaseSyncTimer);
+      this.viewerbaseSyncTimer = null;
+    }
+    this.viewerbaseSyncPending = null;
+    this.viewerbaseSyncInFlight = false;
     
     this.api.log('AnimazingPal Plugin destroyed', 'info');
   }

@@ -1095,7 +1095,11 @@
       if (data.winner) {
         const winnerInfo = data.state.winner === 1 ? data.state.player1 : data.state.player2;
         const winLabel = dt.labelWin || '🏆 {player} gewinnt!';
-        resultText.innerHTML = `<span class="winner-text">${winLabel.replace('{player}', winnerInfo.nickname || winnerInfo.username)}</span>`;
+        resultText.innerHTML = '<span class="winner-text"></span>';
+        const winnerText = resultText.querySelector('.winner-text');
+        if (winnerText) {
+          winnerText.textContent = winLabel.replace('{player}', winnerInfo.nickname || winnerInfo.username || '');
+        }
         
         // Play appropriate win sound based on which player won
         const winSound = data.state.winner === 1 
@@ -1105,7 +1109,11 @@
         
         celebrateWin();
       } else if (data.reason === 'draw') {
-        resultText.innerHTML = `<span class="draw-text">${dt.labelDraw || '🤝 Unentschieden!'}</span>`;
+        resultText.innerHTML = '';
+        const drawText = document.createElement('span');
+        drawText.className = 'draw-text';
+        drawText.textContent = dt.labelDraw || '🤝 Unentschieden!';
+        resultText.appendChild(drawText);
         playAudioFile('/game-engine/sounds/default/game over.mp3');
       } else {
         resultText.innerHTML = '<span>Spiel beendet</span>';
@@ -1124,7 +1132,11 @@
       if (gameConfig && gameConfig.showWinStreaks && data.winStreak && data.winStreak.newWinStreak > 1) {
         const streakDiv = document.createElement('div');
         streakDiv.className = 'win-streak';
-        streakDiv.innerHTML = `<span class="win-streak-icon">🔥</span> ${data.winStreak.newWinStreak} Siege in Folge!`;
+        const icon = document.createElement('span');
+        icon.className = 'win-streak-icon';
+        icon.textContent = '🔥';
+        streakDiv.appendChild(icon);
+        streakDiv.appendChild(document.createTextNode(` ${data.winStreak.newWinStreak} Siege in Folge!`));
         xpReward.after(streakDiv);
       }
       

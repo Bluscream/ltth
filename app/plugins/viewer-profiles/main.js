@@ -13,6 +13,7 @@
 
 const EventEmitter = require('events');
 const path = require('path');
+const fs = require('fs');
 const ViewerProfilesDatabase = require('./backend/database');
 const ViewerProfilesAPI = require('./backend/api');
 const SessionManager = require('./backend/session-manager');
@@ -184,7 +185,15 @@ class ViewerProfilesPlugin extends EventEmitter {
 
     // Serve assets
     this.api.registerRoute('GET', '/viewer-profiles/assets/:file', (req, res) => {
-      res.sendFile(path.join(__dirname, 'assets', req.params.file));
+      const assetsDir = path.join(__dirname, 'assets');
+      const fileName = path.basename(req.params.file || '');
+      const targetPath = path.join(assetsDir, fileName);
+
+      if (!fileName || !targetPath.startsWith(assetsDir) || !fs.existsSync(targetPath)) {
+        return res.status(404).json({ success: false, error: 'Asset not found' });
+      }
+
+      res.sendFile(targetPath);
     });
 
     this.api.log('UI routes registered', 'info');
@@ -201,7 +210,7 @@ class ViewerProfilesPlugin extends EventEmitter {
       // Get viewer profile
       socket.on('viewer-profiles:get', (username, callback) => {
         try {
-          const viewer = this.db.getViewerByUsername(username);
+          const viewer = this.db.getViewerInsights(username) || this.db.getViewerByUsername(username);
           if (callback) {
             callback({ success: true, data: viewer });
           }
@@ -217,10 +226,14 @@ class ViewerProfilesPlugin extends EventEmitter {
         try {
           const viewer = this.db.updateViewer(data.username, data.updates);
           if (callback) {
-            callback({ success: true, data: viewer });
+            callback({ success: true, data: this.db.getViewerInsights(data.username) || viewer });
           }
           // Broadcast update to all clients
-          io.emit('viewer:updated', { username: data.username, updates: data.updates });
+          io.emit('viewer:updated', {
+            username: data.username,
+            reason: 'socket-update',
+            viewer: this.db.getViewerInsights(data.username)
+          });
         } catch (error) {
           if (callback) {
             callback({ success: false, error: error.message });
@@ -235,10 +248,14 @@ class ViewerProfilesPlugin extends EventEmitter {
           this.api.log(`Refresh avatar requested for ${username}`, 'debug');
 
           // Get current viewer data and return it so the UI can update
-          const viewer = this.db.getViewerByUsername(username);
+          const viewer = this.db.getViewerInsights(username);
           if (viewer) {
             // Emit updated profile to all clients so the UI refreshes
-            this.api.emit('viewer:updated', { username });
+            this.api.emit('viewer:updated', {
+              username,
+              reason: 'avatar-refreshed',
+              viewer
+            });
           }
 
           if (callback) {
@@ -314,6 +331,7 @@ class ViewerProfilesPlugin extends EventEmitter {
       const username = data.uniqueId || data.nickname;
       if (!username) return;
 
+      const wasExisting = !!this.db.getViewerByUsername(username);
       // Get or create viewer
       const viewer = this.db.getOrCreateViewer(username, {
         userId: data.userId,
@@ -324,6 +342,13 @@ class ViewerProfilesPlugin extends EventEmitter {
 
       // Add interaction
       this.db.addInteraction(viewer.id, 'comment', data.comment);
+
+      if (!wasExisting) {
+        this.api.emit('viewer:new', {
+          username: viewer.tiktok_username,
+          viewer: this.db.getViewerInsights(username)
+        });
+      }
 
       // Update viewer info
       this.updateViewerInfo(username, data);
@@ -363,6 +388,7 @@ class ViewerProfilesPlugin extends EventEmitter {
       const username = data.uniqueId || data.nickname;
       if (!username) return;
 
+      const wasExisting = !!this.db.getViewerByUsername(username);
       // Get or create viewer
       const viewer = this.db.getOrCreateViewer(username, {
         userId: data.userId,
@@ -383,6 +409,13 @@ class ViewerProfilesPlugin extends EventEmitter {
 
       // Update viewer info
       this.updateViewerInfo(username, data);
+
+      if (!wasExisting) {
+        this.api.emit('viewer:new', {
+          username: viewer.tiktok_username,
+          viewer: this.db.getViewerInsights(username)
+        });
+      }
 
       // Update heatmap with coins
       const coins = data.diamondCount * 2 * (data.repeatCount || 1);
@@ -412,6 +445,7 @@ class ViewerProfilesPlugin extends EventEmitter {
       const username = data.uniqueId || data.nickname;
       if (!username) return;
 
+      const wasExisting = !!this.db.getViewerByUsername(username);
       const viewer = this.db.getOrCreateViewer(username, {
         userId: data.userId,
         nickname: data.nickname,
@@ -423,6 +457,13 @@ class ViewerProfilesPlugin extends EventEmitter {
 
       // Update heatmap
       this.db.updateHeatmap(viewer.id, new Date());
+
+      if (!wasExisting) {
+        this.api.emit('viewer:new', {
+          username: viewer.tiktok_username,
+          viewer: this.db.getViewerInsights(username)
+        });
+      }
 
       // Start session if not active
       if (!this.sessionManager.hasActiveSession(username)) {
@@ -443,6 +484,7 @@ class ViewerProfilesPlugin extends EventEmitter {
       const username = data.uniqueId || data.nickname;
       if (!username) return;
 
+      const wasExisting = !!this.db.getViewerByUsername(username);
       const viewer = this.db.getOrCreateViewer(username, {
         userId: data.userId,
         nickname: data.nickname,
@@ -454,6 +496,13 @@ class ViewerProfilesPlugin extends EventEmitter {
 
       // Update heatmap
       this.db.updateHeatmap(viewer.id, new Date());
+
+      if (!wasExisting) {
+        this.api.emit('viewer:new', {
+          username: viewer.tiktok_username,
+          viewer: this.db.getViewerInsights(username)
+        });
+      }
 
     } catch (error) {
       this.api.log(`Error handling share event: ${error.message}`, 'error');
@@ -468,6 +517,7 @@ class ViewerProfilesPlugin extends EventEmitter {
       const username = data.uniqueId || data.nickname;
       if (!username) return;
 
+      const wasExisting = !!this.db.getViewerByUsername(username);
       const viewer = this.db.getOrCreateViewer(username, {
         userId: data.userId,
         nickname: data.nickname,
@@ -479,6 +529,13 @@ class ViewerProfilesPlugin extends EventEmitter {
 
       // Update heatmap
       this.db.updateHeatmap(viewer.id, new Date());
+
+      if (!wasExisting) {
+        this.api.emit('viewer:new', {
+          username: viewer.tiktok_username,
+          viewer: this.db.getViewerInsights(username)
+        });
+      }
 
     } catch (error) {
       this.api.log(`Error handling follow event: ${error.message}`, 'error');
@@ -493,12 +550,26 @@ class ViewerProfilesPlugin extends EventEmitter {
       const username = data.uniqueId || data.nickname;
       if (!username) return;
 
+      const wasExisting = !!this.db.getViewerByUsername(username);
       // Start session
       this.sessionManager.startSession(username, {
         userId: data.userId,
         nickname: data.nickname,
         profilePictureUrl: data.profilePictureUrl
       });
+
+      this.api.emit('viewer:updated', {
+        username,
+        reason: 'session-started',
+        viewer: this.db.getViewerInsights(username)
+      });
+
+      if (!wasExisting) {
+        this.api.emit('viewer:new', {
+          username,
+          viewer: this.db.getViewerInsights(username)
+        });
+      }
 
       // Check birthday
       this.birthdayManager.onViewerJoin(username);
@@ -516,6 +587,7 @@ class ViewerProfilesPlugin extends EventEmitter {
       const username = data.uniqueId || data.nickname;
       if (!username) return;
 
+      const wasExisting = !!this.db.getViewerByUsername(username);
       const viewer = this.db.getOrCreateViewer(username, {
         userId: data.userId,
         nickname: data.nickname,
@@ -525,6 +597,13 @@ class ViewerProfilesPlugin extends EventEmitter {
       // Add interaction based on type
       if (data.label) {
         this.db.addInteraction(viewer.id, data.label.toLowerCase());
+      }
+
+      if (!wasExisting) {
+        this.api.emit('viewer:new', {
+          username: viewer.tiktok_username,
+          viewer: this.db.getViewerInsights(username)
+        });
       }
 
     } catch (error) {
@@ -582,6 +661,11 @@ class ViewerProfilesPlugin extends EventEmitter {
       if (Object.keys(updates).length > 0) {
         updates.last_seen_at = new Date().toISOString();
         this.db.updateViewer(username, updates);
+        this.api.emit('viewer:updated', {
+          username,
+          reason: 'tiktok-event',
+          viewer: this.db.getViewerInsights(username)
+        });
       }
 
     } catch (error) {

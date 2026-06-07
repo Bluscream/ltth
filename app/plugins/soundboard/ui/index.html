@@ -332,6 +332,71 @@
             gap: 8px;
             flex-shrink: 0;
         }
+
+        .overlay-layout-grid {
+            margin-top: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        }
+
+        .overlay-layout-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 12px;
+        }
+
+        .gif-search {
+            margin-top: 24px;
+            padding: 16px;
+            background: var(--color-bg-secondary);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+        }
+
+        .gif-search h4 {
+            color: var(--color-text-primary);
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .gif-search-results {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .gif-result-item {
+            background: var(--color-bg-tertiary);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .gif-result-item img {
+            width: 100%;
+            aspect-ratio: 16 / 10;
+            object-fit: cover;
+            display: block;
+            background: var(--color-bg-primary);
+        }
+
+        .gif-result-body {
+            padding: 8px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .gif-result-title {
+            color: var(--color-text-primary);
+            font-size: 0.82rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         
         .add-gift-sound {
             margin-top: 24px;
@@ -633,6 +698,56 @@
                     </span>
                 </div>
             </div>
+            <div class="form-grid overlay-layout-grid">
+                <div class="form-group">
+                    <label>X Position (%)</label>
+                    <input type="number" id="soundboard-animation-x" min="0" max="100" value="50" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Y Position (%)</label>
+                    <input type="number" id="soundboard-animation-y" min="0" max="100" value="50" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Width (vw)</label>
+                    <input type="number" id="soundboard-animation-width" min="5" max="100" value="45" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Height (vh)</label>
+                    <input type="number" id="soundboard-animation-height" min="5" max="100" value="45" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Anchor</label>
+                    <select id="soundboard-animation-anchor" class="form-select">
+                        <option value="center">Center</option>
+                        <option value="top-left">Top Left</option>
+                        <option value="top">Top</option>
+                        <option value="top-right">Top Right</option>
+                        <option value="left">Left</option>
+                        <option value="right">Right</option>
+                        <option value="bottom-left">Bottom Left</option>
+                        <option value="bottom">Bottom</option>
+                        <option value="bottom-right">Bottom Right</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>GIF/Image Seconds</label>
+                    <input type="number" id="soundboard-animation-duration" min="1" max="30" value="5" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Fit</label>
+                    <select id="soundboard-animation-fit" class="form-select">
+                        <option value="contain">Contain</option>
+                        <option value="cover">Cover</option>
+                        <option value="fill">Fill</option>
+                    </select>
+                </div>
+            </div>
+            <div class="overlay-layout-actions">
+                <button id="test-focused-animation-btn" class="btn btn-sm btn-ghost">
+                    <i data-lucide="play"></i>
+                    Test selected animation in OBS
+                </button>
+            </div>
         </div>
 
         <!-- SECTION 1: Playback Settings (Collapsible) -->
@@ -859,6 +974,26 @@
                                 <input type="number" id="soundboard-gift-volume" min="0" max="1" step="0.1" value="1.0" style="display: none;">
                             </div>
                         </div>
+                        <div class="animation-section">
+                            <div class="section-label">
+                                <i data-lucide="video"></i> Animation (fallback)
+                            </div>
+                            <div class="inline-controls">
+                                <input type="text" id="soundboard-gift-animation-url" placeholder="Animation URL" class="form-input">
+                                <select id="soundboard-gift-animation-type" class="form-select">
+                                    <option value="none">None</option>
+                                    <option value="video">Video</option>
+                                    <option value="gif">GIF</option>
+                                    <option value="image">Image</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                                <label style="font-size: 0.8rem; color: var(--color-text-secondary); min-width: 50px;">Volume:</label>
+                                <input type="range" id="soundboard-gift-animation-volume-slider" min="0" max="100" value="100" class="volume-slider volume-slider-event">
+                                <span id="soundboard-gift-animation-volume-label" class="volume-label">100%</span>
+                                <input type="number" id="soundboard-gift-animation-volume" min="0" max="1" step="0.1" value="1.0" style="display: none;">
+                            </div>
+                        </div>
                         <p style="font-size: 0.8rem; color: var(--color-text-secondary); margin-top: 8px;">
                             <i data-lucide="info" style="width: 14px; height: 14px; display: inline; vertical-align: middle;"></i>
                             For gift-specific sounds and animations, use the "Gift-Specific Sounds" section below.
@@ -886,6 +1021,26 @@
                                 <input type="range" id="soundboard-like-volume-slider" min="0" max="100" value="100" class="volume-slider volume-slider-event">
                                 <span id="soundboard-like-volume-label" class="volume-label">100%</span>
                                 <input type="number" id="soundboard-like-volume" min="0" max="1" step="0.1" value="1.0" style="display: none;">
+                            </div>
+                        </div>
+                        <div class="animation-section">
+                            <div class="section-label">
+                                <i data-lucide="video"></i> Animation (MP4/GIF)
+                            </div>
+                            <div class="inline-controls">
+                                <input type="text" id="soundboard-like-animation-url" placeholder="Animation URL" class="form-input">
+                                <select id="soundboard-like-animation-type" class="form-select">
+                                    <option value="none">None</option>
+                                    <option value="video">Video</option>
+                                    <option value="gif">GIF</option>
+                                    <option value="image">Image</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                                <label style="font-size: 0.8rem; color: var(--color-text-secondary); min-width: 50px;">Volume:</label>
+                                <input type="range" id="soundboard-like-animation-volume-slider" min="0" max="100" value="100" class="volume-slider volume-slider-event">
+                                <span id="soundboard-like-animation-volume-label" class="volume-label">100%</span>
+                                <input type="number" id="soundboard-like-animation-volume" min="0" max="1" step="0.1" value="1.0" style="display: none;">
                             </div>
                         </div>
                         <div style="display: flex; gap: 12px; margin-top: 12px;">
@@ -941,6 +1096,23 @@
                     </button>
                 </div>
                 <div id="myinstants-results" class="myinstants-results"></div>
+            </div>
+
+            <!-- GIF Search -->
+            <div class="gif-search">
+                <h4>
+                    <i data-lucide="image"></i>
+                    Search GIFs
+                </h4>
+                <div class="search-box">
+                    <input type="text" id="gif-search-input" placeholder="Search for GIF animations..." class="form-input">
+                    <button id="gif-search-btn" class="btn btn-primary">
+                        <i data-lucide="search"></i>
+                        Search
+                    </button>
+                </div>
+                <div id="gif-search-status" style="color: var(--color-text-secondary); font-size: 0.85rem; margin-top: 8px;"></div>
+                <div id="gif-search-results" class="gif-search-results"></div>
             </div>
 
             <!-- Add Gift Sound -->

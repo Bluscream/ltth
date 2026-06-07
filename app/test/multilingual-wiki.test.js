@@ -13,16 +13,16 @@ describe('Multilingual Wiki System', () => {
       const languageAnchors = {
         'en': 'english',
         'de': 'deutsch',
-        'es': 'español',
-        'fr': 'français'
+        'es': 'espanol',
+        'fr': 'francais'
       };
       return languageAnchors[lang] || 'english';
     };
 
     expect(getLanguageAnchor('en')).toBe('english');
     expect(getLanguageAnchor('de')).toBe('deutsch');
-    expect(getLanguageAnchor('es')).toBe('español');
-    expect(getLanguageAnchor('fr')).toBe('français');
+    expect(getLanguageAnchor('es')).toBe('espanol');
+    expect(getLanguageAnchor('fr')).toBe('francais');
     expect(getLanguageAnchor('invalid')).toBe('english'); // default
   });
 

@@ -14,7 +14,7 @@
     'use strict';
 
     // Template variables for autocomplete hints
-    const TEMPLATE_VARS = ['{{username}}', '{{nickname}}', '{{giftName}}', '{{coins}}', '{{message}}', '{{repeatCount}}'];
+    const TEMPLATE_VARS = ['{username}', '{nickname}', '{giftName}', '{coins}', '{message}', '{repeatCount}'];
 
     // Available priority options
     const PRIORITY_OPTIONS = [
@@ -36,7 +36,7 @@
         trigger_type: '',
         // Step 3
         conditions: [],        // Array of {field, operator, value}
-        conditionLogic: 'and', // 'and' | 'or'
+        conditionLogic: 'AND', // 'AND' | 'OR'
         // Step 4
         actions: [],           // Array of action objects
         // Step 5
@@ -72,10 +72,10 @@
             if (presetFlow.trigger_condition) {
                 const cond = presetFlow.trigger_condition;
                 if (cond.logic && cond.conditions) {
-                    wizardState.conditionLogic = cond.logic;
-                    wizardState.conditions = cond.conditions.map(c => ({ ...c }));
+                    wizardState.conditionLogic = normalizeLogic(cond.logic);
+                    wizardState.conditions = cond.conditions.map(c => ({ ...c, operator: normalizeOperatorId(c.operator) }));
                 } else if (cond.field) {
-                    wizardState.conditions = [{ field: cond.field, operator: cond.operator || 'equals', value: cond.value || '' }];
+                    wizardState.conditions = [{ field: cond.field, operator: normalizeOperatorId(cond.operator), value: cond.value || '' }];
                 }
             }
 
@@ -106,7 +106,7 @@
         wizardState.enabled = true;
         wizardState.trigger_type = '';
         wizardState.conditions = [];
-        wizardState.conditionLogic = 'and';
+        wizardState.conditionLogic = 'AND';
         wizardState.actions = [];
         wizardState.cooldown = 0;
         wizardState.priority = 'normal';
@@ -323,10 +323,10 @@
                     <div class="mb-3 flex items-center gap-3">
                         <span class="text-gray-400 text-sm">Verknüpfung:</span>
                         <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
-                            <input type="radio" name="cond-logic" value="and" ${wizardState.conditionLogic === 'and' ? 'checked' : ''} data-wiz-field="conditionLogic"> UND (alle müssen zutreffen)
+                            <input type="radio" name="cond-logic" value="AND" ${wizardState.conditionLogic === 'AND' ? 'checked' : ''} data-wiz-field="conditionLogic"> UND (alle müssen zutreffen)
                         </label>
                         <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
-                            <input type="radio" name="cond-logic" value="or" ${wizardState.conditionLogic === 'or' ? 'checked' : ''} data-wiz-field="conditionLogic"> ODER (mindestens eine muss zutreffen)
+                            <input type="radio" name="cond-logic" value="OR" ${wizardState.conditionLogic === 'OR' ? 'checked' : ''} data-wiz-field="conditionLogic"> ODER (mindestens eine muss zutreffen)
                         </label>
                     </div>
                 ` : ''}
@@ -352,7 +352,7 @@
     function renderConditionRow(cond, index) {
         // Use simple field/operator/value for the wizard (maps to field_value condition)
         const operators = wizardState.availableOperators.filter(op =>
-            ['equals', 'notEquals', 'contains', 'startsWith', 'endsWith', 'greaterThan', 'lessThan', 'greaterThanOrEqual', 'lessThanOrEqual'].includes(op.id)
+            ['equals', 'not_equals', 'contains', 'not_contains', 'starts_with', 'ends_with', 'greater_than', 'less_than', 'greater_or_equal', 'less_or_equal'].includes(op.id)
         );
 
         return `
@@ -365,7 +365,7 @@
                     <select class="form-select" style="width:160px;min-width:130px;"
                         data-wiz-condition="${index}" data-key="operator">
                         ${operators.map(op => `
-                            <option value="${escapeHtmlAttr(op.id)}" ${cond.operator === op.id ? 'selected' : ''}>${escapeHtmlContent(op.label)}</option>
+                            <option value="${escapeHtmlAttr(op.id)}" ${normalizeOperatorId(cond.operator) === op.id ? 'selected' : ''}>${escapeHtmlContent(op.label || op.name || op.id)}</option>
                         `).join('')}
                         ${operators.length === 0 ? `
                             <option value="equals" ${cond.operator === 'equals' ? 'selected' : ''}>Gleich</option>
@@ -398,11 +398,28 @@
             return `<strong>${field}</strong> ${op} "<em>${val}</em>"`;
         });
 
-        const joiner = wizardState.conditionLogic === 'or' ? ' <span class="text-yellow-400">ODER</span> ' : ' <span class="text-blue-400">UND</span> ';
+        const joiner = normalizeLogic(wizardState.conditionLogic) === 'OR' ? ' <span class="text-yellow-400">ODER</span> ' : ' <span class="text-blue-400">UND</span> ';
         return parts.join(joiner);
     }
 
     function formatOperatorLabel(op) {
+        const normalized = normalizeOperatorId(op);
+        const normalizedMap = {
+            equals: 'ist gleich',
+            not_equals: 'ist ungleich',
+            contains: 'enthaelt',
+            not_contains: 'enthaelt nicht',
+            starts_with: 'beginnt mit',
+            ends_with: 'endet mit',
+            greater_than: '>',
+            less_than: '<',
+            greater_or_equal: '>=',
+            less_or_equal: '<='
+        };
+        if (normalizedMap[normalized]) {
+            return normalizedMap[normalized];
+        }
+
         const map = {
             equals: 'ist gleich',
             notEquals: 'ist ungleich',
@@ -761,14 +778,14 @@
         if (wizardState.conditions.length === 1) {
             const c = wizardState.conditions[0];
             if (c.field && c.operator) {
-                trigger_condition = { field: c.field, operator: c.operator, value: c.value };
+                trigger_condition = { field: c.field, operator: normalizeOperatorId(c.operator), value: c.value };
             }
         } else if (wizardState.conditions.length > 1) {
             const validConds = wizardState.conditions.filter(c => c.field && c.operator);
             if (validConds.length > 0) {
                 trigger_condition = {
-                    logic: wizardState.conditionLogic,
-                    conditions: validConds.map(c => ({ field: c.field, operator: c.operator, value: c.value }))
+                    logic: normalizeLogic(wizardState.conditionLogic),
+                    conditions: validConds.map(c => ({ field: c.field, operator: normalizeOperatorId(c.operator), value: c.value }))
                 };
             }
         }
@@ -780,7 +797,7 @@
             trigger_condition,
             actions: wizardState.actions,
             enabled: wizardState.enabled,
-            cooldown: wizardState.cooldown,
+            cooldown: clampNumber(wizardState.cooldown, 0, 3600, 0),
             priority: wizardState.priority
         };
     }
@@ -884,7 +901,7 @@
 
     function _updateCondition(index, key, value) {
         if (wizardState.conditions[index]) {
-            wizardState.conditions[index][key] = value;
+            wizardState.conditions[index][key] = key === 'operator' ? normalizeOperatorId(value) : value;
         }
     }
 
@@ -953,6 +970,53 @@
         }, {});
     }
 
+    function normalizeLogic(logic) {
+        return String(logic || 'AND').toUpperCase() === 'OR' ? 'OR' : 'AND';
+    }
+
+    function normalizeOperatorId(operator) {
+        const map = {
+            notEquals: 'not_equals',
+            greaterThan: 'greater_than',
+            lessThan: 'less_than',
+            greaterThanOrEqual: 'greater_or_equal',
+            lessThanOrEqual: 'less_or_equal',
+            notContains: 'not_contains',
+            startsWith: 'starts_with',
+            endsWith: 'ends_with',
+            matchesRegex: 'matches_regex',
+            inList: 'in_list',
+            notInList: 'not_in_list',
+            '==': 'equals',
+            '!=': 'not_equals',
+            '>': 'greater_than',
+            '<': 'less_than',
+            '>=': 'greater_or_equal',
+            '<=': 'less_or_equal'
+        };
+        return map[operator] || operator || 'equals';
+    }
+
+    function clampNumber(value, min, max, fallback) {
+        const number = value === undefined || value === null || value === '' ? Number.NaN : Number(value);
+        if (!Number.isFinite(number)) {
+            return fallback;
+        }
+        return Math.min(max, Math.max(min, number));
+    }
+
+    function readInputValue(target) {
+        if (target.type === 'checkbox') {
+            return target.checked;
+        }
+        if (target.type === 'number') {
+            const min = target.min !== '' ? Number(target.min) : Number.NEGATIVE_INFINITY;
+            const max = target.max !== '' ? Number(target.max) : Number.POSITIVE_INFINITY;
+            return clampNumber(target.value, min, max, 0);
+        }
+        return target.value;
+    }
+
     function escapeHtmlAttr(text) {
         if (typeof text !== 'string') text = String(text);
         return text
@@ -981,14 +1045,9 @@
     function handleWizFieldChange(target) {
         if (target.dataset.wizField) {
             const field = target.dataset.wizField;
-            let value;
-            if (target.type === 'checkbox') {
-                value = target.checked;
-            } else if (target.type === 'number') {
-                value = parseFloat(target.value) || 0;
-            } else {
-                value = target.value;
-            }
+            const value = field === 'conditionLogic'
+                ? normalizeLogic(target.value)
+                : readInputValue(target);
             _updateState(field, value);
         }
 
@@ -1001,8 +1060,7 @@
         if (target.dataset.wizActionField !== undefined) {
             const actionIndex = parseInt(target.dataset.wizActionField);
             const key = target.dataset.key;
-            const value = target.type === 'checkbox' ? target.checked :
-                target.type === 'number' ? (parseFloat(target.value) || 0) : target.value;
+            const value = readInputValue(target);
             _updateAction(actionIndex, key, value);
         }
 

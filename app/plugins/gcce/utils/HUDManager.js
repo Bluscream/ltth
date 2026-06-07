@@ -132,6 +132,109 @@ class HUDManager {
   }
 
   /**
+   * Check HUD command permission across legacy and advanced permission systems.
+   * @param {Object} context
+   * @param {string} requiredRole
+   * @param {string} permissionName
+   * @returns {Promise<boolean>}
+   */
+  async hasCommandPermission(context = {}, requiredRole = 'all', permissionName = '') {
+    if (!requiredRole || requiredRole === 'all') {
+      return true;
+    }
+
+    if (this.permissionSystem) {
+      if (typeof this.permissionSystem.checkPermission === 'function') {
+        try {
+          const allowed = await this.permissionSystem.checkPermission(
+            context.userId,
+            permissionName,
+            requiredRole
+          );
+          if (allowed) return true;
+        } catch (error) {
+          this.api.log(`[HUD] Permission check failed: ${error.message}`, 'debug');
+        }
+      }
+
+      if (typeof this.permissionSystem.hasPermission === 'function') {
+        try {
+          const allowed = await this.permissionSystem.hasPermission(
+            context.userId,
+            permissionName,
+            permissionName
+          );
+          if (allowed) return true;
+        } catch (error) {
+          this.api.log(`[HUD] Advanced permission check failed: ${error.message}`, 'debug');
+        }
+      }
+    }
+
+    return this.roleMeetsRequirement(context.userRole, requiredRole);
+  }
+
+  /**
+   * Check the built-in chat role hierarchy.
+   * @param {string} userRole
+   * @param {string} requiredRole
+   * @returns {boolean}
+   */
+  roleMeetsRequirement(userRole = 'all', requiredRole = 'all') {
+    const hierarchy = {
+      all: 0,
+      viewer: 0,
+      subscriber: 1,
+      vip: 2,
+      moderator: 3,
+      broadcaster: 4,
+      admin: 5,
+      owner: 5
+    };
+
+    const userLevel = hierarchy[String(userRole || 'all').toLowerCase()] ?? 0;
+    const requiredLevel = hierarchy[String(requiredRole || 'all').toLowerCase()];
+
+    return requiredLevel !== undefined && userLevel >= requiredLevel;
+  }
+
+  /**
+   * Write HUD command audit entries through the available audit implementation.
+   * @param {string} command
+   * @param {Array} args
+   * @param {Object} context
+   * @param {Object} metadata
+   * @param {boolean} success
+   * @param {string|null} error
+   */
+  logAudit(command, args, context = {}, metadata = {}, success = true, error = null) {
+    if (!this.auditLog) return;
+
+    try {
+      if (typeof this.auditLog.log === 'function') {
+        this.auditLog.log({
+          userId: context.userId,
+          username: context.username,
+          command,
+          args,
+          success,
+          error,
+          metadata
+        });
+      } else if (typeof this.auditLog.logCommand === 'function') {
+        this.auditLog.logCommand(context.userId, command, args, {
+          ...metadata,
+          username: context.username,
+          success,
+          error
+        });
+      }
+    } catch (auditError) {
+      this.api.log(`[HUD] Audit log failed: ${auditError.message}`, 'warn');
+    }
+  }
+
+  /**
    * Normalize media library entries
    * @param {Array} mediaLibrary
    * @returns {Array}
@@ -221,10 +324,10 @@ class HUDManager {
       }
 
       // Permission check
-      const hasPermission = await this.permissionSystem.checkPermission(
-        context.userId,
-        'gcce.hud.text',
-        this.config.permissions.text
+      const hasPermission = await this.hasCommandPermission(
+        context,
+        this.config.permissions.text,
+        'gcce.hud.text'
       );
 
       if (!hasPermission) {
@@ -268,13 +371,11 @@ class HUDManager {
       const elementId = this.createTextElement(text, duration, context);
 
       // Audit log
-      if (this.auditLog) {
-        this.auditLog.logCommand(context.userId, 'hudtext', args, {
-          elementId,
-          duration,
-          textLength: text.length
-        });
-      }
+      this.logAudit('hudtext', args, context, {
+        elementId,
+        duration,
+        textLength: text.length
+      });
 
       return {
         success: true,
@@ -298,10 +399,10 @@ class HUDManager {
       }
 
       // Permission check
-      const hasPermission = await this.permissionSystem.checkPermission(
-        context.userId,
-        'gcce.hud.image',
-        this.config.permissions.image
+      const hasPermission = await this.hasCommandPermission(
+        context,
+        this.config.permissions.image,
+        'gcce.hud.image'
       );
 
       if (!hasPermission) {
@@ -339,13 +440,11 @@ class HUDManager {
       const elementId = this.createImageElement(imageUrl, duration, context);
 
       // Audit log
-      if (this.auditLog) {
-        this.auditLog.logCommand(context.userId, 'hudimage', args, {
-          elementId,
-          duration,
-          url: imageUrl
-        });
-      }
+      this.logAudit('hudimage', args, context, {
+        elementId,
+        duration,
+        url: imageUrl
+      });
 
       return {
         success: true,
@@ -368,10 +467,10 @@ class HUDManager {
         return { success: false, error: 'HUD media display is disabled' };
       }
 
-      const hasPermission = await this.permissionSystem.checkPermission(
-        context.userId,
-        'gcce.hud.media',
-        this.config.permissions.media || this.config.permissions.image
+      const hasPermission = await this.hasCommandPermission(
+        context,
+        this.config.permissions.media || this.config.permissions.image,
+        'gcce.hud.media'
       );
 
       if (!hasPermission) {
@@ -409,14 +508,12 @@ class HUDManager {
 
       const elementId = this.createMediaElement(url, mediaDuration, mediaType, context, mediaItem?.label);
 
-      if (this.auditLog) {
-        this.auditLog.logCommand(context.userId, 'hudmedia', args, {
-          elementId,
-          duration: mediaDuration,
-          url,
-          mediaType
-        });
-      }
+      this.logAudit('hudmedia', args, context, {
+        elementId,
+        duration: mediaDuration,
+        url,
+        mediaType
+      });
 
       return {
         success: true,
@@ -435,10 +532,10 @@ class HUDManager {
   async handleClearCommand(args, context) {
     try {
       // Permission check
-      const hasPermission = await this.permissionSystem.checkPermission(
-        context.userId,
-        'gcce.hud.clear',
-        this.config.permissions.clear
+      const hasPermission = await this.hasCommandPermission(
+        context,
+        this.config.permissions.clear,
+        'gcce.hud.clear'
       );
 
       if (!hasPermission) {
@@ -449,11 +546,9 @@ class HUDManager {
       this.clearAllElements();
 
       // Audit log
-      if (this.auditLog) {
-        this.auditLog.logCommand(context.userId, 'hudclear', args, {
-          elementsCleared: count
-        });
-      }
+      this.logAudit('hudclear', args, context, {
+        elementsCleared: count
+      });
 
       return {
         success: true,

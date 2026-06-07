@@ -45,7 +45,7 @@ Add multilingual descriptions to all 30 plugin.json files and update related doc
 
 ### Plugins Requiring Updates
 
-**30 Total Plugins:**
+**29 Total Plugins:**
 
 1. advanced-timer
 2. api-bridge
@@ -54,7 +54,6 @@ Add multilingual descriptions to all 30 plugin.json files and update related doc
 5. coinbattle
 6. config-import
 7. emoji-rain
-8. fireworks-webgpu
 9. fireworks
 10. flame-overlay
 11. gcce-hud

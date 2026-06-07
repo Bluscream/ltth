@@ -9,13 +9,14 @@ const EventEmitter = require('events');
 const axios = require('axios');
 
 class ZappieHellManager extends EventEmitter {
-  constructor(db, logger, openShockClient, patternEngine, queueManager) {
+  constructor(db, logger, openShockClient, patternEngine, queueManager, patternExecutor = null) {
     super();
     this.db = db;
     this.logger = logger || console;
     this.openShockClient = openShockClient;
     this.patternEngine = patternEngine;
     this.queueManager = queueManager;
+    this.patternExecutor = patternExecutor;
     
     // Goals: id -> goal object
     this.goals = new Map();
@@ -283,23 +284,39 @@ class ZappieHellManager extends EventEmitter {
         throw new Error(`Pattern not found: ${step.patternId}`);
       }
 
-      // Queue pattern execution
-      await this.queueManager.enqueuePattern(
+      if (!this.patternExecutor || typeof this.patternExecutor.executePattern !== 'function') {
+        throw new Error('PatternExecutor is not available for ZappieHell pattern execution');
+      }
+
+      // Execute through PatternExecutor so queue timing, feedback, and cancellation stay consistent.
+      await this.patternExecutor.executePattern(
         pattern,
         step.deviceId || null,
-        step.intensity || 50,
-        step.durationMs || 1000,
-        { source: 'zappiehell' }
+        'zappiehell',
+        'zappiehell',
+        Math.max(1, parseInt(step.repeatCount || 1, 10)),
+        {
+          username: 'ZappieHell',
+          sourceData: { ...step }
+        }
       );
     } else {
       // Execute direct command
-      await this.queueManager.enqueue({
+      const result = await this.queueManager.addItem({
         deviceId: step.deviceId,
         commandType: step.commandType || 'vibrate',
         intensity: step.intensity || 50,
-        duration: step.durationMs || 1000,
-        source: 'zappiehell'
+        duration: step.durationMs || step.duration || 1000,
+        userId: 'zappiehell',
+        username: 'ZappieHell',
+        source: 'zappiehell',
+        sourceData: { ...step },
+        priority: step.priority || 6
       });
+
+      if (!result.success) {
+        throw new Error(`Failed to queue ZappieHell command: ${result.message}`);
+      }
     }
   }
 

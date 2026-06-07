@@ -121,6 +121,9 @@ class MemoryDatabase {
           catchphrases TEXT,
           topics_of_interest TEXT,
           response_style TEXT,
+          tone_settings TEXT DEFAULT '{"temperature":0.7,"presencePenalty":0.3,"frequencyPenalty":0.2}',
+          emote_config TEXT DEFAULT '{"defaultEmote":"neutral","highEnergyEmote":"excited","lowEnergyEmote":"calm"}',
+          memory_behavior TEXT DEFAULT '{"importanceThreshold":0.5,"maxContextMemories":10}',
           language TEXT DEFAULT 'de',
           is_active INTEGER DEFAULT 0,
           is_custom INTEGER DEFAULT 0,
@@ -266,8 +269,8 @@ Sprechstil: Enthusiastisch mit anime-typischen Reaktionen`,
 
     const insertStmt = this.db.prepare(`
       INSERT OR IGNORE INTO animazingpal_personalities 
-      (name, display_name, description, system_prompt, voice_style, emotion_tendencies, catchphrases, topics_of_interest, response_style, is_custom)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      (name, display_name, description, system_prompt, voice_style, emotion_tendencies, catchphrases, topics_of_interest, response_style, tone_settings, emote_config, memory_behavior, is_custom)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
 
     for (const personality of defaultPersonalities) {
@@ -280,7 +283,10 @@ Sprechstil: Enthusiastisch mit anime-typischen Reaktionen`,
         personality.emotion_tendencies,
         personality.catchphrases,
         personality.topics_of_interest,
-        personality.response_style
+        personality.response_style,
+        JSON.stringify({ temperature: 0.7, presencePenalty: 0.3, frequencyPenalty: 0.2 }),
+        JSON.stringify({ defaultEmote: 'neutral', highEnergyEmote: 'excited', lowEnergyEmote: 'calm' }),
+        JSON.stringify({ importanceThreshold: 0.5, maxContextMemories: 10 })
       );
     }
   }
@@ -310,6 +316,34 @@ Sprechstil: Enthusiastisch mit anime-typischen Reaktionen`,
             this.logger.error(`Failed to add ${migration.column} column: ${migrationError.message}`);
             // Log specific error but continue with other migrations
             // This allows partial migrations to succeed
+          }
+        }
+      }
+
+      const personalityColumns = this.db.prepare(`PRAGMA table_info(animazingpal_personalities)`).all();
+      const personalityColumnNames = personalityColumns.map(col => col.name);
+      const personalityMigrations = [
+        {
+          column: 'tone_settings',
+          sql: `ALTER TABLE animazingpal_personalities ADD COLUMN tone_settings TEXT DEFAULT '{"temperature":0.7,"presencePenalty":0.3,"frequencyPenalty":0.2}'`
+        },
+        {
+          column: 'emote_config',
+          sql: `ALTER TABLE animazingpal_personalities ADD COLUMN emote_config TEXT DEFAULT '{"defaultEmote":"neutral","highEnergyEmote":"excited","lowEnergyEmote":"calm"}'`
+        },
+        {
+          column: 'memory_behavior',
+          sql: `ALTER TABLE animazingpal_personalities ADD COLUMN memory_behavior TEXT DEFAULT '{"importanceThreshold":0.5,"maxContextMemories":10}'`
+        }
+      ];
+
+      for (const migration of personalityMigrations) {
+        if (!personalityColumnNames.includes(migration.column)) {
+          try {
+            this.db.exec(migration.sql);
+            this.logger.info(`Migration: Added ${migration.column} column`);
+          } catch (migrationError) {
+            this.logger.error(`Failed to add ${migration.column} column: ${migrationError.message}`);
           }
         }
       }
@@ -746,6 +780,12 @@ Sprechstil: Enthusiastisch mit anime-typischen Reaktionen`,
     `).all();
   }
 
+  getPersonality(name) {
+    return this.db.prepare(`
+      SELECT * FROM animazingpal_personalities WHERE name = ?
+    `).get(name);
+  }
+
   /**
    * Get active personality
    */
@@ -774,8 +814,8 @@ Sprechstil: Enthusiastisch mit anime-typischen Reaktionen`,
   createPersonality(data) {
     const result = this.db.prepare(`
       INSERT INTO animazingpal_personalities 
-      (name, display_name, description, system_prompt, voice_style, emotion_tendencies, catchphrases, topics_of_interest, response_style, is_custom)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      (name, display_name, description, system_prompt, voice_style, emotion_tendencies, catchphrases, topics_of_interest, response_style, tone_settings, emote_config, memory_behavior, is_custom)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
       data.name,
       data.display_name,
@@ -785,7 +825,10 @@ Sprechstil: Enthusiastisch mit anime-typischen Reaktionen`,
       JSON.stringify(data.emotion_tendencies || {}),
       JSON.stringify(data.catchphrases || []),
       JSON.stringify(data.topics_of_interest || []),
-      data.response_style || 'casual'
+      data.response_style || 'casual',
+      JSON.stringify(data.tone_settings || { temperature: 0.7, presencePenalty: 0.3, frequencyPenalty: 0.2 }),
+      JSON.stringify(data.emote_config || { defaultEmote: 'neutral', highEnergyEmote: 'excited', lowEnergyEmote: 'calm' }),
+      JSON.stringify(data.memory_behavior || { importanceThreshold: 0.5, maxContextMemories: 10 })
     );
 
     return result.lastInsertRowid;

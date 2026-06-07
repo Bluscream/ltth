@@ -456,6 +456,33 @@ describe('Wheel Segment Validation and Synchronization', () => {
         expect.stringContaining('desync')
       );
     });
+
+    test('should record expected segment index when overlay reports a mismatch', async () => {
+      const config = wheelGame.getConfig();
+      const spinResult = await wheelGame.triggerSpin('user1', 'User 1', '', 'gift1');
+      const recordSpy = jest.spyOn(gameDB, 'recordWheelWin');
+
+      expect(spinResult.success).toBe(true);
+
+      const expectedIndex = spinResult.winningSegment.index;
+      const reportedIndex = (expectedIndex + 1) % config.segments.length;
+
+      const completionResult = await wheelGame.handleSpinComplete(
+        spinResult.spinId,
+        reportedIndex
+      );
+
+      expect(completionResult.success).toBe(true);
+      expect(completionResult.segmentIndex).toBe(expectedIndex);
+      expect(recordSpy).toHaveBeenCalledWith(
+        'user1',
+        'User 1',
+        config.segments[expectedIndex].text,
+        expectedIndex,
+        'gift1',
+        config.id
+      );
+    });
   });
 
   describe('Integration: Full spin cycle with validation', () => {

@@ -38,8 +38,9 @@ class TemplateEngine {
             return this.regexpCache.get(variable);
         }
 
-        // Create new RegExp
-        const pattern = new RegExp(`\\{${variable}\\}`, 'g');
+        // Create new RegExp for both {variable} and {{variable}} placeholders.
+        const escapedVariable = this.escapeRegExp(variable);
+        const pattern = new RegExp(`\\{\\{\\s*${escapedVariable}\\s*\\}\\}|\\{\\s*${escapedVariable}\\s*\\}`, 'g');
 
         // Cache size limit
         if (this.regexpCache.size >= this.maxCacheSize) {
@@ -50,6 +51,10 @@ class TemplateEngine {
 
         this.regexpCache.set(variable, pattern);
         return pattern;
+    }
+
+    escapeRegExp(value) {
+        return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
     /**
@@ -89,7 +94,7 @@ class TemplateEngine {
 
         // Replace remaining variables with default value
         if (defaultValue !== '') {
-            result = result.replace(/\{[a-zA-Z0-9_]+\}/g, defaultValue);
+            result = result.replace(/\{\{\s*[a-zA-Z0-9_]+\s*\}\}|\{\s*[a-zA-Z0-9_]+\s*\}/g, defaultValue);
         }
 
         return result;
@@ -225,7 +230,12 @@ class TemplateEngine {
      * @returns {boolean} - True if template contains variable
      */
     hasVariable(template, variable) {
-        return template.includes(`{${variable}}`);
+        if (!template || typeof template !== 'string') {
+            return false;
+        }
+        const regexp = this.getRegExp(variable);
+        regexp.lastIndex = 0;
+        return regexp.test(template);
     }
 
     /**
@@ -234,12 +244,22 @@ class TemplateEngine {
      * @returns {Array<string>} - Array of variable names
      */
     getVariables(template) {
-        const matches = template.match(/\{([a-zA-Z0-9_]+)\}/g);
-        if (!matches) {
+        if (!template || typeof template !== 'string') {
             return [];
         }
 
-        return matches.map(match => match.slice(1, -1));
+        const matches = template.matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}|\{\s*([a-zA-Z0-9_]+)\s*\}/g);
+        const variables = Array.from(matches, match => match[1] || match[2]);
+        if (variables.length > 0) {
+            return [...new Set(variables)];
+        }
+
+        const legacyMatches = template.match(/\{([a-zA-Z0-9_]+)\}/g);
+        if (!legacyMatches) {
+            return [];
+        }
+
+        return [...new Set(legacyMatches.map(match => match.slice(1, -1)))];
     }
 
     /**

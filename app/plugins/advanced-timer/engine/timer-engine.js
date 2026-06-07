@@ -211,7 +211,8 @@ class Timer extends EventEmitter {
             state: this.state
         });
 
-        this.api.log(`Added ${seconds}s to timer ${this.name} (source: ${source})`, 'info');
+        const logLevel = typeof source === 'string' && source.startsWith('like:') ? 'debug' : 'info';
+        this.api.log(`Added ${seconds}s to timer ${this.name} (source: ${source})`, logLevel);
     }
 
     /**

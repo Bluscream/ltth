@@ -32,6 +32,22 @@ class WeatherControlPlugin {
             'embers',
             'heatwave'
         ];
+
+        this.effectEmojis = {
+            rain: 'rain',
+            snow: 'snow',
+            storm: 'storm',
+            fog: 'fog',
+            thunder: 'thunder',
+            sunbeam: 'sunbeam',
+            glitchclouds: 'glitch',
+            aurora: 'aurora',
+            fireflies: 'fireflies',
+            meteors: 'meteors',
+            sakura: 'sakura',
+            embers: 'embers',
+            heatwave: 'heatwave'
+        };
         
         // Rate limiting state (in-memory, per user)
         this.userRateLimit = new Map(); // username -> { count, resetTime }
@@ -52,6 +68,12 @@ class WeatherControlPlugin {
         // Track permanent effects
         this.activePermanentEffects = new Set();
         this.socketSyncRegistered = false;
+        this.gamificationPersistTimer = null;
+        this.gamification = this.createDefaultGamificationRuntimeState();
+        this.likeMilestoneState = {
+            totalLikes: 0,
+            lastMilestone: 0
+        };
     }
 
     /**
@@ -77,6 +99,89 @@ class WeatherControlPlugin {
         }
         const defaultDuration = this.config.effects[effectName]?.defaultDuration || 10000;
         return Math.max(this.minDuration, Math.min(this.maxDuration, parseInt(duration) || defaultDuration));
+    }
+
+    validateQualityPreset(value) {
+        const allowed = ['low', 'medium', 'high', 'ultra'];
+        return allowed.includes(value) ? value : 'high';
+    }
+
+    clampNumber(value, min, max, fallback) {
+        const parsed = parseFloat(value);
+        if (!Number.isFinite(parsed)) {
+            return fallback;
+        }
+        return Math.max(min, Math.min(max, parsed));
+    }
+
+    sanitizeEffectConfig(effectName, effectConfig = {}) {
+        return {
+            ...effectConfig,
+            enabled: effectConfig.enabled !== false,
+            defaultIntensity: this.clampNumber(effectConfig.defaultIntensity, this.minIntensity, this.maxIntensity, 0.5),
+            defaultDuration: this.validateDuration(effectConfig.defaultDuration, effectName, effectConfig.permanent === true),
+            permanent: effectConfig.permanent === true,
+            layer: Math.round(this.clampNumber(effectConfig.layer, 0, 100, 50)),
+            opacity: this.clampNumber(effectConfig.opacity, 0.05, 1, 1),
+            particleScale: this.clampNumber(effectConfig.particleScale, 0.25, 2, 1),
+            wind: this.clampNumber(effectConfig.wind, -1, 1, 0),
+            directionDeg: Math.round(this.clampNumber(effectConfig.directionDeg, -180, 180, 0))
+        };
+    }
+
+    getEffectOptions(effectName, overrides = {}) {
+        const effectConfig = this.config.effects[effectName] || {};
+        return this.sanitizeMeta({
+            category: effectConfig.category,
+            layer: effectConfig.layer,
+            opacity: effectConfig.opacity,
+            particleScale: effectConfig.particleScale,
+            wind: effectConfig.wind,
+            directionDeg: effectConfig.directionDeg,
+            fogColor: effectConfig.fogColor,
+            colorTemperature: effectConfig.colorTemperature,
+            ...overrides
+        });
+    }
+
+    createWeatherEvent({ action, intensity, duration, permanent = false, username = 'system', meta = {}, options = {} }) {
+        const isPermanent = permanent === true || duration === 0 || duration === '0';
+        const validIntensity = this.validateIntensity(intensity, action);
+        const validDuration = this.validateDuration(duration, action, isPermanent);
+
+        return {
+            type: 'weather',
+            action,
+            intensity: validIntensity,
+            duration: validDuration,
+            permanent: isPermanent,
+            username,
+            meta: this.sanitizeMeta(meta),
+            options: this.getEffectOptions(action, options),
+            timestamp: Date.now()
+        };
+    }
+
+    emitWeatherEvent(event) {
+        this.api.emit('weather:trigger', event);
+        return event;
+    }
+
+    sanitizeSequences(sequences) {
+        return sequences.slice(0, 20).map((sequence, index) => ({
+            name: String(sequence.name || `Sequence ${index + 1}`).replace(/<[^>]*>/g, '').substring(0, 80),
+            steps: Array.isArray(sequence.steps)
+                ? sequence.steps.slice(0, 20)
+                    .filter(step => step && this.supportedEffects.includes(step.action))
+                    .map(step => ({
+                        action: step.action,
+                        delay: Math.max(0, Math.min(300000, parseInt(step.delay) || 0)),
+                        intensity: this.clampNumber(step.intensity, this.minIntensity, this.maxIntensity, this.config.effects[step.action]?.defaultIntensity || 0.5),
+                        duration: this.validateDuration(step.duration, step.action, step.permanent === true),
+                        permanent: step.permanent === true
+                    }))
+                : []
+        })).filter(sequence => sequence.steps.length > 0);
     }
 
     /**
@@ -128,6 +233,58 @@ class WeatherControlPlugin {
                 apiKey: this.generateApiKey(),
                 useGlobalAuth: true, // Use global auth system instead of separate API key
                 rateLimitPerMinute: 10,
+                qualityPreset: 'high',
+                adaptiveQuality: true,
+                maxConcurrentEffects: 5,
+                effectLayerOrder: [
+                    'fog',
+                    'sunbeam',
+                    'aurora',
+                    'heatwave',
+                    'rain',
+                    'snow',
+                    'storm',
+                    'fireflies',
+                    'sakura',
+                    'embers',
+                    'meteors',
+                    'thunder',
+                    'glitchclouds'
+                ],
+                audio: {
+                    enabled: false,
+                    volume: 0.45,
+                    effects: {
+                        rain: { enabled: false, volume: 0.35 },
+                        storm: { enabled: false, volume: 0.5 },
+                        thunder: { enabled: false, volume: 0.7 },
+                        embers: { enabled: false, volume: 0.35 },
+                        heatwave: { enabled: false, volume: 0.25 }
+                    }
+                },
+                triggerEvents: {
+                    follow: { enabled: false, action: 'sakura', intensity: 0.5, duration: 8000 },
+                    share: { enabled: false, action: 'fireflies', intensity: 0.5, duration: 8000 },
+                    subscribe: { enabled: false, action: 'sunbeam', intensity: 0.7, duration: 10000 },
+                    likeMilestone: { enabled: false, interval: 1000, action: 'meteors', intensity: 0.5, duration: 8000 }
+                },
+                gamification: this.getDefaultGamificationConfig(),
+                presets: [
+                    { name: 'Cozy Rain', effects: { rain: { defaultIntensity: 0.45, defaultDuration: 12000, opacity: 0.85, wind: 0.1 } } },
+                    { name: 'Boss Storm', effects: { storm: { defaultIntensity: 0.9, defaultDuration: 10000, opacity: 1, wind: 0.45 }, thunder: { defaultIntensity: 0.85, defaultDuration: 6000 } } },
+                    { name: 'Winter Chill', effects: { snow: { defaultIntensity: 0.65, defaultDuration: 16000, opacity: 0.95, wind: -0.1 }, fog: { defaultIntensity: 0.35, defaultDuration: 12000, fogColor: 'ice' } } },
+                    { name: 'Cyber Glitch', effects: { glitchclouds: { defaultIntensity: 0.85, defaultDuration: 8000, opacity: 1 }, meteors: { defaultIntensity: 0.45, defaultDuration: 7000 } } }
+                ],
+                sequences: [
+                    {
+                        name: 'Storm Build',
+                        steps: [
+                            { action: 'fog', delay: 0, intensity: 0.35, duration: 8000 },
+                            { action: 'rain', delay: 2000, intensity: 0.55, duration: 10000 },
+                            { action: 'thunder', delay: 5500, intensity: 0.8, duration: 5000 }
+                        ]
+                    }
+                ],
                 chatCommands: {
                     enabled: true,
                     requirePermission: true, // Use permission system for chat commands
@@ -154,19 +311,19 @@ class WeatherControlPlugin {
                     minPoints: 0 // Minimum points/XP required
                 },
                 effects: {
-                    rain: { enabled: true, defaultIntensity: 0.5, defaultDuration: 10000, permanent: false },
-                    snow: { enabled: true, defaultIntensity: 0.5, defaultDuration: 10000, permanent: false },
-                    storm: { enabled: true, defaultIntensity: 0.7, defaultDuration: 8000, permanent: false },
-                    fog: { enabled: true, defaultIntensity: 0.4, defaultDuration: 15000, permanent: false },
-                    thunder: { enabled: true, defaultIntensity: 0.8, defaultDuration: 5000, permanent: false },
-                    sunbeam: { enabled: true, defaultIntensity: 0.6, defaultDuration: 12000, permanent: false },
-                    glitchclouds: { enabled: true, defaultIntensity: 0.7, defaultDuration: 8000, permanent: false },
-                    aurora: { enabled: true, defaultIntensity: 0.5, defaultDuration: 15000, permanent: false },
-                    fireflies: { enabled: true, defaultIntensity: 0.5, defaultDuration: 12000, permanent: false },
-                    meteors: { enabled: true, defaultIntensity: 0.4, defaultDuration: 10000, permanent: false },
-                    sakura: { enabled: true, defaultIntensity: 0.5, defaultDuration: 12000, permanent: false },
-                    embers: { enabled: true, defaultIntensity: 0.5, defaultDuration: 10000, permanent: false },
-                    heatwave: { enabled: true, defaultIntensity: 0.4, defaultDuration: 8000, permanent: false }
+                    rain: { enabled: true, defaultIntensity: 0.5, defaultDuration: 10000, permanent: false, category: 'precipitation', layer: 50, opacity: 1, particleScale: 1, wind: 0, directionDeg: 0 },
+                    snow: { enabled: true, defaultIntensity: 0.5, defaultDuration: 10000, permanent: false, category: 'precipitation', layer: 60, opacity: 1, particleScale: 1, wind: 0, directionDeg: 0 },
+                    storm: { enabled: true, defaultIntensity: 0.7, defaultDuration: 8000, permanent: false, category: 'precipitation', layer: 70, opacity: 1, particleScale: 1, wind: 0.35, directionDeg: 25 },
+                    fog: { enabled: true, defaultIntensity: 0.4, defaultDuration: 15000, permanent: false, category: 'atmosphere', layer: 10, opacity: 0.9, particleScale: 1, wind: 0, directionDeg: 0, fogColor: 'default' },
+                    thunder: { enabled: true, defaultIntensity: 0.8, defaultDuration: 5000, permanent: false, category: 'impact', layer: 95, opacity: 1, particleScale: 1, wind: 0, directionDeg: 0 },
+                    sunbeam: { enabled: true, defaultIntensity: 0.6, defaultDuration: 12000, permanent: false, category: 'light', layer: 20, opacity: 0.9, particleScale: 1, wind: 0, directionDeg: 0, colorTemperature: 'golden' },
+                    glitchclouds: { enabled: true, defaultIntensity: 0.7, defaultDuration: 8000, permanent: false, category: 'digital', layer: 100, opacity: 1, particleScale: 1, wind: 0, directionDeg: 0 },
+                    aurora: { enabled: true, defaultIntensity: 0.5, defaultDuration: 15000, permanent: false, category: 'light', layer: 15, opacity: 0.9, particleScale: 1, wind: 0, directionDeg: 0 },
+                    fireflies: { enabled: true, defaultIntensity: 0.5, defaultDuration: 12000, permanent: false, category: 'ambient', layer: 65, opacity: 1, particleScale: 1, wind: 0, directionDeg: 0 },
+                    meteors: { enabled: true, defaultIntensity: 0.4, defaultDuration: 10000, permanent: false, category: 'impact', layer: 90, opacity: 1, particleScale: 1, wind: 0, directionDeg: 0 },
+                    sakura: { enabled: true, defaultIntensity: 0.5, defaultDuration: 12000, permanent: false, category: 'ambient', layer: 55, opacity: 1, particleScale: 1, wind: 0.1, directionDeg: 0 },
+                    embers: { enabled: true, defaultIntensity: 0.5, defaultDuration: 10000, permanent: false, category: 'ambient', layer: 75, opacity: 1, particleScale: 1, wind: 0, directionDeg: 0 },
+                    heatwave: { enabled: true, defaultIntensity: 0.4, defaultDuration: 8000, permanent: false, category: 'atmosphere', layer: 25, opacity: 0.75, particleScale: 1, wind: 0, directionDeg: 0 }
                 }
             };
 
@@ -182,17 +339,44 @@ class WeatherControlPlugin {
             }
             
             this.config.permissions = { ...defaultConfig.permissions, ...this.config.permissions };
+            this.config.qualityPreset = this.validateQualityPreset(this.config.qualityPreset || defaultConfig.qualityPreset);
+            this.config.adaptiveQuality = this.config.adaptiveQuality !== false;
+            this.config.maxConcurrentEffects = Math.max(1, Math.min(12, parseInt(this.config.maxConcurrentEffects) || defaultConfig.maxConcurrentEffects));
+            this.config.effectLayerOrder = Array.isArray(this.config.effectLayerOrder)
+                ? this.supportedEffects.filter(effect => this.config.effectLayerOrder.includes(effect))
+                    .concat(this.supportedEffects.filter(effect => !this.config.effectLayerOrder.includes(effect)))
+                : defaultConfig.effectLayerOrder;
+            this.config.audio = {
+                ...defaultConfig.audio,
+                ...(this.config.audio || {}),
+                effects: {
+                    ...defaultConfig.audio.effects,
+                    ...((this.config.audio && this.config.audio.effects) || {})
+                }
+            };
+            this.config.triggerEvents = {
+                ...defaultConfig.triggerEvents,
+                ...(this.config.triggerEvents || {})
+            };
+            this.config.gamification = this.mergeGamificationConfig(
+                defaultConfig.gamification,
+                this.config.gamification
+            );
+            this.config.presets = Array.isArray(this.config.presets) ? this.config.presets : defaultConfig.presets;
+            this.config.sequences = Array.isArray(this.config.sequences) ? this.config.sequences : defaultConfig.sequences;
             this.config.effects = this.supportedEffects.reduce((acc, effectName) => {
                 acc[effectName] = {
                     ...defaultConfig.effects[effectName],
                     ...(this.config.effects?.[effectName] || {})
                 };
+                acc[effectName] = this.sanitizeEffectConfig(effectName, acc[effectName]);
                 return acc;
             }, {});
 
             // Store API key
             this.apiKey = this.config.apiKey;
             this.rateLimitMax = this.config.rateLimitPerMinute || 10;
+            this.initializeGamificationState();
 
             // Save updated config
             await this.api.setConfig('weather_config', this.config);
@@ -270,16 +454,7 @@ class WeatherControlPlugin {
                                 ...mergedEffects[effect],
                                 ...effectConfig
                             };
-                            mergedEffects[effect].defaultIntensity = this.validateIntensity(
-                                effectConfig.defaultIntensity ?? mergedEffects[effect].defaultIntensity,
-                                effect
-                            );
-                            mergedEffects[effect].defaultDuration = this.validateDuration(
-                                effectConfig.defaultDuration ?? mergedEffects[effect].defaultDuration,
-                                effect,
-                                effectConfig.permanent === true
-                            );
-                            mergedEffects[effect].permanent = effectConfig.permanent === true;
+                            mergedEffects[effect] = this.sanitizeEffectConfig(effect, mergedEffects[effect]);
                         }
                     });
                     this.config.effects = mergedEffects;
@@ -303,8 +478,58 @@ class WeatherControlPlugin {
                     this.config.rateLimitPerMinute = Math.max(1, Math.min(100, newConfig.rateLimitPerMinute));
                     this.rateLimitMax = this.config.rateLimitPerMinute;
                 }
+                if (typeof newConfig.qualityPreset !== 'undefined') {
+                    this.config.qualityPreset = this.validateQualityPreset(newConfig.qualityPreset);
+                }
+                if (typeof newConfig.adaptiveQuality !== 'undefined') {
+                    this.config.adaptiveQuality = newConfig.adaptiveQuality !== false;
+                }
+                if (typeof newConfig.maxConcurrentEffects !== 'undefined') {
+                    this.config.maxConcurrentEffects = Math.max(1, Math.min(12, parseInt(newConfig.maxConcurrentEffects) || 5));
+                }
+                if (Array.isArray(newConfig.effectLayerOrder)) {
+                    this.config.effectLayerOrder = this.supportedEffects
+                        .filter(effect => newConfig.effectLayerOrder.includes(effect))
+                        .concat(this.supportedEffects.filter(effect => !newConfig.effectLayerOrder.includes(effect)));
+                }
+                if (newConfig.audio) {
+                    this.config.audio = {
+                        ...this.config.audio,
+                        ...newConfig.audio,
+                        effects: {
+                            ...(this.config.audio?.effects || {}),
+                            ...(newConfig.audio.effects || {})
+                        }
+                    };
+                    this.config.audio.volume = this.clampNumber(this.config.audio.volume, 0, 1, 0.45);
+                }
+                if (newConfig.triggerEvents) {
+                    this.config.triggerEvents = {
+                        ...this.config.triggerEvents,
+                        ...newConfig.triggerEvents
+                    };
+                }
+                if (newConfig.gamification) {
+                    this.config.gamification = this.mergeGamificationConfig(
+                        this.config.gamification,
+                        newConfig.gamification
+                    );
+                    if (newConfig.gamification.state) {
+                        this.gamification = this.normalizeGamificationState(
+                            newConfig.gamification.state,
+                            this.config.gamification
+                        );
+                    }
+                }
+                if (Array.isArray(newConfig.presets)) {
+                    this.config.presets = newConfig.presets.slice(0, 20);
+                }
+                if (Array.isArray(newConfig.sequences)) {
+                    this.config.sequences = this.sanitizeSequences(newConfig.sequences);
+                }
 
                 await this.api.setConfig('weather_config', this.config);
+                this.broadcastGamificationState('config-updated');
 
                 // Get new permanent effects state
                 const newPermanentEffects = new Set(
@@ -411,23 +636,17 @@ class WeatherControlPlugin {
                     }
                 }
 
-                // Sanitize and validate intensity
-                const validIntensity = this.validateIntensity(intensity, action);
-                
-                // Sanitize and validate duration
-                const validDuration = this.validateDuration(duration, action, isPermanent);
-
-                // Create weather event
-                const weatherEvent = {
-                    type: 'weather',
+                const weatherEvent = this.createWeatherEvent({
                     action,
-                    intensity: validIntensity,
-                    duration: validDuration,
+                    intensity,
+                    duration,
                     permanent: isPermanent,
                     username: username || 'anonymous',
-                    meta: this.sanitizeMeta(meta),
-                    timestamp: Date.now()
-                };
+                    meta,
+                    options: req.body.options || {}
+                });
+                const validIntensity = weatherEvent.intensity;
+                const validDuration = weatherEvent.duration;
 
                 // Log event
                 this.api.log(`🌦️ [WEATHER CONTROL] Triggered: ${action} (intensity: ${validIntensity}, duration: ${validDuration}ms) by ${username || 'API'}`, 'info');
@@ -446,6 +665,80 @@ class WeatherControlPlugin {
             }
         });
 
+        // Stop all effects or one specific effect
+        this.api.registerRoute('post', '/api/weather/stop', async (req, res) => {
+            try {
+                const action = req.body?.action;
+                if (action && !this.supportedEffects.includes(action)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Invalid action. Supported: ${this.supportedEffects.join(', ')}`
+                    });
+                }
+
+                if (action) {
+                    this.api.emit('weather:stop-effect', {
+                        action,
+                        username: req.body?.username || 'dashboard',
+                        meta: { triggeredBy: 'api-stop-effect' },
+                        timestamp: Date.now()
+                    });
+                } else {
+                    this.api.emit('weather:stop', {
+                        username: req.body?.username || 'dashboard',
+                        timestamp: Date.now()
+                    });
+                }
+
+                res.json({ success: true, action: action || null });
+            } catch (error) {
+                this.api.log(`[WEATHER CONTROL] Error stopping weather: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Trigger a timed weather sequence
+        this.api.registerRoute('post', '/api/weather/sequence/trigger', async (req, res) => {
+            try {
+                const requestedSteps = Array.isArray(req.body?.steps) ? req.body.steps : null;
+                const sequenceName = req.body?.name;
+                const configuredSequence = sequenceName
+                    ? (this.config.sequences || []).find(sequence => sequence.name === sequenceName)
+                    : null;
+                const steps = requestedSteps || configuredSequence?.steps;
+
+                if (!Array.isArray(steps) || steps.length === 0) {
+                    return res.status(400).json({ success: false, error: 'A sequence must contain at least one step' });
+                }
+
+                const sanitized = this.sanitizeSequences([{ name: sequenceName || 'Ad hoc sequence', steps }])[0];
+                if (!sanitized || sanitized.steps.length === 0) {
+                    return res.status(400).json({ success: false, error: 'No valid weather steps in sequence' });
+                }
+
+                sanitized.steps.forEach((step) => {
+                    setTimeout(() => {
+                        if (!this.config.effects[step.action]?.enabled) {
+                            return;
+                        }
+                        this.emitWeatherEvent(this.createWeatherEvent({
+                            action: step.action,
+                            intensity: step.intensity,
+                            duration: step.duration,
+                            permanent: step.permanent,
+                            username: req.body?.username || 'sequence',
+                            meta: { triggeredBy: 'weather-sequence', sequence: sanitized.name }
+                        }));
+                    }, step.delay);
+                });
+
+                res.json({ success: true, sequence: sanitized });
+            } catch (error) {
+                this.api.log(`[WEATHER CONTROL] Error triggering sequence: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
         // Get supported effects
         this.api.registerRoute('get', '/api/weather/effects', (req, res) => {
             res.json({
@@ -453,6 +746,32 @@ class WeatherControlPlugin {
                 effects: this.supportedEffects,
                 config: this.config.effects
             });
+        });
+
+        // Get gamification state
+        this.api.registerRoute('get', '/api/weather/gamification', (req, res) => {
+            try {
+                res.json({
+                    success: true,
+                    gamification: this.getGamificationSnapshot()
+                });
+            } catch (error) {
+                this.api.log(`❌ [WEATHER CONTROL] Error getting gamification state: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Reset gamification progress
+        this.api.registerRoute('post', '/api/weather/gamification/reset', async (req, res) => {
+            try {
+                const scope = req.body?.scope || 'all';
+                this.resetGamificationProgress(scope);
+                await this.persistGamificationState(true);
+                res.json({ success: true, gamification: this.getGamificationSnapshot() });
+            } catch (error) {
+                this.api.log(`❌ [WEATHER CONTROL] Error resetting gamification: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
         });
 
         // Reset API key
@@ -559,6 +878,13 @@ class WeatherControlPlugin {
 
                 const { username, giftName, giftId, coins } = data;
                 const db = this.api.getDatabase();
+                this.applyGamificationEvent('gift', {
+                    ...data,
+                    username,
+                    giftName,
+                    giftId,
+                    amount: Math.max(1, Math.round((parseFloat(coins) || 0) / 100))
+                });
 
                 let weatherAction = null;
                 let intensity = null;
@@ -637,6 +963,83 @@ class WeatherControlPlugin {
                 this.api.log(`❌ [WEATHER CONTROL] Error in gift handler: ${error.message}`, 'error');
             }
         });
+
+        this.api.registerTikTokEvent('follow', async (data) => {
+            this.applyGamificationEvent('follow', data);
+            await this.triggerConfiguredTikTokEvent('follow', data);
+        });
+
+        this.api.registerTikTokEvent('share', async (data) => {
+            this.applyGamificationEvent('share', data);
+            await this.triggerConfiguredTikTokEvent('share', data);
+        });
+
+        this.api.registerTikTokEvent('subscribe', async (data) => {
+            this.applyGamificationEvent('subscribe', data);
+            await this.triggerConfiguredTikTokEvent('subscribe', data);
+        });
+
+        this.api.registerTikTokEvent('chat', async (data) => {
+            this.applyGamificationEvent('chat', data);
+        });
+
+        this.api.registerTikTokEvent('like', async (data) => {
+            try {
+                this.applyGamificationEvent('like', {
+                    ...data,
+                    amount: Math.max(1, parseInt(data.likeCount || data.likes || data.count || 1) || 1)
+                });
+                const trigger = this.config.triggerEvents?.likeMilestone;
+                if (!trigger?.enabled) return;
+
+                const increment = parseInt(data.likeCount || data.likes || data.count || 1) || 1;
+                this.likeMilestoneState.totalLikes += increment;
+                const interval = Math.max(1, parseInt(trigger.interval) || 1000);
+                const milestone = Math.floor(this.likeMilestoneState.totalLikes / interval) * interval;
+
+                if (milestone > this.likeMilestoneState.lastMilestone) {
+                    this.likeMilestoneState.lastMilestone = milestone;
+                    await this.triggerConfiguredTikTokEvent('likeMilestone', {
+                        ...data,
+                        milestone,
+                        totalLikes: this.likeMilestoneState.totalLikes
+                    });
+                }
+            } catch (error) {
+                this.api.log(`[WEATHER CONTROL] Error in like milestone handler: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    async triggerConfiguredTikTokEvent(triggerName, data = {}) {
+        try {
+            if (!this.config.enabled) return;
+            const trigger = this.config.triggerEvents?.[triggerName];
+            if (!trigger?.enabled) return;
+
+            const action = trigger.action;
+            if (!this.supportedEffects.includes(action) || !this.config.effects[action]?.enabled) {
+                return;
+            }
+
+            const event = this.createWeatherEvent({
+                action,
+                intensity: trigger.intensity,
+                duration: trigger.duration,
+                permanent: trigger.permanent === true,
+                username: data.username || data.nickname || triggerName,
+                meta: {
+                    triggeredBy: triggerName,
+                    milestone: data.milestone,
+                    totalLikes: data.totalLikes
+                }
+            });
+
+            this.api.log(`[WEATHER CONTROL] ${triggerName} triggered ${action}`, 'info');
+            this.emitWeatherEvent(event);
+        } catch (error) {
+            this.api.log(`[WEATHER CONTROL] Error triggering ${triggerName}: ${error.message}`, 'error');
+        }
     }
 
     registerFlowActions() {
@@ -704,6 +1107,22 @@ class WeatherControlPlugin {
                         this.api.log('🔄 [WEATHER CONTROL] Client requested permanent effects', 'debug');
                         this.syncPermanentEffects(socket);
                     });
+                    socket.on('weather:overlay-state', (payload = {}) => {
+                        this.api.emit('weather:active-state', {
+                            activeEffects: Array.isArray(payload.activeEffects)
+                                ? payload.activeEffects.slice(0, 20)
+                                : [],
+                            fps: payload.fps,
+                            particles: payload.particles,
+                            quality: payload.quality,
+                            gamification: this.getGamificationSnapshot(),
+                            timestamp: Date.now()
+                        });
+                    });
+                    socket.on('weather:request-gamification-state', () => {
+                        socket.emit('weather:gamification-state', this.getGamificationSnapshot());
+                    });
+                    socket.emit('weather:gamification-state', this.getGamificationSnapshot());
                 } catch (error) {
                     this.api.log(`❌ [WEATHER CONTROL] Error syncing permanent effects: ${error.message}`, 'error');
                 }
@@ -733,7 +1152,8 @@ class WeatherControlPlugin {
             return;
         }
 
-        // Global sync: stop outdated effects, start new ones
+        // Global sync: stop outdated effects and re-emit desired permanent effects.
+        // Re-emitting existing effects lets overlays apply updated intensity/config.
         this.activePermanentEffects.forEach((effect) => {
             if (!desiredEffects.has(effect)) {
                 this.api.emit('weather:stop-effect', { action: effect, meta: { triggeredBy: 'permanent-toggle' } });
@@ -742,10 +1162,8 @@ class WeatherControlPlugin {
         });
 
         desiredEffects.forEach((effect) => {
-            if (!this.activePermanentEffects.has(effect)) {
-                this.emitPermanentEffect(effect);
-                this.api.log(`♾️ [WEATHER CONTROL] Activated permanent effect: ${effect}`, 'info');
-            }
+            this.emitPermanentEffect(effect);
+            this.api.log(`♾️ [WEATHER CONTROL] Synced permanent effect: ${effect}`, 'info');
         });
 
         // Update activePermanentEffects in-place to preserve references
@@ -825,11 +1243,11 @@ class WeatherControlPlugin {
                 {
                     name: cmdNames.weatherstop,
                     description: 'Stop all active weather effects',
-                    syntax: `/${cmdNames.weatherstop}`,
+                    syntax: `/${cmdNames.weatherstop} [effect]`,
                     permission: 'subscriber', // Only subscribers and above can stop
                     enabled: true,
                     minArgs: 0,
-                    maxArgs: 0,
+                    maxArgs: 1,
                     category: 'Weather',
                     handler: async (args, context) => await this.handleWeatherStopCommand(args, context)
                 }
@@ -1028,6 +1446,29 @@ class WeatherControlPlugin {
      */
     async handleWeatherStopCommand(args, context) {
         try {
+            const effectName = args[0] ? args[0].toLowerCase() : null;
+            if (effectName) {
+                if (!this.supportedEffects.includes(effectName)) {
+                    return {
+                        success: false,
+                        error: `Unknown weather effect: ${effectName}. Use /weatherlist to see available effects.`,
+                        displayOverlay: true
+                    };
+                }
+
+                this.api.emit('weather:stop-effect', {
+                    action: effectName,
+                    username: context.username,
+                    timestamp: Date.now()
+                });
+
+                return {
+                    success: true,
+                    message: `${effectName} weather effect stopped`,
+                    displayOverlay: true
+                };
+            }
+
             // Emit stop event to overlay
             this.api.emit('weather:stop', {
                 username: context.username,
@@ -1175,6 +1616,637 @@ class WeatherControlPlugin {
         return { allowed: true };
     }
 
+    getDefaultGamificationConfig() {
+        return {
+            enabled: true,
+            communityMeter: {
+                enabled: true,
+                max: 100,
+                carryOver: true,
+                showOnOverlay: true,
+                rewardBoostMultiplier: 1.2,
+                contributionWeights: {
+                    chat: 1,
+                    like: 0.02,
+                    follow: 15,
+                    share: 10,
+                    subscribe: 20,
+                    gift: 0.05,
+                    weatherReward: 5
+                }
+            },
+            quests: {
+                enabled: true,
+                oneActivePerStream: true,
+                rotateOnCompletion: true,
+                rotationIntervalMs: 900000,
+                streakWindowMs: 60000,
+                showOnOverlay: true,
+                pool: [
+                    {
+                        id: 'community-chat',
+                        title: 'Community Voice',
+                        type: 'chat_count',
+                        target: 10,
+                        eventTypes: ['chat'],
+                        reward: { action: 'rain', intensity: 0.35, duration: 8000 }
+                    },
+                    {
+                        id: 'supporter-surge',
+                        title: 'Supporter Surge',
+                        type: 'gift_count',
+                        target: 3,
+                        eventTypes: ['gift'],
+                        reward: { action: 'storm', intensity: 0.7, duration: 10000 }
+                    },
+                    {
+                        id: 'hot-streak',
+                        title: 'Hot Streak',
+                        type: 'streak_chain',
+                        target: 5,
+                        eventTypes: ['chat', 'like', 'gift', 'follow', 'share', 'subscribe'],
+                        reward: { action: 'thunder', intensity: 0.9, duration: 5000 }
+                    },
+                    {
+                        id: 'meter-surge',
+                        title: 'Meter Surge',
+                        type: 'meter_fill',
+                        target: 100,
+                        eventTypes: ['meter'],
+                        reward: { action: 'meteors', intensity: 0.55, duration: 9000 }
+                    }
+                ]
+            },
+            streaks: {
+                enabled: true,
+                windowMs: 60000,
+                resetAfterMs: 180000,
+                bonusThreshold: 5,
+                bonusMultiplier: 1.1,
+                showOnOverlay: true
+            },
+            rewards: {
+                enabled: true,
+                cooldownMs: 30000,
+                carryOver: true,
+                historyLimit: 10,
+                thresholds: [
+                    { meter: 25, action: 'rain', intensity: 0.35, duration: 8000, label: 'Sprinkle' },
+                    { meter: 50, action: 'snow', intensity: 0.45, duration: 9000, label: 'Blizzard' },
+                    { meter: 75, action: 'storm', intensity: 0.75, duration: 10000, label: 'Squall' },
+                    { meter: 100, action: 'thunder', intensity: 0.95, duration: 5000, label: 'Tempest' }
+                ]
+            },
+            overlay: {
+                enabled: true,
+                showMeter: true,
+                showQuest: true,
+                showStreak: true,
+                showRewardFeed: true
+            },
+            state: this.createDefaultGamificationRuntimeState()
+        };
+    }
+
+    createDefaultGamificationRuntimeState() {
+        return {
+            communityMeter: {
+                current: 0,
+                total: 0,
+                lastUpdatedAt: 0,
+                lastRewardAt: 0
+            },
+            streaks: {
+                current: 0,
+                best: 0,
+                lastEventAt: 0,
+                lastContributor: null,
+                lastResetAt: 0
+            },
+            quest: {
+                active: null,
+                rotationIndex: 0,
+                completedCount: 0,
+                lastCompletedAt: 0
+            },
+            rewards: {
+                history: [],
+                firedThresholds: []
+            },
+            lastBroadcastAt: 0
+        };
+    }
+
+    normalizeQuestDefinition(quest, index = 0) {
+        const normalized = {
+            id: String(quest.id || `quest-${index + 1}`).replace(/<[^>]*>/g, '').substring(0, 80),
+            title: String(quest.title || `Quest ${index + 1}`).replace(/<[^>]*>/g, '').substring(0, 80),
+            type: String(quest.type || 'chat_count'),
+            target: Math.max(1, parseInt(quest.target) || 1),
+            eventTypes: Array.isArray(quest.eventTypes) ? quest.eventTypes.slice(0, 10) : [],
+            reward: {
+                action: this.supportedEffects.includes(quest.reward?.action) ? quest.reward.action : 'rain',
+                intensity: this.validateIntensity(quest.reward?.intensity, quest.reward?.action || 'rain'),
+                duration: this.validateDuration(quest.reward?.duration, quest.reward?.action || 'rain')
+            }
+        };
+
+        if (quest.expiresInMs) {
+            normalized.expiresInMs = Math.max(1000, parseInt(quest.expiresInMs) || 0);
+        }
+
+        return normalized;
+    }
+
+    normalizeGamificationState(state = {}, config = this.config?.gamification || {}) {
+        const defaultState = this.createDefaultGamificationRuntimeState();
+        const mergedState = {
+            ...defaultState,
+            ...state,
+            communityMeter: {
+                ...defaultState.communityMeter,
+                ...(state.communityMeter || {})
+            },
+            streaks: {
+                ...defaultState.streaks,
+                ...(state.streaks || {})
+            },
+            quest: {
+                ...defaultState.quest,
+                ...(state.quest || {})
+            },
+            rewards: {
+                ...defaultState.rewards,
+                ...(state.rewards || {})
+            }
+        };
+
+        mergedState.communityMeter.current = Math.max(0, parseInt(mergedState.communityMeter.current) || 0);
+        mergedState.communityMeter.total = Math.max(0, parseInt(mergedState.communityMeter.total) || 0);
+        mergedState.streaks.current = Math.max(0, parseInt(mergedState.streaks.current) || 0);
+        mergedState.streaks.best = Math.max(0, parseInt(mergedState.streaks.best) || 0);
+        mergedState.quest.rotationIndex = Math.max(0, parseInt(mergedState.quest.rotationIndex) || 0);
+        mergedState.quest.completedCount = Math.max(0, parseInt(mergedState.quest.completedCount) || 0);
+        mergedState.rewards.history = Array.isArray(mergedState.rewards.history)
+            ? mergedState.rewards.history.slice(0, config?.rewards?.historyLimit || 10)
+            : [];
+        mergedState.rewards.firedThresholds = Array.isArray(mergedState.rewards.firedThresholds)
+            ? mergedState.rewards.firedThresholds.map((value) => Math.max(0, parseInt(value) || 0))
+            : [];
+
+        const maxMeter = Math.max(1, parseInt(config?.communityMeter?.max) || 100);
+        mergedState.communityMeter.current = Math.min(maxMeter, mergedState.communityMeter.current);
+
+        return mergedState;
+    }
+
+    mergeGamificationConfig(base = {}, incoming = {}) {
+        const merged = {
+            ...base,
+            ...incoming,
+            communityMeter: {
+                ...(base.communityMeter || {}),
+                ...(incoming.communityMeter || {})
+            },
+            quests: {
+                ...(base.quests || {}),
+                ...(incoming.quests || {})
+            },
+            streaks: {
+                ...(base.streaks || {}),
+                ...(incoming.streaks || {})
+            },
+            rewards: {
+                ...(base.rewards || {}),
+                ...(incoming.rewards || {})
+            },
+            overlay: {
+                ...(base.overlay || {}),
+                ...(incoming.overlay || {})
+            }
+        };
+
+        if (incoming.state) {
+            merged.state = this.normalizeGamificationState(incoming.state, merged);
+        } else if (base.state) {
+            merged.state = this.normalizeGamificationState(base.state, merged);
+        } else {
+            merged.state = this.createDefaultGamificationRuntimeState();
+        }
+
+        merged.rewards.thresholds = Array.isArray(merged.rewards.thresholds)
+            ? merged.rewards.thresholds
+                .filter(Boolean)
+                .map((threshold) => ({
+                    meter: Math.max(0, parseInt(threshold.meter) || 0),
+                    action: this.supportedEffects.includes(threshold.action) ? threshold.action : 'rain',
+                    intensity: this.validateIntensity(threshold.intensity, threshold.action || 'rain'),
+                    duration: this.validateDuration(threshold.duration, threshold.action || 'rain'),
+                    label: String(threshold.label || `${threshold.meter || 0}`).substring(0, 80)
+                }))
+                .sort((a, b) => a.meter - b.meter)
+            : [];
+
+        merged.quests.pool = Array.isArray(merged.quests.pool)
+            ? merged.quests.pool
+                .filter(Boolean)
+                .map((quest, index) => this.normalizeQuestDefinition(quest, index))
+            : [];
+
+        return merged;
+    }
+
+    initializeGamificationState() {
+        const gamificationConfig = this.config?.gamification || this.getDefaultGamificationConfig();
+        const persistedState = gamificationConfig.state || {};
+        this.gamification = this.normalizeGamificationState(persistedState, gamificationConfig);
+        this.config.gamification = {
+            ...gamificationConfig,
+            state: this.serializeGamificationState()
+        };
+        if (gamificationConfig.quests?.enabled !== false && !this.gamification.quest.active) {
+            this.createNextQuest();
+        }
+        return this.gamification;
+    }
+
+    serializeGamificationState() {
+        const historyLimit = Math.max(1, parseInt(this.config?.gamification?.rewards?.historyLimit) || 10);
+        const state = this.normalizeGamificationState(this.gamification, this.config?.gamification || {});
+        return {
+            communityMeter: {
+                ...state.communityMeter
+            },
+            streaks: {
+                ...state.streaks
+            },
+            quest: {
+                ...state.quest
+            },
+            rewards: {
+                history: state.rewards.history.slice(0, historyLimit),
+                firedThresholds: Array.isArray(state.rewards.firedThresholds)
+                    ? state.rewards.firedThresholds.slice(0, 20)
+                    : []
+            },
+            lastBroadcastAt: state.lastBroadcastAt || 0
+        };
+    }
+
+    getGamificationSnapshot() {
+        const config = this.config?.gamification || this.getDefaultGamificationConfig();
+        const state = this.normalizeGamificationState(this.gamification, config);
+        const activeQuest = state.quest.active;
+        const nextThreshold = Array.isArray(config.rewards?.thresholds)
+            ? config.rewards.thresholds.find((threshold) => threshold.meter > state.communityMeter.current) || null
+            : null;
+
+        return {
+            enabled: config.enabled !== false,
+            communityMeter: {
+                enabled: config.communityMeter?.enabled !== false,
+                current: state.communityMeter.current,
+                total: state.communityMeter.total,
+                max: Math.max(1, parseInt(config.communityMeter?.max) || 100),
+                lastUpdatedAt: state.communityMeter.lastUpdatedAt,
+                lastRewardAt: state.communityMeter.lastRewardAt
+            },
+            streaks: {
+                enabled: config.streaks?.enabled !== false,
+                current: state.streaks.current,
+                best: state.streaks.best,
+                windowMs: Math.max(1000, parseInt(config.streaks?.windowMs) || 60000),
+                lastEventAt: state.streaks.lastEventAt
+            },
+            quest: activeQuest,
+            rewards: {
+                nextThreshold,
+                history: state.rewards.history.slice(0, Math.max(1, parseInt(config.rewards?.historyLimit) || 10))
+            },
+            overlay: {
+                enabled: config.overlay?.enabled !== false,
+                showMeter: config.overlay?.showMeter !== false,
+                showQuest: config.overlay?.showQuest !== false,
+                showStreak: config.overlay?.showStreak !== false,
+                showRewardFeed: config.overlay?.showRewardFeed !== false
+            }
+        };
+    }
+
+    scheduleGamificationPersist() {
+        if (this.gamificationPersistTimer) {
+            clearTimeout(this.gamificationPersistTimer);
+        }
+
+        this.gamificationPersistTimer = setTimeout(() => {
+            this.persistGamificationState().catch((error) => {
+                this.api.log(`❌ [WEATHER CONTROL] Error persisting gamification state: ${error.message}`, 'error');
+            });
+        }, 150);
+    }
+
+    async persistGamificationState(force = false) {
+        if (!this.config?.gamification) {
+            return;
+        }
+
+        this.config.gamification.state = this.serializeGamificationState();
+        await this.api.setConfig('weather_config', this.config);
+        if (force) {
+            return;
+        }
+    }
+
+    broadcastGamificationState(reason = 'update', extra = {}) {
+        const payload = {
+            reason,
+            timestamp: Date.now(),
+            gamification: this.getGamificationSnapshot(),
+            ...extra
+        };
+
+        this.api.emit('weather:gamification-state', payload);
+        this.gamification.lastBroadcastAt = payload.timestamp;
+        return payload;
+    }
+
+    resetGamificationProgress(scope = 'all') {
+        if (!this.gamification) {
+            this.gamification = this.createDefaultGamificationRuntimeState();
+        }
+
+        if (scope === 'meter' || scope === 'all') {
+            this.gamification.communityMeter.current = 0;
+            this.gamification.communityMeter.lastRewardAt = 0;
+        }
+        if (scope === 'streak' || scope === 'all') {
+            this.gamification.streaks.current = 0;
+            this.gamification.streaks.lastEventAt = 0;
+            this.gamification.streaks.lastContributor = null;
+            this.gamification.streaks.lastResetAt = Date.now();
+        }
+        if (scope === 'quest' || scope === 'all') {
+            this.gamification.quest.active = null;
+            this.gamification.quest.rotationIndex = 0;
+            this.gamification.quest.completedCount = 0;
+            this.gamification.quest.lastCompletedAt = 0;
+        }
+        if (scope === 'rewards' || scope === 'all') {
+            this.gamification.rewards.history = [];
+            this.gamification.rewards.firedThresholds = [];
+        }
+        this.scheduleGamificationPersist();
+        this.broadcastGamificationState(`reset:${scope}`);
+    }
+
+    getGamificationContributionWeight(eventType, payload = {}) {
+        const config = this.config?.gamification || this.getDefaultGamificationConfig();
+        const weights = config.communityMeter?.contributionWeights || {};
+        const aliasMap = {
+            likeMilestone: 'like'
+        };
+        const normalizedType = aliasMap[eventType] || eventType;
+        const weight = Number(weights[normalizedType]);
+        const fallback = normalizedType === 'gift' ? 0.05 : normalizedType === 'like' ? 0.02 : 1;
+        const baseWeight = Number.isFinite(weight) ? weight : fallback;
+        const amount = Math.max(1, parseFloat(payload.amount || payload.likeCount || payload.likes || payload.count || payload.coins || 1) || 1);
+        const username = String(payload.username || payload.nickname || payload.userName || payload.uniqueId || 'anonymous');
+        let multiplier = 1;
+
+        if (config.communityMeter?.rewardBoostMultiplier && this.config.permissions?.enabled && username) {
+            const hasPermission = payload.permissionGranted === true || payload.permissionGranted === 'true';
+            multiplier = hasPermission ? config.communityMeter.rewardBoostMultiplier : 1;
+        }
+
+        return {
+            normalizedType,
+            amount,
+            weight: baseWeight,
+            multiplier,
+            total: baseWeight * amount * multiplier
+        };
+    }
+
+    createNextQuest() {
+        const config = this.config?.gamification || this.getDefaultGamificationConfig();
+        const pool = Array.isArray(config.quests?.pool) ? config.quests.pool : [];
+        if (pool.length === 0) {
+            this.gamification.quest.active = null;
+            return null;
+        }
+
+        const questIndex = this.gamification.quest.rotationIndex % pool.length;
+        const questDefinition = pool[questIndex];
+        const activeQuest = {
+            ...questDefinition,
+            progress: 0,
+            status: 'active',
+            startedAt: Date.now(),
+            completedAt: null
+        };
+
+        this.gamification.quest.rotationIndex = (questIndex + 1) % pool.length;
+        this.gamification.quest.active = activeQuest;
+        this.scheduleGamificationPersist();
+        this.broadcastGamificationState('quest-created', { quest: activeQuest });
+        return activeQuest;
+    }
+
+    advanceQuestProgress(eventType, payload = {}, contribution = null) {
+        const config = this.config?.gamification || this.getDefaultGamificationConfig();
+        if (!config.enabled || config.quests?.enabled === false) {
+            return null;
+        }
+
+        if (!this.gamification.quest.active) {
+            this.createNextQuest();
+        }
+
+        const quest = this.gamification.quest.active;
+        if (!quest) {
+            return null;
+        }
+
+        const normalizedType = contribution?.normalizedType || eventType;
+        const questMatches = Array.isArray(quest.eventTypes) && (
+            quest.eventTypes.includes(normalizedType) ||
+            quest.eventTypes.includes(eventType)
+        );
+
+        if (quest.type === 'meter_fill') {
+            quest.progress = Math.min(quest.target, this.gamification.communityMeter.current);
+        } else if (quest.type === 'streak_chain') {
+            quest.progress = Math.min(quest.target, this.gamification.streaks.current);
+        } else if (questMatches) {
+            const increment = Math.max(1, Math.round(contribution?.amount || 1));
+            quest.progress = Math.min(quest.target, (quest.progress || 0) + increment);
+        }
+
+        if (quest.progress >= quest.target) {
+            quest.status = 'completed';
+            quest.completedAt = Date.now();
+            this.gamification.quest.completedCount++;
+            this.gamification.quest.lastCompletedAt = quest.completedAt;
+            this.gamification.rewards.history.unshift({
+                type: 'quest-complete',
+                questId: quest.id,
+                title: quest.title,
+                timestamp: quest.completedAt
+            });
+            this.gamification.rewards.history = this.gamification.rewards.history.slice(0, Math.max(1, parseInt(config.rewards?.historyLimit) || 10));
+            this.api.emit('weather:gamification-quest', {
+                reason: 'completed',
+                quest: { ...quest }
+            });
+
+            if (config.quests?.rotateOnCompletion !== false) {
+                setTimeout(() => this.createNextQuest(), 0);
+            }
+            this.scheduleGamificationPersist();
+            this.broadcastGamificationState('quest-completed', { quest: { ...quest } });
+        } else {
+            this.broadcastGamificationState('quest-progress', { quest: { ...quest } });
+        }
+
+        return quest;
+    }
+
+    resolveRewardThreshold(snapshot = null) {
+        const config = this.config?.gamification || this.getDefaultGamificationConfig();
+        if (!config.enabled || config.rewards?.enabled === false) {
+            return [];
+        }
+
+        const meter = snapshot?.meter ?? this.gamification.communityMeter.current;
+        const thresholds = Array.isArray(config.rewards?.thresholds) ? config.rewards.thresholds.slice() : [];
+        const now = Date.now();
+        const rewardsTriggered = [];
+        let meterAfterRewards = meter;
+
+        for (const threshold of thresholds) {
+            const lastReward = this.gamification.rewards.history.find((entry) => entry.threshold === threshold.meter && entry.type === 'reward');
+            const cooldownMs = Math.max(0, parseInt(config.rewards?.cooldownMs) || 0);
+            const onCooldown = lastReward && cooldownMs > 0 && (now - lastReward.timestamp) < cooldownMs;
+            const alreadyFired = Array.isArray(this.gamification.rewards.firedThresholds)
+                && this.gamification.rewards.firedThresholds.includes(threshold.meter);
+            if (meter >= threshold.meter && !onCooldown && !alreadyFired) {
+                const rewardEvent = this.createWeatherEvent({
+                    action: threshold.action,
+                    intensity: threshold.intensity,
+                    duration: threshold.duration,
+                    permanent: false,
+                    username: 'community-meter',
+                    meta: {
+                        triggeredBy: 'gamification-reward',
+                        label: threshold.label,
+                        threshold: threshold.meter
+                    },
+                    options: {
+                        rewardLabel: threshold.label
+                    }
+                });
+
+                this.api.emit('weather:trigger', rewardEvent);
+                rewardsTriggered.push({
+                    threshold: threshold.meter,
+                    action: threshold.action,
+                    event: rewardEvent
+                });
+
+                this.gamification.communityMeter.lastRewardAt = now;
+                this.gamification.rewards.history.unshift({
+                    type: 'reward',
+                    threshold: threshold.meter,
+                    action: threshold.action,
+                    timestamp: now
+                });
+                this.gamification.rewards.history = this.gamification.rewards.history.slice(0, Math.max(1, parseInt(config.rewards?.historyLimit) || 10));
+                this.gamification.rewards.firedThresholds = Array.from(new Set([
+                    ...(this.gamification.rewards.firedThresholds || []),
+                    threshold.meter
+                ]));
+
+                if (config.rewards?.carryOver === false) {
+                    meterAfterRewards = 0;
+                }
+            }
+        }
+
+        if (rewardsTriggered.length > 0) {
+            this.gamification.communityMeter.current = Math.max(0, Math.min(
+                Math.max(1, parseInt(config.communityMeter?.max) || 100),
+                meterAfterRewards
+            ));
+            this.scheduleGamificationPersist();
+            this.broadcastGamificationState('reward-triggered', {
+                rewardsTriggered
+            });
+        }
+
+        return rewardsTriggered;
+    }
+
+    applyGamificationEvent(eventType, payload = {}) {
+        const config = this.config?.gamification || this.getDefaultGamificationConfig();
+        if (!config.enabled) {
+            return null;
+        }
+
+        const contribution = this.getGamificationContributionWeight(eventType, payload);
+        const normalizedType = contribution.normalizedType;
+        const now = Date.now();
+
+        if (config.streaks?.enabled !== false) {
+            const windowMs = Math.max(1000, parseInt(config.streaks?.windowMs) || 60000);
+            const lastEventAt = this.gamification.streaks.lastEventAt || 0;
+            if (lastEventAt && (now - lastEventAt) > windowMs) {
+                this.gamification.streaks.current = 0;
+                this.gamification.streaks.lastContributor = null;
+            }
+            this.gamification.streaks.current += 1;
+            this.gamification.streaks.best = Math.max(this.gamification.streaks.best, this.gamification.streaks.current);
+            this.gamification.streaks.lastEventAt = now;
+            this.gamification.streaks.lastContributor = String(payload.username || payload.nickname || payload.userName || 'anonymous');
+        }
+
+        if (config.communityMeter?.enabled !== false) {
+            const boost = this.gamification.streaks.current >= Math.max(1, parseInt(config.streaks?.bonusThreshold) || 5)
+                ? Math.max(1, parseFloat(config.streaks?.bonusMultiplier) || 1)
+                : 1;
+            const meterDelta = Math.max(0, Math.round(contribution.total * boost));
+            const meterMax = Math.max(1, parseInt(config.communityMeter?.max) || 100);
+            this.gamification.communityMeter.current = Math.min(
+                meterMax,
+                this.gamification.communityMeter.current + meterDelta
+            );
+            this.gamification.communityMeter.total += meterDelta;
+            this.gamification.communityMeter.lastUpdatedAt = now;
+        }
+
+        const quest = this.advanceQuestProgress(normalizedType, payload, contribution);
+        const rewardsTriggered = this.resolveRewardThreshold({
+            meter: this.gamification.communityMeter.current
+        });
+
+        this.scheduleGamificationPersist();
+        this.broadcastGamificationState('event-applied', {
+            eventType,
+            normalizedType,
+            contribution,
+            quest,
+            rewardsTriggered
+        });
+
+        return {
+            eventType,
+            normalizedType,
+            contribution,
+            quest,
+            rewardsTriggered,
+            snapshot: this.getGamificationSnapshot()
+        };
+    }
+
     /**
      * Sanitize meta object to prevent XSS
      */
@@ -1214,6 +2286,10 @@ class WeatherControlPlugin {
         
         // Clear rate limit cache
         this.userRateLimit.clear();
+        if (this.gamificationPersistTimer) {
+            clearTimeout(this.gamificationPersistTimer);
+            this.gamificationPersistTimer = null;
+        }
         
         this.api.log('✅ [WEATHER CONTROL] Weather Control Plugin destroyed', 'info');
     }

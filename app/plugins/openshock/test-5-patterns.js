@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file test-5-patterns.js - Test 5 patterns with OpenShock devices
  * @description Comprehensive test of pattern system using real API
  */
@@ -6,7 +6,7 @@
 const https = require('https');
 
 // Configuration
-const API_KEY = '6PP4UFqvQg1sWEyWKTD30dvbBMLfwtaW5sPwfopq8HKBSNIQYxdabBV0fANe623m';
+const API_KEY = process.env.OPENSHOCK_API_KEY;
 const BASE_URL = 'api.openshock.app';
 
 // Load Pattern Engine
@@ -31,6 +31,9 @@ function log(message, color = 'reset') {
 // OpenShock API Client
 class OpenShockClient {
     constructor(apiKey) {
+        if (!apiKey) {
+            throw new Error('Set OPENSHOCK_API_KEY before running this manual test.');
+        }
         this.apiKey = apiKey;
     }
 
@@ -42,7 +45,7 @@ class OpenShockClient {
                 method: 'GET',
                 headers: {
                     'accept': 'application/json',
-                    'OpenShockToken': this.apiKey
+                    'Open-Shock-Token': this.apiKey
                 }
             };
 
@@ -85,7 +88,7 @@ class OpenShockClient {
                     'accept': 'application/json',
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(payload),
-                    'OpenShockToken': this.apiKey
+                    'Open-Shock-Token': this.apiKey
                 }
             };
 

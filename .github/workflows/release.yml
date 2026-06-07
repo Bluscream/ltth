@@ -8,52 +8,142 @@ on:
 permissions:
   contents: write
 
+env:
+  NODE_RUNTIME_VERSION: 22.14.0
+
 jobs:
-  release:
+  build_windows_release_assets:
+    name: Build Windows bootstrapper + payload
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.10'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Windows launcher
+        working-directory: ./build-src
+        shell: bash
+        run: |
+          GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui -s -w" -o ../launcher.exe launcher-gui.go sysproc_windows.go
+
+      - name: Build Windows thin bootstrapper
+        working-directory: ./build-src
+        shell: bash
+        run: |
+          GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui -s -w" -o ../ltth-bootstrapper.exe bootstrapper.go
+
+      - name: Import Windows signing certificate
+        if: ${{ secrets.WINDOWS_SIGN_CERT_BASE64 != '' && secrets.WINDOWS_SIGN_CERT_PASSWORD != '' }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $certPath = Join-Path $env:RUNNER_TEMP 'ltth-signing-cert.pfx'
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String('${{ secrets.WINDOWS_SIGN_CERT_BASE64 }}'))
+          Import-PfxCertificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString '${{ secrets.WINDOWS_SIGN_CERT_PASSWORD }}' -AsPlainText -Force) | Out-Null
+
+      - name: Sign Windows launcher artifacts
+        if: ${{ secrets.WINDOWS_SIGN_CERT_BASE64 != '' && secrets.WINDOWS_SIGN_CERT_PASSWORD != '' }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) {
+            throw 'signtool.exe not found on runner.'
+          }
+          & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /a launcher.exe
+          & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /a ltth-bootstrapper.exe
+
+      - name: Install production app dependencies
+        working-directory: ./app
+        shell: bash
+        run: |
+          npm ci
+          npm run build:css
+          npm prune --omit=dev
+
+      - name: Assemble Windows payload
+        shell: powershell
+        run: |
+          $signedArgs = @()
+          if ('${{ secrets.WINDOWS_SIGN_CERT_BASE64 }}' -ne '' -and '${{ secrets.WINDOWS_SIGN_CERT_PASSWORD }}' -ne '') {
+            $signedArgs += '-PayloadSigned'
+          }
+          .\build-src\scripts\package-windows-bootstrap-release.ps1 -Version '${{ steps.version.outputs.version }}' -Repository '${{ github.repository }}' -NodeRuntimeVersion '${{ env.NODE_RUNTIME_VERSION }}' @signedArgs
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            dist/ltth-bootstrapper.exe
+            dist/ltth-payload-windows-amd64-*.zip
+            dist/stable.json
+
+  publish_release:
+    name: Publish GitHub release
     runs-on: ubuntu-latest
-    
+    needs: build_windows_release_assets
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Extract version from tag
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
-      
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Extract changelog for this version
-        id: changelog
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          
-          # Extract changelog section between [VERSION] and next version header
           CHANGELOG=$(awk "/## \[$VERSION\]/,/## \[/{if(/## \[/ && !/## \[$VERSION\]/)exit;print}" CHANGELOG.md | sed '1d')
-          
-          # If changelog is empty, use generic message
           if [ -z "$CHANGELOG" ]; then
             CHANGELOG="See [CHANGELOG.md](CHANGELOG.md) for details."
           fi
-          
-          # Save to file for multiline support
           echo "$CHANGELOG" > release-notes.md
-      
+
+      - name: Download built assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
           name: Release v${{ steps.version.outputs.VERSION }}
           body_path: release-notes.md
+          files: |
+            dist/ltth-bootstrapper.exe
+            dist/ltth-payload-windows-amd64-*.zip
+            dist/stable.json
           draft: false
           prerelease: false
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Release created successfully
         run: |
-          echo "✅ GitHub Release v${{ steps.version.outputs.VERSION }} created!"
-          echo "📦 View at: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.VERSION }}"
+          echo "Release v${{ steps.version.outputs.VERSION }} published with bootstrapper, Windows payload and stable manifest."

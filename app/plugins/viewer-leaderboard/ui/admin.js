@@ -38,23 +38,50 @@ async function loadLeaderboard() {
     data.forEach((viewer, index) => {
       const xpValue = days ? viewer.xp_period : viewer.xp;
       const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${index + 1}</td>
-        <td style="color: ${viewer.name_color || '#fff'}">${viewer.username}</td>
-        <td><span class="badge level-badge">Level ${viewer.level}</span></td>
-        <td>${viewer.title || '-'}</td>
-        <td>${xpValue.toLocaleString()} XP</td>
-        <td>
-          <div class="xp-bar-mini">
-            <div class="xp-bar-fill" style="width: 75%"></div>
-          </div>
-        </td>
-        <td>
-          <button class="btn btn-sm btn-primary action-btn" data-action="viewDetails" data-username="${viewer.username}">
-            Details
-          </button>
-        </td>
-      `;
+
+      const rankCell = document.createElement('td');
+      rankCell.textContent = String(index + 1);
+      row.appendChild(rankCell);
+
+      const nameCell = document.createElement('td');
+      nameCell.style.color = viewer.name_color || '#fff';
+      nameCell.textContent = viewer.username || '';
+      row.appendChild(nameCell);
+
+      const levelCell = document.createElement('td');
+      const levelBadge = document.createElement('span');
+      levelBadge.className = 'badge level-badge';
+      levelBadge.textContent = `Level ${viewer.level}`;
+      levelCell.appendChild(levelBadge);
+      row.appendChild(levelCell);
+
+      const titleCell = document.createElement('td');
+      titleCell.textContent = viewer.title || '-';
+      row.appendChild(titleCell);
+
+      const xpCell = document.createElement('td');
+      xpCell.textContent = `${Number(xpValue || 0).toLocaleString()} XP`;
+      row.appendChild(xpCell);
+
+      const barCell = document.createElement('td');
+      const barOuter = document.createElement('div');
+      barOuter.className = 'xp-bar-mini';
+      const barFill = document.createElement('div');
+      barFill.className = 'xp-bar-fill';
+      barFill.style.width = '75%';
+      barOuter.appendChild(barFill);
+      barCell.appendChild(barOuter);
+      row.appendChild(barCell);
+
+      const actionCell = document.createElement('td');
+      const button = document.createElement('button');
+      button.className = 'btn btn-sm btn-primary action-btn';
+      button.dataset.action = 'viewDetails';
+      button.dataset.username = viewer.username || '';
+      button.textContent = 'Details';
+      actionCell.appendChild(button);
+      row.appendChild(actionCell);
+
       tbody.appendChild(row);
     });
     
@@ -574,7 +601,11 @@ document.getElementById('importDataBtn').addEventListener('click', async () => {
     }
   } catch (error) {
     console.error('Error importing data:', error);
-    statusEl.innerHTML = '<div class="alert alert-danger">Error importing data: ' + error.message + '</div>';
+    statusEl.innerHTML = '';
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-danger';
+    alert.textContent = `Error importing data: ${error.message || 'Unknown error'}`;
+    statusEl.appendChild(alert);
   }
 });
 

@@ -247,4 +247,56 @@ describe('QueueManager - Command Type Case Sensitivity', () => {
       expect(mockLogger.error).toHaveBeenCalled();
     });
   });
+
+  describe('Safety accounting integration', () => {
+    test('passes sourceData into safety checks and registers successful commands', async () => {
+      const command = {
+        type: 'vibrate',
+        deviceId: 'test-device',
+        intensity: 50,
+        duration: 300
+      };
+      const sourceData = { username: 'viewer', isSubscriber: true };
+      mockSafetyManager.registerCommand = jest.fn();
+
+      const processed = new Promise(resolve => queueManager.once('item-processed', resolve));
+
+      await queueManager.enqueue(command, 'viewer-1', 'gift', sourceData, 5);
+      await processed;
+
+      expect(mockSafetyManager.checkCommand).toHaveBeenCalledWith(
+        command,
+        'viewer-1',
+        'test-device',
+        sourceData
+      );
+      expect(mockSafetyManager.registerCommand).toHaveBeenCalledWith(
+        'test-device',
+        'viewer-1',
+        expect.objectContaining(command)
+      );
+    });
+
+    test('does not retry commands blocked by safety rules', async () => {
+      mockSafetyManager.checkCommand = jest.fn(() => ({
+        allowed: false,
+        reason: 'Default cooldown active'
+      }));
+      queueManager.retryDelay = 0;
+
+      const command = {
+        type: 'vibrate',
+        deviceId: 'test-device',
+        intensity: 50,
+        duration: 1
+      };
+      const processed = new Promise(resolve => queueManager.once('item-processed', resolve));
+
+      await queueManager.enqueue(command, 'viewer-1', 'gift', {}, 5);
+      await processed;
+
+      expect(mockSafetyManager.checkCommand).toHaveBeenCalledTimes(1);
+      expect(mockOpenShockClient.sendVibrate).not.toHaveBeenCalled();
+    });
+  });
 });

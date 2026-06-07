@@ -435,8 +435,8 @@ class PlinkoGame {
    * @returns {Object} { success: boolean, ballId?: string, error?: string }
    */
   async spawnBall(username, nickname, profilePictureUrl, betAmount, ballType = 'standard', options = {}) {
-    const { skipValidation = false, skipDeduction = false, testMode = false, batchId = null, preferredColor = null } = options;
-    const config = this.getConfig();
+    const { skipValidation = false, skipDeduction = false, testMode = false, batchId = null, preferredColor = null, boardId = null } = options;
+    const config = boardId !== null ? this.getConfig(boardId) : this.getConfig();
     const isTest = testMode || config.physicsSettings.testModeEnabled;
 
     if (!skipValidation && !isTest) {
@@ -465,6 +465,7 @@ class PlinkoGame {
       ballType,
       timestamp: Date.now(),
       batchId,
+      boardId,
       isTest // Store test mode flag for proper handling in handleBallLanded
     });
 
@@ -488,6 +489,8 @@ class PlinkoGame {
       timestamp: Date.now(),
       color,
       batchId,
+      boardId,
+      boardName: config.name,
       testMode: isTest
     });
 
@@ -500,7 +503,8 @@ class PlinkoGame {
    * Spawn multiple balls at once (shared validation)
    */
   async spawnBalls(username, nickname, profilePictureUrl, betAmount, count = 1, options = {}) {
-    const config = this.getConfig();
+    const boardId = options.boardId ?? null;
+    const config = boardId !== null ? this.getConfig(boardId) : this.getConfig();
     const isTest = options.testMode || config.physicsSettings.testModeEnabled;
     const limitedCount = Math.max(1, Math.min(count, config.physicsSettings.maxSimultaneousBalls || 5));
     const totalBet = betAmount * limitedCount;
@@ -530,7 +534,8 @@ class PlinkoGame {
           betAmount,
           count: limitedCount,
           batchId,
-          preferredColor: options.preferredColor || null
+          preferredColor: options.preferredColor || null,
+          boardId
         };
         
         this.logger.info(`🎰 Plinko queued via unified queue for ${username} (batch ${batchId})`);
@@ -545,11 +550,15 @@ class PlinkoGame {
           betAmount,
           count: limitedCount,
           batchId,
-          preferredColor: options.preferredColor || null
+          preferredColor: options.preferredColor || null,
+          boardId
         });
         this.logger.info(`🎰 Plinko queued for ${username} (batch ${batchId}, position ${this.plinkoQueue.length})`);
         this.io.emit('plinko:queued', { position: this.plinkoQueue.length, username, batchId });
-        setTimeout(() => this.processPlinkoQueue(), 500);
+        const queueTimer = setTimeout(() => this.processPlinkoQueue(), 500);
+        if (typeof queueTimer.unref === 'function') {
+          queueTimer.unref();
+        }
         return { success: true, queued: true, position: this.plinkoQueue.length };
       }
     }
@@ -573,7 +582,8 @@ class PlinkoGame {
         totalBet,
         totalWinnings: 0,
         net: -totalBet,
-        slots: []
+        slots: [],
+        boardId
       });
     }
 
@@ -590,7 +600,8 @@ class PlinkoGame {
           skipDeduction: true,
           testMode: isTest,
           batchId,
-          preferredColor: options.preferredColor
+          preferredColor: options.preferredColor,
+          boardId
         }
       );
       if (result.success && result.ballId) {
@@ -632,6 +643,7 @@ class PlinkoGame {
       bet: betAmount,
       ballType: 'standard',
       timestamp: Date.now(),
+      boardId,
       isTest: true // <-- Flag for test mode
     });
 
@@ -649,6 +661,8 @@ class PlinkoGame {
       globalMultiplier: 1.0,
       timestamp: Date.now(),
       color,
+      boardId,
+      boardName: config.name,
       isTest: true // <-- Flag for overlay (optional tracking)
     });
 
@@ -671,7 +685,9 @@ class PlinkoGame {
     }
 
     // Get configuration to check test mode
-    const config = this.getConfig();
+    const config = ballData.boardId !== null && ballData.boardId !== undefined
+      ? this.getConfig(ballData.boardId)
+      : this.getConfig();
     const isTestMode = config.physicsSettings.testModeEnabled;
 
     // Anti-cheat: Validate flight time (skip in test mode)
@@ -744,21 +760,29 @@ class PlinkoGame {
 
     // Record transaction (separate tables for test vs regular)
     if (isTestBall) {
-      this.db.recordPlinkoTestTransaction(
-        ballData.username,
-        ballData.bet,
-        multiplier,
-        netProfit,
-        slotIndex
-      );
+      if (typeof this.db.recordPlinkoTestTransaction === 'function') {
+        this.db.recordPlinkoTestTransaction(
+          ballData.username,
+          ballData.bet,
+          multiplier,
+          netProfit,
+          slotIndex
+        );
+      } else {
+        this.logger.warn('[PLINKO] Test transaction recording unavailable; skipping test-mode history entry');
+      }
     } else {
-      this.db.recordPlinkoTransaction(
-        ballData.username,
-        ballData.bet,
-        multiplier,
-        netProfit,
-        slotIndex
-      );
+      if (typeof this.db.recordPlinkoTransaction === 'function') {
+        this.db.recordPlinkoTransaction(
+          ballData.username,
+          ballData.bet,
+          multiplier,
+          netProfit,
+          slotIndex
+        );
+      } else {
+        this.logger.warn('[PLINKO] Transaction recording unavailable; skipping history entry');
+      }
     }
 
     // Heatmap tracking
@@ -785,7 +809,8 @@ class PlinkoGame {
           totalBet: tracker.totalBet,
           totalWinnings: tracker.totalWinnings,
           net: tracker.net,
-          slots: tracker.slots
+          slots: tracker.slots,
+          boardId: tracker.boardId
         });
         
         // Notify unified queue that batch is complete
@@ -798,9 +823,12 @@ class PlinkoGame {
     } else if (!ballData.batchId) {
       // Single ball drop completed - notify unified queue
       if (this.unifiedQueue) {
-        setTimeout(() => {
+        const completeTimer = setTimeout(() => {
           this.unifiedQueue.completeProcessing();
         }, 1000);
+        if (typeof completeTimer.unref === 'function') {
+          completeTimer.unref();
+        }
       }
     }
 
@@ -813,7 +841,8 @@ class PlinkoGame {
       slotIndex,
       multiplier,
       winnings: profit,
-      netProfit
+      netProfit,
+      boardId: ballData.boardId
     });
 
     this.logger.info(
@@ -823,7 +852,10 @@ class PlinkoGame {
 
     // Try processing queued drops after each landing (legacy mode only)
     if (!this.unifiedQueue) {
-      setTimeout(() => this.processPlinkoQueue(), 400);
+      const queueTimer = setTimeout(() => this.processPlinkoQueue(), 400);
+      if (typeof queueTimer.unref === 'function') {
+        queueTimer.unref();
+      }
     }
 
     return {
@@ -832,7 +864,8 @@ class PlinkoGame {
       bet: ballData.bet,
       multiplier,
       winnings: profit,
-      netProfit
+      netProfit,
+      boardId: ballData.boardId
     };
   }
 
@@ -1126,6 +1159,9 @@ class PlinkoGame {
     this.cleanupTimer = setInterval(() => {
       this.cleanupOldBalls();
     }, CLEANUP_INTERVAL_MS);
+    if (typeof this.cleanupTimer.unref === 'function') {
+      this.cleanupTimer.unref();
+    }
   }
 
   /**

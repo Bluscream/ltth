@@ -42,6 +42,159 @@ const resolutionPresets = {
     '4k-portrait': { width: 2160, height: 3840 }
 };
 
+const visualModePresets = {
+    premium_stage: {
+        effect: 'bounce',
+        color_mode: 'cool',
+        color_intensity: 0.45,
+        rainbow_enabled: false,
+        rainbow_speed: 1.0,
+        pixel_enabled: false,
+        pixel_size: 4,
+        enable_glow: true,
+        enable_particles: true,
+        enable_depth: true,
+        physics_gravity_y: 0.88,
+        physics_air: 0.028,
+        physics_friction: 0.11,
+        physics_restitution: 0.62,
+        bounce_height: 0.62,
+        bounce_damping: 0.15,
+        emoji_min_size_px: 38,
+        emoji_max_size_px: 80,
+        emoji_rotation_speed: 0.035,
+        emoji_lifetime_ms: 7600,
+        emoji_fade_duration_ms: 1100,
+        max_emojis_on_screen: 170,
+        rate_limit_enabled: true,
+        rate_limit_emojis_per_second: 26,
+        like_count_divisor: 22,
+        like_min_emojis: 1,
+        like_max_emojis: 10,
+        gift_base_emojis: 5,
+        gift_coin_multiplier: 0.09,
+        gift_max_emojis: 42,
+        heart_balloon_like_divisor: 2,
+        heart_balloon_min_hearts: 1,
+        heart_balloon_max_hearts: 16,
+        target_fps: 60,
+        fps_optimization_enabled: true,
+        fps_sensitivity: 0.75,
+        superfan_burst_intensity: 3.8
+    },
+    pupcid_balanced: {
+        effect: 'bounce',
+        color_mode: 'cool',
+        color_intensity: 0.35,
+        rainbow_enabled: false,
+        rainbow_speed: 1.0,
+        pixel_enabled: false,
+        pixel_size: 4,
+        enable_glow: true,
+        enable_particles: true,
+        enable_depth: true,
+        physics_gravity_y: 0.9,
+        physics_air: 0.03,
+        physics_friction: 0.12,
+        physics_restitution: 0.55,
+        bounce_height: 0.55,
+        bounce_damping: 0.18,
+        emoji_min_size_px: 36,
+        emoji_max_size_px: 72,
+        emoji_rotation_speed: 0.04,
+        emoji_lifetime_ms: 7000,
+        emoji_fade_duration_ms: 900,
+        max_emojis_on_screen: 160,
+        rate_limit_enabled: true,
+        rate_limit_emojis_per_second: 24,
+        like_count_divisor: 25,
+        like_min_emojis: 1,
+        like_max_emojis: 8,
+        gift_base_emojis: 4,
+        gift_coin_multiplier: 0.08,
+        gift_max_emojis: 36,
+        heart_balloon_like_divisor: 2,
+        heart_balloon_min_hearts: 1,
+        heart_balloon_max_hearts: 16,
+        target_fps: 60,
+        fps_optimization_enabled: true,
+        fps_sensitivity: 0.8
+    },
+    glow_burst: {
+        effect: 'bounce',
+        color_mode: 'neon',
+        color_intensity: 0.65,
+        rainbow_enabled: false,
+        pixel_enabled: false,
+        enable_glow: true,
+        enable_particles: true,
+        enable_depth: true,
+        emoji_min_size_px: 42,
+        emoji_max_size_px: 86,
+        max_emojis_on_screen: 180,
+        rate_limit_enabled: true,
+        rate_limit_emojis_per_second: 28,
+        gift_base_emojis: 5,
+        gift_coin_multiplier: 0.09,
+        gift_max_emojis: 42,
+        superfan_burst_intensity: 3.5
+    },
+    rainbow_live: {
+        effect: 'bubble',
+        color_mode: 'off',
+        color_intensity: 0.5,
+        rainbow_enabled: true,
+        rainbow_speed: 1.3,
+        pixel_enabled: false,
+        enable_glow: true,
+        enable_particles: true,
+        enable_depth: true,
+        emoji_min_size_px: 36,
+        emoji_max_size_px: 76,
+        max_emojis_on_screen: 150,
+        rate_limit_enabled: true,
+        rate_limit_emojis_per_second: 22
+    },
+    retro_pixel: {
+        effect: 'bubble',
+        color_mode: 'warm',
+        color_intensity: 0.4,
+        rainbow_enabled: false,
+        pixel_enabled: true,
+        pixel_size: 5,
+        enable_glow: false,
+        enable_particles: false,
+        enable_depth: false,
+        emoji_min_size_px: 34,
+        emoji_max_size_px: 68,
+        emoji_rotation_speed: 0.02,
+        max_emojis_on_screen: 130,
+        rate_limit_enabled: true,
+        rate_limit_emojis_per_second: 20
+    }
+};
+
+function setControlValue(id, value) {
+    const element = document.getElementById(id);
+    if (!element) return;
+
+    if (element.type === 'checkbox') {
+        element.checked = Boolean(value);
+    } else {
+        element.value = value;
+        const valueDisplay = document.getElementById(id + '_value');
+        if (valueDisplay) valueDisplay.textContent = value;
+    }
+}
+
+function applyVisualModePreset() {
+    const mode = document.getElementById('visual_mode').value;
+    const preset = visualModePresets[mode];
+    if (!preset) return;
+
+    Object.entries(preset).forEach(([key, value]) => setControlValue(key, value));
+}
+
 // Apply resolution preset
 function applyResolutionPreset() {
     const preset = document.getElementById('obs_hud_preset').value;
@@ -60,6 +213,9 @@ function updateUI() {
         console.log('🎨 [EMOJI RAIN UI] Setting enabled toggle:', config.enabled);
         document.getElementById('enabled-toggle').checked = config.enabled;
         updateEnabledStatus();
+
+        // TikTok visual effects overlay settings
+        document.getElementById('visual_mode').value = config.visual_mode || 'premium_stage';
 
         // Toaster mode
         console.log('🎨 [EMOJI RAIN UI] Setting toaster mode:', config.toaster_mode);
@@ -87,11 +243,6 @@ function updateUI() {
         }
         document.getElementById('obs_hud_preset').value = detectedPreset;
         console.log('🎨 [EMOJI RAIN UI] Detected resolution preset:', detectedPreset);
-
-        // Canvas settings
-        console.log('🎨 [EMOJI RAIN UI] Setting canvas settings...');
-        document.getElementById('width_px').value = config.width_px || 1280;
-        document.getElementById('height_px').value = config.height_px || 720;
 
         // Emoji set
         console.log('🎨 [EMOJI RAIN UI] Setting emoji set...');
@@ -150,6 +301,31 @@ function updateUI() {
         document.getElementById('gift_base_emojis').value = config.gift_base_emojis;
         setRangeValue('gift_coin_multiplier', config.gift_coin_multiplier);
         document.getElementById('gift_max_emojis').value = config.gift_max_emojis;
+
+        // Geschenk-Kugeln
+        console.log('🎨 [EMOJI RAIN UI] Setting gift ball configuration...');
+        document.getElementById('gift_balls_enabled').checked = config.gift_balls_enabled === true;
+        document.getElementById('gift_ball_min_size_px').value = config.gift_ball_min_size_px || 44;
+        document.getElementById('gift_ball_max_size_px').value = config.gift_ball_max_size_px || 128;
+        document.getElementById('gift_ball_price_reference_coins').value = config.gift_ball_price_reference_coins || 1000;
+        document.getElementById('gift_ball_min_despawn_ms').value = config.gift_ball_min_despawn_ms || 9000;
+        document.getElementById('gift_ball_max_despawn_ms').value = config.gift_ball_max_despawn_ms || 20000;
+        document.getElementById('gift_ball_despawn_per_coin_ms').value = config.gift_ball_despawn_per_coin_ms || 25;
+        document.getElementById('gift_ball_despawn_multiplier').value = config.gift_ball_despawn_multiplier || 1;
+        document.getElementById('gift_ball_base_count').value = config.gift_ball_base_count || 1;
+        document.getElementById('gift_ball_series_count_divisor').value = config.gift_ball_series_count_divisor || 3;
+        document.getElementById('gift_ball_max_count').value = config.gift_ball_max_count || 24;
+
+        // Herzballons
+        console.log('ðŸŽ¨ [EMOJI RAIN UI] Setting Herzballons configuration...');
+        document.getElementById('heart_balloons_enabled').checked = config.heart_balloons_enabled !== false;
+        document.getElementById('heart_balloon_like_divisor').value = config.heart_balloon_like_divisor || 1;
+        document.getElementById('heart_balloon_min_hearts').value = config.heart_balloon_min_hearts || 1;
+        document.getElementById('heart_balloon_max_hearts').value = config.heart_balloon_max_hearts || 24;
+        document.getElementById('heart_balloon_profile_every').value = config.heart_balloon_profile_every || 4;
+        setRangeValue('heart_balloon_pop_y', config.heart_balloon_pop_y !== undefined ? config.heart_balloon_pop_y : 0.5);
+        setRangeValue('heart_balloon_wind_strength', config.heart_balloon_wind_strength !== undefined ? config.heart_balloon_wind_strength : 0.45);
+        document.getElementById('heart_balloon_test_count').value = config.heart_balloon_test_count || 8;
 
         // Sticker rain configuration
         console.log('🎨 [EMOJI RAIN UI] Setting sticker rain configuration...');
@@ -234,6 +410,8 @@ async function saveConfig() {
 
     const newConfig = {
         enabled: document.getElementById('enabled-toggle').checked,
+        visual_mode: document.getElementById('visual_mode').value,
+        pupcid_defaults_version: 1,
         // Toaster mode (Low-End PC Mode)
         toaster_mode: document.getElementById('toaster_mode').checked,
         // OBS HUD settings
@@ -244,9 +422,6 @@ async function saveConfig() {
         enable_particles: document.getElementById('enable_particles').checked,
         enable_depth: document.getElementById('enable_depth').checked,
         target_fps: parseInt(document.getElementById('target_fps').value),
-        // Standard canvas settings
-        width_px: parseInt(document.getElementById('width_px').value),
-        height_px: parseInt(document.getElementById('height_px').value),
         emoji_set: document.getElementById('emoji_set').value.split(',').map(e => e.trim()).filter(e => e),
         use_custom_images: document.getElementById('use_custom_images').checked,
         image_urls: imageUrls,
@@ -296,6 +471,27 @@ async function saveConfig() {
         gift_base_emojis: parseInt(document.getElementById('gift_base_emojis').value),
         gift_coin_multiplier: parseFloat(document.getElementById('gift_coin_multiplier').value),
         gift_max_emojis: parseInt(document.getElementById('gift_max_emojis').value),
+        // Geschenk-Kugeln
+        gift_balls_enabled: document.getElementById('gift_balls_enabled').checked,
+        gift_ball_min_size_px: parseInt(document.getElementById('gift_ball_min_size_px').value),
+        gift_ball_max_size_px: parseInt(document.getElementById('gift_ball_max_size_px').value),
+        gift_ball_price_reference_coins: parseInt(document.getElementById('gift_ball_price_reference_coins').value),
+        gift_ball_min_despawn_ms: parseInt(document.getElementById('gift_ball_min_despawn_ms').value),
+        gift_ball_max_despawn_ms: parseInt(document.getElementById('gift_ball_max_despawn_ms').value),
+        gift_ball_despawn_per_coin_ms: parseFloat(document.getElementById('gift_ball_despawn_per_coin_ms').value),
+        gift_ball_despawn_multiplier: parseFloat(document.getElementById('gift_ball_despawn_multiplier').value),
+        gift_ball_base_count: parseInt(document.getElementById('gift_ball_base_count').value),
+        gift_ball_series_count_divisor: parseInt(document.getElementById('gift_ball_series_count_divisor').value),
+        gift_ball_max_count: parseInt(document.getElementById('gift_ball_max_count').value),
+        // Herzballons
+        heart_balloons_enabled: document.getElementById('heart_balloons_enabled').checked,
+        heart_balloon_like_divisor: parseInt(document.getElementById('heart_balloon_like_divisor').value),
+        heart_balloon_min_hearts: parseInt(document.getElementById('heart_balloon_min_hearts').value),
+        heart_balloon_max_hearts: parseInt(document.getElementById('heart_balloon_max_hearts').value),
+        heart_balloon_profile_every: parseInt(document.getElementById('heart_balloon_profile_every').value),
+        heart_balloon_pop_y: parseFloat(document.getElementById('heart_balloon_pop_y').value),
+        heart_balloon_wind_strength: parseFloat(document.getElementById('heart_balloon_wind_strength').value),
+        heart_balloon_test_count: parseInt(document.getElementById('heart_balloon_test_count').value),
         // Sticker rain configuration
         sticker_enabled: document.getElementById('sticker_enabled').checked,
         sticker_base_count: parseInt(document.getElementById('sticker_base_count').value),
@@ -375,6 +571,55 @@ async function testEmojiRain() {
                 testButton.style.cursor = 'pointer';
             }
         }, TEST_BUTTON_COOLDOWN_MS);
+    }
+}
+
+async function testHeartBalloons() {
+    try {
+        const response = await fetch('/api/webgpu-emoji-rain/test-heart-balloons', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                count: parseInt(document.getElementById('heart_balloon_test_count').value) || 8,
+                username: 'Herzballons Test'
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showNotification('Herzballons gespawnt!');
+        } else {
+            showNotification('Fehler beim Herzballons-Test: ' + data.error, true);
+        }
+    } catch (error) {
+        showNotification('Netzwerkfehler beim Herzballons-Test', true);
+        console.error(error);
+    }
+}
+
+async function testGiftBall() {
+    try {
+        const response = await fetch('/api/webgpu-emoji-rain/test-gift-ball', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                giftName: 'Test Gift',
+                price: parseInt(document.getElementById('gift_ball_price_reference_coins').value, 10) || 100,
+                username: 'Geschenk Test'
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showNotification('Geschenk-Kugel gespawnt!');
+        } else {
+            showNotification('Fehler beim Geschenk-Kugel-Test: ' + data.error, true);
+        }
+    } catch (error) {
+        showNotification('Netzwerkfehler beim Geschenk-Kugel-Test', true);
+        console.error(error);
     }
 }
 
@@ -784,6 +1029,9 @@ function initializeEmojiRainUI() {
     // Resolution preset selector
     document.getElementById('obs_hud_preset').addEventListener('change', applyResolutionPreset);
 
+    // Visual mode selector
+    document.getElementById('visual_mode').addEventListener('change', applyVisualModePreset);
+
     // Upload images button
     document.getElementById('upload-images-btn').addEventListener('click', uploadImages);
 
@@ -792,6 +1040,12 @@ function initializeEmojiRainUI() {
 
     // Test emoji rain button
     document.getElementById('test-emoji-rain-btn').addEventListener('click', testEmojiRain);
+
+    // Test gift ball button
+    document.getElementById('test-gift-ball-btn').addEventListener('click', testGiftBall);
+
+    // Test heart balloons button
+    document.getElementById('test-heart-balloons-btn').addEventListener('click', testHeartBalloons);
 
     // Emoji set input
     document.getElementById('emoji_set').addEventListener('input', updateEmojiPreview);

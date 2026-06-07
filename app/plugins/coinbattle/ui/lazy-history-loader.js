@@ -186,21 +186,23 @@ class LazyMatchHistoryLoader {
     const winner = match.winner_player_id 
       ? `Winner: ${match.winner_player_id}`
       : (match.winner_team ? `Team ${match.winner_team} wins!` : 'No winner');
+    const totalCoins = Number.isFinite(Number(match.total_coins)) ? Number(match.total_coins) : 0;
+    const totalGifts = Number.isFinite(Number(match.total_gifts)) ? Number(match.total_gifts) : 0;
     
     item.innerHTML = `
       <div class="match-header">
-        <span class="match-id">#${match.id}</span>
-        <span class="match-mode">${match.mode || 'solo'}</span>
+        <span class="match-id">#${this.escapeHTML(match.id)}</span>
+        <span class="match-mode">${this.escapeHTML(match.mode || 'solo')}</span>
       </div>
       <div class="match-details">
-        <div class="match-date">${dateStr}</div>
-        <div class="match-duration">Duration: ${duration}</div>
+        <div class="match-date">${this.escapeHTML(dateStr)}</div>
+        <div class="match-duration">Duration: ${this.escapeHTML(duration)}</div>
       </div>
       <div class="match-stats">
-        <span class="match-coins">${match.total_coins || 0} coins</span>
-        <span class="match-gifts">${match.total_gifts || 0} gifts</span>
+        <span class="match-coins">${totalCoins.toLocaleString()} coins</span>
+        <span class="match-gifts">${totalGifts.toLocaleString()} gifts</span>
       </div>
-      <div class="match-winner">${winner}</div>
+      <div class="match-winner">${this.escapeHTML(winner)}</div>
     `;
     
     return item;
@@ -213,6 +215,15 @@ class LazyMatchHistoryLoader {
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  /**
+   * Escape HTML to prevent injecting untrusted match data.
+   */
+  escapeHTML(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
   }
 
   /**
@@ -243,7 +254,7 @@ class LazyMatchHistoryLoader {
     const errorElement = document.createElement('div');
     errorElement.className = 'match-history-error';
     errorElement.innerHTML = `
-      <p class="error-message">${message}</p>
+      <p class="error-message">${this.escapeHTML(message)}</p>
       <button class="retry-btn">Retry</button>
     `;
     

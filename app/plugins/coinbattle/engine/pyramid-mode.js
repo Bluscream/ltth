@@ -64,7 +64,22 @@ class PyramidMode {
     // Post-match configuration (set by parent plugin)
     this.postMatchConfig = null;
 
+    // Internal server-side XP award subscribers.
+    this.xpAwardHandlers = new Set();
+
     this.logger.info('🔺 Pyramid Mode initialized');
+  }
+
+  /**
+   * Subscribe to server-side XP award events.
+   */
+  onXPAwards(handler) {
+    if (typeof handler !== 'function') {
+      throw new Error('XP award handler must be a function');
+    }
+
+    this.xpAwardHandlers.add(handler);
+    return () => this.xpAwardHandlers.delete(handler);
   }
 
   /**
@@ -301,16 +316,21 @@ class PyramidMode {
   /**
    * Start a new pyramid round
    */
-  startRound(matchId = null) {
+  startRound(matchId = null, duration = null) {
     if (this.active) {
       this.logger.warn('Pyramid round already active');
       return { success: false, error: 'Round already active' };
     }
 
+    const parsedDuration = Number(duration);
+    const roundDuration = Number.isFinite(parsedDuration) && parsedDuration > 0
+      ? Math.floor(parsedDuration)
+      : this.config.roundDuration;
+
     this.active = true;
     this.matchId = matchId;
     this.roundStartTime = Date.now();
-    this.roundDuration = this.config.roundDuration;
+    this.roundDuration = roundDuration;
     this.remainingTime = this.roundDuration;
     this.players.clear();
     this.previousLeaderboard = [];
@@ -677,11 +697,14 @@ class PyramidMode {
 
     try {
       // Emit XP awards event for viewer-xp plugin to process
-      this.io.emit('pyramid:xp-awards', {
+      const payload = {
         rewards: rewards,
         source: 'pyramid-mode',
         timestamp: Date.now()
-      });
+      };
+
+      this.io.emit('pyramid:xp-awards', payload);
+      this.notifyXPAwards(payload);
 
       // Log each award
       for (const reward of rewards) {
@@ -699,6 +722,24 @@ class PyramidMode {
     } catch (error) {
       this.logger.error(`Failed to award XP: ${error.message}`);
       return { success: false, error: error.message, awarded };
+    }
+  }
+
+  /**
+   * Notify internal XP award subscribers.
+   */
+  notifyXPAwards(payload) {
+    for (const handler of this.xpAwardHandlers) {
+      try {
+        const result = handler(payload);
+        if (result && typeof result.catch === 'function') {
+          result.catch((error) => {
+            this.logger.error(`XP award handler failed: ${error.message}`);
+          });
+        }
+      } catch (error) {
+        this.logger.error(`XP award handler failed: ${error.message}`);
+      }
     }
   }
 
@@ -846,6 +887,7 @@ class PyramidMode {
     this.stopTimer();
     this.active = false;
     this.players.clear();
+    this.xpAwardHandlers.clear();
     this.logger.info('🔺 Pyramid Mode destroyed');
   }
 }

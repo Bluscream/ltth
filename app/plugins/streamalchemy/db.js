@@ -15,6 +15,7 @@
 const { JSONFilePreset } = require('lowdb/node');
 const path = require('path');
 const fs = require('fs').promises;
+const { randomUUID } = require('crypto');
 const config = require('./config');
 
 class AlchemyDatabase {
@@ -310,10 +311,8 @@ class AlchemyDatabase {
      * @returns {Object} Created item
      */
     async createCustomItem(itemData) {
-        const { v4: uuidv4 } = require('uuid');
-        
         const item = {
-            itemId: uuidv4(),
+            itemId: randomUUID(),
             giftId: itemData.giftId || null,
             name: itemData.name,
             rarity: itemData.rarity || 'Common',

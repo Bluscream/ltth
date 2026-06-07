@@ -41,7 +41,6 @@ class IFTTTEngine {
 
         // Deadlock prevention
         this.maxExecutionDepth = 10;
-        this.executionStack = [];
 
         // Warn about missing services (non-fatal)
         this.validateServices();
@@ -53,10 +52,18 @@ class IFTTTEngine {
      * Validate injected services and warn about missing ones
      */
     validateServices() {
-        const expectedServices = ['io', 'alertManager', 'obs', 'osc', 'tts', 'pluginLoader', 'vdoninja'];
-        for (const svc of expectedServices) {
+        const requiredServices = ['io', 'db', 'alertManager'];
+        const optionalServices = ['obs', 'osc', 'tts', 'pluginLoader', 'vdoninja'];
+
+        for (const svc of requiredServices) {
             if (!this.services[svc]) {
                 this.logger?.warn(`⚠️ IFTTT Service not available: ${svc} — related actions will fail`);
+            }
+        }
+
+        for (const svc of optionalServices) {
+            if (!this.services[svc]) {
+                this.logger?.debug(`IFTTT optional service not available: ${svc}`);
             }
         }
     }
@@ -115,9 +122,9 @@ class IFTTTEngine {
                 });
             }
 
-            // Execute matching flows in parallel (with depth limit)
+            // Execute matching flows in parallel with independent execution context.
             const executions = matchingFlows.map(flow => 
-                this.executeFlow(flow, eventData)
+                this.executeFlow(flow, this.cloneEventData(eventData), { skipGlobalCheck: true })
             );
 
             await Promise.allSettled(executions);
@@ -137,21 +144,51 @@ class IFTTTEngine {
         }
     }
 
+    cloneEventData(eventData) {
+        if (!eventData || typeof eventData !== 'object') {
+            return eventData;
+        }
+
+        try {
+            return JSON.parse(JSON.stringify(eventData));
+        } catch (error) {
+            return { ...eventData };
+        }
+    }
+
     /**
      * Execute a single flow
      */
-    async executeFlow(flow, eventData = {}) {
+    async executeFlow(flow, eventData = {}, options = {}) {
         const startTime = Date.now();
         const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
         try {
+            if (!options.skipGlobalCheck && this.db.getSetting('flows_enabled') === 'false') {
+                this.logger?.debug(`Flows globally disabled, skipping "${flow.name}"`);
+                return;
+            }
+
+            if (flow.enabled === false || flow.enabled === 0 || flow.enabled === 'false') {
+                this.logger?.debug(`Flow "${flow.name}" is disabled, skipping`);
+                return;
+            }
+
+            const lineage = Array.isArray(options.lineage) ? options.lineage.map(id => String(id)) : [];
+            const flowId = String(flow.id);
+
             // Prevent infinite recursion
-            if (this.executionStack.length >= this.maxExecutionDepth) {
+            if (lineage.length >= this.maxExecutionDepth) {
                 this.logger?.warn(`⚠️ Max execution depth reached for flow: ${flow.name}`);
                 return;
             }
 
-            this.executionStack.push(flow.id);
+            if (lineage.includes(flowId)) {
+                this.logger?.warn(`Recursive flow trigger blocked for flow: ${flow.name}`);
+                return;
+            }
+
+            const nextLineage = [...lineage, flowId];
 
             this.logger?.info(`⚡ Executing flow: "${flow.name}" (ID: ${flow.id})`);
             
@@ -174,7 +211,6 @@ class IFTTTEngine {
                 if (this.variables.isCooldownActive(cooldownKey, cooldownSeconds)) {
                     const remaining = this.variables.getCooldownRemaining(cooldownKey, cooldownSeconds);
                     this.logger?.debug(`⏳ Flow "${flow.name}" on cooldown (${remaining.toFixed(1)}s remaining)`);
-                    this.executionStack.pop();
                     return;
                 }
             }
@@ -183,7 +219,8 @@ class IFTTTEngine {
             const context = this.variables.createContext(eventData, {
                 flowId: flow.id,
                 flowName: flow.name,
-                executionId
+                executionId,
+                lineage: nextLineage
             });
 
             // Increment execution counter for this flow
@@ -209,7 +246,6 @@ class IFTTTEngine {
                     });
                 }
                 
-                this.executionStack.pop();
                 return;
             }
 
@@ -305,8 +341,6 @@ class IFTTTEngine {
                 });
             }
 
-            this.executionStack.pop();
-
         } catch (error) {
             this.logger?.error(`❌ Flow "${flow.name}" execution error:`, error);
             
@@ -334,24 +368,23 @@ class IFTTTEngine {
                 });
             }
             
-            this.executionStack.pop();
         }
     }
 
     /**
      * Execute flow by ID
      */
-    async executeFlowById(flowId, eventData = {}) {
+    async executeFlowById(flowId, eventData = {}, options = {}) {
         const flow = this.db.getFlow(flowId);
         if (!flow) {
             throw new Error(`Flow ${flowId} not found`);
         }
 
-        if (!flow.enabled) {
+        if (flow.enabled === false || flow.enabled === 0 || flow.enabled === 'false') {
             throw new Error(`Flow ${flowId} is disabled`);
         }
 
-        return this.executeFlow(flow, eventData);
+        return this.executeFlow(flow, eventData, options);
     }
 
     /**
@@ -362,8 +395,12 @@ class IFTTTEngine {
             return true; // No conditions = always true
         }
 
-        // Handle complex condition trees (AND/OR/NOT)
-        if (condition.logic) {
+        if (!condition.logic && !condition.type && !condition.field && !condition.operator) {
+            return true; // Trigger configuration without filter conditions.
+        }
+
+        // Handle registry condition trees and single registry conditions.
+        if (condition.logic || condition.type) {
             return this.conditions.evaluateComplex(condition, context);
         }
 
@@ -514,7 +551,8 @@ class IFTTTEngine {
             totalFlows: this.db.getFlows().length,
             registeredTriggers: this.triggers.getAll().length,
             registeredConditions: this.conditions.getAll().length,
-            registeredActions: this.actions.getAll().length
+            registeredActions: this.actions.getAll().length,
+            flowsEnabled: this.db.getSetting('flows_enabled') !== 'false'
         };
     }
 

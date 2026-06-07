@@ -194,7 +194,7 @@ runTest('discovery: discoverGlobalSettings excludes plugin keys', () => {
     db.prepare("INSERT INTO settings VALUES (?,?)").run('plugin:x:k', '"v"');
 
     const result = discoverGlobalSettings(db);
-    assert.strictEqual(result.theme, 'dark');
+    assert.strictEqual(result.theme, '"dark"');
     assert(!('plugin:x:k' in result), 'plugin key should be excluded');
 });
 
@@ -226,6 +226,21 @@ runTest('discovery: restoreGlobalSettings merge skips existing', () => {
     const r = restoreGlobalSettings(db, { theme: 'dark', newKey: 'x' }, 'merge');
     assert(r.skipped.includes('theme'));
     assert(r.imported.includes('newKey'));
+});
+
+runTest('discovery: restoreGlobalSettings preserves raw string values', () => {
+    const db = makeTestDb();
+
+    restoreGlobalSettings(db, {
+        tts_openai_api_key: 'sk-test',
+        network_external_urls: ['https://example.test']
+    }, 'replace');
+
+    const apiKey = db.prepare("SELECT value FROM settings WHERE key='tts_openai_api_key'").get();
+    const urls = db.prepare("SELECT value FROM settings WHERE key='network_external_urls'").get();
+
+    assert.strictEqual(apiKey.value, 'sk-test');
+    assert.strictEqual(urls.value, '["https://example.test"]');
 });
 
 // 4. file-collector.js
@@ -262,10 +277,35 @@ runTest('file-collector: collectPluginFiles returns empty for missing dir', () =
     assert.strictEqual(files.length, 0);
 });
 
+runTest('file-collector: per-file size override can include profile databases', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-size-override-'));
+    try {
+        fs.writeFileSync(path.join(tmpDir, 'profile.db'), 'x');
+        fs.writeFileSync(path.join(tmpDir, 'large.bin'), 'x');
+
+        const { files, warnings } = collectFiles(tmpDir, tmpDir, {
+            maxFileSizeBytes: 0,
+            getMaxFileSizeBytes: ({ relPath }) => relPath === 'profile.db' ? null : 0
+        });
+        const relPaths = files.map(f => f.relPath);
+
+        assert(relPaths.includes('profile.db'), 'Profile DB should be included despite the default limit');
+        assert(!relPaths.includes('large.bin'), 'Non-profile file should still respect the configured limit');
+        assert(warnings.some(w => w.includes('large.bin')), 'Skipped non-profile file should be reported');
+        assert(!warnings.some(w => w.includes('profile.db')), 'Included profile DB should not be reported as skipped');
+    } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+});
+
 // 5. validators.js
 runTest('validators: validateBackupSize accepts normal sizes', () => {
     assert.strictEqual(validateBackupSize(1024).valid, true);
     assert.strictEqual(validateBackupSize(0).valid, true);
+});
+
+runTest('validators: validateBackupSize accepts multi-gigabyte profile backups', () => {
+    assert.strictEqual(validateBackupSize(3 * 1024 * 1024 * 1024).valid, true);
 });
 
 runTest('validators: validateBackupSize rejects oversized files', () => {
@@ -510,7 +550,59 @@ async function runAllAsyncTests() {
         await performImport(parsed, { db, configPathManager }, { mode: 'replace', includeGlobalSettings: true });
 
         const row = db.prepare("SELECT value FROM settings WHERE key='theme'").get();
-        assert.strictEqual(JSON.parse(row.value), 'light', 'theme should be replaced with light');
+        assert.strictEqual(row.value, 'light', 'theme should be replaced with light');
+        fs.unlinkSync(zipPath);
+    });
+
+    await runAsyncTest('importer: performImport restores user_configs and remaps active profile', async () => {
+        const manifest = createManifest({
+            appVersion: '1.0.0',
+            options: { includeUserConfigs: true },
+            plugins: []
+        });
+        const zipPath = await createTestZip({
+            'manifest.json': manifest,
+            'user_configs/default.db': 'imported-db',
+            'user_configs/default_plugins_state.json': '{"soundboard":{"enabled":true}}',
+            'user_configs/.active_profile': 'default'
+        });
+
+        const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'user-config-import-'));
+        const userConfigsDir = path.join(tmpBase, 'user_configs');
+        fs.mkdirSync(userConfigsDir, { recursive: true });
+        const activeDbPath = path.join(userConfigsDir, 'default.db');
+        fs.writeFileSync(activeDbPath, 'existing-active-db');
+
+        const parsed = await parseBackupZip(zipPath);
+        const configPathManager = {
+            getUserConfigsDir: () => userConfigsDir,
+            getUserDataDir: () => path.join(tmpBase, 'user_data'),
+            getUploadsDir: () => path.join(tmpBase, 'uploads'),
+            getPluginDataDir: (pluginId) => path.join(tmpBase, 'plugins', pluginId, 'data')
+        };
+
+        const result = await performImport(parsed, { db: { dbPath: activeDbPath }, configPathManager }, {
+            mode: 'replace',
+            includeUserConfigs: true,
+            includeGlobalSettings: false,
+            includePluginSettings: false,
+            includePluginData: false
+        });
+
+        assert.strictEqual(result.success, true);
+        assert.strictEqual(fs.readFileSync(activeDbPath, 'utf8'), 'existing-active-db');
+        assert.strictEqual(result.report.userConfigs.renamed.length, 1);
+
+        const restoredProfile = result.report.userConfigs.renamed[0].to.replace(/\.db$/, '');
+        assert.strictEqual(
+            fs.readFileSync(path.join(userConfigsDir, `${restoredProfile}.db`), 'utf8'),
+            'imported-db'
+        );
+        assert(fs.existsSync(path.join(userConfigsDir, `${restoredProfile}_plugins_state.json`)));
+        assert.strictEqual(fs.readFileSync(path.join(userConfigsDir, '.active_profile'), 'utf8'), restoredProfile);
+
+        if (parsed.tmpDir) cleanupTempDir(parsed.tmpDir);
+        fs.rmSync(tmpBase, { recursive: true, force: true });
         fs.unlinkSync(zipPath);
     });
 
@@ -613,9 +705,7 @@ async function runAllAsyncTests() {
 // ─── Entry point ─────────────────────────────────────────────────────────────
 // When running under Jest use it() so Jest properly awaits the async tests.
 // When running directly with Node, call the function with a plain .then() handler.
-// eslint-disable-next-line no-undef
 if (typeof it === 'function') {
-    // eslint-disable-next-line no-undef
     it('backup system async integration tests', async () => {
         await runAllAsyncTests();
 

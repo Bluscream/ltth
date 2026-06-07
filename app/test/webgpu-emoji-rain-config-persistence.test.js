@@ -69,9 +69,20 @@ describe('WebGPU Emoji Rain - Configuration Persistence', () => {
         expect(config).toBeDefined();
         expect(config.enabled).toBe(true);
         expect(config.emoji_set).toEqual(["💧","💙","💚","💜","❤️","🩵","✨","🌟","🔥","🎉"]);
+        expect(config.gift_balls_enabled).toBe(false);
+        expect(config.gift_ball_min_size_px).toBe(44);
+        expect(config.gift_ball_max_size_px).toBe(128);
+        expect(config.gift_ball_min_despawn_ms).toBe(9000);
+        expect(config.gift_ball_base_count).toBe(1);
+        expect(config.gift_ball_series_count_divisor).toBe(3);
+        expect(config.gift_ball_max_count).toBe(24);
         expect(config.obs_hud_width).toBe(1920);
         expect(config.obs_hud_height).toBe(1080);
         expect(config.target_fps).toBe(60);
+        expect(config.visual_mode).toBe('pupcid_balanced');
+        expect(config.gift_base_emojis).toBe(4);
+        expect(config.gift_coin_multiplier).toBe(0.08);
+        expect(config.gift_max_emojis).toBe(36);
     });
 
     test('should persist user configuration after update', () => {

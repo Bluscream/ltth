@@ -100,25 +100,6 @@ Mehrstufige Effekte wie Feuerwerke mit Launch, Burst, Trail und Fade.
 - Canvas-Version: ~30 FPS bei 500 Emojis
 - WebGPU-Version: 60 FPS bei 2000+ Emojis
 
-### Vulkan Rockets (WebGPU)
-**Status:** 🔴 Early Beta  
-**Beschreibung:** WebGPU-Feuerwerks-Effekte mit Compute Shaders (ehemals „Fireworks Superplugin WebGPU“)
-
-**Features:**
-- Multi-Stage Firework System
-- GPU-Trail-Engine
-- Compute-Shader-basierte Physik
-- 60 FPS bei 10.000+ Partikeln
-
-**Multi-Stage Pipeline:**
-1. **Launch Stage** - Rakete steigt auf (GPU-Physik)
-2. **Burst Stage** - Erste Explosion (Instanced Rendering)
-3. **Trail Stage** - Partikel-Trails (GPU-Computed)
-4. **Secondary Burst** - Zweite Explosion (Optional)
-5. **Fade Stage** - Ausblenden (Alpha-Blending)
-
----
-
 ## 📊 Performance-Vergleich
 
 ### Emoji Rain: Canvas vs. WebGPU
@@ -323,7 +304,7 @@ passEncoder.draw(4, PARTICLE_COUNT, 0, 0);
    ```
 2. **Chrome-Flags aktivieren:**
    - `chrome://flags/#enable-unsafe-webgpu`
-3. **Fallback auf WebGL** - Fireworks-Plugin nutzen statt fireworks-webgpu
+3. **Fallback auf WebGL** - Fireworks-Plugin nutzen
 
 ---
 
@@ -336,7 +317,6 @@ passEncoder.draw(4, PARTICLE_COUNT, 0, 0);
 
 ### Plugins mit WebGPU
 - **[WebGPU Emoji Rain](Plugin-Liste.md#webgpu-emoji-rain)** - WebGPU Emoji Rain Plugin
-- **[Vulkan Rockets](Plugin-Liste.md#vulkan-rockets-webgpu)** - Vulkan Rockets Plugin
 
 ### Weitere Features
 - **[Emoji Rain](Features/Emoji-Rain.md)** - Emoji Rain Dokumentation

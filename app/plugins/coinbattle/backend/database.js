@@ -289,6 +289,74 @@ class CoinBattleDatabase {
   }
 
   /**
+   * Get current lifetime coin balance for a player.
+   */
+  getPlayerCoins(userId) {
+    const player = this.db.prepare(`
+      SELECT total_coins
+      FROM coinbattle_players
+      WHERE user_id = ?
+    `).get(userId);
+
+    return player ? player.total_coins : 0;
+  }
+
+  /**
+   * Add coins to a player's lifetime balance.
+   */
+  addPlayerCoins(userId, amount) {
+    const coins = Number(amount);
+    if (!Number.isFinite(coins) || coins <= 0) {
+      return false;
+    }
+
+    const result = this.db.prepare(`
+      UPDATE coinbattle_players
+      SET total_coins = total_coins + ?,
+          last_seen = strftime('%s', 'now')
+      WHERE user_id = ?
+    `).run(Math.floor(coins), userId);
+
+    return result.changes > 0;
+  }
+
+  /**
+   * Deduct coins atomically from a player's lifetime balance.
+   */
+  deductPlayerCoins(userId, amount) {
+    const coins = Number(amount);
+    if (!Number.isFinite(coins) || coins <= 0) {
+      return { success: false, error: 'Invalid coin amount', remaining: this.getPlayerCoins(userId) };
+    }
+
+    const transaction = this.db.transaction(() => {
+      const player = this.db.prepare(`
+        SELECT total_coins
+        FROM coinbattle_players
+        WHERE user_id = ?
+      `).get(userId);
+
+      const currentCoins = player ? player.total_coins : 0;
+      const debit = Math.floor(coins);
+
+      if (currentCoins < debit) {
+        return { success: false, error: 'Insufficient coins', remaining: currentCoins };
+      }
+
+      this.db.prepare(`
+        UPDATE coinbattle_players
+        SET total_coins = total_coins - ?,
+            last_seen = strftime('%s', 'now')
+        WHERE user_id = ?
+      `).run(debit, userId);
+
+      return { success: true, remaining: currentCoins - debit };
+    });
+
+    return transaction();
+  }
+
+  /**
    * End a match with database transaction for consistency
    */
   endMatch(matchId, winnerData) {
@@ -319,6 +387,28 @@ class CoinBattleDatabase {
         winnerData.total_coins || 0,
         matchId
       );
+
+      const participants = this.db.prepare(`
+        SELECT id, user_id, team
+        FROM coinbattle_match_participants
+        WHERE match_id = ?
+        ORDER BY coins DESC, joined_at ASC, id ASC
+      `).all(matchId);
+
+      const updateParticipantResult = this.db.prepare(`
+        UPDATE coinbattle_match_participants
+        SET rank = ?,
+            is_winner = ?
+        WHERE id = ?
+      `);
+
+      participants.forEach((participant, index) => {
+        const isWinner = winnerData.winner_team
+          ? participant.team === winnerData.winner_team
+          : participant.user_id === winnerData.winner_player_id;
+
+        updateParticipantResult.run(index + 1, isWinner ? 1 : 0, participant.id);
+      });
     });
 
     // Execute transaction atomically

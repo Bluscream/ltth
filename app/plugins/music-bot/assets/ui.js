@@ -3,15 +3,20 @@
   const MAX_SONG_DURATION_LIMIT_SECONDS = 7200;
   const DEFAULT_SONG_DURATION_LIMIT_SECONDS = 360;
 
+  function setActiveTab(target) {
+    if (!target) return;
+    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
+    const tab = document.querySelector(`.tab[data-tab="${target}"]`);
+    const content = document.querySelector(`[data-tab-content="${target}"]`);
+    if (tab) tab.classList.add('active');
+    if (content) content.classList.add('active');
+  }
+
   // ── Tab switching ──
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
-      tab.classList.add('active');
-      const target = tab.getAttribute('data-tab');
-      const content = document.querySelector(`[data-tab-content="${target}"]`);
-      if (content) content.classList.add('active');
+      setActiveTab(tab.getAttribute('data-tab'));
     });
   });
 
@@ -62,6 +67,7 @@
   const banFeedback = document.getElementById('ban-feedback');
   const banTable = document.getElementById('ban-table');
   const ytdlpPathInput = document.getElementById('ytdlp-path');
+  const mpvPathInput = document.getElementById('mpv-path');
   const requireSuperfan = document.getElementById('require-superfan');
   const payToPlayEnabled = document.getElementById('pay-to-play-enabled');
   const payToPlayGifts = document.getElementById('pay-to-play-gifts');
@@ -81,11 +87,20 @@
   const settingsFeedback = document.getElementById('settings-feedback');
   const moderationSave = document.getElementById('moderation-save');
   const moderationFeedback = document.getElementById('moderation-feedback');
+  const setupIssuesBanner = document.getElementById('setup-issues-banner');
+  const setupIssuesList = document.getElementById('setup-issues-list');
   const npProgressWrapper = document.getElementById('np-progress-wrapper');
   const npProgressFill = document.getElementById('np-progress-fill');
   const npElapsed = document.getElementById('np-elapsed');
   const npDuration = document.getElementById('np-duration');
   const toastContainer = document.getElementById('musicbot-toast-container');
+  const onboardingPanel = document.getElementById('musicbot-onboarding');
+  const onboardingStatus = document.getElementById('musicbot-onboarding-status');
+  const onboardingSteps = document.getElementById('musicbot-onboarding-steps');
+  const onboardingHelp = document.getElementById('musicbot-onboarding-help');
+  const onboardingSettings = document.getElementById('musicbot-onboarding-settings');
+  const onboardingOverlay = document.getElementById('musicbot-onboarding-overlay');
+  const onboardingComplete = document.getElementById('musicbot-onboarding-complete');
 
   // Progress timer state
   let progressTimer = null;
@@ -93,6 +108,8 @@
   let progressDuration = 0;
   let draggedQueueIndex = null;
   let giftCatalogTargetField = null;
+  let currentSetupIssues = [];
+  let currentOnboarding = { completed: false, completedAt: null };
 
   // Client-side YouTube ID extraction (no server call needed for direct links)
   function extractYouTubeId(url) {
@@ -125,6 +142,105 @@
     previewFrame.src = '';
     playerFrameBox?.classList.remove('has-video');
     previewSource.textContent = 'YouTube';
+  }
+
+  function buildOnboardingSteps(issues = []) {
+    const baseSteps = [
+      {
+        title: 'Einstellungen prüfen',
+        meta: 'Hier liegen mpv, yt-dlp, Request-Limits und die zentrale Queue-Konfiguration.'
+      },
+      {
+        title: 'OBS-Overlay sichern',
+        meta: 'Im Overlay-Tab findest du die Browser-Source-URL für Streamlabs oder OBS.'
+      },
+      {
+        title: 'Player testen',
+        meta: 'Im Player kannst du einen ersten Song suchen und direkt in die Queue legen.'
+      }
+    ];
+
+    const issueSteps = issues.slice(0, 2).map((issue) => ({
+      title: issue?.title || 'Setup-Hinweis',
+      meta: issue?.description || ''
+    }));
+
+    return [baseSteps[0], ...issueSteps, ...baseSteps.slice(1)];
+  }
+
+  function renderOnboarding(onboarding = {}, issues = []) {
+    if (!onboardingPanel) return;
+    currentOnboarding = {
+      completed: Boolean(onboarding?.completed),
+      completedAt: onboarding?.completedAt || null
+    };
+    currentSetupIssues = Array.isArray(issues) ? issues : [];
+
+    if (currentOnboarding.completed) {
+      onboardingPanel.hidden = true;
+      return;
+    }
+
+    onboardingPanel.hidden = false;
+    if (onboardingStatus) {
+      onboardingStatus.textContent = currentSetupIssues.length ? 'Setup offen' : 'Bereit';
+    }
+    if (onboardingSteps) {
+      onboardingSteps.innerHTML = buildOnboardingSteps(currentSetupIssues)
+        .map((step) => `
+          <li class="onboarding-step">
+            <span class="onboarding-step-title">${escapeHtml(step.title)}</span>
+            ${step.meta ? `<span class="onboarding-step-meta">${escapeHtml(step.meta)}</span>` : ''}
+          </li>
+        `)
+        .join('');
+    }
+    if (onboardingHelp) {
+      onboardingHelp.textContent = currentSetupIssues.length
+        ? 'Wenn mpv fehlt, setze den Pfad unter Einstellungen. Wenn yt-dlp fehlt, bleibt die Suche eingeschränkt, bis du den Resolver anpasst.'
+        : 'Die Basis ist da. Starte mit den Einstellungen, kopiere danach die OBS-URL und teste einen ersten Request.';
+    }
+  }
+
+  function renderSetupIssues(issues = []) {
+    if (!setupIssuesBanner || !setupIssuesList) return;
+    const list = Array.isArray(issues) ? issues : [];
+    if (!list.length) {
+      setupIssuesBanner.style.display = 'none';
+      setupIssuesList.innerHTML = '';
+      return;
+    }
+
+    setupIssuesBanner.style.display = 'block';
+    setupIssuesList.innerHTML = list
+      .map((issue) => {
+        const icon = issue?.severity === 'error' ? '❌' : '⚠️';
+        const instructions = Array.isArray(issue?.installInstructions) ? issue.installInstructions : [];
+        const instructionsHtml = instructions.length
+          ? `<ul>${instructions.map((instr) => `<li><code>${escapeHtml(instr)}</code></li>`).join('')}</ul>`
+          : '';
+        return `
+          <div class="setup-issue ${issue?.severity === 'error' ? 'error' : 'warning'}">
+            <strong>${icon} ${escapeHtml(issue?.title || 'Setup-Hinweis')}</strong><br>
+            <span style="font-size:0.9em;">${escapeHtml(issue?.description || '')}</span>
+            ${instructionsHtml}
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  async function completeOnboarding() {
+    if (!onboardingComplete) return;
+    onboardingComplete.disabled = true;
+    const result = await post('/onboarding/complete');
+    onboardingComplete.disabled = false;
+    if (result?.success) {
+      renderOnboarding(result.onboarding || { completed: true }, currentSetupIssues);
+      showToast('success', 'Assistent abgeschlossen', 'Clip bleibt still, bis du ihn wieder brauchst.');
+    } else {
+      showToast('error', 'Setup', result?.error || 'Der Abschluss konnte nicht gespeichert werden.');
+    }
   }
 
   document.getElementById('pause-btn').addEventListener('click', () => {
@@ -331,6 +447,16 @@
     window.open(buildOverlayUrl(), '_blank');
   });
 
+  onboardingSettings?.addEventListener('click', () => {
+    setActiveTab('settings');
+  });
+
+  onboardingOverlay?.addEventListener('click', () => {
+    setActiveTab('overlay');
+  });
+
+  onboardingComplete?.addEventListener('click', completeOnboarding);
+
   autoDjSave.addEventListener('click', async () => {
     const payload = {
       enabled: autoDjEnabled.checked,
@@ -360,6 +486,11 @@
     await post('/config', { resolver: { ytdlpPath: value || 'yt-dlp' } });
   });
 
+  mpvPathInput?.addEventListener('blur', async () => {
+    const value = (mpvPathInput.value || '').trim();
+    await post('/config', { playback: { mpvPath: value || 'mpv' } });
+  });
+
   settingsSave?.addEventListener('click', async () => {
     const payload = {
       queue: {
@@ -369,6 +500,7 @@
         cooldownBypassForGifts: cooldownBypassGifts.checked
       },
       resolver: { ytdlpPath: (ytdlpPathInput?.value || '').trim() || 'yt-dlp' },
+      playback: { mpvPath: (mpvPathInput?.value || '').trim() || 'mpv' },
       giftIntegration: { skipImmunityGifts: parseList(skipImmunityGifts.value) },
       permissions: { requireSuperfanForRequest: requireSuperfan?.checked || false },
       audio: {
@@ -482,6 +614,14 @@
   socket.on('musicbot:status-toast', (payload) => {
     showToast(payload?.type || 'info', payload?.title || 'Music Bot', payload?.message || '');
   });
+  socket.on('music-bot:setup-status', (payload) => {
+    currentSetupIssues = Array.isArray(payload?.issues) ? payload.issues : [];
+    renderSetupIssues(currentSetupIssues);
+    renderOnboarding(currentOnboarding, currentSetupIssues);
+  });
+  socket.on('music-bot:onboarding-updated', (payload) => {
+    renderOnboarding(payload || { completed: true }, currentSetupIssues);
+  });
   socket.on('musicbot:error', (payload) => {
     showToast('error', 'API-Fehler', payload?.message || 'Unbekannter Fehler');
   });
@@ -539,6 +679,7 @@
         setPreviewVideo(status.nowPlaying.youtubeId);
         if (searchInput) searchInput.value = status.nowPlaying.url || '';
       }
+      renderOnboarding(status.onboarding || {}, currentSetupIssues);
     }
     const queueData = await get('/queue');
     if (queueData?.queue) {
@@ -597,6 +738,9 @@
     if (configData?.config?.resolver?.ytdlpPath) {
       ytdlpPathInput.value = configData.config.resolver.ytdlpPath;
     }
+    if (configData?.config?.playback?.mpvPath && mpvPathInput) {
+      mpvPathInput.value = configData.config.playback.mpvPath;
+    }
     if (configData?.config?.audio) {
       if (typeof configData.config.audio.masterVolume === 'number' && masterVolumeInput && masterVolumeValue) {
         masterVolumeInput.value = configData.config.audio.masterVolume;
@@ -620,7 +764,16 @@
       minLikesPerUser.value = Math.max(1, Number(configData.config.monetization.minLikesPerUser) || 1);
     }
 
+    renderOnboarding(configData?.config?.onboarding || {}, currentSetupIssues);
+
     refreshOverlayUrl();
+
+    const setupStatus = await get('/setup-status');
+    if (setupStatus?.issues) {
+      currentSetupIssues = setupStatus.issues;
+      renderSetupIssues(currentSetupIssues);
+      renderOnboarding(configData?.config?.onboarding || {}, currentSetupIssues);
+    }
 
     await refreshAutoDjStatus();
     await refreshBans();

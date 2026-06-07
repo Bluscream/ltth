@@ -68,6 +68,10 @@ class Connect4Game {
    * Drop a piece in a column
    */
   dropPiece(columnInput) {
+    if (this.status !== 'active') {
+      return { success: false, error: 'Game is already completed' };
+    }
+
     // Convert letter to index if needed
     let columnIndex;
     if (typeof columnInput === 'string') {

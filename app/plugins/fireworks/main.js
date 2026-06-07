@@ -628,7 +628,9 @@ class FireworksPlugin {
                 }
 
                 // Temporarily apply preset without saving
-                this.benchmarkPreset = { ...this.config };
+                if (!this.benchmarkPreset) {
+                    this.benchmarkPreset = { ...this.config };
+                }
                 Object.assign(this.config, preset);
 
                 // Notify overlay about config change
@@ -1070,7 +1072,7 @@ class FireworksPlugin {
         // Check if we've reached the rate limit
         if (this.queueTimestamps.length >= maxPerSecond) {
             this.api.log(
-                `⏸️ [FIREWORKS] Rate limit reached (${this.queueTimestamps.length}/${maxPerSecond} per second). Firework skipped.`,
+                `⏸️ [FIREWORKS] Rate limit reached (${this.queueTimestamps.length}/${maxPerSecond} per second). Firework skipped due to rate limit.`,
                 'debug'
             );
             return false;

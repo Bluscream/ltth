@@ -12,16 +12,18 @@ const CommandCooldownManager = require('./utils/CommandCooldownManager');
 const ErrorHandler = require('./utils/ErrorHandler');
 
 class CommandParser {
-    constructor(registry, permissionChecker, logger) {
+    constructor(registry, permissionChecker, logger, options = {}) {
         this.registry = registry;
         this.permissionChecker = permissionChecker;
-        this.logger = logger;
+        this.logger = this.normalizeLogger(logger);
         
         // P2: Token Bucket Rate Limiter (O(1) performance)
         this.rateLimiter = new TokenBucketRateLimiter(
             config.RATE_LIMIT.COMMANDS_PER_USER_PER_MINUTE,
             config.RATE_LIMIT.COMMANDS_PER_USER_PER_MINUTE,
-            60000 // 1 minute refill interval
+            60000, // 1 minute refill interval
+            config.RATE_LIMIT.GLOBAL_COMMANDS_PER_MINUTE,
+            config.RATE_LIMIT.GLOBAL_COMMANDS_PER_MINUTE
         );
 
         // F2: Command Cooldown Manager
@@ -32,7 +34,58 @@ class CommandParser {
 
         // P3: Pre-compiled RegEx for parser optimization
         this.whitespaceRegex = /\s+/g;
-        this.commandPrefixRegex = new RegExp(`^\\${config.COMMAND_PREFIX}`);
+        this.setCommandPrefix(options.commandPrefix || config.COMMAND_PREFIX);
+    }
+
+    /**
+     * Normalize different logger shapes used by plugin APIs and tests.
+     * @param {Object} logger - Logger or PluginAPI-like object
+     * @returns {Object} Logger with info/warn/error/debug methods
+     */
+    normalizeLogger(logger) {
+        const noop = () => {};
+
+        if (!logger) {
+            return {
+                info: noop,
+                warn: noop,
+                error: noop,
+                debug: noop
+            };
+        }
+
+        const log = typeof logger.log === 'function'
+            ? (message, level) => logger.log(message, level)
+            : null;
+
+        return {
+            info: typeof logger.info === 'function' ? logger.info.bind(logger) : (log ? (message) => log(message, 'info') : noop),
+            warn: typeof logger.warn === 'function' ? logger.warn.bind(logger) : (log ? (message) => log(message, 'warn') : noop),
+            error: typeof logger.error === 'function' ? logger.error.bind(logger) : (log ? (message) => log(message, 'error') : noop),
+            debug: typeof logger.debug === 'function' ? logger.debug.bind(logger) : (log ? (message) => log(message, 'debug') : noop)
+        };
+    }
+
+    /**
+     * Configure the active command prefix.
+     * @param {string} prefix - Prefix to use for chat commands
+     */
+    setCommandPrefix(prefix) {
+        const normalized = typeof prefix === 'string' && prefix.trim().length > 0
+            ? prefix.trim().charAt(0)
+            : config.COMMAND_PREFIX;
+
+        this.commandPrefix = normalized;
+        this.commandPrefixRegex = new RegExp(`^${this.escapeRegex(normalized)}`);
+    }
+
+    /**
+     * Escape a string for safe RegExp construction.
+     * @param {string} value - Raw value
+     * @returns {string} Escaped value
+     */
+    escapeRegex(value) {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
     /**
@@ -181,12 +234,22 @@ class CommandParser {
     }
 
     /**
+     * Backward-compatible parser entrypoint used by Flow/IFTTT actions.
+     * @param {string} message - The chat message
+     * @param {Object} context - Execution context
+     * @returns {Promise<Object>} Execution result
+     */
+    async parseAndExecute(message, context) {
+        return this.parse(message, context);
+    }
+
+    /**
      * Check if a message is a command
      * @param {string} message - The message to check
      * @returns {boolean} True if message is a command
      */
     isCommand(message) {
-        return message && message.trim().startsWith(config.COMMAND_PREFIX);
+        return message && message.trim().startsWith(this.commandPrefix);
     }
 
     /**
@@ -207,13 +270,13 @@ class CommandParser {
         }
         
         // Remove prefix (single operation)
-        const withoutPrefix = trimmed.substring(config.COMMAND_PREFIX.length);
+        const withoutPrefix = trimmed.substring(this.commandPrefix.length);
         
         // Split into parts (using pre-compiled regex)
         const parts = withoutPrefix.trim().split(this.whitespaceRegex);
         
         // Extract command and arguments (toLowerCase only once)
-        const command = parts[0].toLowerCase();
+        const command = (parts[0] || '').toLowerCase();
         const args = parts.slice(1);
         
         return {

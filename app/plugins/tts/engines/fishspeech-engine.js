@@ -39,7 +39,7 @@ class FishSpeechEngine {
     
     constructor(apiKey, logger, config = {}) {
         if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
-            throw new Error('Fish.audio API key is required and must be a non-empty string');
+            throw new Error('Fish Speech API key is required and must be a non-empty string');
         }
 
         this.apiKey = apiKey;

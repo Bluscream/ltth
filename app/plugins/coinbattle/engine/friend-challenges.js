@@ -14,6 +14,7 @@ class FriendChallengeSystem {
     // Active challenges
     this.pendingChallenges = new Map(); // challengeId -> challenge data
     this.activeChallenges = new Map(); // challengeId -> active match
+    this.expirationTimers = new Map(); // challengeId -> timeout
     
     // Configuration
     this.config = {
@@ -205,9 +206,19 @@ class FriendChallengeSystem {
    * Create a new challenge (also works with chat pattern: challenge@user)
    */
   async createChallenge(challengerUserId, challengerNickname, targetUsername, stake = 10) {
+    const normalizedStake = Math.floor(Number(stake));
+    if (!Number.isFinite(normalizedStake) ||
+        normalizedStake < this.config.minStake ||
+        normalizedStake > this.config.maxStake) {
+      return {
+        success: false,
+        error: `Stake must be between ${this.config.minStake} and ${this.config.maxStake} coins`
+      };
+    }
+
     // Check if challenger has enough coins
     const challengerCoins = this.db.getPlayerCoins(challengerUserId);
-    if (challengerCoins < stake) {
+    if (challengerCoins < normalizedStake) {
       return {
         success: false,
         error: 'Insufficient coins for stake'
@@ -232,7 +243,7 @@ class FriendChallengeSystem {
       challengerUserId,
       challengerNickname,
       targetUsername,
-      stake,
+      stake: normalizedStake,
       createdAt: Date.now(),
       expiresAt: Date.now() + this.config.acceptTimeout,
       status: 'pending'
@@ -242,18 +253,22 @@ class FriendChallengeSystem {
     this.stats.totalChallenges++;
     
     // Set expiration timer
-    setTimeout(() => {
+    const expirationTimer = setTimeout(() => {
       if (this.pendingChallenges.has(challengeId)) {
         this.expireChallenge(challengeId);
       }
     }, this.config.acceptTimeout);
+    if (typeof expirationTimer.unref === 'function') {
+      expirationTimer.unref();
+    }
+    this.expirationTimers.set(challengeId, expirationTimer);
     
     // Emit challenge event
     this.io.emit('coinbattle:challenge-created', {
       challengeId,
       challenger: challengerNickname,
       target: targetUsername,
-      stake,
+      stake: normalizedStake,
       expiresIn: this.config.acceptTimeout / 1000
     });
     
@@ -277,10 +292,17 @@ class FriendChallengeSystem {
     if (accepterCoins < challenge.stake) {
       return { success: false, error: 'Insufficient coins for stake' };
     }
-    
-    // Remove from pending
-    this.pendingChallenges.delete(challengeId);
-    this.stats.acceptedChallenges++;
+
+    const challengerDebit = this.db.deductPlayerCoins(challenge.challengerUserId, challenge.stake);
+    if (!challengerDebit.success) {
+      return { success: false, error: challengerDebit.error || 'Insufficient challenger stake' };
+    }
+
+    const accepterDebit = this.db.deductPlayerCoins(accepterUserId, challenge.stake);
+    if (!accepterDebit.success) {
+      this.db.addPlayerCoins(challenge.challengerUserId, challenge.stake);
+      return { success: false, error: accepterDebit.error || 'Insufficient coins for stake' };
+    }
     
     // Start 1v1 match
     try {
@@ -289,6 +311,11 @@ class FriendChallengeSystem {
       // Add both players to match
       this.gameEngine.addPlayerToMatch(challenge.challengerUserId, challenge.challengerNickname);
       this.gameEngine.addPlayerToMatch(accepterUserId, accepterNickname);
+
+      // Remove from pending
+      this.pendingChallenges.delete(challengeId);
+      this.clearExpirationTimer(challengeId);
+      this.stats.acceptedChallenges++;
       
       // Store active challenge
       this.activeChallenges.set(challengeId, {
@@ -313,8 +340,21 @@ class FriendChallengeSystem {
       
       return { success: true, matchId: match.id };
     } catch (error) {
+      this.db.addPlayerCoins(challenge.challengerUserId, challenge.stake);
+      this.db.addPlayerCoins(accepterUserId, challenge.stake);
       this.logger.error(`Failed to start challenge match: ${error.message}`);
       return { success: false, error: 'Failed to start match' };
+    }
+  }
+
+  /**
+   * Clear an expiration timer for a challenge.
+   */
+  clearExpirationTimer(challengeId) {
+    const timer = this.expirationTimers.get(challengeId);
+    if (timer) {
+      clearTimeout(timer);
+      this.expirationTimers.delete(challengeId);
     }
   }
 
@@ -329,6 +369,7 @@ class FriendChallengeSystem {
     }
     
     this.pendingChallenges.delete(challengeId);
+    this.clearExpirationTimer(challengeId);
     this.stats.declinedChallenges++;
     
     // Emit declined event
@@ -353,6 +394,7 @@ class FriendChallengeSystem {
     }
     
     this.pendingChallenges.delete(challengeId);
+    this.clearExpirationTimer(challengeId);
     this.stats.expiredChallenges++;
     
     // Emit expired event
@@ -421,6 +463,10 @@ class FriendChallengeSystem {
    * Destroy the system
    */
   destroy() {
+    for (const timer of this.expirationTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.expirationTimers.clear();
     this.pendingChallenges.clear();
     this.activeChallenges.clear();
   }

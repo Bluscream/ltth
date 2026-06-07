@@ -211,6 +211,34 @@ describe('Game Engine GCCE Integration', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid');
     });
+
+    test('should reject connect4 moves when the active session is another game type', async () => {
+      const context = {
+        username: 'Test User',
+        userId: 'test123',
+        nickname: 'Test User'
+      };
+
+      plugin.db = {
+        getActiveSessionForPlayer: jest.fn(() => ({
+          id: 1,
+          game_type: 'chess',
+          player1_username: 'test123'
+        }))
+      };
+
+      const mockChessGame = {
+        getCurrentPlayerInfo: jest.fn(() => ({ username: 'test123' })),
+        dropPiece: jest.fn()
+      };
+      plugin.activeSessions.set(1, mockChessGame);
+
+      const result = await plugin.handleConnect4Command(['A'], context);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not a Connect4 game');
+      expect(mockChessGame.dropPiece).not.toHaveBeenCalled();
+    });
   });
 
   describe('Connect4 Start Command Handler', () => {
@@ -265,6 +293,81 @@ describe('Game Engine GCCE Integration', () => {
       expect(result.success).toBe(true);
       expect(result.message).toContain('queued');
       expect(plugin.handleGameStart).toHaveBeenCalled();
+    });
+
+    test('should return queue rejection when active game queue is full', async () => {
+      const context = {
+        username: 'Test User',
+        userId: 'test123'
+      };
+
+      plugin.activeSessions.set(1, {});
+      plugin.db = {
+        getGameConfig: jest.fn(() => plugin.defaultConfigs.connect4)
+      };
+      plugin.handleGameStart = jest.fn(() => ({
+        queued: false,
+        error: 'Queue is full'
+      }));
+
+      const result = await plugin.handleConnect4StartCommand([], context);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('Queue is full');
+    });
+
+    test('should preserve command trigger type when creating a pending challenge', () => {
+      plugin.db = {
+        getActiveSessionForPlayer: jest.fn(() => null),
+        getGameConfig: jest.fn(() => ({
+          ...plugin.defaultConfigs.connect4,
+          showChallengeScreen: true
+        })),
+        createSession: jest.fn(() => 77),
+        updateSession: jest.fn(),
+        getGameMedia: jest.fn(() => null)
+      };
+
+      const result = plugin.handleGameStart('connect4', 'test123', 'Test User', 'command', '/c4start');
+      const challenge = plugin.pendingChallenges.get(77);
+      clearTimeout(challenge.timeout);
+
+      expect(result).toMatchObject({ success: true, challenge: true, sessionId: 77 });
+      expect(plugin.db.createSession).toHaveBeenCalledWith(
+        'connect4',
+        'test123',
+        'viewer',
+        'command',
+        '/c4start'
+      );
+    });
+
+    test('should align stored challenge players with streamer player1 config', () => {
+      plugin.db = {
+        getGameConfig: jest.fn(() => ({
+          ...plugin.defaultConfigs.connect4,
+          streamerRole: 'player1'
+        })),
+        updateSession: jest.fn(),
+        addPlayer2: jest.fn(),
+        getGameMedia: jest.fn(() => null)
+      };
+
+      plugin.startGameFromChallenge(88, {
+        gameType: 'connect4',
+        challengerUsername: 'viewer123',
+        challengerNickname: 'Viewer Name'
+      }, 'streamer');
+
+      const game = plugin.activeSessions.get(88);
+
+      expect(plugin.db.updateSession).toHaveBeenCalledWith(88, expect.objectContaining({
+        player1_username: 'streamer',
+        player1_role: 'streamer'
+      }));
+      expect(plugin.db.addPlayer2).toHaveBeenCalledWith(88, 'viewer123', 'viewer');
+      expect(game.player1.username).toBe('streamer');
+      expect(game.player2.username).toBe('viewer123');
     });
   });
 
@@ -391,6 +494,36 @@ describe('Game Engine GCCE Integration', () => {
       // Check that default command is used
       const defaultCommand = registeredCommands.find(cmd => cmd.name === 'c4start');
       expect(defaultCommand).toBeDefined();
+    });
+
+    test('should start Connect4 from bare configured chat command', () => {
+      plugin.db = {
+        getGameConfig: jest.fn(() => plugin.defaultConfigs.connect4),
+        getTriggers: jest.fn(() => []),
+        getActiveSessionForPlayer: jest.fn(() => null)
+      };
+      plugin.handleGameStart = jest.fn();
+      plugin.wheelGame = {
+        findWheelByChatCommand: jest.fn(() => null)
+      };
+      plugin.slotGame = {
+        findMachineByChatCommand: jest.fn(() => null),
+        destroy: jest.fn()
+      };
+
+      plugin.handleChatCommand({
+        uniqueId: 'user123',
+        nickname: 'TestUser',
+        comment: 'c4start'
+      });
+
+      expect(plugin.handleGameStart).toHaveBeenCalledWith(
+        'connect4',
+        'user123',
+        'TestUser',
+        'command',
+        '/c4start'
+      );
     });
   });
 

@@ -29,6 +29,9 @@ class CoinBattlePlugin {
     this.templateManager = null;
     this.teamNamesManager = null;
     this.likesPointsSystem = null;
+    this.pyramidXPUnsubscribe = null;
+    this.matchEndedUnsubscribe = null;
+    this.enableLegacySocketLoopbackHandlers = false;
     this.logger = {
       info: (msg) => this.api.log(msg, 'info'),
       error: (msg) => this.api.log(msg, 'error'),
@@ -57,7 +60,7 @@ class CoinBattlePlugin {
       this.api.log('✅ Performance Manager initialized', 'info');
 
       // Initialize King of the Hill mode
-      this.kothMode = new KingOfTheHillMode(rawDb, this.io, this.logger);
+      this.kothMode = new KingOfTheHillMode(this.db, this.io, this.logger);
       this.api.log('✅ King of the Hill Mode initialized', 'info');
 
       // Initialize Pyramid Mode
@@ -66,7 +69,7 @@ class CoinBattlePlugin {
       this.api.log('✅ Pyramid Mode initialized', 'info');
 
       // Initialize Friend Challenge system
-      this.friendChallenges = new FriendChallengeSystem(rawDb, this.io, this.engine, this.logger);
+      this.friendChallenges = new FriendChallengeSystem(this.db, this.io, this.engine, this.logger);
       
       // Try to register with GCCE if available
       this.registerWithGCCE();
@@ -102,6 +105,8 @@ class CoinBattlePlugin {
       if (this.pyramidMode && config.postMatch) {
         this.pyramidMode.setPostMatchConfig(config.postMatch);
       }
+
+      this.registerInternalEventHandlers();
 
       // Register routes
       this.registerRoutes();
@@ -196,20 +201,169 @@ class CoinBattlePlugin {
       }
     };
 
-    const savedConfig = this.api.getConfig('coinbattle_config');
-    return { ...defaultConfig, ...(savedConfig || {}) };
+    const savedConfig = this.api.getConfig('coinbattle_config') || {};
+    return {
+      ...defaultConfig,
+      ...savedConfig,
+      postMatch: {
+        ...defaultConfig.postMatch,
+        ...(savedConfig.postMatch || {})
+      }
+    };
   }
 
   /**
    * Save plugin configuration
    */
   saveConfiguration(config) {
-    this.api.setConfig('coinbattle_config', config);
-    this.engine.loadConfig(config);
+    const currentConfig = this.loadConfiguration();
+    const nextConfig = {
+      ...currentConfig,
+      ...(config || {}),
+      postMatch: {
+        ...currentConfig.postMatch,
+        ...((config && config.postMatch) || {})
+      }
+    };
+
+    this.api.setConfig('coinbattle_config', nextConfig);
+    this.engine.loadConfig(nextConfig);
     
     // Update post-match config for pyramid mode
-    if (this.pyramidMode && config.postMatch) {
-      this.pyramidMode.setPostMatchConfig(config.postMatch);
+    if (this.pyramidMode && nextConfig.postMatch) {
+      this.pyramidMode.setPostMatchConfig(nextConfig.postMatch);
+    }
+
+    return nextConfig;
+  }
+
+  /**
+   * Clamp numeric route input to a safe range.
+   */
+  parseBoundedNumber(value, defaultValue, min, max, integer = true) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return defaultValue;
+    }
+
+    const normalized = integer ? Math.floor(parsed) : parsed;
+    return Math.min(max, Math.max(min, normalized));
+  }
+
+  /**
+   * Validate match mode input.
+   */
+  parseMatchMode(mode) {
+    const allowedModes = new Set(['solo', 'team', '1v1', 'pyramid']);
+    return allowedModes.has(mode) ? mode : null;
+  }
+
+  /**
+   * Extract a stable TikTok event id for gift deduplication.
+   */
+  extractTikTokEventId(data = {}) {
+    const directId = data.eventId || data.msgId || data.messageId || data.id ||
+      data.event_id || data.msg_id;
+
+    if (directId) {
+      return String(directId);
+    }
+
+    const userId = data.userId || data.user_id || data.uniqueId || 'unknown';
+    const giftId = data.giftId || data.gift_id || data.gift?.id || 'unknown';
+    const repeatCount = data.repeatCount || data.repeat_count || 1;
+    const timestamp = data.timestamp || data.createTime || data.createdAt ||
+      data.eventTime || data.msgTime || Date.now();
+
+    return `gift_${userId}_${giftId}_${repeatCount}_${timestamp}`;
+  }
+
+  /**
+   * Register internal server-side integration callbacks.
+   */
+  registerInternalEventHandlers() {
+    if (this.pyramidMode && typeof this.pyramidMode.onXPAwards === 'function') {
+      this.pyramidXPUnsubscribe = this.pyramidMode.onXPAwards((data) => this.awardPyramidXP(data));
+    }
+
+    if (this.engine && typeof this.engine.onMatchEnded === 'function') {
+      this.matchEndedUnsubscribe = this.engine.onMatchEnded((data) => {
+        if (data.mode === 'pyramid' && this.pyramidMode && this.pyramidMode.active) {
+          this.pyramidMode.endRound();
+        }
+
+        this.awardMatchXP(data);
+
+        if (this.friendChallenges && data.winner?.winner_player_id) {
+          this.friendChallenges.completeChallenge(data.matchId, data.winner.winner_player_id);
+        }
+      });
+    }
+  }
+
+  /**
+   * Award Pyramid XP through viewer-xp when available.
+   */
+  awardPyramidXP(data) {
+    try {
+      const { rewards } = data;
+      if (!rewards || rewards.length === 0) return;
+
+      const viewerXPPlugin = this.api.getPluginInstance && this.api.getPluginInstance('viewer-xp');
+      if (viewerXPPlugin && viewerXPPlugin.db) {
+        for (const reward of rewards) {
+          viewerXPPlugin.db.addXP(
+            reward.username,
+            reward.xp,
+            'pyramid_win',
+            {
+              place: reward.place,
+              percentage: reward.percentage,
+              points: reward.points,
+              source: 'coinbattle-pyramid'
+            }
+          );
+        }
+
+        this.api.log(`🎮 Awarded XP to ${rewards.length} pyramid winners`, 'info');
+      } else {
+        this.api.log('Viewer XP plugin not available for pyramid rewards', 'warn');
+      }
+    } catch (error) {
+      this.api.log(`Error awarding pyramid XP: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Award match XP through viewer-xp when available.
+   */
+  awardMatchXP(data) {
+    try {
+      const { winnersWithXP } = data;
+      if (!winnersWithXP || winnersWithXP.length === 0) return;
+
+      const viewerXPPlugin = this.api.getPluginInstance && this.api.getPluginInstance('viewer-xp');
+      if (viewerXPPlugin && viewerXPPlugin.db) {
+        for (const winner of winnersWithXP) {
+          viewerXPPlugin.db.addXP(
+            winner.uniqueId || winner.nickname,
+            winner.xp,
+            winner.reason,
+            {
+              placement: winner.placement,
+              coins: winner.coins,
+              team: winner.team,
+              source: 'coinbattle-match'
+            }
+          );
+        }
+
+        this.api.log(`🏆 Awarded XP to ${winnersWithXP.length} match winners`, 'info');
+      } else {
+        this.api.log('Viewer XP plugin not available for match rewards', 'warn');
+      }
+    } catch (error) {
+      this.api.log(`Error awarding match XP: ${error.message}`, 'error');
     }
   }
 
@@ -342,8 +496,33 @@ class CoinBattlePlugin {
       withRateLimit(strictLimit, (req, res) => {
         try {
           const { mode, duration } = req.body;
-          const match = this.engine.startMatch(mode, duration);
-          res.json({ success: true, data: match });
+          const config = this.loadConfiguration();
+          const matchMode = this.parseMatchMode(mode);
+          const configuredMode = this.parseMatchMode(config.mode) || 'solo';
+          const resolvedMode = matchMode || configuredMode;
+          const matchDuration = this.parseBoundedNumber(duration, config.matchDuration, 10, 3600);
+
+          if (resolvedMode === 'pyramid') {
+            if (!this.pyramidMode) {
+              throw new Error('Pyramid Battle is not available');
+            }
+
+            if (this.pyramidMode.active) {
+              throw new Error('Pyramid round already active');
+            }
+          }
+
+          const match = this.engine.startMatch(matchMode, matchDuration);
+          let pyramid = null;
+
+          if (match.mode === 'pyramid') {
+            pyramid = this.pyramidMode.startRound(match.id, matchDuration);
+            if (!pyramid.success) {
+              throw new Error(pyramid.error || 'Failed to start Pyramid Battle');
+            }
+          }
+
+          res.json({ success: true, data: pyramid ? { ...match, pyramid } : match });
         } catch (error) {
           this.api.log(`Error starting match: ${error.message}`, 'error');
           res.status(500).json({ success: false, error: error.message });
@@ -395,7 +574,8 @@ class CoinBattlePlugin {
       withRateLimit(strictLimit, (req, res) => {
         try {
           const { seconds } = req.body;
-          const success = this.engine.extendMatch(seconds || 60);
+          const extensionSeconds = this.parseBoundedNumber(seconds, 60, 1, 600);
+          const success = this.engine.extendMatch(extensionSeconds);
           res.json({ success });
         } catch (error) {
           this.api.log(`Error extending match: ${error.message}`, 'error');
@@ -409,9 +589,11 @@ class CoinBattlePlugin {
       withRateLimit(strictLimit, (req, res) => {
         try {
           const { multiplier, duration, activatedBy } = req.body;
+          const safeMultiplier = this.parseBoundedNumber(multiplier, 2.0, 1.0, 10.0, false);
+          const safeDuration = this.parseBoundedNumber(duration, 30, 1, 600);
           const success = this.engine.activateMultiplier(
-            multiplier || 2.0,
-            duration || 30,
+            safeMultiplier,
+            safeDuration,
           activatedBy
         );
         res.json({ success });
@@ -425,7 +607,7 @@ class CoinBattlePlugin {
     // Get lifetime leaderboard (relaxed)
     this.api.registerRoute('GET', '/api/plugins/coinbattle/leaderboard/lifetime', (req, res) => {
       try {
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = this.parseBoundedNumber(req.query.limit, 10, 1, 100);
         const leaderboard = this.db.getLifetimeLeaderboard(limit);
         res.json({ success: true, data: leaderboard });
       } catch (error) {
@@ -437,7 +619,7 @@ class CoinBattlePlugin {
     // Get weekly leaderboard (relaxed)
     this.api.registerRoute('GET', '/api/plugins/coinbattle/leaderboard/weekly', (req, res) => {
       try {
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = this.parseBoundedNumber(req.query.limit, 10, 1, 100);
         const leaderboard = this.db.getWeeklyLeaderboard(limit);
         res.json({ success: true, data: leaderboard });
       } catch (error) {
@@ -449,7 +631,7 @@ class CoinBattlePlugin {
     // Get season leaderboard (relaxed)
     this.api.registerRoute('GET', '/api/plugins/coinbattle/leaderboard/season', (req, res) => {
       try {
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = this.parseBoundedNumber(req.query.limit, 10, 1, 100);
         const leaderboard = this.db.getSeasonLeaderboard(limit);
         const activeSeason = this.db.getActiveSeason();
         res.json({ success: true, data: leaderboard, season: activeSeason });
@@ -462,8 +644,8 @@ class CoinBattlePlugin {
     // Get all players for management (relaxed)
     this.api.registerRoute('GET', '/api/plugins/coinbattle/players', (req, res) => {
       try {
-        const limit = parseInt(req.query.limit) || 100;
-        const offset = parseInt(req.query.offset) || 0;
+        const limit = this.parseBoundedNumber(req.query.limit, 100, 1, 500);
+        const offset = this.parseBoundedNumber(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
         const players = this.db.getAllPlayers(limit, offset);
         res.json({ success: true, data: players });
       } catch (error) {
@@ -515,6 +697,9 @@ class CoinBattlePlugin {
       withRateLimit(strictLimit, (req, res) => {
         try {
           const { seasonName, startDate, endDate } = req.body;
+          if (!seasonName || !Number.isFinite(Number(startDate)) || !Number.isFinite(Number(endDate))) {
+            return res.status(400).json({ success: false, error: 'Invalid season data' });
+          }
           const result = this.db.createOrUpdateSeason(seasonName, startDate, endDate);
           res.json(result);
         } catch (error) {
@@ -529,7 +714,8 @@ class CoinBattlePlugin {
       withRateLimit(strictLimit, (req, res) => {
         try {
           const { seasonId } = req.params;
-          const result = this.db.deleteSeason(parseInt(seasonId));
+          const parsedSeasonId = this.parseBoundedNumber(seasonId, 0, 1, Number.MAX_SAFE_INTEGER);
+          const result = this.db.deleteSeason(parsedSeasonId);
           res.json(result);
         } catch (error) {
           this.api.log(`Error deleting season: ${error.message}`, 'error');
@@ -541,8 +727,8 @@ class CoinBattlePlugin {
     // Get match history (relaxed)
     this.api.registerRoute('GET', '/api/plugins/coinbattle/history', (req, res) => {
       try {
-        const limit = parseInt(req.query.limit) || 20;
-        const offset = parseInt(req.query.offset) || 0;
+        const limit = this.parseBoundedNumber(req.query.limit, 20, 1, 500);
+        const offset = this.parseBoundedNumber(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
         const history = this.db.getMatchHistory(limit, offset);
         res.json({ success: true, data: history });
       } catch (error) {
@@ -579,8 +765,7 @@ class CoinBattlePlugin {
     this.api.registerRoute('POST', '/api/plugins/coinbattle/config', 
       withRateLimit(moderateLimit, (req, res) => {
         try {
-          const config = req.body;
-          this.saveConfiguration(config);
+          const config = this.saveConfiguration(req.body);
           
           // Emit real-time config update to all overlays
           this.io.emit('coinbattle:config-updated', config);
@@ -653,6 +838,10 @@ class CoinBattlePlugin {
       withRateLimit(moderateLimit, async (req, res) => {
         try {
           const { challengerUserId, challengerNickname, targetUsername, stake } = req.body;
+          if (!challengerUserId || !challengerNickname || !targetUsername) {
+            return res.status(400).json({ success: false, error: 'Missing challenge participants' });
+          }
+
           const result = await this.friendChallenges.createChallenge(
             challengerUserId,
             challengerNickname,
@@ -672,6 +861,10 @@ class CoinBattlePlugin {
       withRateLimit(moderateLimit, async (req, res) => {
         try {
           const { challengeId, accepterUserId, accepterNickname } = req.body;
+          if (!challengeId || !accepterUserId || !accepterNickname) {
+            return res.status(400).json({ success: false, error: 'Missing challenge acceptance data' });
+          }
+
           const result = await this.friendChallenges.acceptChallenge(
             challengeId,
             accepterUserId,
@@ -690,6 +883,10 @@ class CoinBattlePlugin {
       withRateLimit(moderateLimit, (req, res) => {
         try {
           const { challengeId } = req.body;
+          if (!challengeId) {
+            return res.status(400).json({ success: false, error: 'Missing challenge id' });
+          }
+
           const success = this.friendChallenges.declineChallenge(challengeId);
           res.json({ success });
         } catch (error) {
@@ -841,7 +1038,10 @@ class CoinBattlePlugin {
     this.api.registerRoute('GET', '/api/plugins/coinbattle/team-names', (req, res) => {
       try {
         const { matchId } = req.query;
-        const names = this.teamNamesManager.getTeamNames(matchId ? parseInt(matchId) : null);
+        const parsedMatchId = matchId
+          ? this.parseBoundedNumber(matchId, null, 1, Number.MAX_SAFE_INTEGER)
+          : null;
+        const names = this.teamNamesManager.getTeamNames(parsedMatchId);
         res.json({ success: true, data: names });
       } catch (error) {
         this.api.log(`Error getting team names: ${error.message}`, 'error');
@@ -879,7 +1079,10 @@ class CoinBattlePlugin {
       withRateLimit(strictLimit, (req, res) => {
         try {
           const { matchId } = req.query;
-          const result = this.teamNamesManager.resetTeamNames(matchId ? parseInt(matchId) : null);
+          const parsedMatchId = matchId
+            ? this.parseBoundedNumber(matchId, null, 1, Number.MAX_SAFE_INTEGER)
+            : null;
+          const result = this.teamNamesManager.resetTeamNames(parsedMatchId);
           res.json(result);
         } catch (error) {
           this.api.log(`Error resetting team names: ${error.message}`, 'error');
@@ -929,7 +1132,8 @@ class CoinBattlePlugin {
     this.api.registerRoute('GET', '/api/plugins/coinbattle/likes-points/stats/:matchId', (req, res) => {
       try {
         const { matchId } = req.params;
-        const stats = this.likesPointsSystem.getMatchStatistics(parseInt(matchId));
+        const parsedMatchId = this.parseBoundedNumber(matchId, 0, 1, Number.MAX_SAFE_INTEGER);
+        const stats = this.likesPointsSystem.getMatchStatistics(parsedMatchId);
         res.json({ success: true, data: stats });
       } catch (error) {
         this.api.log(`Error getting likes points stats: ${error.message}`, 'error');
@@ -941,7 +1145,8 @@ class CoinBattlePlugin {
     this.api.registerRoute('GET', '/api/plugins/coinbattle/likes-points/player/:matchId/:userId', (req, res) => {
       try {
         const { matchId, userId } = req.params;
-        const points = this.likesPointsSystem.getPlayerPointsForMatch(parseInt(matchId), userId);
+        const parsedMatchId = this.parseBoundedNumber(matchId, 0, 1, Number.MAX_SAFE_INTEGER);
+        const points = this.likesPointsSystem.getPlayerPointsForMatch(parsedMatchId, userId);
         res.json({ success: true, data: points });
       } catch (error) {
         this.api.log(`Error getting player points: ${error.message}`, 'error');
@@ -1027,7 +1232,7 @@ class CoinBattlePlugin {
     // Get pyramid round history
     this.api.registerRoute('GET', '/api/plugins/coinbattle/pyramid/history', (req, res) => {
       try {
-        const limit = parseInt(req.query.limit) || 20;
+        const limit = this.parseBoundedNumber(req.query.limit, 20, 1, 500);
         const history = this.pyramidMode.getRoundHistory(limit);
         res.json({ success: true, data: history });
       } catch (error) {
@@ -1086,12 +1291,13 @@ class CoinBattlePlugin {
     this.api.registerRoute('GET', '/api/plugins/coinbattle/export/:matchId', (req, res) => {
       try {
         const { matchId } = req.params;
+        const parsedMatchId = this.parseBoundedNumber(matchId, 0, 1, Number.MAX_SAFE_INTEGER);
         const rawDb = this.db.getRawDb();
-        const match = rawDb.prepare('SELECT * FROM coinbattle_matches WHERE id = ?').get(matchId);
-        const participants = this.db.getMatchLeaderboard(matchId, 100);
+        const match = rawDb.prepare('SELECT * FROM coinbattle_matches WHERE id = ?').get(parsedMatchId);
+        const participants = this.db.getMatchLeaderboard(parsedMatchId, 100);
         const gifts = rawDb.prepare(`
           SELECT * FROM coinbattle_gift_events WHERE match_id = ?
-        `).all(matchId);
+        `).all(parsedMatchId);
 
         res.json({
           success: true,
@@ -1152,6 +1358,7 @@ class CoinBattlePlugin {
       socket.emit('pyramid:state', state);
     });
 
+    if (this.enableLegacySocketLoopbackHandlers) {
     // Server-side event: Pyramid XP awards - integrate with viewer-xp plugin
     // Note: Uses this.io.on() instead of registerSocket() because this event
     // is emitted server-side by pyramid-mode.js, not from client sockets
@@ -1222,6 +1429,8 @@ class CoinBattlePlugin {
       }
     });
 
+    }
+
     // Manual team assignment
     this.api.registerSocket('coinbattle:assign-team', (socket, data) => {
       try {
@@ -1276,16 +1485,21 @@ class CoinBattlePlugin {
         await this.performanceManager.processGiftEvent(userData.userId, giftData);
 
         // Process gift through engine
-        this.engine.processGift(giftData, userData);
+        const eventId = this.extractTikTokEventId(data);
+        const giftResult = this.engine.processGift(giftData, userData, eventId);
+
+        if (!giftResult || giftResult.duplicate) {
+          return;
+        }
 
         // Update KOTH mode if active
         if (this.kothMode && this.kothMode.currentKing) {
-          const leaderboard = this.engine.getLeaderboard();
+          const leaderboard = this.engine.getLeaderboard(100);
           this.kothMode.updateLeaderboard(leaderboard);
         }
 
-        // Process gift through Pyramid Mode if enabled
-        if (this.pyramidMode && this.pyramidMode.config.enabled) {
+        // Process gift through Pyramid Mode if enabled or manually started.
+        if (this.pyramidMode && (this.pyramidMode.config.enabled || this.pyramidMode.active)) {
           this.pyramidMode.processGift(userData, coins);
         }
 
@@ -1337,8 +1551,8 @@ class CoinBattlePlugin {
           profilePictureUrl: data.profilePictureUrl
         };
 
-        // Process likes through Pyramid Mode if enabled
-        if (this.pyramidMode && this.pyramidMode.config.enabled && this.pyramidMode.active) {
+        // Process likes through Pyramid Mode while a round is active.
+        if (this.pyramidMode && this.pyramidMode.active) {
           if (data.likeCount) {
             this.pyramidMode.processLike(userData, data.likeCount);
           }
@@ -1499,6 +1713,16 @@ class CoinBattlePlugin {
    */
   async destroy() {
     this.api.log('Destroying CoinBattle Plugin...', 'info');
+
+    if (this.pyramidXPUnsubscribe) {
+      this.pyramidXPUnsubscribe();
+      this.pyramidXPUnsubscribe = null;
+    }
+
+    if (this.matchEndedUnsubscribe) {
+      this.matchEndedUnsubscribe();
+      this.matchEndedUnsubscribe = null;
+    }
     
     // Destroy all subsystems
     if (this.engine) {
@@ -1506,7 +1730,7 @@ class CoinBattlePlugin {
     }
 
     if (this.performanceManager) {
-      this.performanceManager.destroy();
+      await this.performanceManager.destroy();
     }
 
     if (this.kothMode) {

@@ -10,6 +10,13 @@ class MockAPI {
   constructor() {
     this.logs = [];
     this.emissions = [];
+    this.config = {
+      enabled: true,
+      emoji_set: ['x', 'y', 'z'],
+      max_count_per_event: 100,
+      max_intensity: 3.0,
+      spawn_area_preset: 'full'
+    };
     this.db = {
       getEmojiRainConfig: () => ({
         enabled: true,
@@ -181,6 +188,19 @@ describe('WebGPU Emoji Rain - Spawn Coordinate Validation', () => {
       // y should default to 0 since spawnArea.y is out of range
       expect(result.y).toBe(0);
     });
+
+    test('should fall back to standard rain for unknown area presets', () => {
+      const result = plugin.validateSpawnCoordinates(undefined, undefined, null, 'unknown-preset');
+      expect(result.x).toBeGreaterThanOrEqual(0);
+      expect(result.x).toBeLessThanOrEqual(1);
+      expect(result.y).toBe(0);
+    });
+
+    test('should preserve explicit coordinates even when an area preset is provided', () => {
+      const result = plugin.validateSpawnCoordinates(0.2, 0.1, null, 'unknown-preset');
+      expect(result.x).toBe(0.2);
+      expect(result.y).toBe(0.1);
+    });
   });
 
   describe('triggerEmojiRain with coordinate validation', () => {
@@ -257,6 +277,38 @@ describe('WebGPU Emoji Rain - Spawn Coordinate Validation', () => {
       const spawnData = mockAPI.emissions[0].data;
       expect(spawnData.x).toBe(0.8);
       expect(spawnData.y).toBe(0.2);
+    });
+
+    test('should ignore stored spawn area presets and use standard rain when no coordinates are provided', () => {
+      mockAPI.db.getEmojiRainConfig = () => ({
+        enabled: true,
+        emoji_set: ['x', 'y', 'z'],
+        max_count_per_event: 100,
+        max_intensity: 3.0,
+        spawn_area_preset: 'top_free'
+      });
+
+      plugin.triggerEmojiRain({
+        emoji: 'x',
+        count: 5,
+        reason: 'test'
+      });
+
+      expect(mockAPI.emissions.length).toBe(1);
+      const spawnData = mockAPI.emissions[0].data;
+      expect(spawnData.x).toBeGreaterThanOrEqual(0);
+      expect(spawnData.x).toBeLessThanOrEqual(1);
+      expect(spawnData.y).toBe(0);
+      expect(spawnData.spawnAreaPreset).toBeUndefined();
+    });
+  });
+
+  describe('Spawn area preset definitions', () => {
+    test('should expose only the standard rain preset', () => {
+      const presets = plugin.getSpawnAreaPresets();
+
+      expect(Object.keys(presets)).toEqual(['full']);
+      expect(presets.full.label).toBe('Standard Regen');
     });
   });
 

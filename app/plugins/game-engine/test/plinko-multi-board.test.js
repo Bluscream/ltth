@@ -192,6 +192,47 @@ describe('Plinko Multi-Board Support', () => {
     expect(foundBoard.id).toBe(boardId);
   });
 
+  test('spawned balls preserve boardId and use that board config on landing', async () => {
+    const boardId = plinkoGame.createBoard(
+      'Landing Board',
+      [
+        { multiplier: 3, label: '3x', color: '#123456', openshockReward: { enabled: false } }
+      ],
+      {
+        gravity: 2.5,
+        ballRestitution: 0.6,
+        pegRestitution: 0.8,
+        rows: 8,
+        risk: 'medium',
+        maxSimultaneousBalls: 5,
+        rateLimitMs: 800
+      }
+    );
+
+    const spawnResult = await plinkoGame.spawnBall(
+      'board_user',
+      'Board User',
+      '',
+      10,
+      'standard',
+      {
+        skipValidation: true,
+        skipDeduction: true,
+        boardId
+      }
+    );
+
+    expect(spawnResult.success).toBe(true);
+    const activeBall = plinkoGame.activeBalls.get(spawnResult.ballId);
+    expect(activeBall.boardId).toBe(boardId);
+
+    activeBall.timestamp = Date.now() - 2000;
+    const landingResult = await plinkoGame.handleBallLanded(spawnResult.ballId, 0);
+
+    expect(landingResult.success).toBe(true);
+    expect(landingResult.multiplier).toBe(3);
+  });
+
   test('should find board by chat command', () => {
     const boardId = plinkoGame.createBoard('Command Test Board');
     plinkoGame.updateBoardChatCommand(boardId, '/plinko-test');

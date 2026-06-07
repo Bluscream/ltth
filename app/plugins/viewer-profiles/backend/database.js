@@ -20,6 +20,553 @@ class ViewerProfilesDatabase {
   }
 
   /**
+   * Safely parse a tags payload into an array.
+   */
+  parseTags(tags) {
+    if (Array.isArray(tags)) {
+      return tags
+        .map(tag => (tag === null || tag === undefined ? '' : String(tag).trim()))
+        .filter(Boolean);
+    }
+
+    if (!tags) {
+      return [];
+    }
+
+    if (typeof tags === 'string') {
+      const trimmed = tags.trim();
+      if (!trimmed) {
+        return [];
+      }
+
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return this.parseTags(parsed);
+        }
+      } catch (error) {
+        // Legacy comma-separated strings are still supported, but obvious
+        // invalid JSON blobs should not leak into the UI.
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          return [];
+        }
+      }
+
+      return trimmed
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(Boolean);
+    }
+
+    return [];
+  }
+
+  /**
+   * Safely parse a JSON field used by cross-plugin data.
+   */
+  safeJsonParse(value, fallback = null) {
+    if (value === null || value === undefined || value === '') {
+      return fallback;
+    }
+
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  /**
+   * Resolve optional viewer XP plugin data.
+   */
+  getLinkedViewerXpProfile(username) {
+    try {
+      const pluginGetter = typeof this.api.getPluginInstance === 'function'
+        ? this.api.getPluginInstance.bind(this.api)
+        : typeof this.api.getPlugin === 'function'
+          ? this.api.getPlugin.bind(this.api)
+          : null;
+
+      if (!pluginGetter) {
+        return null;
+      }
+
+      const xpPlugin = pluginGetter('viewer-leaderboard') || pluginGetter('viewer-xp');
+      if (!xpPlugin || !xpPlugin.db || typeof xpPlugin.db.getViewerProfile !== 'function') {
+        return null;
+      }
+
+      return xpPlugin.db.getViewerProfile(username);
+    } catch (error) {
+      this.api.log(`getLinkedViewerXpProfile failed for ${username}: ${error.message}`, 'debug');
+      return null;
+    }
+  }
+
+  /**
+   * Build a compact summary for heatmap matrices.
+   */
+  summarizeHeatmap(heatmap) {
+    const hourlyTotals = Array(24).fill(0);
+    const dailyTotals = Array(7).fill(0);
+    let totalActivity = 0;
+
+    if (Array.isArray(heatmap)) {
+      for (let day = 0; day < heatmap.length; day++) {
+        const row = Array.isArray(heatmap[day]) ? heatmap[day] : [];
+        for (let hour = 0; hour < row.length; hour++) {
+          const value = Number(row[hour]) || 0;
+          hourlyTotals[hour] += value;
+          dailyTotals[day] += value;
+          totalActivity += value;
+        }
+      }
+    }
+
+    const topHours = hourlyTotals
+      .map((activity, hour) => ({ hour, activity }))
+      .filter(item => item.activity > 0)
+      .sort((a, b) => b.activity - a.activity || a.hour - b.hour)
+      .slice(0, 5);
+
+    const topDays = dailyTotals
+      .map((activity, day) => ({ day, activity }))
+      .filter(item => item.activity > 0)
+      .sort((a, b) => b.activity - a.activity || a.day - b.day)
+      .slice(0, 5);
+
+    return {
+      totalActivity,
+      hourlyTotals,
+      dailyTotals,
+      topHours,
+      topDays
+    };
+  }
+
+  /**
+   * Evaluate the primary segments for a viewer.
+   */
+  evaluateViewerSegments(viewer, xpProfile = null) {
+    if (!viewer) {
+      return [];
+    }
+
+    const segments = [];
+    const tags = this.parseTags(viewer.tags);
+    const watchHours = (Number(viewer.total_watchtime_seconds) || 0) / 3600;
+    const visits = Number(viewer.total_visits) || 0;
+    const comments = Number(viewer.total_comments) || 0;
+    const shares = Number(viewer.total_shares) || 0;
+    const likes = Number(viewer.total_likes) || 0;
+    const coins = Number(viewer.total_coins_spent) || 0;
+    const gifts = Number(viewer.total_gifts_sent) || 0;
+    const lastSeen = viewer.last_seen_at ? new Date(viewer.last_seen_at) : null;
+    const daysSinceSeen = lastSeen && !Number.isNaN(lastSeen.getTime())
+      ? Math.floor((Date.now() - lastSeen.getTime()) / 86400000)
+      : null;
+    const birthdayDays = viewer.birthday ? this.calculateDaysUntilBirthday(viewer.birthday) : null;
+    const xp = xpProfile ? Number(xpProfile.xp || xpProfile.total_xp_earned || 0) : 0;
+    const level = xpProfile ? Number(xpProfile.level || 0) : 0;
+
+    if (viewer.is_vip) {
+      segments.push('vip');
+    }
+
+    if (viewer.is_favorite) {
+      segments.push('favorites');
+    }
+
+    if (birthdayDays !== null && birthdayDays >= 0 && birthdayDays <= 7) {
+      segments.push('birthday_soon');
+    }
+
+    if (!viewer.is_vip && (
+      coins >= 1000 ||
+      watchHours >= 10 ||
+      visits >= 20 ||
+      xp >= 1500 ||
+      level >= 10
+    )) {
+      segments.push('vip_candidates');
+    }
+
+    if (comments >= 25 || (comments >= 10 && visits >= 5)) {
+      segments.push('power_chatters');
+    }
+
+    if (shares >= 10 || likes >= 100) {
+      segments.push('amplifiers');
+    }
+
+    if (visits >= 5 && daysSinceSeen !== null && daysSinceSeen >= 14) {
+      segments.push('dormant_regulars');
+    }
+
+    if (xpProfile && Number(xpProfile.total_xp_earned || 0) >= 5000) {
+      segments.push('xp_rising');
+    }
+
+    if (tags.includes('vip') && !segments.includes('vip')) {
+      segments.push('vip_like');
+    }
+
+    return Array.from(new Set(segments));
+  }
+
+  /**
+   * Build a score and recommendation bundle for a viewer.
+   */
+  buildViewerInsight(viewer, xpProfile = null) {
+    if (!viewer) {
+      return null;
+    }
+
+    const tags = this.parseTags(viewer.tags);
+    const segments = this.evaluateViewerSegments(viewer, xpProfile);
+    const watchHours = (Number(viewer.total_watchtime_seconds) || 0) / 3600;
+    const visits = Number(viewer.total_visits) || 0;
+    const comments = Number(viewer.total_comments) || 0;
+    const likes = Number(viewer.total_likes) || 0;
+    const shares = Number(viewer.total_shares) || 0;
+    const coins = Number(viewer.total_coins_spent) || 0;
+    const gifts = Number(viewer.total_gifts_sent) || 0;
+    const loyalty = Number(viewer.loyalty_points) || 0;
+    const xp = xpProfile ? Number(xpProfile.xp || xpProfile.total_xp_earned || 0) : 0;
+    const level = xpProfile ? Number(xpProfile.level || 0) : 0;
+    const lastSeen = viewer.last_seen_at ? new Date(viewer.last_seen_at) : null;
+    const daysSinceSeen = lastSeen && !Number.isNaN(lastSeen.getTime())
+      ? Math.floor((Date.now() - lastSeen.getTime()) / 86400000)
+      : null;
+    const birthdayDays = viewer.birthday ? this.calculateDaysUntilBirthday(viewer.birthday) : null;
+    const birthdayAge = viewer.birthday ? this.calculateAgeFromBirthday(viewer.birthday) : null;
+
+    const recencyScore = daysSinceSeen === null ? 0 : Math.max(0, 20 - Math.min(daysSinceSeen, 20));
+    const engagementScore = Math.min(40, comments * 1.5 + likes * 0.2 + shares * 2 + visits * 1.2);
+    const monetizationScore = Math.min(35, coins / 300 + gifts * 2.5 + watchHours * 1.5);
+    const loyaltyScore = Math.min(20, loyalty / 20 + tags.length * 1.5 + (viewer.is_vip ? 8 : 0) + (viewer.is_favorite ? 5 : 0));
+    const xpScore = Math.min(25, xp / 250 + level * 1.5);
+    const score = Math.round(Math.max(0, Math.min(100, engagementScore + monetizationScore + loyaltyScore + recencyScore + xpScore)));
+
+    const recommendedActions = [];
+    if (!viewer.is_vip && segments.includes('vip_candidates')) {
+      recommendedActions.push('Promote to VIP or review for VIP eligibility');
+    }
+    if (segments.includes('power_chatters')) {
+      recommendedActions.push('Add a custom tag and prioritize chat responses');
+    }
+    if (segments.includes('birthday_soon')) {
+      recommendedActions.push('Prepare a birthday reminder or greeting');
+    }
+    if (segments.includes('dormant_regulars')) {
+      recommendedActions.push('Re-engage with a recent shoutout or follow-up');
+    }
+    if (viewer.is_favorite) {
+      recommendedActions.push('Keep in the favorites view for quick access');
+    }
+    if (recommendedActions.length === 0) {
+      recommendedActions.push('Monitor for trend changes and activity spikes');
+    }
+
+    return {
+      score,
+      scoreLabel: score >= 80 ? 'Critical' : score >= 60 ? 'High' : score >= 35 ? 'Medium' : 'Low',
+      segments,
+      tags,
+      stats: {
+        watchHours: Math.round(watchHours * 10) / 10,
+        visits,
+        comments,
+        likes,
+        shares,
+        gifts,
+        coins,
+        loyalty,
+        xp,
+        level,
+        daysSinceSeen,
+        birthdayDays,
+        birthdayAge
+      },
+      recommendedActions
+    };
+  }
+
+  /**
+   * Build a profile package for the dashboard.
+   */
+  getViewerInsights(viewerOrUsername) {
+    const viewer = typeof viewerOrUsername === 'string'
+      ? this.getViewerByUsername(viewerOrUsername)
+      : viewerOrUsername;
+
+    if (!viewer) {
+      return null;
+    }
+
+    const xpProfile = this.getLinkedViewerXpProfile(viewer.tiktok_username);
+    const heatmap = this.getViewerHeatmap(viewer.id);
+    const insight = this.buildViewerInsight(viewer, xpProfile);
+    const heatmapSummary = this.summarizeHeatmap(heatmap);
+    const topGifts = this.getTopGifts(viewer.id, 5);
+
+    return {
+      ...viewer,
+      tags: this.parseTags(viewer.tags),
+      topGifts,
+      heatmap,
+      heatmapSummary,
+      insights: insight,
+      xpProfile
+    };
+  }
+
+  /**
+   * Returns a segment definition list.
+   */
+  getSegmentDefinitions() {
+    return [
+      {
+        id: 'vip',
+        label: 'VIP Members',
+        description: 'Currently promoted viewers',
+        action: 'Keep engaged with VIP-specific treatment'
+      },
+      {
+        id: 'vip_candidates',
+        label: 'VIP Candidates',
+        description: 'High-value viewers near promotion thresholds',
+        action: 'Review for promotion'
+      },
+      {
+        id: 'power_chatters',
+        label: 'Power Chatters',
+        description: 'High interaction / chat frequency viewers',
+        action: 'Prioritize responses and recognition'
+      },
+      {
+        id: 'dormant_regulars',
+        label: 'Dormant Regulars',
+        description: 'Long-time viewers who have gone quiet',
+        action: 'Re-engage with a follow-up'
+      },
+      {
+        id: 'birthday_soon',
+        label: 'Birthday Soon',
+        description: 'Viewers with birthdays in the next 7 days',
+        action: 'Prepare a greeting'
+      },
+      {
+        id: 'favorites',
+        label: 'Favorites',
+        description: 'Manually highlighted profiles',
+        action: 'Use as a quick-access watch list'
+      },
+      {
+        id: 'xp_rising',
+        label: 'XP Rising',
+        description: 'Cross-plugin viewers with strong XP momentum',
+        action: 'Sync with XP workflows'
+      }
+    ];
+  }
+
+  /**
+   * Get segment list with counts and samples.
+   */
+  getSegments(options = {}) {
+    const { limit = 5 } = options;
+    const definitions = this.getSegmentDefinitions();
+    const viewers = this.db.prepare('SELECT * FROM viewer_profiles').all();
+    const segments = definitions.map(def => {
+      const members = [];
+
+      for (const viewer of viewers) {
+        const xpProfile = this.getLinkedViewerXpProfile(viewer.tiktok_username);
+        const viewerSegments = this.evaluateViewerSegments(viewer, xpProfile);
+        if (viewerSegments.includes(def.id)) {
+          members.push({
+            username: viewer.tiktok_username,
+            displayName: viewer.display_name || viewer.tiktok_username,
+            vipTier: viewer.vip_tier || null,
+            score: this.buildViewerInsight(viewer, xpProfile)?.score || 0,
+            lastSeenAt: viewer.last_seen_at || null
+          });
+        }
+      }
+
+      members.sort((a, b) => b.score - a.score || String(a.username).localeCompare(String(b.username)));
+
+      return {
+        ...def,
+        count: members.length,
+        members: members.slice(0, limit)
+      };
+    });
+
+    return segments;
+  }
+
+  /**
+   * Get viewers for a single segment.
+   */
+  getSegmentViewers(segmentId, options = {}) {
+    const { limit = 20 } = options;
+    const definitions = this.getSegmentDefinitions();
+    const definition = definitions.find(item => item.id === segmentId);
+
+    if (!definition) {
+      return null;
+    }
+
+    const viewers = this.db.prepare('SELECT * FROM viewer_profiles').all();
+    const members = [];
+
+    for (const viewer of viewers) {
+      const xpProfile = this.getLinkedViewerXpProfile(viewer.tiktok_username);
+      const viewerSegments = this.evaluateViewerSegments(viewer, xpProfile);
+      if (viewerSegments.includes(segmentId)) {
+        members.push({
+          ...viewer,
+          tags: this.parseTags(viewer.tags),
+          insights: this.buildViewerInsight(viewer, xpProfile)
+        });
+      }
+    }
+
+    members.sort((a, b) => {
+      const scoreA = a.insights?.score || 0;
+      const scoreB = b.insights?.score || 0;
+      return scoreB - scoreA || String(a.tiktok_username).localeCompare(String(b.tiktok_username));
+    });
+
+    return {
+      segment: definition,
+      count: members.length,
+      viewers: members.slice(0, limit)
+    };
+  }
+
+  /**
+   * Create a dashboard overview from current viewer data.
+   */
+  getOverviewInsights(options = {}) {
+    const { limit = 5 } = options;
+    const stats = this.getStatsSummary();
+    const segments = this.getSegments({ limit });
+    const viewers = this.db.prepare('SELECT * FROM viewer_profiles').all();
+    const topInsights = [];
+    const candidateInsights = [];
+
+    for (const viewer of viewers) {
+      const xpProfile = this.getLinkedViewerXpProfile(viewer.tiktok_username);
+      const insight = this.buildViewerInsight(viewer, xpProfile);
+      if (!insight) {
+        continue;
+      }
+
+      topInsights.push({
+        username: viewer.tiktok_username,
+        displayName: viewer.display_name || viewer.tiktok_username,
+        score: insight.score,
+        scoreLabel: insight.scoreLabel,
+        segments: insight.segments,
+        recommendedActions: insight.recommendedActions,
+        lastSeenAt: viewer.last_seen_at || null,
+        vipTier: viewer.vip_tier || null
+      });
+
+      if (insight.segments.includes('vip_candidates') || insight.segments.includes('birthday_soon') || insight.segments.includes('dormant_regulars')) {
+        candidateInsights.push({
+          username: viewer.tiktok_username,
+          displayName: viewer.display_name || viewer.tiktok_username,
+          score: insight.score,
+          segments: insight.segments,
+          action: insight.recommendedActions[0]
+        });
+      }
+    }
+
+    topInsights.sort((a, b) => b.score - a.score || String(a.username).localeCompare(String(b.username)));
+    candidateInsights.sort((a, b) => b.score - a.score || String(a.username).localeCompare(String(b.username)));
+
+    const globalPeakTimes = this.getGlobalPeakTimes(10).map(row => ({
+      ...row,
+      label: `${String(row.day_of_week)}-${String(row.hour_of_day).padStart(2, '0')}:00`
+    }));
+
+    return {
+      stats,
+      segments,
+      topInsights: topInsights.slice(0, 8),
+      candidateInsights: candidateInsights.slice(0, 8),
+      globalPeakTimes
+    };
+  }
+
+  /**
+   * Update multiple viewers with the same payload.
+   */
+  bulkUpdateViewers(usernames, updates) {
+    if (!Array.isArray(usernames) || usernames.length === 0) {
+      throw new Error('At least one username is required');
+    }
+
+    const cleanUsernames = usernames
+      .map(username => (username === null || username === undefined ? '' : String(username).trim()))
+      .filter(Boolean);
+
+    if (cleanUsernames.length === 0) {
+      throw new Error('At least one valid username is required');
+    }
+
+    const updated = [];
+    const transaction = this.db.transaction((names) => {
+      for (const username of names) {
+        const viewer = this.updateViewer(username, updates);
+        if (viewer) {
+          updated.push(viewer);
+        }
+      }
+    });
+
+    transaction(cleanUsernames);
+    return updated;
+  }
+
+  /**
+   * Calculate age from a birthday date.
+   */
+  calculateAgeFromBirthday(birthday) {
+    if (!birthday) {
+      return null;
+    }
+
+    try {
+      const birthDate = new Date(birthday);
+      if (Number.isNaN(birthDate.getTime())) {
+        return null;
+      }
+
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+
+      return age;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
    * Initialize database tables
    */
   initialize() {
@@ -241,6 +788,7 @@ class ViewerProfilesDatabase {
   migrateSchema() {
     const tables = {
       viewer_profiles: [
+        { name: 'id', def: 'INTEGER' },
         { name: 'tiktok_username', def: 'TEXT', critical: true },
         { name: 'tiktok_user_id', def: 'TEXT' },
         { name: 'display_name', def: 'TEXT' },
@@ -253,7 +801,7 @@ class ViewerProfilesDatabase {
         { name: 'verified', def: 'INTEGER DEFAULT 0' },
         { name: 'follower_count', def: 'INTEGER DEFAULT 0' },
         { name: 'following_count', def: 'INTEGER DEFAULT 0' },
-        { name: 'first_seen_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'first_seen_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP', alterDef: 'TEXT', backfillExpression: 'CURRENT_TIMESTAMP' },
         { name: 'last_seen_at', def: 'TEXT' },
         { name: 'total_visits', def: 'INTEGER DEFAULT 0' },
         { name: 'total_watchtime_seconds', def: 'INTEGER DEFAULT 0' },
@@ -274,8 +822,8 @@ class ViewerProfilesDatabase {
         { name: 'is_blocked', def: 'INTEGER DEFAULT 0' },
         { name: 'is_favorite', def: 'INTEGER DEFAULT 0' },
         { name: 'is_moderator', def: 'INTEGER DEFAULT 0' },
-        { name: 'created_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
-        { name: 'updated_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'created_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP', alterDef: 'TEXT', backfillExpression: 'CURRENT_TIMESTAMP' },
+        { name: 'updated_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP', alterDef: 'TEXT', backfillExpression: 'CURRENT_TIMESTAMP' },
       ],
       viewer_gift_history: [
         { name: 'viewer_id', def: 'INTEGER' },
@@ -285,11 +833,11 @@ class ViewerProfilesDatabase {
         { name: 'gift_diamond_count', def: 'INTEGER DEFAULT 0' },
         { name: 'quantity', def: 'INTEGER DEFAULT 1' },
         { name: 'streak_count', def: 'INTEGER DEFAULT 0' },
-        { name: 'timestamp', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'timestamp', def: 'TEXT DEFAULT CURRENT_TIMESTAMP', alterDef: 'TEXT', backfillExpression: 'CURRENT_TIMESTAMP' },
       ],
       viewer_sessions: [
         { name: 'viewer_id', def: 'INTEGER' },
-        { name: 'joined_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'joined_at', def: 'TEXT DEFAULT CURRENT_TIMESTAMP', alterDef: 'TEXT', backfillExpression: 'CURRENT_TIMESTAMP' },
         { name: 'left_at', def: 'TEXT' },
         { name: 'duration_seconds', def: 'INTEGER DEFAULT 0' },
         { name: 'stream_id', def: 'TEXT' },
@@ -298,7 +846,7 @@ class ViewerProfilesDatabase {
         { name: 'viewer_id', def: 'INTEGER' },
         { name: 'interaction_type', def: 'TEXT' },
         { name: 'content', def: 'TEXT' },
-        { name: 'timestamp', def: 'TEXT DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'timestamp', def: 'TEXT DEFAULT CURRENT_TIMESTAMP', alterDef: 'TEXT', backfillExpression: 'CURRENT_TIMESTAMP' },
       ],
       viewer_activity_heatmap: [
         { name: 'viewer_id', def: 'INTEGER' },
@@ -338,7 +886,10 @@ class ViewerProfilesDatabase {
 
         if (!existingColumnNames.has(col.name)) {
           try {
-            this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${col.name} ${col.def}`);
+            this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${col.name} ${col.alterDef || col.def}`);
+            if (col.backfillExpression) {
+              this.db.exec(`UPDATE ${tableName} SET ${col.name} = ${col.backfillExpression} WHERE ${col.name} IS NULL`);
+            }
             if (col.critical) {
               this.api.log(`Migration: added critical column ${col.name} to ${tableName} — WARNING: this column was missing and is required for core functionality. Please verify data integrity before use.`, 'warn');
             } else {
@@ -353,8 +904,38 @@ class ViewerProfilesDatabase {
       }
     }
 
+    this.ensureViewerProfileIds();
+
     if (migratedCount === 0) {
       this.api.log('Schema is up to date', 'info');
+    }
+  }
+
+  ensureViewerProfileIds() {
+    const columns = this.db.prepare('PRAGMA table_info(viewer_profiles)').all();
+    const idColumn = columns.find(col => col.name === 'id');
+    if (!idColumn) return;
+
+    if (!idColumn.pk) {
+      this.db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_viewer_profiles_id_unique
+        ON viewer_profiles(id)
+      `);
+
+      this.db.exec(`
+        UPDATE viewer_profiles
+        SET id = rowid
+        WHERE id IS NULL OR id <= 0
+      `);
+
+      this.db.exec(`
+        CREATE TRIGGER IF NOT EXISTS viewer_profiles_fill_id_after_insert
+        AFTER INSERT ON viewer_profiles
+        WHEN NEW.id IS NULL
+        BEGIN
+          UPDATE viewer_profiles SET id = NEW.rowid WHERE rowid = NEW.rowid;
+        END
+      `);
     }
   }
 
@@ -470,7 +1051,8 @@ class ViewerProfilesDatabase {
       sortBy = 'total_coins_spent',
       order = 'DESC',
       search = '',
-      filter = 'all'
+      filter = 'all',
+      segment = 'all'
     } = options;
 
     const safeSortBy = ALLOWED_SORT_FIELDS.includes(sortBy) ? sortBy : 'total_coins_spent';
@@ -508,6 +1090,37 @@ class ViewerProfilesDatabase {
     const countStmt = this.db.prepare(countSql);
     const { total } = countStmt.get(...params);
 
+    let viewers = [];
+    let totalPages = 0;
+
+    if (segment && segment !== 'all') {
+      const sql = `
+        SELECT * FROM viewer_profiles
+        ${whereClause}
+        ORDER BY ${safeSortBy} ${safeOrder}
+      `;
+      const allViewers = this.db.prepare(sql).all(...params);
+      const filteredViewers = allViewers.filter(viewer => {
+        const xpProfile = this.getLinkedViewerXpProfile(viewer.tiktok_username);
+        const viewerSegments = this.evaluateViewerSegments(viewer, xpProfile);
+        return viewerSegments.includes(segment);
+      });
+
+      const start = Math.max(0, offset);
+      viewers = filteredViewers.slice(start, start + limit);
+      totalPages = Math.ceil(filteredViewers.length / limit);
+
+      return {
+        viewers,
+        pagination: {
+          page,
+          limit,
+          total: filteredViewers.length,
+          totalPages
+        }
+      };
+    }
+
     // Get paginated results
     const sql = `
       SELECT * FROM viewer_profiles
@@ -517,7 +1130,8 @@ class ViewerProfilesDatabase {
     `;
 
     const stmt = this.db.prepare(sql);
-    const viewers = stmt.all(...params, limit, offset);
+    viewers = stmt.all(...params, limit, offset);
+    totalPages = Math.ceil(total / limit);
 
     return {
       viewers,
@@ -525,7 +1139,7 @@ class ViewerProfilesDatabase {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages
       }
     };
   }

@@ -2,20 +2,17 @@
   "minecraft_connect": {
     "title": "Minecraft Connect",
     "subtitle": "TikTok Live to Minecraft Integration",
-    
     "status": {
       "connected": "Connected",
       "disconnected": "Disconnected",
       "waiting": "Waiting for Minecraft"
     },
-    
     "tabs": {
       "mappings": "Action Mappings",
       "actions": "Available Actions",
       "events": "Event Log",
       "settings": "Settings"
     },
-    
     "mappings": {
       "title": "Action Mappings",
       "add": "Add Mapping",
@@ -23,13 +20,11 @@
       "delete": "Delete",
       "empty": "No action mappings configured yet.",
       "empty_hint": "Click 'Add Mapping' to create your first TikTok → Minecraft action mapping.",
-      
       "trigger": "TikTok Event Trigger",
       "conditions": "Conditions (optional)",
       "action": "Minecraft Action",
       "parameters": "Parameters",
       "enabled": "Enabled",
-      
       "triggers": {
         "gift": "Gift",
         "follow": "Follow",
@@ -38,12 +33,10 @@
         "chat": "Chat",
         "subscribe": "Subscribe"
       },
-      
       "add_condition": "Add Condition",
       "condition_field": "Field",
       "condition_operator": "Operator",
       "condition_value": "Value",
-      
       "operators": {
         "equals": "Equals",
         "not_equals": "Not Equals",
@@ -51,16 +44,13 @@
         "less_than": "Less Than",
         "contains": "Contains"
       },
-      
       "placeholder_hint": "Use placeholders like {uniqueId}, {giftName}, {giftCount}, {comment} for dynamic values"
     },
-    
     "actions": {
       "title": "Available Minecraft Actions",
       "test": "Test Action",
       "empty": "No Minecraft connection detected.",
       "empty_hint": "Install and run the TikStreamLink Fabric mod to see available actions.",
-      
       "spawn_entity": "Spawn Entity",
       "give_item": "Give Item",
       "set_time": "Set Time",
@@ -69,7 +59,6 @@
       "change_weather": "Change Weather",
       "execute_command": "Execute Command"
     },
-    
     "events": {
       "title": "Event Log",
       "clear": "Clear Log",
@@ -78,26 +67,22 @@
       "triggered_by": "Triggered by",
       "actions_count": "action(s) triggered"
     },
-    
     "settings": {
       "title": "Settings",
       "save": "Save Settings",
       "saved": "Settings saved successfully! Please restart the server to apply WebSocket changes.",
-      
       "websocket": {
         "title": "WebSocket Server",
         "port": "Port",
         "port_hint": "Port for WebSocket server (default: 25560)",
         "heartbeat": "Heartbeat Interval (ms)"
       },
-      
       "limits": {
         "title": "Rate Limits",
         "max_per_minute": "Max Actions per Minute",
         "cooldown": "Command Cooldown (ms)",
         "queue_size": "Max Queue Size"
       },
-      
       "overlay": {
         "title": "Overlay",
         "enabled": "Enable Overlay",
@@ -105,7 +90,6 @@
         "show_action": "Show Action Name",
         "duration": "Animation Duration (ms)"
       },
-      
       "stats": {
         "title": "Statistics",
         "total_events": "Total Events",
@@ -114,14 +98,12 @@
         "failed": "Failed"
       }
     },
-    
     "modal": {
       "add_title": "Add Action Mapping",
       "edit_title": "Edit Action Mapping",
       "cancel": "Cancel",
       "save": "Save"
     },
-    
     "messages": {
       "select_trigger_action": "Please select a trigger and action",
       "save_failed": "Failed to save mapping",

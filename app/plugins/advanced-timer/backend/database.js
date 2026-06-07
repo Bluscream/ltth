@@ -137,6 +137,11 @@ class TimerDatabase {
      * Initialize database tables
      */
     initialize() {
+        if (this.db?.open) {
+            this.api.log('Advanced Timer database already initialized', 'debug');
+            return;
+        }
+
         // First open the database connection
         this.initDatabase();
         
@@ -812,6 +817,7 @@ class TimerDatabase {
         try {
             if (this.db) {
                 this.db.close();
+                this.db = null;
                 this.api.log('Advanced Timer database closed', 'info');
             }
         } catch (error) {

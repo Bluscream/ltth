@@ -97,7 +97,7 @@ describe('AnimazingPal Plugin Connection Error Handling', function() {
       const config = null;
 
       // Simulate validation check
-      const isConfigValid = config && config.host && config.port;
+      const isConfigValid = Boolean(config && config.host && config.port);
       
       assert.strictEqual(isConfigValid, false, 'Missing config should be detected');
     });

@@ -1,8 +1,10 @@
+#!/usr/bin/env node
+
 /**
- * LTTH Electron - Root Entry Point
- * 
- * This file serves as a simple wrapper that loads the actual main process
- * from the electron directory. This ensures compatibility with electron-builder
- * which expects the main entry point at the package root.
+ * Snapshot root entry point.
+ *
+ * The Electron main-process files are not present in this workspace snapshot.
+ * Starting from the repository root should therefore run the maintained backend
+ * server instead of failing on a missing ./electron/main import.
  */
-require('./electron/main');
+require('./app/server');

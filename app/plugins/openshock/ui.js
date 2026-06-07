@@ -60,11 +60,13 @@ function addDebugLog(level, message) {
 }
 
 function renderDebugLog() {
-    const container = document.getElementById('debugLog');
-    if (!container) return;
+    const containers = document.querySelectorAll('#debugLog, #advancedDebugLog');
+    if (!containers.length) return;
     
     if (debugLogs.length === 0) {
-        container.innerHTML = '<p class="text-muted text-center">Debug log is empty. Pattern operations will be logged here.</p>';
+        containers.forEach(container => {
+            container.innerHTML = '<p class="text-muted text-center">Debug log is empty. Pattern operations will be logged here.</p>';
+        });
         return;
     }
     
@@ -99,10 +101,11 @@ function renderDebugLog() {
     `;
     }).reverse().join('');
     
-    container.innerHTML = html;
-    
-    // Auto-scroll to bottom (newest first, so top)
-    container.scrollTop = 0;
+    containers.forEach(container => {
+        container.innerHTML = html;
+        // Auto-scroll to top because newest entries are rendered first.
+        container.scrollTop = 0;
+    });
 }
 
 function clearDebugLog() {
@@ -2300,14 +2303,7 @@ function generateFromCurve() {
 // ====================================================================
 
 async function loadSafetyConfig() {
-    // Safety config is part of main config
-    const maxIntensity = config.safety?.maxIntensity || 100;
-    const maxDuration = config.safety?.maxDuration || 5000;
-    const cooldown = config.safety?.cooldown || 1000;
-
-    document.getElementById('safety-max-intensity').value = maxIntensity;
-    document.getElementById('safety-max-duration').value = maxDuration;
-    document.getElementById('safety-cooldown').value = cooldown;
+    await loadConfig();
 }
 
 async function saveSafetyConfig() {
@@ -3281,21 +3277,19 @@ function initializeEventDelegation() {
     }
 
     // Debug log buttons
-    const clearDebugLogBtn = document.getElementById('clearDebugLog');
-    if (clearDebugLogBtn) {
-        clearDebugLogBtn.addEventListener('click', (e) => {
+    document.querySelectorAll('#clearDebugLog, #advancedClearDebugLog').forEach(button => {
+        button.addEventListener('click', (e) => {
             e.preventDefault();
             clearDebugLog();
         });
-    }
+    });
 
-    const exportDebugLogBtn = document.getElementById('exportDebugLog');
-    if (exportDebugLogBtn) {
-        exportDebugLogBtn.addEventListener('click', (e) => {
+    document.querySelectorAll('#exportDebugLog, #advancedExportDebugLog').forEach(button => {
+        button.addEventListener('click', (e) => {
             e.preventDefault();
             exportDebugLog();
         });
-    }
+    });
 
     const toggleDebugVerboseBtn = document.getElementById('toggleDebugVerbose');
     if (toggleDebugVerboseBtn) {
@@ -3960,29 +3954,6 @@ async function resumeQueue() {
     } catch (error) {
         console.error('[OpenShock] Error resuming queue:', error);
         showNotification('Error resuming queue', 'error');
-    }
-}
-
-function clearDebugLog() {
-    const debugLog = document.getElementById('debugLog');
-    if (debugLog) {
-        debugLog.innerHTML = '<p class="text-muted text-center">Debug log is empty.</p>';
-    }
-    showNotification('Debug log cleared', 'success');
-}
-
-function exportDebugLog() {
-    const debugLog = document.getElementById('debugLog');
-    if (debugLog) {
-        const data = debugLog.textContent;
-        const blob = new Blob([data], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `openshock-debuglog-${Date.now()}.txt`;
-        a.click();
-        URL.revokeObjectURL(url);
-        showNotification('Debug log exported', 'success');
     }
 }
 

@@ -195,8 +195,8 @@ class StoryMemory {
     const capitalizedWords = chapterText.match(/\b[A-Z][a-z]+\b/g) || [];
     tags.characters = [...new Set(capitalizedWords)].slice(0, 5);
 
-    // Extract potential locations (words after "in", "at", "to")
-    const locationPatterns = /(?:in|at|to|near|from)\s+(?:the\s+)?([A-Z][a-z\s]+)/g;
+    // Extract potential locations (capitalized phrases after location prepositions)
+    const locationPatterns = /(?:in|at|to|near|from|of)\s+(?:the\s+)?((?:[A-Z][a-z]+(?:\s+|$)){1,4})/g;
     let match;
     while ((match = locationPatterns.exec(chapterText)) !== null) {
       tags.locations.push(match[1].trim());
@@ -204,7 +204,7 @@ class StoryMemory {
     tags.locations = [...new Set(tags.locations)].slice(0, 3);
 
     // Extract potential items (quoted words or specific patterns)
-    const itemPatterns = /"([^"]+)"|(?:found|grabbed|picked up|wielded|used)\s+(?:a|an|the)\s+([a-z\s]+)/gi;
+    const itemPatterns = /"([^"]+)"|(?:found|grabbed|picked up|wielded|used|carrying|holding)\s+(?:a|an|the)?\s*([a-z\s]+)/gi;
     while ((match = itemPatterns.exec(chapterText)) !== null) {
       const item = match[1] || match[2];
       if (item && item.length < 30) {

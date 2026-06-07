@@ -392,6 +392,84 @@ class OpenShockPlugin {
      * Erstellt den Shock-Client neu (z.B. nach Provider-Wechsel oder Credential-Änderung).
      * Aktualisiert auch die QueueManager- und ZappieHellManager-Referenzen.
      */
+    /**
+     * Returns a copy of plugin config safe for browser responses.
+     */
+    _getSafeConfig() {
+        const pishockConfig = this.config.pishock || {};
+        return {
+            ...this.config,
+            apiKey: this._maskSecret(this.config.apiKey),
+            pishock: {
+                ...pishockConfig,
+                apiKey: this._maskSecret(pishockConfig.apiKey),
+                shareCodes: pishockConfig.shareCodes || []
+            }
+        };
+    }
+
+    _maskSecret(value) {
+        if (!value || typeof value !== 'string') {
+            return '';
+        }
+        return `***${value.slice(-4)}`;
+    }
+
+    _isMaskedSecret(value) {
+        return typeof value === 'string' && (value === '***SAVED***' || value.startsWith('***'));
+    }
+
+    /**
+     * Removes masked placeholder values from config update payloads so secrets are not overwritten.
+     */
+    _sanitizeConfigUpdate(newConfig = {}) {
+        const sanitized = { ...newConfig };
+
+        if (this._isMaskedSecret(sanitized.apiKey)) {
+            delete sanitized.apiKey;
+        }
+
+        if (sanitized.pishock) {
+            sanitized.pishock = { ...sanitized.pishock };
+            if (this._isMaskedSecret(sanitized.pishock.apiKey)) {
+                delete sanitized.pishock.apiKey;
+            }
+        }
+
+        return sanitized;
+    }
+
+    _applyQueueSettings() {
+        if (!this.queueManager) {
+            return;
+        }
+
+        const settings = this.config.queueSettings || {};
+        if (Number.isFinite(Number(settings.maxQueueSize)) && Number(settings.maxQueueSize) > 0) {
+            this.queueManager.maxQueueSize = Number(settings.maxQueueSize);
+        }
+        if (Number.isFinite(Number(settings.processingDelay)) && Number(settings.processingDelay) >= 0) {
+            this.queueManager.processingDelay = Number(settings.processingDelay);
+        }
+    }
+
+    _resetStats() {
+        const startTime = this.stats.startTime || Date.now();
+        this.stats = {
+            startTime,
+            totalCommands: 0,
+            successfulCommands: 0,
+            failedCommands: 0,
+            queuedCommands: 0,
+            blockedCommands: 0,
+            emergencyStops: 0,
+            tiktokEventsProcessed: 0,
+            patternsExecuted: 0,
+            lastCommandTime: null,
+            errors: []
+        };
+    }
+
     _reinitializeShockClient() {
         const logger = this._createLoggerAdapter();
         const newClient = ShockClientFactory.create(this.config, logger);
@@ -449,6 +527,7 @@ class OpenShockPlugin {
             this.safetyManager,
             logger
         );
+        this._applyQueueSettings();
         
         // Initialize PatternExecutor with queue feedback
         this.patternExecutor = new PatternExecutor(this.queueManager, this.api.log.bind(this.api));
@@ -492,7 +571,8 @@ class OpenShockPlugin {
             logger,
             this.openShockClient,
             this.patternEngine,
-            this.queueManager
+            this.queueManager,
+            this.patternExecutor
         );
 
         // Load ZappieHell data from database
@@ -608,26 +688,16 @@ class OpenShockPlugin {
 
         // Get Config (WITHOUT API-KEY for security!)
         this.api.registerRoute('get', '/api/openshock/config', (req, res) => {
-            const pishockConfig = this.config.pishock || {};
-            const safeConfig = {
-                ...this.config,
-                apiKey: this.config.apiKey ? '***' + this.config.apiKey.slice(-4) : '', // Mask OpenShock API key
-                pishock: {
-                    ...pishockConfig,
-                    apiKey: pishockConfig.apiKey ? '***' + pishockConfig.apiKey.slice(-4) : '', // Mask PiShock API key
-                    shareCodes: pishockConfig.shareCodes || []
-                }
-            };
             res.json({
                 success: true,
-                config: safeConfig
+                config: this._getSafeConfig()
             });
         });
 
         // Update Config
         this.api.registerRoute('post', '/api/openshock/config', async (req, res) => {
             try {
-                const newConfig = req.body;
+                const newConfig = this._sanitizeConfigUpdate(req.body || {});
 
                 // Merge config (pishock sub-object separat mergen um Felder nicht zu verlieren)
                 if (newConfig.pishock) {
@@ -640,6 +710,7 @@ class OpenShockPlugin {
 
                 // Shock-Client mit neuem Provider / Credentials neu erstellen oder aktualisieren
                 this._reinitializeShockClient();
+                this._applyQueueSettings();
 
                 if (this.safetyManager) {
                     this.safetyManager.updateConfig({
@@ -670,7 +741,7 @@ class OpenShockPlugin {
                 res.json({
                     success: true,
                     message: 'Configuration updated successfully',
-                    config: this.config,
+                    config: this._getSafeConfig(),
                     deviceLoadSuccess,
                     deviceCount
                 });
@@ -775,6 +846,13 @@ class OpenShockPlugin {
                     type,
                     intensity: safetyCheck.adjustedIntensity || intensity,
                     duration: safetyCheck.adjustedDuration || duration
+                });
+
+                this.safetyManager.registerCommand(deviceId, 'test-user', {
+                    type,
+                    intensity: safetyCheck.adjustedIntensity || intensity,
+                    duration: safetyCheck.adjustedDuration || duration,
+                    source: 'manual-test'
                 });
 
                 // Log
@@ -1401,6 +1479,8 @@ class OpenShockPlugin {
                 this.config.defaultCooldowns = settings.defaultCooldowns || this.config.defaultCooldowns;
                 this.config.userLimits = settings.userLimits || this.config.userLimits;
                 this.config.emergencyStop = settings.emergencyStop || this.config.emergencyStop;
+                this.config.queueSettings = settings.queueSettings || this.config.queueSettings;
+                this._applyQueueSettings();
 
                 await this.saveData();
 
@@ -1524,6 +1604,44 @@ class OpenShockPlugin {
             }
         });
 
+        // Pause Queue
+        this.api.registerRoute('post', '/api/openshock/queue/pause', (req, res) => {
+            try {
+                this.queueManager.pauseProcessing();
+                this._broadcastQueueUpdate();
+
+                res.json({
+                    success: true,
+                    message: 'Queue paused',
+                    status: this.queueManager.getQueueStatus()
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        // Resume Queue
+        this.api.registerRoute('post', '/api/openshock/queue/resume', (req, res) => {
+            try {
+                this.queueManager.resumeProcessing();
+                this._broadcastQueueUpdate();
+
+                res.json({
+                    success: true,
+                    message: 'Queue resumed',
+                    status: this.queueManager.getQueueStatus()
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
         // Clear Queue
         this.api.registerRoute('post', '/api/openshock/queue/clear', async (req, res) => {
             try {
@@ -1592,6 +1710,25 @@ class OpenShockPlugin {
                     }
                 });
 
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        // Reset Statistics
+        this.api.registerRoute('post', '/api/openshock/stats/reset', (req, res) => {
+            try {
+                this._resetStats();
+                this._broadcastStatsUpdate();
+
+                res.json({
+                    success: true,
+                    message: 'Statistics reset successfully',
+                    stats: this.stats
+                });
             } catch (error) {
                 res.status(500).json({
                     success: false,
@@ -2116,6 +2253,10 @@ class OpenShockPlugin {
      */
     async handleTikTokEvent(eventType, eventData) {
         try {
+            if (this.mappingEngine && typeof this.mappingEngine.normalizeEventData === 'function') {
+                eventData = this.mappingEngine.normalizeEventData(eventType, eventData);
+            }
+
             // Stats
             this.stats.tiktokEventsProcessed++;
 
@@ -2226,6 +2367,12 @@ class OpenShockPlugin {
             } else if (action.type === 'pattern') {
                 // Pattern ausführen
                 const executionId = await this._executePatternFromAction(action, context);
+                if (!executionId) {
+                    return {
+                        success: false,
+                        error: 'Pattern execution could not be started'
+                    };
+                }
                 return {
                     success: true,
                     message: 'Pattern execution started',
@@ -2279,7 +2426,7 @@ class OpenShockPlugin {
             // Calculate scheduled time with duration + safety margin spacing
             const scheduledTime = baseTimestamp + (i * (duration + SAFETY_MARGIN_MS));
 
-            this.queueManager.addItem({
+            const result = await this.queueManager.addItem({
                 id: `cmd-${baseId}-${i}-${Math.random().toString(36).substring(2, 11)}`,
                 type: 'command',
                 deviceId,
@@ -2297,7 +2444,12 @@ class OpenShockPlugin {
                 totalRepeats: repeatCount
             });
 
-            this.stats.queuedCommands++;
+            if (result.success) {
+                this.stats.queuedCommands++;
+            } else {
+                this.stats.blockedCommands++;
+                this.api.log(`Command from ${source} was not queued: ${result.message}`, 'warn');
+            }
         }
 
         this.api.log(`Queued ${repeatCount} command(s) for ${device.name}`, 'info');
@@ -2308,10 +2460,11 @@ class OpenShockPlugin {
      */
     async _executePatternFromAction(action, context) {
         const { userId, username, source, sourceData } = context;
-        const { deviceId, patternId, variables = {} } = action;
+        const { deviceId, variables = {} } = action;
+        const patternId = action.patternId || action.pattern_id || action.pattern || action.patternName;
 
         // Pattern laden
-        const pattern = this.patternEngine.getPattern(patternId);
+        const pattern = this._resolvePattern(patternId);
         if (!pattern) {
             this.api.log(`Pattern ${patternId} not found`, 'warn');
             return null;
@@ -2352,6 +2505,29 @@ class OpenShockPlugin {
     }
 
     /**
+     * Pattern by ID first, then by name for imported/legacy mappings.
+     */
+    _resolvePattern(patternIdOrName) {
+        if (!patternIdOrName || !this.patternEngine) {
+            return null;
+        }
+
+        const byId = this.patternEngine.getPattern(patternIdOrName);
+        if (byId) {
+            return byId;
+        }
+
+        if (typeof this.patternEngine.getAllPatterns !== 'function') {
+            return null;
+        }
+
+        const needle = String(patternIdOrName).toLowerCase();
+        return this.patternEngine.getAllPatterns().find(pattern =>
+            String(pattern.name || '').toLowerCase() === needle
+        ) || null;
+    }
+
+    /**
      * Queue-Item verarbeiten
      */
     async _processQueueItem(item) {
@@ -2389,6 +2565,13 @@ class OpenShockPlugin {
                 type: item.commandType,
                 intensity: safetyCheck.adjustedIntensity || item.intensity,
                 duration: safetyCheck.adjustedDuration || item.duration
+            });
+
+            this.safetyManager.registerCommand(item.deviceId, item.userId, {
+                type: item.commandType,
+                intensity: safetyCheck.adjustedIntensity || item.intensity,
+                duration: safetyCheck.adjustedDuration || item.duration,
+                source: item.source
             });
 
             // Log

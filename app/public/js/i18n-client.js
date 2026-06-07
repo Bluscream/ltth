@@ -35,8 +35,12 @@ class I18nClient {
         // Get saved locale from localStorage or use default
         const savedLocale = localStorage.getItem('app_locale') || this.defaultLocale;
         
-        // Load translations for the saved locale
-        await this.loadTranslations(savedLocale);
+        // Load the default locale first so missing keys can fall back to stable
+        // English strings instead of rendering raw i18n keys.
+        await this.loadTranslations(this.defaultLocale);
+        if (savedLocale !== this.defaultLocale) {
+            await this.loadTranslations(savedLocale);
+        }
         
         this.initialized = true;
         return this;
@@ -195,7 +199,7 @@ class I18nClient {
         // Notify all listeners
         this.notifyListeners(locale);
         
-        console.log(`🌍 Language changed to: ${locale}`);
+        console.log(`[i18n] Language changed to: ${locale}`);
         
         return true;
     }

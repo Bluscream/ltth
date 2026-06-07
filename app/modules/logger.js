@@ -13,9 +13,11 @@ const winston = require('winston');
 const DailyRotateFile = require('winston-daily-rotate-file');
 const path = require('path');
 const fs = require('fs');
+const { archiveStartupLogs, getRootLogsDir } = require('./log-paths');
 
 // Ensure logs directory exists
-const logsDir = path.join(__dirname, '..', 'logs');
+const archiveResult = archiveStartupLogs();
+const logsDir = getRootLogsDir();
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
@@ -108,5 +110,18 @@ logger.flow = (message, meta = {}) => {
 logger.obs = (message, meta = {}) => {
   logger.info(`[OBS] ${message}`, meta);
 };
+
+logger.info('Log directory initialized', { logsDir });
+if (archiveResult.archived.length > 0) {
+  logger.info('Archived old log files', {
+    count: archiveResult.archived.length,
+    archiveDir: archiveResult.archiveBaseDir
+  });
+}
+if (archiveResult.errors.length > 0) {
+  logger.warn('Some old log files could not be archived', {
+    errors: archiveResult.errors
+  });
+}
 
 module.exports = logger;

@@ -2,6 +2,22 @@
  * ClarityHUD - Full Overlay
  */
 
+function createClarityHUDLogger(scope) {
+  const params = new URLSearchParams(window.location.search);
+  const debugEnabled = params.get('debug') === '1' ||
+    params.get('debug') === 'true' ||
+    localStorage.getItem('clarityhud.debug') === '1';
+  const prefix = `[${scope}]`;
+
+  return {
+    debug: (...args) => { if (debugEnabled) console.debug(prefix, ...args); },
+    warn: (...args) => { if (debugEnabled) console.warn(prefix, ...args); },
+    error: (...args) => console.error(prefix, ...args)
+  };
+}
+
+const HUD_LOG = createClarityHUDLogger('CLARITY FULL');
+
 // ==================== MODULE-LEVEL COUNTER (P3) ====================
 // Monotonic counter for collision-safe event IDs at high event rates.
 let _eventCounter = 0;
@@ -30,6 +46,7 @@ const STATE = {
   emojiParser: null,
   badgeRenderer: null,
   messageParser: null,
+  virtualScroller: null,
   socket: null,
   container: null,
   isInitialized: false
@@ -58,7 +75,7 @@ async function init() {
       await _initOnce();
       return; // success
     } catch (error) {
-      console.error(`[CLARITY FULL] Init attempt ${attempt}/${MAX_RETRIES} failed:`, error);
+      HUD_LOG.error(`[CLARITY FULL] Init attempt ${attempt}/${MAX_RETRIES} failed:`, error);
 
       if (STATE.container) {
         STATE.container.innerHTML = '';
@@ -80,7 +97,7 @@ async function init() {
 }
 
 async function _initOnce() {
-  console.log('Initializing ClarityHUD Full Overlay...');
+  HUD_LOG.debug('Initializing ClarityHUD Full Overlay...');
 
   STATE.container = document.getElementById('overlay-container');
 
@@ -124,7 +141,7 @@ async function _initOnce() {
   render();
 
   STATE.isInitialized = true;
-  console.log('ClarityHUD Full Overlay initialized successfully');
+  HUD_LOG.debug('ClarityHUD Full Overlay initialized successfully');
 }
 
 // ==================== SETTINGS ====================
@@ -142,7 +159,7 @@ async function loadSettings() {
       applySettings();
     }
   } catch (error) {
-    console.error('Error loading settings:', error);
+    HUD_LOG.error('Error loading settings:', error);
     STATE.settings = getDefaultSettings();
     applySettings();
   }
@@ -171,10 +188,10 @@ async function loadInitialState() {
         });
       }
       STATE.events = transformedEvents;
-      console.log('Initial state loaded:', STATE.events);
+      HUD_LOG.debug('Initial state loaded:', STATE.events);
     }
   } catch (error) {
-    console.error('Error loading initial state:', error);
+    HUD_LOG.error('Error loading initial state:', error);
     // Continue with empty events
   }
 }
@@ -289,7 +306,7 @@ function applySettings() {
     STATE.badgeRenderer.updateSettings(s);
   }
 
-  console.log('Settings applied:', s);
+  HUD_LOG.debug('Settings applied:', s);
 }
 
 function applyAccessibilityPreset(preset) {
@@ -341,16 +358,16 @@ function connectSocket() {
   STATE.socket = io();
 
   STATE.socket.on('connect', () => {
-    console.log('Connected to server');
+    HUD_LOG.debug('Connected to server');
   });
 
   STATE.socket.on('disconnect', () => {
-    console.log('Disconnected from server');
+    HUD_LOG.debug('Disconnected from server');
   });
 
   // Listen for settings updates
   STATE.socket.on('clarityhud.settings.full', (newSettings) => {
-    console.log('Received settings update:', newSettings);
+    HUD_LOG.debug('Received settings update:', newSettings);
     STATE.settings = newSettings;
     applySettings();
     if (STATE.layoutEngine) {
@@ -444,7 +461,7 @@ function addEvent(type, data) {
   
   // Prevent duplicates within a 2 second window
   if (STATE.eventIds.has(duplicateKey)) {
-    console.log(`[CLARITY FULL] Duplicate event detected, skipping: ${duplicateKey}`);
+    HUD_LOG.debug(`[CLARITY FULL] Duplicate event detected, skipping: ${duplicateKey}`);
     return;
   }
   
@@ -467,6 +484,11 @@ function addEvent(type, data) {
 // ==================== RENDERING ====================
 function render() {
   const mode = STATE.settings.layoutMode || 'singleStream';
+
+  if (STATE.virtualScroller) {
+    STATE.virtualScroller.destroy();
+    STATE.virtualScroller = null;
+  }
 
   // Clear container
   STATE.container.innerHTML = '';
@@ -506,11 +528,30 @@ function renderSingleStream() {
   });
 
   // Render events
+  if (STATE.settings.useVirtualScrolling && typeof VirtualScroller !== 'undefined') {
+    initializeFullVirtualScrolling(feedContainer, allEvents.slice(0, STATE.settings.maxLines || 50));
+    return;
+  }
+
   allEvents.slice(0, STATE.settings.maxLines || 50).forEach(event => {
     const element = createEventElement(event, 'singleStream');
     feedContainer.appendChild(element);
     animateElement(element, 'in', true);
   });
+}
+
+function initializeFullVirtualScrolling(container, events) {
+  if (STATE.virtualScroller) {
+    STATE.virtualScroller.destroy();
+  }
+
+  STATE.virtualScroller = new VirtualScroller(container, {
+    itemHeight: 76,
+    bufferSize: 8,
+    maxItems: STATE.settings.maxLines || 50,
+    renderCallback: (event) => createEventElement(event, 'singleStream')
+  });
+  STATE.virtualScroller.setItems(events);
 }
 
 function renderStructured() {
@@ -592,6 +633,11 @@ function renderEvent(event) {
   const mode = STATE.settings.layoutMode || 'singleStream';
 
   if (mode === 'singleStream') {
+    if (STATE.settings.useVirtualScrolling && typeof VirtualScroller !== 'undefined') {
+      render();
+      return;
+    }
+
     // Add to feed
     const feedContainer = STATE.container.querySelector('.feed-container');
     if (feedContainer) {
@@ -849,3 +895,16 @@ function getActiveTypeCount() {
 
 // ==================== INITIALIZE ON LOAD ====================
 window.addEventListener('DOMContentLoaded', init);
+
+window.addEventListener('message', (event) => {
+  const payload = event.data || {};
+  if (payload.source !== 'clarityhud-ui' || payload.type !== 'settings-preview' || payload.dock !== 'full') {
+    return;
+  }
+  STATE.settings = { ...STATE.settings, ...payload.settings };
+  applySettings();
+  if (STATE.layoutEngine) {
+    STATE.layoutEngine.updateSettings(STATE.settings);
+  }
+  render();
+});

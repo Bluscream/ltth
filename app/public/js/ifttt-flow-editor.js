@@ -21,6 +21,8 @@
             name: '',
             description: '',
             enabled: true,
+            cooldown: 0,
+            priority: 'normal',
             nodes: [],
             connections: []
         },
@@ -50,6 +52,8 @@
         flowNameInput: document.getElementById('flow-name-input'),
         flowDescriptionInput: document.getElementById('flow-description-input'),
         flowEnabledInput: document.getElementById('flow-enabled-input'),
+        flowCooldownInput: document.getElementById('flow-cooldown-input'),
+        flowPriorityInput: document.getElementById('flow-priority-input'),
         nodeProperties: document.getElementById('node-properties'),
         nodePropertiesContent: document.getElementById('node-properties-content'),
         saveFlowBtn: document.getElementById('save-flow-btn'),
@@ -82,6 +86,7 @@
             
             setupEventListeners();
             setupSocketListeners();
+            await loadFlowFromUrl();
             
             // Start monitoring
             setInterval(loadStats, 5000);
@@ -137,6 +142,140 @@
         } catch (error) {
             console.error('Error loading flows:', error);
         }
+    }
+
+    async function loadFlowFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const flowId = params.get('id');
+        if (!flowId) return;
+
+        const response = await fetch(`/api/flows/${encodeURIComponent(flowId)}`);
+        if (!response.ok) {
+            showNotification('Flow could not be loaded', 'error');
+            return;
+        }
+
+        const flow = await response.json();
+        loadFlowIntoEditor(flow);
+        showNotification(`Loaded flow: ${flow.name}`, 'success');
+    }
+
+    function loadFlowIntoEditor(flow) {
+        const graph = flow.flow_graph && Array.isArray(flow.flow_graph.nodes)
+            ? flow.flow_graph
+            : buildGraphFromCompiledFlow(flow);
+
+        state.currentFlow = {
+            id: flow.id || null,
+            name: flow.name || '',
+            description: flow.description || '',
+            enabled: flow.enabled !== false,
+            cooldown: flow.cooldown || 0,
+            priority: flow.priority || 'normal',
+            nodes: Array.isArray(graph.nodes) ? graph.nodes.map(node => ({ ...node, config: { ...(node.config || {}) } })) : [],
+            connections: Array.isArray(graph.connections) ? graph.connections.map(connection => ({ ...connection })) : []
+        };
+
+        syncFlowPropertyInputs();
+        renderCurrentFlowGraph();
+    }
+
+    function buildGraphFromCompiledFlow(flow) {
+        const nodes = [];
+        const connections = [];
+        const triggerId = 'node_trigger';
+        let lastNodeId = triggerId;
+
+        nodes.push({
+            id: triggerId,
+            type: 'trigger',
+            componentId: flow.trigger_type,
+            name: findComponentName(state.triggers, flow.trigger_type),
+            x: 120,
+            y: 120,
+            config: extractTriggerConfig(flow.trigger_condition)
+        });
+
+        const condition = extractFilterCondition(flow.trigger_condition);
+        if (condition) {
+            const conditionId = 'node_condition';
+            nodes.push({
+                id: conditionId,
+                type: 'condition',
+                componentId: condition.type || 'field_value',
+                name: findComponentName(state.conditions, condition.type || 'field_value'),
+                x: 360,
+                y: 120,
+                config: { ...condition }
+            });
+            connections.push({ id: 'conn_trigger_condition', fromNode: triggerId, toNode: conditionId, fromPort: 'default' });
+            lastNodeId = conditionId;
+        }
+
+        (flow.actions || []).forEach((action, index) => {
+            const nodeId = `node_action_${index}`;
+            const { type, ...config } = action;
+            nodes.push({
+                id: nodeId,
+                type: 'action',
+                componentId: type,
+                name: findComponentName(state.actions, type),
+                x: 620 + (index * 240),
+                y: 120,
+                config
+            });
+            connections.push({
+                id: `conn_${lastNodeId}_${nodeId}`,
+                fromNode: lastNodeId,
+                toNode: nodeId,
+                fromPort: lastNodeId === 'node_condition' ? 'true' : 'default'
+            });
+            lastNodeId = nodeId;
+        });
+
+        return { nodes, connections };
+    }
+
+    function extractTriggerConfig(condition) {
+        if (!condition || typeof condition !== 'object') return {};
+        const config = {};
+        ['intervalSeconds', 'seconds', 'time', 'days'].forEach(key => {
+            if (condition[key] !== undefined) {
+                config[key] = condition[key];
+            }
+        });
+        return config;
+    }
+
+    function extractFilterCondition(condition) {
+        if (!condition || typeof condition !== 'object') return null;
+        if (!condition.logic && !condition.type && !condition.field) return null;
+        const { intervalSeconds, seconds, time, days, ...filterCondition } = condition;
+        return filterCondition;
+    }
+
+    function findComponentName(collection, id) {
+        const component = collection.find(item => item.id === id);
+        return component?.name || id || 'Unknown';
+    }
+
+    function syncFlowPropertyInputs() {
+        if (elements.flowNameInput) elements.flowNameInput.value = state.currentFlow.name;
+        if (elements.flowDescriptionInput) elements.flowDescriptionInput.value = state.currentFlow.description;
+        if (elements.flowEnabledInput) elements.flowEnabledInput.checked = state.currentFlow.enabled;
+        if (elements.flowCooldownInput) elements.flowCooldownInput.value = state.currentFlow.cooldown;
+        if (elements.flowPriorityInput) elements.flowPriorityInput.value = state.currentFlow.priority;
+    }
+
+    function renderCurrentFlowGraph() {
+        elements.flowCanvas.querySelectorAll('.flow-node').forEach(node => node.remove());
+        elements.connectionsSvg.innerHTML = '';
+        state.selectedNode = null;
+        if (elements.nodeProperties) {
+            elements.nodeProperties.style.display = 'none';
+        }
+        state.currentFlow.nodes.forEach(renderNode);
+        requestAnimationFrame(drawConnections);
     }
 
     // Load statistics
@@ -286,6 +425,16 @@
         return str.charAt(0).toUpperCase() + str.slice(1);
     }
 
+    function clampNumber(value, min, max, fallback) {
+        const number = value === undefined || value === null || value === ''
+            ? Number.NaN
+            : Number(value);
+        if (!Number.isFinite(number)) {
+            return fallback;
+        }
+        return Math.min(max, Math.max(min, number));
+    }
+
     // Setup event listeners
     function setupEventListeners() {
         // Component drag & drop - Use event delegation for dynamically added elements
@@ -335,6 +484,19 @@
         if (elements.flowEnabledInput) {
             elements.flowEnabledInput.addEventListener('change', () => {
                 state.currentFlow.enabled = elements.flowEnabledInput.checked;
+            });
+        }
+
+        if (elements.flowCooldownInput) {
+            elements.flowCooldownInput.addEventListener('input', () => {
+                state.currentFlow.cooldown = clampNumber(elements.flowCooldownInput.value, 0, 3600, 0);
+                elements.flowCooldownInput.value = state.currentFlow.cooldown;
+            });
+        }
+
+        if (elements.flowPriorityInput) {
+            elements.flowPriorityInput.addEventListener('change', () => {
+                state.currentFlow.priority = elements.flowPriorityInput.value;
             });
         }
     }
@@ -538,7 +700,7 @@
 
     function renderFields(fields, node) {
         return fields.map(field => {
-            const value = node.config[field.name] || field.default || '';
+            const value = node.config[field.name] !== undefined ? node.config[field.name] : (field.default !== undefined ? field.default : '');
             
             if (field.type === 'textarea') {
                 return `
@@ -606,11 +768,23 @@
     function updateNodeConfig(el) {
         const nodeId = el.dataset.node;
         const fieldName = el.dataset.field;
-        const value = el.type === 'checkbox' ? el.checked : el.value;
+        const value = el.type === 'checkbox'
+            ? el.checked
+            : el.type === 'number'
+                ? clampNumber(
+                    el.value,
+                    el.min !== '' ? Number(el.min) : Number.NEGATIVE_INFINITY,
+                    el.max !== '' ? Number(el.max) : Number.POSITIVE_INFINITY,
+                    0
+                )
+                : el.value;
         
         const node = state.currentFlow.nodes.find(n => n.id === nodeId);
         if (node) {
             node.config[fieldName] = value;
+            if (el.type === 'number') {
+                el.value = value;
+            }
             console.log(`Updated ${nodeId}.${fieldName} = ${value}`);
         }
     }
@@ -1023,32 +1197,11 @@
                 return;
             }
 
-            // Build flow structure
-            const trigger = state.currentFlow.nodes.find(n => n.type === 'trigger');
-            if (!trigger) {
-                showNotification('Flow must have a trigger', 'error');
-                return;
+            if (!window.IFTTTFlowCompiler) {
+                throw new Error('Flow compiler is not loaded');
             }
 
-            const actions = state.currentFlow.nodes
-                .filter(n => n.type === 'action')
-                .map(n => ({
-                    type: n.componentId,
-                    ...n.config
-                }));
-
-            if (actions.length === 0) {
-                showNotification('Flow must have at least one action', 'error');
-                return;
-            }
-
-            const flowData = {
-                name: state.currentFlow.name.trim(),
-                trigger_type: trigger.componentId,
-                trigger_condition: trigger.config || {},
-                actions: actions,
-                enabled: state.currentFlow.enabled ? 1 : 0
-            };
+            const flowData = window.IFTTTFlowCompiler.compileFlow(state.currentFlow);
 
             console.log('Flow data to save:', flowData);
 

@@ -7,7 +7,7 @@ const axios = require('axios');
 // Public fallback API key for users who don't have their own
 // SECURITY: Prefer overriding via environment variables (EULER_FALLBACK_API_KEY). The backup key (EULER_BACKUP_API_KEY) is handled separately for warnings.
 // NOTE: This fallback key is rate-limited and intended only as a temporary helper—users should configure their own API key for production.
-const PUBLIC_FALLBACK_API_KEY = 'MDU2MGU5ZmI5YmNiNjhhODA4ZTgyYjZjYjc3NzA2OWE2NDhiZWVmZTdhNWEyNmNiY2Q1MmVh';
+const PUBLIC_FALLBACK_API_KEY = 'euler_M2NiZDI1MDBhZTE2YWJjYzM3NDg4OTAwZTFkNDE2MzQ1N2QyZGQ2ZDk3MWYxNWMyMjM5N2Ix';
 const FALLBACK_API_KEY = process.env.EULER_FALLBACK_API_KEY || PUBLIC_FALLBACK_API_KEY;
 
 // Euler backup key - requires special warning before connection
@@ -47,6 +47,10 @@ class EulerstreamAdapter extends BaseAdapter {
         this.maxRateLimitReconnects = 10;
         this.autoReconnectResetTimeout = null;
         this._selfHealTimer = null;
+        this._notLiveReconnectTimer = null;
+        this._rateLimitReconnectTimer = null;
+        this._autoReconnectTimer = null;
+        this._heartbeatReconnectTimer = null;
         this._missedPongs = 0;
 
         // Stats tracking - Load from database if available
@@ -124,12 +128,160 @@ class EulerstreamAdapter extends BaseAdapter {
         };
     }
 
+    _normalizeRoomId(value) {
+        if (value === null || value === undefined) return null;
+        const roomId = String(value).trim();
+        if (!/^\d+$/.test(roomId) || roomId === '0') return null;
+        return roomId;
+    }
+
+    _extractRoomIdFromPayload(payload) {
+        if (!payload || typeof payload !== 'object') return null;
+
+        const candidates = [
+            payload.roomId,
+            payload.room_id,
+            payload.roomID,
+            payload.common?.roomId,
+            payload.common?.room_id,
+            payload.common?.roomID,
+            payload.base?.roomId,
+            payload.base?.room_id,
+            payload.room?.id,
+            payload.room?.roomId,
+            payload.room?.room_id,
+            payload.data?.roomId,
+            payload.data?.room_id
+        ];
+
+        for (const candidate of candidates) {
+            const roomId = this._normalizeRoomId(candidate);
+            if (roomId) return roomId;
+        }
+
+        return null;
+    }
+
+    _captureRoomIdFromPayload(payload, source = 'payload') {
+        const roomId = this._extractRoomIdFromPayload(payload);
+        if (!roomId) return null;
+
+        if (this.roomId !== roomId) {
+            this.roomId = roomId;
+            this.logger.info(`Captured room ID from ${source}: ${this.roomId}`);
+        }
+
+        return this.roomId;
+    }
+
+    _getSessionGiftCatalog() {
+        return Array.from(this.sessionGifts.values())
+            .filter(gift => gift && gift.id && gift.name)
+            .map(gift => ({
+                id: gift.id,
+                name: gift.name,
+                image_url: gift.image_url || null,
+                diamond_count: gift.diamond_count || 0
+            }));
+    }
+
+    _mergeSessionGiftsIntoCatalog() {
+        const sessionCatalog = this._getSessionGiftCatalog();
+        if (sessionCatalog.length === 0) return 0;
+        return this.db.updateGiftCatalog(sessionCatalog);
+    }
+
+    _getGiftListParams() {
+        const params = {
+            ...this.webcastApiConfig.params,
+            aid: '1233',
+            app_name: 'musically_go'
+        };
+
+        if (this.roomId) {
+            params.room_id = this.roomId;
+        }
+
+        return params;
+    }
+
+    _extractGiftImageUrl(gift) {
+        const directUrl = gift.image_url || gift.imageUrl || gift.giftPictureUrl || gift.picture_url;
+        if (typeof directUrl === 'string' && directUrl.trim()) {
+            return directUrl;
+        }
+
+        if (directUrl && typeof directUrl === 'object') {
+            const directCandidates = [directUrl.giftPictureUrl, directUrl.url_list, directUrl.urlList, directUrl.urls, directUrl.url];
+            for (const candidate of directCandidates) {
+                if (Array.isArray(candidate) && candidate.length > 0) return candidate[0];
+                if (typeof candidate === 'string' && candidate.trim()) return candidate;
+            }
+        }
+
+        const imageCandidates = [gift.image, gift.icon, gift.giftImage, gift.gift_image];
+
+        for (const image of imageCandidates) {
+            if (!image) continue;
+            if (typeof image === 'string' && image.trim()) return image;
+
+            const urlCandidates = [image.url_list, image.urlList, image.urls, image.url];
+            for (const candidate of urlCandidates) {
+                if (Array.isArray(candidate) && candidate.length > 0) return candidate[0];
+                if (typeof candidate === 'string' && candidate.trim()) return candidate;
+            }
+
+            if (typeof image.giftPictureUrl === 'string' && image.giftPictureUrl.trim()) {
+                return image.giftPictureUrl;
+            }
+        }
+
+        return null;
+    }
+
+    _normalizeGiftCatalogEntries(rawGifts) {
+        if (!Array.isArray(rawGifts)) return [];
+
+        return rawGifts
+            .map(gift => {
+                if (!gift || typeof gift !== 'object') return null;
+
+                const rawId = gift.id ?? gift.giftId ?? gift.gift_id;
+                const id = Number(rawId);
+                const name = gift.name || gift.giftName || gift.gift_name;
+                if (!Number.isFinite(id) || id <= 0 || !name) return null;
+
+                const rawDiamondCount = gift.diamond_count ?? gift.diamondCount ?? gift.diamonds ?? gift.cost ?? gift.value ?? 0;
+                const diamondCount = Number(rawDiamondCount);
+
+                return {
+                    id,
+                    name: String(name),
+                    image_url: this._extractGiftImageUrl(gift),
+                    diamond_count: Number.isFinite(diamondCount) ? diamondCount : 0
+                };
+            })
+            .filter(Boolean);
+    }
+
+    _formatHttpError(error) {
+        if (!error) return 'Unknown error';
+        if (error.response) {
+            const status = error.response.status ? `HTTP ${error.response.status}` : 'HTTP error';
+            const statusText = error.response.statusText ? ` ${error.response.statusText}` : '';
+            return `${status}${statusText}`.trim();
+        }
+        return error.message || String(error);
+    }
+
     /**
      * Connect to TikTok Live stream using Eulerstream WebSocket API
      * @param {string} username - TikTok username (without @)
      * @param {object} options - Connection options
      */
     async connect(username, options = {}) {
+        this._clearPendingReconnectTimers();
+
         // Store previous username before disconnect to detect streamer changes
         const previousUsername = this.currentUsername;
         
@@ -159,8 +311,9 @@ class EulerstreamAdapter extends BaseAdapter {
             // Priority: Database setting > Environment variables > Fallback key
             // NOTE: This can be either the Webhook Secret OR the euler_ API key
             // Try Webhook Secret first if euler_ key doesn't work
-            let apiKey = this.db.getSetting('tiktok_euler_api_key') || process.env.EULER_API_KEY || process.env.SIGN_API_KEY;
-            let usingFallback = false;
+            const keySelection = this._resolveEulerApiKey();
+            let apiKey = keySelection.activeKey;
+            let usingFallback = keySelection.usingFallback;
             
             if (!apiKey) {
                 // Use fallback key if no user key is configured and fallback is available
@@ -186,7 +339,19 @@ class EulerstreamAdapter extends BaseAdapter {
                     throw new Error(errorMsg);
                 }
             }
-            
+
+            if (usingFallback) {
+                this.logger.warn('⚠️  No personal API key configured - using fallback key');
+                this.logger.warn('⚠️  This is a temporary solution. Please get your own free API key at https://www.eulerstream.com');
+
+                if (this.io) {
+                    this.io.emit('fallback-key-warning', {
+                        message: 'Fallback API Key wird verwendet',
+                        duration: 10000
+                    });
+                }
+            }
+             
             // Validate key format
             if (typeof apiKey !== 'string' || apiKey.trim().length < 32) {
                 const errorMsg = 'Invalid key format. The key should be at least 32 characters long.';
@@ -201,7 +366,7 @@ class EulerstreamAdapter extends BaseAdapter {
             // Log key type for debugging
             if (apiKey.startsWith('euler_')) {
                 this.logger.info(`   Key Type: REST API Key (starts with "euler_")`);
-                this.logger.warn(`   ⚠️  If connection fails: Try using Webhook Secret instead!`);
+                this.logger.info(`   If connection fails: Try using Webhook Secret instead.`);
             } else if (/^[a-fA-F0-9]{64}$/.test(apiKey)) {
                 this.logger.info(`   Key Type: Webhook Secret (64-char hexadecimal)`);
             } else {
@@ -210,7 +375,7 @@ class EulerstreamAdapter extends BaseAdapter {
 
             // Check if user is using the Euler backup key
             // Show non-dismissible warning and delay connection by 10 seconds
-            if (EULER_BACKUP_KEY && apiKey === EULER_BACKUP_KEY) {
+            if (!usingFallback && EULER_BACKUP_KEY && apiKey === EULER_BACKUP_KEY) {
                 this.logger.warn('⚠️  EULER BACKUP KEY DETECTED - Connection will be delayed by 10 seconds');
                 this.logger.warn('⚠️  Please get your own free API key at https://www.eulerstream.com');
                 
@@ -374,7 +539,7 @@ class EulerstreamAdapter extends BaseAdapter {
                     const catalogResult = await this.updateGiftCatalog();
                     this.logger.info(`🎁 ${catalogResult.message}`);
                 } catch (error) {
-                    this.logger.warn('Could not update gift catalog:', error.message);
+                    this.logger.warn(`Could not update gift catalog: ${this._formatHttpError(error)}`);
                 }
             }, 2000); // Wait 2 seconds after connection to fetch room info and update gift catalog
             
@@ -514,11 +679,11 @@ class EulerstreamAdapter extends BaseAdapter {
                     this.notLiveReconnectCount++;
                     const notLiveDelay = 30000;
                     this.logger.info(`⏳ Not-live retry ${this.notLiveReconnectCount}/${this.maxNotLiveReconnects} in ${notLiveDelay / 1000}s (stream may be starting soon)...`);
-                    setTimeout(() => {
+                    this._scheduleReconnectTimer('_notLiveReconnectTimer', notLiveDelay, () => {
                         this.connect(savedUsername).catch(err => {
                             this.logger.error(`Not-live retry ${this.notLiveReconnectCount}/${this.maxNotLiveReconnects} failed:`, err.message);
                         });
-                    }, notLiveDelay);
+                    });
                 } else {
                     this.logger.warn(`⚠️ Max retry attempts (${this.maxNotLiveReconnects}) reached or no username set. Manual reconnect required.`);
                     this.broadcastStatus('max_reconnects_reached', {
@@ -539,11 +704,11 @@ class EulerstreamAdapter extends BaseAdapter {
                 if (savedUsername && this.rateLimitReconnectCount < this.maxRateLimitReconnects) {
                     this.rateLimitReconnectCount++;
                     this.logger.info(`⏳ 4429 retry ${this.rateLimitReconnectCount}/${this.maxRateLimitReconnects} in 30s...`);
-                    setTimeout(() => {
+                    this._scheduleReconnectTimer('_rateLimitReconnectTimer', 30000, () => {
                         this.connect(savedUsername).catch(err => {
                             this.logger.error(`4429 retry ${this.rateLimitReconnectCount}/${this.maxRateLimitReconnects} failed:`, err.message);
                         });
-                    }, 30000);
+                    });
                 } else {
                     this.logger.warn(`⚠️ Max retry attempts (${this.maxRateLimitReconnects}) reached or no username set. Manual reconnect required.`);
                     this.broadcastStatus('max_reconnects_reached', {
@@ -563,11 +728,11 @@ class EulerstreamAdapter extends BaseAdapter {
                 this.autoReconnectCount++;
                 const delay = Math.min(5000 * this.autoReconnectCount, 30000);
                 this.logger.info(`🔄 Attempting auto-reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} in ${delay / 1000}s...`);
-                setTimeout(() => {
+                this._scheduleReconnectTimer('_autoReconnectTimer', delay, () => {
                     this.connect(this.currentUsername).catch(err => {
                         this.logger.error(`Auto-reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} failed:`, err.message);
                     });
-                }, delay);
+                });
             } else if (this.autoReconnectCount >= this.maxAutoReconnects) {
                 this.logger.warn(`⚠️ Max auto-reconnect attempts (${this.maxAutoReconnects}) reached. Manual reconnect required.`);
                 this.broadcastStatus('max_reconnects_reached', {
@@ -597,40 +762,44 @@ class EulerstreamAdapter extends BaseAdapter {
                     this._missedPongs = 0;
                 }
 
-                // Log that we received a message (using info level for visibility)
-                this.logger.info(`📨 Received WebSocket message: ${typeof data}, length: ${data ? data.length : 0}`);
+                this.logger.debug?.(`📨 Received WebSocket message: ${typeof data}, length: ${data ? data.length : 0}`);
                 
                 // First, try to parse as JSON (EulerStream default format)
                 let parsedData;
                 
                 if (typeof data === 'string') {
                     // Text message - parse as JSON
-                    this.logger.info('Parsing as text/JSON...');
+                    this.logger.debug?.('Parsing as text/JSON...');
                     parsedData = JSON.parse(data);
                 } else {
                     // Binary message - try JSON first, then protobuf
                     const textData = data.toString('utf-8');
                     try {
-                        this.logger.info('Trying JSON parse on binary data...');
+                        this.logger.debug?.('Trying JSON parse on binary data...');
                         parsedData = JSON.parse(textData);
                     } catch (jsonError) {
                         // If JSON parsing fails, try protobuf deserialization
-                        this.logger.info('JSON failed, trying protobuf...');
+                        this.logger.debug?.('JSON failed, trying protobuf...');
                         const frame = deserializeWebSocketMessage(
                             new Uint8Array(data),
-                            SchemaVersion.V2
+                            this._getEulerSchemaVersion()
                         );
                         parsedData = frame;
                     }
                 }
 
-                this.logger.info(`Parsed data keys: ${JSON.stringify(Object.keys(parsedData || {}))}`);
+                this.logger.debug?.(`Parsed data keys: ${JSON.stringify(Object.keys(parsedData || {}))}`);
+                this._captureRoomIdFromPayload(parsedData, 'websocket frame');
 
                 // Process messages
-                if (parsedData && parsedData.messages && Array.isArray(parsedData.messages)) {
-                    this.logger.info(`🎉 Processing ${parsedData.messages.length} messages from WebSocket`);
-                    for (const message of parsedData.messages) {
+                const messages = this._extractEulerstreamMessages(parsedData);
+                if (messages.length > 0) {
+                    parsedData.messages = messages;
+                    this.logger.debug?.(`🎉 Processing ${parsedData.messages.length} messages from WebSocket`);
+                    for (const message of messages) {
                         if (message.type && message.data) {
+                            this._captureRoomIdFromPayload(message.data, message.type);
+
                             // Special handling for roomInfo event to extract stream start time
                             if (message.type === 'roomInfo') {
                                 this.logger.info('📋 Received roomInfo event - extracting stream start time and stats');
@@ -662,13 +831,18 @@ class EulerstreamAdapter extends BaseAdapter {
                                 // Don't emit roomInfo as a regular event, just process it
                                 continue;
                             }
+
+                            if (message.type === 'workerInfo') {
+                                this.logger.debug('Ignoring Eulerstream workerInfo metadata event');
+                                continue;
+                            }
                             
                             // Map EulerStream event types to our internal event names
                             // EulerStream uses names like "WebcastChatMessage", we need "chat"
                             const eventType = this._mapEulerStreamEventType(message.type);
                             
                             if (eventType) {
-                                this.logger.info(`✅ Emitting event: ${eventType} (from ${message.type})`);
+                                this.logger.debug?.(`✅ Emitting event: ${eventType} (from ${message.type})`);
                                 // Emit the parsed event to our event emitter
                                 this.eventEmitter.emit(eventType, message.data);
                             } else {
@@ -698,6 +872,56 @@ class EulerstreamAdapter extends BaseAdapter {
 
         // Setup Eulerstream event handlers
         this._registerEulerstreamEvents();
+    }
+
+    _extractEulerstreamMessages(parsedData) {
+        const candidates = [];
+
+        if (parsedData && Array.isArray(parsedData.messages)) {
+            candidates.push(...parsedData.messages);
+        }
+
+        if (parsedData?.protoMessageFetchResult && Array.isArray(parsedData.protoMessageFetchResult.messages)) {
+            candidates.push(...parsedData.protoMessageFetchResult.messages);
+        }
+
+        return candidates
+            .map(message => this._normalizeEulerstreamMessage(message))
+            .filter(Boolean);
+    }
+
+    _normalizeEulerstreamMessage(message) {
+        if (!message || typeof message !== 'object') return null;
+
+        if (message.type && message.data) {
+            return {
+                type: message.type,
+                data: message.data
+            };
+        }
+
+        const decodedData = message.decodedData;
+        if (!decodedData || typeof decodedData !== 'object') return null;
+
+        if (decodedData.type && decodedData.data) {
+            return {
+                type: decodedData.type,
+                data: decodedData.data
+            };
+        }
+
+        if (message.type) {
+            return {
+                type: message.type,
+                data: decodedData
+            };
+        }
+
+        return null;
+    }
+
+    _getEulerSchemaVersion() {
+        return SchemaVersion?.v2 || SchemaVersion?.V2 || 'v2';
     }
 
     /**
@@ -816,7 +1040,7 @@ class EulerstreamAdapter extends BaseAdapter {
             // that arrives later with the same userId:giftId:repeatCount combination.
             const rawUserId = data.user?.userId || data.user?.uniqueId || data.userId || data.uniqueId || 'unknown';
             const rawGiftId = giftData.giftId || null;
-            const rawRepeatCount = data.repeatCount || data.repeat_count || data.comboCount || 1;
+            const rawRepeatCount = giftData.repeatCount || 1;
 
             // Only deduplicate when we have a valid giftId; null giftIds must never enter the dedup map
             if (rawGiftId != null) {
@@ -837,32 +1061,39 @@ class EulerstreamAdapter extends BaseAdapter {
 
             // Auto-update gift catalog with received gift data
             if (giftData.giftId && giftData.giftName) {
+                const normalizedGift = this._normalizeGiftCatalogEntries([{
+                    id: giftData.giftId,
+                    name: giftData.giftName,
+                    image_url: giftData.giftPictureUrl,
+                    diamond_count: giftData.diamondCount
+                }])[0];
+
+                if (!normalizedGift) {
+                    this.logger.warn(`Skipping gift catalog save for invalid gift payload: ${giftData.giftName} (${giftData.giftId})`);
+                    return;
+                }
+
                 // Track this gift in session
-                if (!this.sessionGifts.has(giftData.giftId)) {
-                    this.sessionGifts.set(giftData.giftId, {
-                        id: giftData.giftId,
-                        name: giftData.giftName,
-                        image_url: giftData.giftPictureUrl,
-                        diamond_count: giftData.diamondCount
+                if (!this.sessionGifts.has(normalizedGift.id)) {
+                    this.sessionGifts.set(normalizedGift.id, {
+                        id: normalizedGift.id,
+                        name: normalizedGift.name,
+                        image_url: normalizedGift.image_url,
+                        diamond_count: normalizedGift.diamond_count
                     });
                     
                     // Save to database immediately
                     try {
-                        this.db.updateGiftCatalog([{
-                            id: giftData.giftId,
-                            name: giftData.giftName,
-                            image_url: giftData.giftPictureUrl,
-                            diamond_count: giftData.diamondCount
-                        }]);
-                        this.logger.info(`✅ [GIFT CATALOG] Added gift to catalog: ${giftData.giftName} (ID: ${giftData.giftId})`);
+                        this.db.updateGiftCatalog([normalizedGift]);
+                        this.logger.info(`✅ [GIFT CATALOG] Added gift to catalog: ${normalizedGift.name} (ID: ${normalizedGift.id})`);
                         
                         // Emit event to notify frontend of new gift in catalog
                         this.io.emit('gift-catalog:updated', {
                             gift: {
-                                id: giftData.giftId,
-                                name: giftData.giftName,
-                                image_url: giftData.giftPictureUrl,
-                                diamond_count: giftData.diamondCount
+                                id: normalizedGift.id,
+                                name: normalizedGift.name,
+                                image_url: normalizedGift.image_url,
+                                diamond_count: normalizedGift.diamond_count
                             },
                             action: 'added'
                         });
@@ -1083,12 +1314,12 @@ class EulerstreamAdapter extends BaseAdapter {
 
             const likeCount = data.likeCount || data.count || data.like_count || 1;
 
-            this.logger.info(`💗 [LIKE EVENT] likeCount=${likeCount}, totalLikes=${totalLikes}`);
+            this.logger.debug?.(`💗 [LIKE EVENT] likeCount=${likeCount}, totalLikes=${totalLikes}`);
 
             // If totalLikes found, use it directly (Eulerstream API provides actual total like count)
             if (totalLikes !== null) {
                 this.stats.likes = totalLikes;
-                this.logger.info(`💗 [LIKE EVENT] Set totalLikes: ${this.stats.likes}`);
+                this.logger.debug?.(`💗 [LIKE EVENT] Set totalLikes: ${this.stats.likes}`);
             } else {
                 // Fallback: increment based on likeCount (individual event count, not in tens)
                 // Note: likeCount represents individual likes in this event (typically 1), not cumulative
@@ -1168,7 +1399,7 @@ class EulerstreamAdapter extends BaseAdapter {
                 timestamp: new Date().toISOString()
             };
 
-            this.logger.info(`👋 User joined: ${userData.username || userData.nickname}`);
+            this.logger.debug?.(`👋 User joined: ${userData.username || userData.nickname}`);
             
             // Only log to database if event was not a duplicate
             if (this.handleEvent('join', eventData)) {
@@ -1239,6 +1470,96 @@ class EulerstreamAdapter extends BaseAdapter {
         return '';
     }
 
+    _parseTeamMemberLevel(value) {
+        if (value === null || value === undefined || value === '') {
+            return 0;
+        }
+
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return 0;
+        }
+
+        return Math.floor(parsed);
+    }
+
+    _firstTeamMemberLevel(...values) {
+        for (const value of values) {
+            const level = this._parseTeamMemberLevel(value);
+            if (level > 0) {
+                return level;
+            }
+        }
+
+        return 0;
+    }
+
+    _extractTeamMemberLevelFromFanBadges(badges) {
+        if (!Array.isArray(badges)) {
+            return 0;
+        }
+
+        for (const badge of badges) {
+            if (!badge || typeof badge !== 'object') {
+                continue;
+            }
+
+            const scene = badge.badgeScene ?? badge.badgeSceneType ?? badge.scene;
+            const isFanBadge = scene === 10 || scene === '10' || String(scene).toLowerCase() === 'fans';
+            if (!isFanBadge) {
+                continue;
+            }
+
+            const level = this._firstTeamMemberLevel(
+                badge.logExtra?.level,
+                badge.privilegeLogExtra?.level,
+                badge.level,
+                badge.fansLevel
+            );
+
+            if (level > 0) {
+                return level;
+            }
+        }
+
+        return 0;
+    }
+
+    _extractTeamMemberLevel(data, user) {
+        const explicitLevel = this._firstTeamMemberLevel(
+            data.teamMemberLevel,
+            data.teamLevel,
+            data.memberLevel,
+            user.teamMemberLevel,
+            user.teamLevel,
+            user.memberLevel
+        );
+
+        const fansClubLevel = this._firstTeamMemberLevel(
+            user.fansClub?.data?.level,
+            user.fansClub?.level,
+            data.fansClub?.data?.level,
+            data.fansClub?.level,
+            user.fansClubInfo?.fansLevel,
+            data.fansClubInfo?.fansLevel
+        );
+
+        const badgeLevel = Math.max(
+            this._extractTeamMemberLevelFromFanBadges(user.badges),
+            this._extractTeamMemberLevelFromFanBadges(data.badges)
+        );
+
+        let teamMemberLevel = Math.max(explicitLevel, fansClubLevel, badgeLevel);
+
+        if (data.userIdentity?.isModeratorOfAnchor) {
+            teamMemberLevel = Math.max(teamMemberLevel, 10);
+        } else if (data.userIdentity?.isSubscriberOfAnchor) {
+            teamMemberLevel = Math.max(teamMemberLevel, 1);
+        }
+
+        return teamMemberLevel;
+    }
+
     /**
      * Extract user data from event
      * @private
@@ -1246,38 +1567,7 @@ class EulerstreamAdapter extends BaseAdapter {
     extractUserData(data) {
         const user = data.user || data;
 
-        // Extract team member level from various sources
-        let teamMemberLevel = 0;
-        
-        // Check if user is moderator (highest priority - level 10)
-        if (data.userIdentity?.isModeratorOfAnchor) {
-            teamMemberLevel = 10;
-        }
-        // Check direct teamMemberLevel on data (from pre-processed events)
-        else if (data.teamMemberLevel !== undefined && data.teamMemberLevel > 0) {
-            teamMemberLevel = data.teamMemberLevel;
-        }
-        // Check user object teamMemberLevel
-        else if (user.teamMemberLevel !== undefined && user.teamMemberLevel > 0) {
-            teamMemberLevel = user.teamMemberLevel;
-        }
-        // Check fans club level (multiple possible paths)
-        else if (user.fansClub?.data?.level) {
-            teamMemberLevel = user.fansClub.data.level;
-        }
-        else if (user.fansClub?.level) {
-            teamMemberLevel = user.fansClub.level;
-        }
-        else if (data.fansClub?.data?.level) {
-            teamMemberLevel = data.fansClub.data.level;
-        }
-        else if (data.fansClub?.level) {
-            teamMemberLevel = data.fansClub.level;
-        }
-        // Check if subscriber (minimum level 1)
-        else if (data.userIdentity?.isSubscriberOfAnchor) {
-            teamMemberLevel = 1;
-        }
+        const teamMemberLevel = this._extractTeamMemberLevel(data, user);
 
         const extractedData = {
             username: user.uniqueId || user.username || null,
@@ -1300,6 +1590,53 @@ class EulerstreamAdapter extends BaseAdapter {
         }
 
         return extractedData;
+    }
+
+    _firstPresent(...values) {
+        return values.find(value => value !== undefined && value !== null && value !== '');
+    }
+
+    _positiveInt(value, fallback = null) {
+        const parsed = parseInt(value, 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    }
+
+    _repeatCountFromAmount(amountValue, diamondCount) {
+        const amount = this._positiveInt(amountValue, null);
+        if (!amount) return null;
+
+        const diamonds = this._positiveInt(diamondCount, null);
+        if (diamonds && diamonds > 1 && amount >= diamonds && amount % diamonds === 0) {
+            return Math.max(amount / diamonds, 1);
+        }
+
+        return amount;
+    }
+
+    _extractGiftRepeatCount(data, gift, diamondCount) {
+        const explicitRepeat = this._positiveInt(this._firstPresent(
+            data.repeatCount,
+            data.repeat_count,
+            data.comboCount,
+            data.combo_count,
+            gift.repeatCount,
+            gift.repeat_count,
+            gift.comboCount,
+            gift.combo_count
+        ), null);
+        if (explicitRepeat) return explicitRepeat;
+
+        const giftCount = this._positiveInt(this._firstPresent(
+            data.giftCount,
+            data.gift_count,
+            gift.giftCount,
+            gift.gift_count,
+            data.count,
+            gift.count
+        ), null);
+        if (giftCount) return giftCount;
+
+        return this._repeatCountFromAmount(this._firstPresent(data.amount, gift.amount), diamondCount) || 1;
     }
 
     /**
@@ -1358,12 +1695,14 @@ class EulerstreamAdapter extends BaseAdapter {
             ? Boolean(data.repeatEnd ?? data.repeat_end)
             : giftType !== 1;
 
+        const repeatCount = this._extractGiftRepeatCount(data, gift, diamondCount);
+
         const extractedData = {
             giftName: giftName,
             giftId: giftId,
             giftPictureUrl: giftPictureUrl,
             diamondCount: diamondCount,
-            repeatCount: data.repeatCount || data.repeat_count || data.comboCount || 1,
+            repeatCount: repeatCount,
             giftType: giftType,
             repeatEnd: repeatEnd
         };
@@ -1796,6 +2135,31 @@ class EulerstreamAdapter extends BaseAdapter {
         }
     }
 
+    _scheduleReconnectTimer(timerName, delay, callback) {
+        if (this[timerName]) {
+            clearTimeout(this[timerName]);
+        }
+
+        this[timerName] = setTimeout(() => {
+            this[timerName] = null;
+            callback();
+        }, delay);
+    }
+
+    _clearPendingReconnectTimers() {
+        for (const timerName of [
+            '_notLiveReconnectTimer',
+            '_rateLimitReconnectTimer',
+            '_autoReconnectTimer',
+            '_heartbeatReconnectTimer'
+        ]) {
+            if (this[timerName]) {
+                clearTimeout(this[timerName]);
+                this[timerName] = null;
+            }
+        }
+    }
+
     _scheduleSelfHealReconnect(savedUsername) {
         if (!savedUsername) {
             return;
@@ -1882,11 +2246,11 @@ class EulerstreamAdapter extends BaseAdapter {
                     this.autoReconnectCount++;
                     const delay = Math.min(5000 * this.autoReconnectCount, 30000);
                     this.logger.info(`🔄 Heartbeat reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} in ${delay / 1000}s...`);
-                    setTimeout(() => {
+                    this._scheduleReconnectTimer('_heartbeatReconnectTimer', delay, () => {
                         this.connect(savedUsername).catch(err => {
                             this.logger.error(`Heartbeat reconnect ${this.autoReconnectCount}/${this.maxAutoReconnects} failed:`, err.message);
                         });
-                    }, delay);
+                    });
                 } else {
                     this.logger.warn(`⚠️ Max auto-reconnect attempts (${this.maxAutoReconnects}) reached after heartbeat timeout. Manual reconnect required.`);
                     this.broadcastStatus('max_reconnects_reached', {
@@ -1927,6 +2291,7 @@ class EulerstreamAdapter extends BaseAdapter {
 
     disconnect() {
         this._stopHeartbeat();
+        this._clearPendingReconnectTimers();
         if (this._selfHealTimer) {
             clearTimeout(this._selfHealTimer);
             this._selfHealTimer = null;
@@ -2260,10 +2625,7 @@ class EulerstreamAdapter extends BaseAdapter {
         try {
             this.logger.info('📋 Fetching room info from TikTok Webcast API...');
             
-            const params = new URLSearchParams({
-                ...this.webcastApiConfig.params,
-                room_id: this.roomId
-            });
+            const params = new URLSearchParams(this._getGiftListParams());
             
             const url = `${this.webcastApiConfig.baseUrl}/room/info/?${params}`;
             
@@ -2278,6 +2640,7 @@ class EulerstreamAdapter extends BaseAdapter {
             
             if (response.data && response.data.data) {
                 const roomData = response.data.data;
+                this._captureRoomIdFromPayload(roomData, 'room/info API');
                 this.logger.info('✅ Room info fetched successfully');
                 
                 // Extract and set stream start time
@@ -2323,35 +2686,22 @@ class EulerstreamAdapter extends BaseAdapter {
     }
 
     async updateGiftCatalog(options = {}) {
-        // Fetch gift catalog from TikTok's Webcast API
-        // This is the same API that TikTok-Live-Connector uses
+        // Fetch gift catalog from TikTok's Webcast API.
+        this._mergeSessionGiftsIntoCatalog();
         
-        // Try to get room ID if we don't have it
+        // Try to get room ID if we don't have it. Gift list can still be fetched without it.
         if (!this.roomId && this.currentUsername) {
-            await this.fetchRoomId(this.currentUsername);
-        }
-        
-        if (!this.roomId) {
-            this.logger.info('ℹ️  Room ID not available. Gift catalog will be built from stream events.');
-            
-            const catalog = this.db.getGiftCatalog();
-            return {
-                success: true,
-                message: catalog.length > 0 
-                    ? `Using existing catalog with ${catalog.length} gifts (automatically updated from stream)`
-                    : 'Gift catalog will be built automatically as gifts are received from the stream',
-                count: catalog.length,
-                catalog: catalog
-            };
+            try {
+                await this.fetchRoomId(this.currentUsername);
+            } catch (error) {
+                this.logger.warn(`Could not fetch room ID before gift catalog refresh: ${this._formatHttpError(error)}`);
+            }
         }
         
         try {
             this.logger.info('🎁 Fetching gift catalog from TikTok Webcast API...');
             
-            const params = new URLSearchParams({
-                ...this.webcastApiConfig.params,
-                room_id: this.roomId
-            });
+            const params = new URLSearchParams(this._getGiftListParams());
             
             const url = `${this.webcastApiConfig.baseUrl}/gift/list/?${params}`;
             
@@ -2364,52 +2714,47 @@ class EulerstreamAdapter extends BaseAdapter {
                 }
             });
             
-            if (response.data && response.data.data && response.data.data.gifts) {
-                const gifts = response.data.data.gifts;
-                
-                // Transform gifts to database format
-                const giftsToSave = gifts.map(gift => ({
-                    id: gift.id,
-                    name: gift.name || `Gift ${gift.id}`,
-                    image_url: gift.image?.url_list?.[0] || gift.icon?.url_list?.[0] || null,
-                    diamond_count: gift.diamond_count || 0
-                }));
-                
-                // Save to database
-                const savedCount = this.db.updateGiftCatalog(giftsToSave);
-                
-                this.logger.info(`✅ Gift catalog updated with ${savedCount} gifts from TikTok API`);
-                
-                return {
-                    success: true,
-                    message: `Gift catalog updated with ${savedCount} gifts from TikTok Webcast API`,
-                    count: savedCount,
-                    catalog: this.db.getGiftCatalog()
-                };
-            } else {
-                this.logger.warn('⚠️  No gifts data in API response, using existing catalog');
-                
-                const catalog = this.db.getGiftCatalog();
-                return {
-                    success: catalog.length > 0,
-                    message: catalog.length > 0 
-                        ? `Using existing catalog with ${catalog.length} gifts`
-                        : 'No gifts available. Gifts will be added automatically from stream.',
-                    count: catalog.length,
-                    catalog: catalog
-                };
+            if (response.data && response.data.data && Array.isArray(response.data.data.gifts)) {
+                const giftsToSave = this._normalizeGiftCatalogEntries(response.data.data.gifts);
+
+                if (giftsToSave.length > 0) {
+                    const savedCount = this.db.updateGiftCatalog(giftsToSave);
+
+                    this.logger.info(`✅ Gift catalog updated with ${savedCount} gifts from TikTok API`);
+
+                    return {
+                        success: true,
+                        message: `Gift catalog updated with ${savedCount} gifts from TikTok Webcast API`,
+                        count: savedCount,
+                        catalog: this.db.getGiftCatalog()
+                    };
+                }
             }
+
+            this.logger.warn('⚠️  No gifts data in API response, using existing catalog');
+
+            const catalog = this.db.getGiftCatalog();
+            return {
+                success: catalog.length > 0,
+                message: catalog.length > 0
+                    ? `Using existing catalog with ${catalog.length} gifts`
+                    : 'No gifts available. Gifts will be added automatically from stream.',
+                count: catalog.length,
+                catalog: catalog
+            };
             
         } catch (error) {
-            this.logger.error('Error fetching gift catalog from TikTok API:', error.message);
+            const errorMessage = this._formatHttpError(error);
+            this.logger.error(`Error fetching gift catalog from TikTok API: ${errorMessage}`);
             
             // Fallback to current catalog
+            this._mergeSessionGiftsIntoCatalog();
             const catalog = this.db.getGiftCatalog();
             return {
                 success: catalog.length > 0,
                 message: catalog.length > 0 
                     ? `API fetch failed. Using existing catalog with ${catalog.length} gifts`
-                    : `API fetch failed: ${error.message}. Gifts will be added automatically from stream.`,
+                    : `API fetch failed: ${errorMessage}. Gifts will be added automatically from stream.`,
                 count: catalog.length,
                 catalog: catalog
             };
@@ -2419,30 +2764,93 @@ class EulerstreamAdapter extends BaseAdapter {
     getGiftCatalog() {
         return this.db.getGiftCatalog();
     }
+
+    _getDatabaseSetting(key) {
+        if (!this.db) return null;
+
+        if (typeof this.db.getSetting === 'function') {
+            try {
+                const value = this.db.getSetting(key);
+                if (value !== null && value !== undefined) {
+                    return value;
+                }
+            } catch (error) {
+                this.logger.warn(`Failed to read setting "${key}" via getSetting: ${error.message}`);
+            }
+        }
+
+        if (typeof this.db.getAllSettings === 'function') {
+            try {
+                const settings = this.db.getAllSettings();
+                if (settings && settings[key] !== null && settings[key] !== undefined) {
+                    return settings[key];
+                }
+            } catch (error) {
+                this.logger.warn(`Failed to read setting "${key}" via getAllSettings: ${error.message}`);
+            }
+        }
+
+        return null;
+    }
+
+    _resolveEulerApiKey() {
+        const normalizeKey = (value) => {
+            if (value === null || value === undefined) return null;
+            const normalized = String(value).trim();
+            if (!normalized || normalized === '***REDACTED***' || normalized === '***SAVED***') {
+                return null;
+            }
+            return normalized;
+        };
+
+        const sources = [
+            {
+                key: normalizeKey(this._getDatabaseSetting('tiktok_euler_api_key')),
+                source: 'Database Setting',
+                usingFallback: false
+            },
+            {
+                key: normalizeKey(process.env.EULER_API_KEY),
+                source: 'Environment Variable (EULER_API_KEY)',
+                usingFallback: false
+            },
+            {
+                key: normalizeKey(process.env.SIGN_API_KEY),
+                source: 'Environment Variable (SIGN_API_KEY)',
+                usingFallback: false
+            },
+            {
+                key: normalizeKey(FALLBACK_API_KEY),
+                source: 'Fallback Key',
+                usingFallback: true
+            }
+        ];
+
+        const selected = sources.find(candidate => candidate.key);
+        if (!selected) {
+            return {
+                activeKey: null,
+                activeSource: null,
+                configured: false,
+                usingFallback: false
+            };
+        }
+
+        return {
+            activeKey: selected.key,
+            activeSource: selected.source,
+            configured: true,
+            usingFallback: selected.usingFallback
+        };
+    }
     
     /**
      * Get Euler API key configuration information
      * @returns {Object} Object with activeKey, activeSource, and configured flag
      */
     getEulerApiKeyInfo() {
-        let activeKey = null;
-        let activeSource = null;
-        
-        // Check database setting first
-        const dbKey = this.db.getSetting('tiktok_euler_api_key');
-        if (dbKey) {
-            activeKey = dbKey;
-            activeSource = 'Database Setting';
-        } else if (process.env.EULER_API_KEY) {
-            activeKey = process.env.EULER_API_KEY;
-            activeSource = 'Environment Variable (EULER_API_KEY)';
-        } else if (process.env.SIGN_API_KEY) {
-            activeKey = process.env.SIGN_API_KEY;
-            activeSource = 'Environment Variable (SIGN_API_KEY)';
-        } else if (FALLBACK_API_KEY) {
-            activeKey = FALLBACK_API_KEY;
-            activeSource = 'Fallback Key';
-        }
+        const keySelection = this._resolveEulerApiKey();
+        const activeKey = keySelection.activeKey;
         
         // Mask the key for security - only show first 8 and last 4 chars
         let maskedKey = null;
@@ -2458,8 +2866,9 @@ class EulerstreamAdapter extends BaseAdapter {
         
         return {
             activeKey: maskedKey,
-            activeSource: activeSource,
-            configured: !!activeKey
+            activeSource: keySelection.activeSource,
+            configured: keySelection.configured,
+            usingFallback: keySelection.usingFallback
         };
     }
     

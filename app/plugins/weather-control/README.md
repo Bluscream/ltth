@@ -2,9 +2,11 @@
 
 Professional weather effects system for TikTok Live overlays with modern GPU-accelerated animations.
 
+Current supported effects: rain, snow, storm, fog, thunder, sunbeam, glitchclouds, aurora, fireflies, meteors, sakura, embers, heatwave.
+
 ## 🌦️ Features
 
-- **7 Weather Effects**: Rain, Snow, Storm, Fog, Thunder, Sunbeam, Glitch Clouds
+- **13 Weather Effects**: rain, snow, storm, fog, thunder, sunbeam, glitchclouds, aurora, fireflies, meteors, sakura, embers, heatwave
 - **Live Preview Panel**: Test and visualize weather effects directly in the admin panel before using them on stream
 - **Modern Animations**: GPU-accelerated Canvas 2D rendering with fixed timestep physics
 - **Advanced Graphics**: Fractal Koch snowflakes, volumetric fog with Perlin noise, HDR sunbeams with bloom, procedural lightning
@@ -13,6 +15,7 @@ Professional weather effects system for TikTok Live overlays with modern GPU-acc
 - **Permission System**: Role-based access control (Followers, Superfans, Subscribers, Team Members, Top Gifters)
 - **Rate Limiting**: Configurable spam protection (default: 10 requests/minute)
 - **WebSocket Integration**: Real-time event streaming to overlays
+- **Community Gamification**: Shared weather meter, quests, streaks, and reward thresholds for viewer participation
 - **Flow Actions**: IFTTT automation support
 - **Gift Triggers**: Automatic weather effects based on gift value
 - **Chat Commands**: Integration with Global Chat Command Engine (GCCE)
@@ -495,6 +498,21 @@ Content-Type: application/json
 ### Get Supported Effects
 ```http
 GET /api/weather/effects
+```
+
+### Get Gamification State
+```http
+GET /api/weather/gamification
+```
+
+### Reset Gamification Progress
+```http
+POST /api/weather/gamification/reset
+Content-Type: application/json
+
+{
+  "scope": "all"
+}
 ```
 
 ### Reset API Key

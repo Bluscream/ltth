@@ -17,7 +17,7 @@ describe('Profile Switch localStorage Cleanup', () => {
 
   // Helper to simulate localStorage
   const localStorage = {
-    getItem: (key) => mockLocalStorage[key] || null,
+    getItem: (key) => Object.prototype.hasOwnProperty.call(mockLocalStorage, key) ? mockLocalStorage[key] : null,
     setItem: (key, value) => { mockLocalStorage[key] = value; },
     removeItem: (key) => { delete mockLocalStorage[key]; }
   };
@@ -204,5 +204,69 @@ describe('Profile Switch localStorage Cleanup', () => {
     // Verify warning IS shown and localStorage NOT cleared
     expect(profileSwitchPending).toBe(true);
     expect(localStorage.getItem('selectedProfile')).toBe('newprofile');
+  });
+
+  test('real profile manager clears stale selectedProfile when server has no pending switch', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { JSDOM } = require('jsdom');
+
+    const source = fs.readFileSync(
+      path.join(__dirname, '..', 'public', 'js', 'profile-manager.js'),
+      'utf8'
+    );
+
+    const dom = new JSDOM(`<!doctype html>
+      <html>
+        <body>
+          <div class="topbar"></div>
+          <button id="profile-btn"><span id="current-profile-name"></span></button>
+        </body>
+      </html>`, {
+      url: 'http://localhost:3000/dashboard.html',
+      runScripts: 'outside-only'
+    });
+
+    const { window } = dom;
+    let restartRequests = 0;
+    window.console = {
+      log: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn()
+    };
+    window.fetch = jest.fn(async (url, options = {}) => {
+      const requestUrl = String(url);
+      if (requestUrl.startsWith('/api/profiles/active')) {
+        return {
+          ok: true,
+          json: async () => ({
+            activeProfile: 'currentProfile',
+            requiresRestart: false,
+            port: 3000
+          })
+        };
+      }
+      if (requestUrl === '/api/server/restart' && options.method === 'POST') {
+        restartRequests++;
+        return {
+          ok: true,
+          json: async () => ({ success: true, restartScheduled: true })
+        };
+      }
+      throw new Error(`Unexpected fetch: ${requestUrl}`);
+    });
+
+    window.localStorage.setItem('selectedProfile', 'staleTarget');
+    window.eval(source);
+    await window.profileManager.loadProfileStatus();
+
+    try {
+      expect(window.localStorage.getItem('selectedProfile')).toBeNull();
+      expect(restartRequests).toBe(0);
+      expect(window.document.getElementById('profile-switch-warning')).toBeNull();
+      expect(window.document.getElementById('server-restart-overlay')).toBeNull();
+    } finally {
+      window.close();
+    }
   });
 });

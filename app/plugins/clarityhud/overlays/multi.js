@@ -5,6 +5,22 @@
  * Optimized for compact VRChat usage with customizable layouts and styles
  */
 
+function createClarityHUDLogger(scope) {
+  const params = new URLSearchParams(window.location.search);
+  const debugEnabled = params.get('debug') === '1' ||
+    params.get('debug') === 'true' ||
+    localStorage.getItem('clarityhud.debug') === '1';
+  const prefix = `[${scope}]`;
+
+  return {
+    debug: (...args) => { if (debugEnabled) console.debug(prefix, ...args); },
+    warn: (...args) => { if (debugEnabled) console.warn(prefix, ...args); },
+    error: (...args) => console.error(prefix, ...args)
+  };
+}
+
+const HUD_LOG = createClarityHUDLogger('MULTI HUD');
+
 // ==================== STATE MANAGEMENT ====================
 const STATE = {
   settings: {
@@ -41,7 +57,7 @@ function updateDebugStatus(status) {
   if (debugStatus) {
     debugStatus.textContent = `Status: ${status}`;
   }
-  console.log(`[MULTI HUD] Status: ${status}`);
+  HUD_LOG.debug(`[MULTI HUD] Status: ${status}`);
 }
 
 function updateDebugSocket(status) {
@@ -68,7 +84,7 @@ function updateDebugStreams(count) {
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('[MULTI HUD] 🚀 DOMContentLoaded - Starting initialization...');
+  HUD_LOG.debug('[MULTI HUD] 🚀 DOMContentLoaded - Starting initialization...');
   updateDebugStatus('DOM Ready');
   
   // Get DOM elements
@@ -76,12 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
   STATE.multiContainer = document.getElementById('multi-container');
   
   if (!STATE.messagesContainer || !STATE.multiContainer) {
-    console.error('[MULTI HUD] ❌ CRITICAL ERROR: Required containers not found in DOM!');
+    HUD_LOG.error('[MULTI HUD] ❌ CRITICAL ERROR: Required containers not found in DOM!');
     updateDebugStatus('ERROR: Containers not found!');
     return;
   }
   
-  console.log('[MULTI HUD] ✅ DOM elements found');
+  HUD_LOG.debug('[MULTI HUD] ✅ DOM elements found');
   
   // Initialize systems
   initializeSystems();
@@ -95,81 +111,81 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ==================== SYSTEM INITIALIZATION ====================
 function initializeSystems() {
-  console.log('[MULTI HUD] Initializing subsystems...');
+  HUD_LOG.debug('[MULTI HUD] Initializing subsystems...');
   
   try {
     // Initialize emoji parser (if available)
     if (typeof EmojiParser !== 'undefined') {
       STATE.emojiParser = new EmojiParser();
-      console.log('[MULTI HUD] ✅ EmojiParser initialized');
+      HUD_LOG.debug('[MULTI HUD] ✅ EmojiParser initialized');
     }
     
     // Initialize badge renderer (if available)
     if (typeof BadgeRenderer !== 'undefined') {
       STATE.badgeRenderer = new BadgeRenderer();
-      console.log('[MULTI HUD] ✅ BadgeRenderer initialized');
+      HUD_LOG.debug('[MULTI HUD] ✅ BadgeRenderer initialized');
     }
     
     // Initialize message parser (if available)
     if (typeof MessageParser !== 'undefined') {
       STATE.messageParser = new MessageParser(STATE.emojiParser, STATE.badgeRenderer);
-      console.log('[MULTI HUD] ✅ MessageParser initialized');
+      HUD_LOG.debug('[MULTI HUD] ✅ MessageParser initialized');
     }
     
     updateDebugStatus('Systems initialized');
   } catch (error) {
-    console.error('[MULTI HUD] ❌ Error initializing systems:', error);
+    HUD_LOG.error('[MULTI HUD] ❌ Error initializing systems:', error);
     updateDebugStatus(`Init error: ${error.message}`);
   }
 }
 
 // ==================== SOCKET CONNECTION ====================
 function connectSocket() {
-  console.log('[MULTI HUD] 📡 Connecting to Socket.io...');
+  HUD_LOG.debug('[MULTI HUD] 📡 Connecting to Socket.io...');
   updateDebugSocket('Connecting...');
   
   try {
     STATE.socket = io();
     
     STATE.socket.on('connect', () => {
-      console.log('[MULTI HUD] ✅ Socket connected');
+      HUD_LOG.debug('[MULTI HUD] ✅ Socket connected');
       updateDebugSocket('Connected');
       loadSettings();
     });
     
     STATE.socket.on('disconnect', () => {
-      console.log('[MULTI HUD] ⚠️ Socket disconnected');
+      HUD_LOG.debug('[MULTI HUD] ⚠️ Socket disconnected');
       updateDebugSocket('Disconnected');
     });
     
     STATE.socket.on('reconnect', () => {
-      console.log('[MULTI HUD] 🔄 Socket reconnected');
+      HUD_LOG.debug('[MULTI HUD] 🔄 Socket reconnected');
       updateDebugSocket('Reconnected');
       loadSettings();
     });
     
     // Listen for multi-stream chat events
     STATE.socket.on('clarityhud:multi:chat', (event) => {
-      console.log('[MULTI HUD] 📨 Multi-stream chat event received:', event);
+      HUD_LOG.debug('[MULTI HUD] 📨 Multi-stream chat event received:', event);
       handleChatEvent(event);
       updateDebugEvents();
     });
     
     // Listen for multi-stream gift events
     STATE.socket.on('clarityhud:multi:gift', (event) => {
-      console.log('[MULTI HUD] 🎁 Multi-stream gift event received:', event);
+      HUD_LOG.debug('[MULTI HUD] 🎁 Multi-stream gift event received:', event);
       handleGiftEvent(event);
       updateDebugEvents();
     });
     
     // Listen for settings updates
     STATE.socket.on('clarityhud.settings.multi', (settings) => {
-      console.log('[MULTI HUD] ⚙️ Settings update received');
+      HUD_LOG.debug('[MULTI HUD] ⚙️ Settings update received');
       applySettings(settings);
     });
     
   } catch (error) {
-    console.error('[MULTI HUD] ❌ Error connecting socket:', error);
+    HUD_LOG.error('[MULTI HUD] ❌ Error connecting socket:', error);
     updateDebugSocket(`Error: ${error.message}`);
   }
 }
@@ -177,7 +193,7 @@ function connectSocket() {
 // ==================== SETTINGS MANAGEMENT ====================
 async function loadSettings() {
   try {
-    console.log('[MULTI HUD] 📥 Loading settings from API...');
+    HUD_LOG.debug('[MULTI HUD] 📥 Loading settings from API...');
     const response = await fetch('/api/clarityhud/settings/multi');
     
     if (!response.ok) {
@@ -187,20 +203,20 @@ async function loadSettings() {
     const data = await response.json();
     
     if (data.success && data.settings) {
-      console.log('[MULTI HUD] ✅ Settings loaded:', data.settings);
+      HUD_LOG.debug('[MULTI HUD] ✅ Settings loaded:', data.settings);
       applySettings(data.settings);
     } else {
-      console.warn('[MULTI HUD] ⚠️ Invalid settings response:', data);
+      HUD_LOG.warn('[MULTI HUD] ⚠️ Invalid settings response:', data);
       updateDebugStatus('Invalid settings');
     }
   } catch (error) {
-    console.error('[MULTI HUD] ❌ Error loading settings:', error);
+    HUD_LOG.error('[MULTI HUD] ❌ Error loading settings:', error);
     updateDebugStatus(`Settings error: ${error.message}`);
   }
 }
 
 function applySettings(settings) {
-  console.log('[MULTI HUD] 🎨 Applying settings...');
+  HUD_LOG.debug('[MULTI HUD] 🎨 Applying settings...');
   
   // Merge with current settings
   STATE.settings = { ...STATE.settings, ...settings };
@@ -236,7 +252,7 @@ function applySettings(settings) {
   STATE.activeStreams = STATE.settings.streams.filter(s => s.enabled && s.username).length;
   updateDebugStreams(STATE.activeStreams);
   
-  console.log('[MULTI HUD] ✅ Settings applied');
+  HUD_LOG.debug('[MULTI HUD] ✅ Settings applied');
   updateDebugStatus('Ready');
 }
 
@@ -254,9 +270,9 @@ function handleChatEvent(event) {
     // Render the message
     renderChatMessage(event);
     
-    console.log(`[MULTI HUD] ✅ Chat from ${event.sourceLabel}: ${event.user.nickname}`);
+    HUD_LOG.debug(`[MULTI HUD] ✅ Chat from ${event.sourceLabel}: ${event.user.nickname}`);
   } catch (error) {
-    console.error('[MULTI HUD] ❌ Error handling chat event:', error);
+    HUD_LOG.error('[MULTI HUD] ❌ Error handling chat event:', error);
   }
 }
 
@@ -273,9 +289,9 @@ function handleGiftEvent(event) {
     // Render the gift as a special message
     renderGiftMessage(event);
     
-    console.log(`[MULTI HUD] ✅ Gift from ${event.sourceLabel}: ${event.user.nickname} sent ${event.gift.name} x${event.gift.count}`);
+    HUD_LOG.debug(`[MULTI HUD] ✅ Gift from ${event.sourceLabel}: ${event.user.nickname} sent ${event.gift.name} x${event.gift.count}`);
   } catch (error) {
-    console.error('[MULTI HUD] ❌ Error handling gift event:', error);
+    HUD_LOG.error('[MULTI HUD] ❌ Error handling gift event:', error);
   }
 }
 
@@ -320,7 +336,11 @@ function renderChatMessage(event) {
   if (STATE.badgeRenderer && event.user.badge) {
     const badgeContainerEl = document.createElement('div');
     badgeContainerEl.className = 'badge-container';
-    badgeContainerEl.innerHTML = STATE.badgeRenderer.render(event.user.badge);
+    if (typeof STATE.badgeRenderer.renderToHTML === 'function') {
+      STATE.badgeRenderer.renderToHTML(event.user.badge, badgeContainerEl);
+    } else {
+      badgeContainerEl.textContent = String(event.user.badge);
+    }
     headerEl.appendChild(badgeContainerEl);
   }
   
@@ -346,8 +366,18 @@ function renderChatMessage(event) {
   const textEl = document.createElement('div');
   textEl.className = 'chat-text';
   
-  if (STATE.messageParser) {
-    textEl.innerHTML = STATE.messageParser.parse(event.message);
+  if (STATE.messageParser && typeof STATE.messageParser.parseMessage === 'function') {
+    const parsed = STATE.messageParser.parseMessage(event.raw || { message: event.message });
+    if (STATE.emojiParser && typeof STATE.emojiParser.renderToHTML === 'function') {
+      const segments = STATE.emojiParser.parse(
+        parsed.text || event.message || '',
+        parsed.emotes || [],
+        STATE.settings.emojiRenderMode || 'image'
+      );
+      STATE.emojiParser.renderToHTML(segments, textEl);
+    } else {
+      textEl.textContent = parsed.text || event.message || '';
+    }
   } else {
     textEl.textContent = event.message;
   }
@@ -470,17 +500,17 @@ function detectSystemPreferences() {
   
   if (prefersReducedMotion.matches) {
     document.body.classList.add('reduce-motion');
-    console.log('[MULTI HUD] Reduced motion enabled (system preference)');
+    HUD_LOG.debug('[MULTI HUD] Reduced motion enabled (system preference)');
   }
   
   // Listen for changes
   prefersReducedMotion.addEventListener('change', (e) => {
     if (e.matches) {
       document.body.classList.add('reduce-motion');
-      console.log('[MULTI HUD] Reduced motion enabled');
+      HUD_LOG.debug('[MULTI HUD] Reduced motion enabled');
     } else {
       document.body.classList.remove('reduce-motion');
-      console.log('[MULTI HUD] Reduced motion disabled');
+      HUD_LOG.debug('[MULTI HUD] Reduced motion disabled');
     }
   });
 }
@@ -517,13 +547,20 @@ function getContrastColor(bgColor) {
 
 // ==================== ERROR HANDLING ====================
 window.addEventListener('error', (event) => {
-  console.error('[MULTI HUD] ❌ Global error:', event.error);
+  HUD_LOG.error('[MULTI HUD] ❌ Global error:', event.error);
   updateDebugStatus(`Error: ${event.error?.message || 'Unknown error'}`);
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-  console.error('[MULTI HUD] ❌ Unhandled promise rejection:', event.reason);
+  HUD_LOG.error('[MULTI HUD] ❌ Unhandled promise rejection:', event.reason);
   updateDebugStatus(`Promise error: ${event.reason?.message || 'Unknown error'}`);
 });
 
-console.log('[MULTI HUD] 📦 Multi-stream overlay script loaded');
+HUD_LOG.debug('[MULTI HUD] 📦 Multi-stream overlay script loaded');
+window.addEventListener('message', (event) => {
+  const payload = event.data || {};
+  if (payload.source !== 'clarityhud-ui' || payload.type !== 'settings-preview' || payload.dock !== 'multi') {
+    return;
+  }
+  applySettings(payload.settings);
+});

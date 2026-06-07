@@ -191,6 +191,7 @@ class GoalsAPI {
         // Update goal
         this.api.registerRoute('put', '/api/goals/:id', (req, res) => {
             try {
+                const previousGoal = this.db.getGoal(req.params.id);
                 const goal = this.db.updateGoal(req.params.id, req.body);
 
                 // If target_value or on_reach_action changed, update the initial target
@@ -214,6 +215,9 @@ class GoalsAPI {
 
                 // Broadcast to all clients
                 this.plugin.broadcastGoalUpdated(goal);
+                if (req.body.current_value !== undefined) {
+                    this.plugin.maybeTriggerGoalFireworkGamification(previousGoal, goal);
+                }
 
                 res.json({
                     success: true,
@@ -272,6 +276,7 @@ class GoalsAPI {
                 }
 
                 // Atomically increment in DB first
+                const previousGoal = this.db.getGoal(req.params.id);
                 const goal = this.db.incrementValue(req.params.id, amount);
 
                 // Sync state machine to DB value
@@ -280,6 +285,7 @@ class GoalsAPI {
 
                 // Broadcast to all clients
                 this.plugin.broadcastGoalValueChanged(goal);
+                this.plugin.maybeTriggerGoalFireworkGamification(previousGoal, goal);
 
                 res.json({
                     success: true,

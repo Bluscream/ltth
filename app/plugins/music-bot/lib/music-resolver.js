@@ -10,28 +10,33 @@ try {
   // youtube-dl-exec not installed — fallback to system yt-dlp
 }
 
+const DEFAULT_MODERATION = {
+  rejectExplicit: false,
+  rejectAgeRestricted: true,
+  blockedKeywords: []
+};
+
 class MusicResolver {
   constructor(config, api) {
-    const defaultModeration = {
-      rejectExplicit: false,
-      rejectAgeRestricted: true,
-      blockedKeywords: []
-    };
-    // Resolve the effective yt-dlp binary path:
-    // Use a user-configured custom path if set, otherwise fall back to the bundled binary.
-    const configured = config?.ytdlpPath;
-    const resolvedYtdlpPath = (!configured || configured === 'yt-dlp') ? YOUTUBE_DL_PATH : configured;
-    this.config = {
-      ...config,
-      ytdlpPath: resolvedYtdlpPath,
-      moderation: {
-        ...defaultModeration,
-        ...(config?.moderation || {})
-      }
-    };
     this.api = api;
     this.cache = new Map();
     this.cacheSizeBytes = 0;
+    this.updateConfig(config);
+  }
+
+  static resolveYtDlpPath(configured) {
+    return (!configured || configured === 'yt-dlp') ? YOUTUBE_DL_PATH : configured;
+  }
+
+  updateConfig(config = {}) {
+    this.config = {
+      ...config,
+      ytdlpPath: MusicResolver.resolveYtDlpPath(config?.ytdlpPath),
+      moderation: {
+        ...DEFAULT_MODERATION,
+        ...(config?.moderation || {})
+      }
+    };
   }
 
   async resolve(query) {

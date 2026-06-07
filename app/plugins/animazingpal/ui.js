@@ -2,6 +2,10 @@
 const socket = io();
 let currentConfig = {};
 let animazeData = {};
+let platformData = {};
+let currentPlatformState = null;
+let supportedPlatforms = [];
+let viewerbaseState = null;
 let isConnected = false;
 
 // Toast queue for sequential messages
@@ -19,7 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   
   socket.on('animazingpal:data-refreshed', (data) => {
-    animazeData = data;
+    platformData = data || {};
+    animazeData = platformData;
     updateAnimazeDataUI();
   });
   
@@ -66,6 +71,24 @@ function setupEventListeners() {
   // Settings
   const saveSettingsBtn = document.querySelector('[data-action="save-settings"]');
   if (saveSettingsBtn) saveSettingsBtn.addEventListener('click', saveSettings);
+
+  const applyStreamReadyPresetBtn = document.querySelector('[data-action="apply-stream-ready-preset"]');
+  if (applyStreamReadyPresetBtn) applyStreamReadyPresetBtn.addEventListener('click', applyStreamReadyPreset);
+
+  const saveViewerbaseBtn = document.querySelector('[data-action="save-viewerbase"]');
+  if (saveViewerbaseBtn) saveViewerbaseBtn.addEventListener('click', saveViewerbaseSettings);
+
+  const syncViewerbaseBtn = document.querySelector('[data-action="sync-viewerbase"]');
+  if (syncViewerbaseBtn) syncViewerbaseBtn.addEventListener('click', syncViewerbaseNow);
+
+  const settingsPlatform = document.getElementById('settingsPlatform');
+  if (settingsPlatform) {
+    settingsPlatform.addEventListener('change', () => {
+      togglePlatformSettings(settingsPlatform.value);
+      updateDynamicActionTypes();
+      updatePlatformActionHints();
+    });
+  }
 
   // Chat settings
   const chatEnabled = document.getElementById('chatEnabled');
@@ -189,7 +212,15 @@ async function fetchStatus() {
 function updateStatus(data) {
   isConnected = data.isConnected;
   currentConfig = data.config || {};
-  animazeData = data.animazeData || {};
+  currentPlatformState = data.platformState || null;
+  supportedPlatforms = data.supportedPlatforms || currentConfig.platform?.supported || [];
+  platformData = data.platformData || data.animazeData || {};
+  animazeData = platformData;
+  viewerbaseState = data.viewerbase || viewerbaseState;
+
+  const activePlatformKey = currentPlatformState?.key || currentConfig.platform?.active || 'animaze';
+  const activePlatformDefinition = currentPlatformState?.definition || currentConfig.platform?.definition || { label: 'Animaze', actions: ['emote', 'specialAction', 'pose', 'idle'], chat: true };
+  const activeProfile = currentConfig.platform?.profile || {};
   
   // Update connection status
   const statusDot = document.getElementById('statusDot');
@@ -214,28 +245,47 @@ function updateStatus(data) {
   }
   
   // Update connection info
-  document.getElementById('connectionHost').textContent = `${currentConfig.host || '127.0.0.1'}:${currentConfig.port || 9000}`;
-  document.getElementById('avatarCount').textContent = animazeData.avatars?.length || 0;
-  document.getElementById('emoteCount').textContent = animazeData.emotes?.length || 0;
+  const host = activeProfile.host || currentConfig.host || '127.0.0.1';
+  const port = activeProfile.port || currentConfig.port || 9000;
+  document.getElementById('connectionHost').textContent = `${host}:${port}`;
+  document.getElementById('avatarCount').textContent = getPlatformAvatarCount();
+  document.getElementById('emoteCount').textContent = getPlatformEmoteCount();
+  const platformNameEl = document.getElementById('activePlatformName');
+  if (platformNameEl) {
+    platformNameEl.textContent = activePlatformDefinition.label || activePlatformKey;
+  }
+
+  updateViewerbaseStatusUI();
   
   // Update current avatar info
-  if (animazeData.currentAvatar) {
-    const avatar = animazeData.currentAvatar;
-    document.getElementById('currentAvatarInfo').innerHTML = `
-      <div class="space-y-2">
-        <div><strong>Name:</strong> ${avatar.friendlyName || avatar.itemName || 'Unbekannt'}</div>
-        ${avatar.description ? `<div><strong>Beschreibung:</strong> ${avatar.description}</div>` : ''}
-        ${avatar.props?.length ? `<div><strong>Props:</strong> ${avatar.props.join(', ')}</div>` : ''}
-      </div>
-    `;
+  const currentAvatarInfo = document.getElementById('currentAvatarInfo');
+  const currentAvatar = getCurrentAvatarLike(activePlatformKey);
+  if (currentAvatar && currentAvatarInfo) {
+    currentAvatarInfo.innerHTML = renderCurrentPlatformInfo(activePlatformKey, currentAvatar);
+  } else if (currentAvatarInfo) {
+    currentAvatarInfo.textContent = 'Keine Avatar-Informationen verfügbar';
   }
   
   // Update settings form
-  document.getElementById('settingsHost').value = currentConfig.host || '127.0.0.1';
-  document.getElementById('settingsPort').value = currentConfig.port || 9000;
-  document.getElementById('settingsAutoConnect').checked = currentConfig.autoConnect !== false;
-  document.getElementById('settingsReconnect').checked = currentConfig.reconnectOnDisconnect !== false;
-  document.getElementById('settingsVerbose').checked = currentConfig.verboseLogging || false;
+  const settingsPlatform = document.getElementById('settingsPlatform');
+  if (settingsPlatform) {
+    ensurePlatformOptions(settingsPlatform, supportedPlatforms, activePlatformKey);
+  }
+  document.getElementById('settingsHost').value = host;
+  document.getElementById('settingsPort').value = port;
+  document.getElementById('settingsAutoConnect').checked = activeProfile.autoConnect !== false;
+  document.getElementById('settingsReconnect').checked = activeProfile.reconnectOnDisconnect !== false;
+  document.getElementById('settingsVerbose').checked = activeProfile.verboseLogging || currentConfig.verboseLogging || false;
+  const settingsAuthToken = document.getElementById('settingsAuthToken');
+  if (settingsAuthToken) {
+    settingsAuthToken.value = activeProfile.authToken || '';
+    settingsAuthToken.placeholder = activeProfile.authTokenConfigured
+      ? 'Token gespeichert - leer lassen, um ihn beizubehalten'
+      : 'Optional: nur für VTube Studio';
+  }
+  togglePlatformSettings(activePlatformKey);
+  updateViewerbaseConfigForm(currentConfig.viewerbase || {});
+  updateVrchatIntegrationForm(currentConfig.vrchatIntegration || {});
   
   // Update chat settings
   const chatConfig = currentConfig.chatToAvatar || {};
@@ -257,68 +307,591 @@ function updateStatus(data) {
   
   // Update Animaze data UI
   updateAnimazeDataUI();
+  renderGiftMappings();
+  updateDynamicActionTypes();
+  updatePlatformActionHints();
+}
+
+function getPlatformKey() {
+  return currentPlatformState?.key || currentConfig.platform?.active || 'animaze';
+}
+
+function getPlatformDefinition() {
+  return currentPlatformState?.definition || supportedPlatforms.find(platform => platform.key === getPlatformKey()) || {
+    key: 'animaze',
+    label: 'Animaze',
+    description: 'Legacy Animaze WebSocket integration',
+    actions: ['emote', 'specialAction', 'pose', 'idle'],
+    chat: true
+  };
+}
+
+function getPlatformAvatarCount() {
+  const key = getPlatformKey();
+  if (key === 'vtube-studio') {
+    return platformData.availableModels?.length || 0;
+  }
+  if (key === 'vseeface') {
+    return platformData.expressions?.length || 0;
+  }
+  return platformData.avatars?.length || 0;
+}
+
+function getPlatformEmoteCount() {
+  const key = getPlatformKey();
+  if (key === 'vtube-studio') {
+    return platformData.hotkeys?.length || 0;
+  }
+  if (key === 'vseeface') {
+    return platformData.motions?.length || 0;
+  }
+  return platformData.emotes?.length || 0;
+}
+
+function getCurrentAvatarLike(platformKey) {
+  if (platformKey === 'vtube-studio') {
+    return platformData.currentModel || null;
+  }
+  if (platformKey === 'vseeface') {
+    return platformData.currentExpression || platformData.currentMotion ? {
+      friendlyName: platformData.currentExpression || platformData.currentMotion,
+      description: 'VSeeFace status'
+    } : null;
+  }
+  return platformData.currentAvatar || null;
+}
+
+function renderCurrentPlatformInfo(platformKey, value) {
+  if (platformKey === 'vtube-studio') {
+    return `
+      <div class="space-y-2">
+        <div><strong>Model:</strong> ${escapeHtml(value.modelName || value.modelID || value.vtsModelName || 'Unbekannt')}</div>
+        ${value.modelID ? `<div><strong>ID:</strong> ${escapeHtml(String(value.modelID))}</div>` : ''}
+      </div>
+    `;
+  }
+
+  if (platformKey === 'vseeface') {
+    return `
+      <div class="space-y-2">
+        <div><strong>Expression:</strong> ${escapeHtml(platformData.currentExpression || 'Keine')}</div>
+        <div><strong>Motion:</strong> ${escapeHtml(platformData.currentMotion || 'Keine')}</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="space-y-2">
+      <div><strong>Name:</strong> ${escapeHtml(value.friendlyName || value.itemName || 'Unbekannt')}</div>
+      ${value.description ? `<div><strong>Beschreibung:</strong> ${escapeHtml(value.description)}</div>` : ''}
+      ${value.props?.length ? `<div><strong>Props:</strong> ${escapeHtml(value.props.join(', '))}</div>` : ''}
+    </div>
+  `;
+}
+
+function ensurePlatformOptions(selectEl, platforms, activeKey) {
+  if (!selectEl) return;
+
+  const currentValue = selectEl.value || activeKey;
+  selectEl.innerHTML = '';
+  (platforms.length ? platforms : [{ key: 'animaze', label: 'Animaze' }]).forEach(platform => {
+    const option = document.createElement('option');
+    option.value = platform.key;
+    option.textContent = platform.label;
+    selectEl.appendChild(option);
+  });
+  selectEl.value = currentValue && Array.from(selectEl.options).some(option => option.value === currentValue)
+    ? currentValue
+    : activeKey;
+}
+
+function getAllowedActionTypes(platformKey = getPlatformKey()) {
+  const definition = supportedPlatforms.find(platform => platform.key === platformKey) || getPlatformDefinition();
+  const types = [...(definition.actions || [])];
+  if (platformKey === 'vtube-studio' && !types.includes('loadAvatar')) {
+    types.push('loadAvatar');
+  }
+  if (definition.chat) {
+    types.push('chatMessage');
+  }
+  return types;
+}
+
+function getActionLabel(actionType) {
+  const labels = {
+    emote: 'Emote',
+    specialAction: 'Spezialaktion',
+    pose: 'Pose',
+    idle: 'Idle Animation',
+    chatMessage: 'ChatPal Nachricht',
+    hotkey: 'Hotkey',
+    expression: 'Expression',
+    motion: 'Motion',
+    reset: 'Reset',
+    loadAvatar: 'Avatar/Model laden'
+  };
+  return labels[actionType] || actionType;
+}
+
+function normalizeActionValue(actionType, rawValue) {
+  if (rawValue === null || rawValue === undefined || rawValue === '') {
+    return null;
+  }
+
+  if (['specialAction', 'pose', 'idle'].includes(actionType)) {
+    const parsed = parseInt(rawValue, 10);
+    return Number.isNaN(parsed) ? rawValue : parsed;
+  }
+
+  return rawValue;
+}
+
+function togglePlatformSettings(platformKey) {
+  const authRow = document.getElementById('settingsAuthTokenRow');
+  const verboseRow = document.getElementById('settingsVerboseRow');
+  if (authRow) authRow.classList.toggle('hidden', platformKey !== 'vtube-studio');
+  if (verboseRow) verboseRow.classList.toggle('hidden', platformKey !== 'animaze');
+}
+
+function updatePlatformActionHints() {
+  const platformHint = document.getElementById('platformActionHint');
+  if (!platformHint) return;
+
+  const definition = getPlatformDefinition();
+  platformHint.textContent = `${definition.label}: ${definition.description || ''}`.trim();
+}
+
+function updateViewerbaseConfigForm(viewerbaseConfig = {}) {
+  const externalSync = viewerbaseConfig.externalSync || {};
+  const setChecked = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!value;
+  };
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value ?? '';
+  };
+
+  setChecked('viewerbaseEnabled', viewerbaseConfig.enabled !== false);
+  setChecked('viewerbaseShowInUI', viewerbaseConfig.showInUI !== false);
+  setChecked('viewerbaseSyncEnabled', externalSync.enabled || false);
+  setValue('viewerbaseEndpointUrl', externalSync.endpointUrl || '');
+  setValue('viewerbaseSyncTimeoutMs', externalSync.timeoutMs ?? 5000);
+  setValue('viewerbaseRetryLimit', externalSync.retryLimit ?? 3);
+  setValue('viewerbaseRecentLimit', viewerbaseConfig.recentLimit ?? 12);
+  setValue('viewerbaseSupporterLimit', viewerbaseConfig.supporterLimit ?? 10);
+  setValue('viewerbaseChatterLimit', viewerbaseConfig.chatterLimit ?? 10);
+  setValue('viewerbaseSyncOnEvents', Array.isArray(viewerbaseConfig.syncOnEvents) ? viewerbaseConfig.syncOnEvents.join(', ') : '');
+
+  const authToken = document.getElementById('viewerbaseAuthToken');
+  if (authToken) {
+    authToken.value = '';
+    authToken.placeholder = externalSync.authTokenConfigured
+      ? 'Token gespeichert - leer lassen, um ihn beizubehalten'
+      : 'Optional';
+  }
+}
+
+function updateVrchatIntegrationForm(vrchatConfig = {}) {
+  const setChecked = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!value;
+  };
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value ?? '';
+  };
+
+  setChecked('vrchatBridgeEnabled', vrchatConfig.enabled !== false && !!vrchatConfig.enabled);
+  setValue('vrchatTargetPluginId', vrchatConfig.targetPluginId || 'osc-bridge');
+  setChecked('vrchatForwardChat', vrchatConfig.forwardChatToChatbox !== false);
+  setChecked('vrchatForwardBrain', vrchatConfig.forwardBrainResponses !== false);
+  setChecked('vrchatForwardStandalone', vrchatConfig.forwardStandaloneResponses !== false);
+  setChecked('vrchatSendTypingIndicator', vrchatConfig.sendTypingIndicator !== false);
+}
+
+function updateViewerbaseStatusUI() {
+  const state = viewerbaseState || currentConfig.viewerbase?.summary || null;
+  if (!state) {
+    return;
+  }
+
+  const summary = state.summary || state;
+  const statistics = summary.statistics || {};
+  const viewerCounts = summary.viewerCounts || {};
+  const syncState = state.syncState || summary.syncState || {};
+  const externalSync = state.externalSync || currentConfig.viewerbase?.externalSync || {};
+
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = value ?? '-';
+    }
+  };
+
+  setText('viewerbaseStreamerId', summary.streamerId || statistics.streamerId || '-');
+  setText('viewerbaseTotalUsers', viewerCounts.totalUsers ?? statistics.totalUsers ?? 0);
+  setText('viewerbaseTotalMemories', viewerCounts.totalMemories ?? statistics.totalMemories ?? 0);
+  setText('viewerbaseTotalConversations', viewerCounts.totalConversations ?? statistics.totalConversations ?? 0);
+  setText('viewerbaseTotalArchives', viewerCounts.totalArchives ?? statistics.totalArchives ?? 0);
+  setText('viewerbaseLastSyncAt', syncState.lastSyncAt ? new Date(syncState.lastSyncAt).toLocaleString('de-DE') : '-');
+  setText('viewerbaseSyncStatus', syncState.lastStatus || 'idle');
+  setText('viewerbaseQueueLength', syncState.queueLength ?? 0);
+
+  const errorEl = document.getElementById('viewerbaseSyncError');
+  if (errorEl) {
+    if (syncState.lastError) {
+      errorEl.classList.remove('hidden');
+      errorEl.textContent = syncState.lastError;
+    } else {
+      errorEl.classList.add('hidden');
+      errorEl.textContent = '';
+    }
+  }
+
+  renderViewerbaseTopSupporters(summary.topSupporters || []);
+  renderViewerbaseFrequentChatters(summary.frequentChatters || []);
+  renderViewerbaseRecentMemories(summary.recentMemories || []);
+
+  const syncEnabledEl = document.getElementById('viewerbaseSyncEnabled');
+  if (syncEnabledEl) {
+    syncEnabledEl.checked = !!externalSync.enabled;
+  }
+}
+
+function renderViewerbaseTopSupporters(entries) {
+  const el = document.getElementById('viewerbaseTopSupporters');
+  if (!el) return;
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    el.innerHTML = '<p class="text-gray-400">Keine Daten verfügbar</p>';
+    return;
+  }
+
+  el.innerHTML = entries.map((entry, index) => `
+    <div class="card bg-gray-800">
+      <div class="flex justify-between items-start gap-3">
+        <div>
+          <div class="font-bold">${escapeHtml(entry.displayName || entry.username || `User ${index + 1}`)}</div>
+          <div class="text-xs text-gray-400">@${escapeHtml(entry.username || 'unknown')}</div>
+        </div>
+        <div class="text-right text-sm">
+          <div>${Number(entry.total_diamonds || 0).toLocaleString('de-DE')} Diamonds</div>
+          <div class="text-gray-400">${Number(entry.gift_count || 0)} Gifts</div>
+        </div>
+      </div>
+      <div class="text-xs text-gray-500 mt-2">Streams: ${Number(entry.stream_count || 0)}</div>
+    </div>
+  `).join('');
+}
+
+function renderViewerbaseFrequentChatters(entries) {
+  const el = document.getElementById('viewerbaseFrequentChatters');
+  if (!el) return;
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    el.innerHTML = '<p class="text-gray-400">Keine Daten verfügbar</p>';
+    return;
+  }
+
+  el.innerHTML = entries.map((entry, index) => `
+    <div class="card bg-gray-800">
+      <div class="flex justify-between items-start gap-3">
+        <div>
+          <div class="font-bold">${escapeHtml(entry.displayName || entry.username || `User ${index + 1}`)}</div>
+          <div class="text-xs text-gray-400">@${escapeHtml(entry.username || 'unknown')}</div>
+        </div>
+        <div class="text-right text-sm">
+          <div>${Number(entry.interaction_count || 0)} Interactions</div>
+          <div class="text-gray-400">${Number(entry.stream_count || 0)} Streams</div>
+        </div>
+      </div>
+      <div class="text-xs text-gray-500 mt-2">${escapeHtml(entry.last_topic || 'Kein letztes Thema')}</div>
+    </div>
+  `).join('');
+}
+
+function renderViewerbaseRecentMemories(entries) {
+  const el = document.getElementById('viewerbaseRecentMemories');
+  if (!el) return;
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    el.innerHTML = '<p class="text-gray-400">Keine Daten verfügbar</p>';
+    return;
+  }
+
+  el.innerHTML = entries.map((entry) => {
+    const tags = Array.isArray(entry.tags) ? entry.tags : [];
+    const createdAt = entry.created_at ? new Date(entry.created_at).toLocaleString('de-DE') : '-';
+    const context = entry.context && typeof entry.context === 'object'
+      ? JSON.stringify(entry.context)
+      : entry.context;
+    return `
+      <div class="card bg-gray-800">
+        <div class="flex justify-between items-start gap-3">
+          <div>
+            <div class="font-bold">${escapeHtml(entry.memory_type || 'general')}</div>
+            <div class="text-xs text-gray-400">${escapeHtml(createdAt)}${entry.source_user ? ` • @${escapeHtml(entry.source_user)}` : ''}</div>
+          </div>
+          <div class="text-sm text-gray-300">${Number(entry.importance || 0).toFixed(2)}</div>
+        </div>
+        <p class="mt-2 text-white">${escapeHtml(entry.content || '')}</p>
+        ${context ? `<p class="text-xs text-gray-500 mt-1">${escapeHtml(context)}</p>` : ''}
+        ${tags.length ? `<div class="flex flex-wrap gap-2 mt-2">${tags.map((tag) => `<span class="text-xs bg-gray-700 px-2 py-1 rounded">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadViewerbase() {
+  try {
+    const response = await fetch('/api/animazingpal/viewerbase');
+    const data = await response.json();
+    if (data.success) {
+      viewerbaseState = data.viewerbase || null;
+      updateViewerbaseStatusUI();
+    }
+  } catch (error) {
+    console.error('Failed to load viewerbase:', error);
+    showToast('Viewerbase konnte nicht geladen werden', 'error');
+  }
+}
+
+async function saveViewerbaseSettings() {
+  const viewerbaseConfig = {
+    enabled: document.getElementById('viewerbaseEnabled')?.checked !== false,
+    showInUI: document.getElementById('viewerbaseShowInUI')?.checked !== false,
+    recentLimit: parseInt(document.getElementById('viewerbaseRecentLimit')?.value, 10) || 12,
+    supporterLimit: parseInt(document.getElementById('viewerbaseSupporterLimit')?.value, 10) || 10,
+    chatterLimit: parseInt(document.getElementById('viewerbaseChatterLimit')?.value, 10) || 10,
+    syncOnEvents: (document.getElementById('viewerbaseSyncOnEvents')?.value || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    externalSync: {
+      enabled: document.getElementById('viewerbaseSyncEnabled')?.checked || false,
+      endpointUrl: document.getElementById('viewerbaseEndpointUrl')?.value.trim() || '',
+      timeoutMs: parseInt(document.getElementById('viewerbaseSyncTimeoutMs')?.value, 10) || 5000,
+      retryLimit: Number.isNaN(parseInt(document.getElementById('viewerbaseRetryLimit')?.value, 10))
+        ? 3
+        : parseInt(document.getElementById('viewerbaseRetryLimit')?.value, 10),
+      includeRecentMemories: true,
+      includeTopSupporters: true,
+      includeFrequentChatters: true
+    }
+  };
+
+  const authToken = document.getElementById('viewerbaseAuthToken')?.value.trim();
+  if (authToken) {
+    viewerbaseConfig.externalSync.authToken = authToken;
+  }
+
+  try {
+    const response = await fetch('/api/animazingpal/viewerbase/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ viewerbase: viewerbaseConfig })
+    });
+    const data = await response.json();
+    if (!data.success) {
+      showToast(`Viewerbase konnte nicht gespeichert werden: ${data.error || 'Unbekannter Fehler'}`, 'error');
+      return;
+    }
+
+    viewerbaseState = data.viewerbase || viewerbaseState;
+    currentConfig.viewerbase = data.config?.viewerbase || currentConfig.viewerbase;
+    updateViewerbaseConfigForm(currentConfig.viewerbase || viewerbaseConfig);
+    updateViewerbaseStatusUI();
+    showToast('Viewerbase-Einstellungen gespeichert');
+  } catch (error) {
+    console.error('Failed to save viewerbase settings:', error);
+    showToast('Viewerbase konnte nicht gespeichert werden', 'error');
+  }
+}
+
+async function syncViewerbaseNow() {
+  try {
+    const response = await fetch('/api/animazingpal/viewerbase/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'manual', immediate: true })
+    });
+    const data = await response.json();
+    if (!data.success) {
+      showToast(`Viewerbase Sync fehlgeschlagen: ${data.error || 'Unbekannter Fehler'}`, 'error');
+      return;
+    }
+
+    viewerbaseState = data.viewerbase || viewerbaseState;
+    updateViewerbaseStatusUI();
+    showToast('Viewerbase Sync ausgelöst');
+  } catch (error) {
+    console.error('Failed to sync viewerbase:', error);
+    showToast('Viewerbase Sync konnte nicht ausgelöst werden', 'error');
+  }
+}
+
+function updatePlatformSectionTitles() {
+  const platformKey = getPlatformKey();
+  const titles = {
+    animaze: {
+      emotes: '😀 Emotes',
+      specialActions: '⭐ Spezialaktionen',
+      poses: '🧘 Posen',
+      idles: '💤 Idle Animationen'
+    },
+    'vtube-studio': {
+      emotes: '🔑 Hotkeys',
+      specialActions: '🎭 Modelle',
+      poses: '🧩 Aktionen',
+      idles: '⚠️ Nicht unterstützt'
+    },
+    vseeface: {
+      emotes: '✨ Expressions',
+      specialActions: '🎛️ Motions',
+      poses: '🔄 Reset',
+      idles: '⚠️ Nicht unterstützt'
+    }
+  };
+  const titleSet = titles[platformKey] || titles.animaze;
+  const emotesTitle = document.getElementById('emotesSectionTitle');
+  const specialActionsTitle = document.getElementById('specialActionsSectionTitle');
+  const posesTitle = document.getElementById('posesSectionTitle');
+  const idlesTitle = document.getElementById('idlesSectionTitle');
+  if (emotesTitle) emotesTitle.textContent = titleSet.emotes;
+  if (specialActionsTitle) specialActionsTitle.textContent = titleSet.specialActions;
+  if (posesTitle) posesTitle.textContent = titleSet.poses;
+  if (idlesTitle) idlesTitle.textContent = titleSet.idles;
 }
 
 function updateAnimazeDataUI() {
+  const platformKey = getPlatformKey();
+  updatePlatformSectionTitles();
+
   // Update emotes list
   const emotesList = document.getElementById('emotesList');
-  if (animazeData.emotes?.length > 0) {
-    emotesList.innerHTML = animazeData.emotes.map(e => `
-      <button class="grid-item text-sm" data-action="trigger-emote" data-value="${e.itemName}">
-        ${e.friendlyName || e.itemName}
-      </button>
-    `).join('');
-    // Add event listeners to dynamically created buttons
-    emotesList.querySelectorAll('[data-action="trigger-emote"]').forEach(btn => {
-      btn.addEventListener('click', () => triggerEmote(btn.dataset.value));
-    });
-  } else {
-    emotesList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Emotes verfügbar</p>';
-  }
-  
-  // Update special actions list
   const specialActionsList = document.getElementById('specialActionsList');
-  if (animazeData.specialActions?.length > 0) {
-    specialActionsList.innerHTML = animazeData.specialActions.map(a => `
-      <button class="grid-item text-sm" data-action="trigger-special" data-value="${a.index}">
-        ${a.animName}
-      </button>
-    `).join('');
-    specialActionsList.querySelectorAll('[data-action="trigger-special"]').forEach(btn => {
-      btn.addEventListener('click', () => triggerSpecialAction(parseInt(btn.dataset.value)));
-    });
-  } else {
-    specialActionsList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Spezialaktionen verfügbar</p>';
-  }
-  
-  // Update poses list
   const posesList = document.getElementById('posesList');
-  if (animazeData.poses?.length > 0) {
-    posesList.innerHTML = animazeData.poses.map(p => `
-      <button class="grid-item text-sm" data-action="trigger-pose" data-value="${p.index}">
-        ${p.animName}
-      </button>
-    `).join('');
-    posesList.querySelectorAll('[data-action="trigger-pose"]').forEach(btn => {
-      btn.addEventListener('click', () => triggerPose(parseInt(btn.dataset.value)));
-    });
-  } else {
-    posesList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Posen verfügbar</p>';
-  }
-  
-  // Update idles list
   const idlesList = document.getElementById('idlesList');
-  if (animazeData.idleAnims?.length > 0) {
-    idlesList.innerHTML = animazeData.idleAnims.map(i => `
-      <button class="grid-item text-sm" data-action="trigger-idle" data-value="${i.index}">
-        ${i.animName}
+
+  if (platformKey === 'vtube-studio') {
+    if (platformData.hotkeys?.length > 0) {
+      emotesList.innerHTML = platformData.hotkeys.map(hotkey => `
+        <button class="grid-item text-sm" data-action="trigger-emote" data-value="${escapeHtml(hotkey.hotkeyID || hotkey.name || hotkey.hotkeyName || '')}">
+          ${escapeHtml(hotkey.name || hotkey.hotkeyName || hotkey.description || hotkey.hotkeyID || 'Hotkey')}
+        </button>
+      `).join('');
+      emotesList.querySelectorAll('[data-action="trigger-emote"]').forEach(btn => {
+        btn.addEventListener('click', () => triggerEmote(btn.dataset.value));
+      });
+    } else {
+      emotesList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Hotkeys verfügbar</p>';
+    }
+
+    if (platformData.availableModels?.length > 0) {
+      specialActionsList.innerHTML = platformData.availableModels.map(model => `
+        <button class="grid-item text-sm" data-action="load-avatar" data-value="${escapeHtml(model.modelID || model.modelName || '')}">
+          ${escapeHtml(model.modelName || model.vtsModelName || model.modelID || 'Model')}
+        </button>
+      `).join('');
+      specialActionsList.querySelectorAll('[data-action="load-avatar"]').forEach(btn => {
+        btn.addEventListener('click', () => loadAvatar(btn.dataset.value));
+      });
+    } else {
+      specialActionsList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Modelle verfügbar</p>';
+    }
+
+    posesList.innerHTML = '<p class="text-gray-400 col-span-2">VTube Studio nutzt Hotkeys statt Posen</p>';
+    idlesList.innerHTML = '<p class="text-gray-400 col-span-2">Idle-Animationen werden hier nicht unterstützt</p>';
+  } else if (platformKey === 'vseeface') {
+    if (platformData.expressions?.length > 0) {
+      emotesList.innerHTML = platformData.expressions.map(expression => `
+        <button class="grid-item text-sm" data-action="trigger-emote" data-value="${escapeHtml(expression)}">
+          ${escapeHtml(expression)}
+        </button>
+      `).join('');
+      emotesList.querySelectorAll('[data-action="trigger-emote"]').forEach(btn => {
+        btn.addEventListener('click', () => triggerEmote(btn.dataset.value));
+      });
+    } else {
+      emotesList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Expressions verfügbar</p>';
+    }
+
+    if (platformData.motions?.length > 0) {
+      specialActionsList.innerHTML = platformData.motions.map(motion => `
+        <button class="grid-item text-sm" data-action="trigger-special" data-value="${escapeHtml(motion)}">
+          ${escapeHtml(motion)}
+        </button>
+      `).join('');
+      specialActionsList.querySelectorAll('[data-action="trigger-special"]').forEach(btn => {
+        btn.addEventListener('click', () => triggerSpecialAction(btn.dataset.value));
+      });
+    } else {
+      specialActionsList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Motions verfügbar</p>';
+    }
+
+    posesList.innerHTML = `
+      <button class="grid-item text-sm" data-action="trigger-reset" data-value="reset">
+        Reset
       </button>
-    `).join('');
-    idlesList.querySelectorAll('[data-action="trigger-idle"]').forEach(btn => {
-      btn.addEventListener('click', () => triggerIdle(parseInt(btn.dataset.value)));
+    `;
+    posesList.querySelectorAll('[data-action="trigger-reset"]').forEach(btn => {
+      btn.addEventListener('click', () => triggerIdle(btn.dataset.value));
     });
+
+    idlesList.innerHTML = '<p class="text-gray-400 col-span-2">Idle-Animationen werden hier nicht unterstützt</p>';
   } else {
-    idlesList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Idle Animationen verfügbar</p>';
+    if (platformData.emotes?.length > 0) {
+      emotesList.innerHTML = platformData.emotes.map(e => `
+        <button class="grid-item text-sm" data-action="trigger-emote" data-value="${escapeHtml(e.itemName || '')}">
+          ${escapeHtml(e.friendlyName || e.itemName || '')}
+        </button>
+      `).join('');
+      emotesList.querySelectorAll('[data-action="trigger-emote"]').forEach(btn => {
+        btn.addEventListener('click', () => triggerEmote(btn.dataset.value));
+      });
+    } else {
+      emotesList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Emotes verfügbar</p>';
+    }
+    
+    if (platformData.specialActions?.length > 0) {
+      specialActionsList.innerHTML = platformData.specialActions.map(a => `
+        <button class="grid-item text-sm" data-action="trigger-special" data-value="${a.index}">
+          ${escapeHtml(a.animName || '')}
+        </button>
+      `).join('');
+      specialActionsList.querySelectorAll('[data-action="trigger-special"]').forEach(btn => {
+        btn.addEventListener('click', () => triggerSpecialAction(parseInt(btn.dataset.value, 10)));
+      });
+    } else {
+      specialActionsList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Spezialaktionen verfügbar</p>';
+    }
+    
+    if (platformData.poses?.length > 0) {
+      posesList.innerHTML = platformData.poses.map(p => `
+        <button class="grid-item text-sm" data-action="trigger-pose" data-value="${p.index}">
+          ${escapeHtml(p.animName || '')}
+        </button>
+      `).join('');
+      posesList.querySelectorAll('[data-action="trigger-pose"]').forEach(btn => {
+        btn.addEventListener('click', () => triggerPose(parseInt(btn.dataset.value, 10)));
+      });
+    } else {
+      posesList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Posen verfügbar</p>';
+    }
+    
+    if (platformData.idleAnims?.length > 0) {
+      idlesList.innerHTML = platformData.idleAnims.map(i => `
+        <button class="grid-item text-sm" data-action="trigger-idle" data-value="${i.index}">
+          ${escapeHtml(i.animName || '')}
+        </button>
+      `).join('');
+      idlesList.querySelectorAll('[data-action="trigger-idle"]').forEach(btn => {
+        btn.addEventListener('click', () => triggerIdle(parseInt(btn.dataset.value, 10)));
+      });
+    } else {
+      idlesList.innerHTML = '<p class="text-gray-400 col-span-2">Keine Idle Animationen verfügbar</p>';
+    }
   }
   
   // Update action value selects
@@ -326,7 +899,8 @@ function updateAnimazeDataUI() {
 }
 
 function updateActionValueSelects() {
-  ['follow', 'share', 'subscribe', 'like'].forEach(event => {
+  const platformKey = document.getElementById('settingsPlatform')?.value || getPlatformKey();
+  ['follow', 'share', 'subscribe', 'like', 'gift', 'chat'].forEach(event => {
     const typeSelect = document.getElementById(`${event}ActionType`);
     const valueSelect = document.getElementById(`${event}ActionValue`);
     
@@ -338,16 +912,47 @@ function updateActionValueSelects() {
     let options = [];
     switch (type) {
       case 'emote':
-        options = (animazeData.emotes || []).map(e => ({ value: e.itemName, label: e.friendlyName || e.itemName }));
+        options = platformKey === 'animaze'
+          ? (platformData.emotes || []).map(e => ({ value: e.itemName, label: e.friendlyName || e.itemName }))
+          : platformKey === 'vseeface'
+            ? (platformData.expressions || []).map(name => ({ value: name, label: name }))
+            : (platformData.hotkeys || []).map(hotkey => ({ value: hotkey.hotkeyID || hotkey.name || hotkey.hotkeyName, label: hotkey.name || hotkey.hotkeyName || hotkey.description || hotkey.hotkeyID }));
         break;
       case 'specialAction':
-        options = (animazeData.specialActions || []).map(a => ({ value: a.index, label: a.animName }));
+        options = platformKey === 'animaze'
+          ? (platformData.specialActions || []).map(a => ({ value: a.index, label: a.animName }))
+          : platformKey === 'vseeface'
+            ? (platformData.motions || []).map(name => ({ value: name, label: name }))
+            : (platformData.hotkeys || []).map(hotkey => ({ value: hotkey.hotkeyID || hotkey.name || hotkey.hotkeyName, label: hotkey.name || hotkey.hotkeyName || hotkey.description || hotkey.hotkeyID }));
         break;
       case 'pose':
-        options = (animazeData.poses || []).map(p => ({ value: p.index, label: p.animName }));
+        options = platformKey === 'animaze'
+          ? (platformData.poses || []).map(p => ({ value: p.index, label: p.animName }))
+          : platformKey === 'vseeface'
+            ? [{ value: 'reset', label: 'Reset' }]
+            : [];
         break;
       case 'idle':
-        options = (animazeData.idleAnims || []).map(i => ({ value: i.index, label: i.animName }));
+        options = platformKey === 'animaze'
+          ? (platformData.idleAnims || []).map(i => ({ value: i.index, label: i.animName }))
+          : platformKey === 'vseeface'
+            ? [{ value: 'reset', label: 'Reset' }]
+            : [];
+        break;
+      case 'hotkey':
+        options = (platformData.hotkeys || []).map(hotkey => ({ value: hotkey.hotkeyID || hotkey.name || hotkey.hotkeyName, label: hotkey.name || hotkey.hotkeyName || hotkey.description || hotkey.hotkeyID }));
+        break;
+      case 'loadAvatar':
+        options = (platformData.availableModels || []).map(model => ({ value: model.modelID || model.modelName || model.vtsModelName, label: model.modelName || model.vtsModelName || model.modelID }));
+        break;
+      case 'expression':
+        options = (platformData.expressions || []).map(name => ({ value: name, label: name }));
+        break;
+      case 'motion':
+        options = (platformData.motions || []).map(name => ({ value: name, label: name }));
+        break;
+      case 'reset':
+        options = [];
         break;
     }
     
@@ -358,6 +963,30 @@ function updateActionValueSelects() {
       valueSelect.appendChild(option);
     });
   });
+}
+
+function updateDynamicActionTypes() {
+  const platformKey = document.getElementById('settingsPlatform')?.value || getPlatformKey();
+  const allowedTypes = getAllowedActionTypes(platformKey);
+
+  ['follow', 'share', 'subscribe', 'like', 'gift', 'chat'].forEach(event => {
+    const typeSelect = document.getElementById(`${event}ActionType`);
+    if (!typeSelect) return;
+
+    const currentValue = typeSelect.value || currentConfig.eventActions?.[event]?.actionType || '';
+    typeSelect.innerHTML = '<option value="">Keine Aktion</option>';
+
+    allowedTypes.forEach(type => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = getActionLabel(type);
+      typeSelect.appendChild(option);
+    });
+
+    typeSelect.value = allowedTypes.includes(currentValue) ? currentValue : '';
+  });
+
+  updateActionValueSelects();
 }
 
 function updateEventActionUI(event) {
@@ -386,8 +1015,14 @@ function updateEventActionUI(event) {
     }
   }
   
-  // Update value select after type is set
-  updateActionValueSelects();
+  updateDynamicActionTypes();
+  
+  if (typeEl && action.actionType) {
+    typeEl.value = action.actionType;
+  }
+  
+  // Update select options after platform/type are known
+  updateDynamicActionTypes();
   
   if (valueEl && action.actionValue !== undefined && action.actionValue !== null) {
     valueEl.value = action.actionValue;
@@ -408,7 +1043,8 @@ async function toggleConnection() {
     if (!data.success) {
       showToast(`Verbindung fehlgeschlagen: ${data.error || 'Unbekannter Fehler'}`, 'error');
     } else if (!isConnected && !data.isConnected) {
-      showToast('Verbindung zu Animaze fehlgeschlagen. Prüfe ob Animaze läuft und die API aktiviert ist.', 'error');
+      const platformLabel = getPlatformDefinition().label || 'das Ziel';
+      showToast(`Verbindung zu ${platformLabel} fehlgeschlagen. Prüfe ob die App läuft und die API aktiv ist.`, 'error');
     }
     
     fetchStatus();
@@ -481,6 +1117,15 @@ async function triggerIdle(index) {
   showToast(`Idle Animation ausgelöst`);
 }
 
+async function loadAvatar(name) {
+  await fetch('/api/animazingpal/avatar/load', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  showToast(`Avatar/Model geladen: ${name}`);
+}
+
 async function sendChatpalMessage() {
   const message = document.getElementById('chatpalMessage').value;
   const useEcho = document.getElementById('chatpalUseEcho').checked;
@@ -530,7 +1175,7 @@ async function updateEventAction(event) {
   eventActions[event] = {
     enabled,
     actionType: actionType || null,
-    actionValue: actionValue ? (actionType === 'emote' ? actionValue : parseInt(actionValue)) : null,
+    actionValue: normalizeActionValue(actionType, actionValue),
     chatMessage: chatMessage || null
   };
   
@@ -558,12 +1203,45 @@ async function updateEventAction(event) {
 }
 
 async function saveSettings() {
-  const config = {
-    host: document.getElementById('settingsHost').value,
-    port: parseInt(document.getElementById('settingsPort').value),
+  const platformKey = document.getElementById('settingsPlatform')?.value || getPlatformKey();
+  const host = document.getElementById('settingsHost').value;
+  const port = parseInt(document.getElementById('settingsPort').value, 10);
+  const profilePatch = {
+    host,
+    port,
     autoConnect: document.getElementById('settingsAutoConnect').checked,
     reconnectOnDisconnect: document.getElementById('settingsReconnect').checked,
     verboseLogging: document.getElementById('settingsVerbose').checked
+  };
+  const authTokenEl = document.getElementById('settingsAuthToken');
+  if (authTokenEl && platformKey === 'vtube-studio' && authTokenEl.value.trim()) {
+    profilePatch.authToken = authTokenEl.value.trim();
+  }
+
+  const config = {
+    platform: {
+      active: platformKey,
+      profiles: {
+        [platformKey]: profilePatch
+      }
+    }
+  };
+
+  if (platformKey === 'animaze') {
+    config.host = host;
+    config.port = port;
+    config.autoConnect = profilePatch.autoConnect;
+    config.reconnectOnDisconnect = profilePatch.reconnectOnDisconnect;
+    config.verboseLogging = profilePatch.verboseLogging;
+  }
+
+  config.vrchatIntegration = {
+    enabled: document.getElementById('vrchatBridgeEnabled')?.checked || false,
+    targetPluginId: document.getElementById('vrchatTargetPluginId')?.value.trim() || 'osc-bridge',
+    forwardChatToChatbox: document.getElementById('vrchatForwardChat')?.checked !== false,
+    forwardBrainResponses: document.getElementById('vrchatForwardBrain')?.checked !== false,
+    forwardStandaloneResponses: document.getElementById('vrchatForwardStandalone')?.checked !== false,
+    sendTypingIndicator: document.getElementById('vrchatSendTypingIndicator')?.checked !== false
   };
   
   await fetch('/api/animazingpal/config', {
@@ -574,6 +1252,28 @@ async function saveSettings() {
   
   showToast('Einstellungen gespeichert');
   fetchStatus();
+}
+
+async function applyStreamReadyPreset() {
+  try {
+    const response = await fetch('/api/animazingpal/presets/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preset: 'stream-ready' })
+    });
+
+    const data = await response.json();
+    if (!data.success) {
+      showToast(`Preset konnte nicht angewendet werden: ${data.error || 'Unbekannter Fehler'}`, 'error');
+      return;
+    }
+
+    showToast(`Preset angewendet: ${data.preset?.label || 'Stream Ready'}`);
+    fetchStatus();
+  } catch (error) {
+    console.error('Preset apply error:', error);
+    showToast(`Preset konnte nicht angewendet werden: ${error.message}`, 'error');
+  }
 }
 
 function switchTab(tabName) {
@@ -589,6 +1289,8 @@ function switchTab(tabName) {
   if (tabName === 'memories') {
     loadMemoryStats();
     loadAllMemories();
+  } else if (tabName === 'viewerbase') {
+    loadViewerbase();
   } else if (tabName === 'personalities') {
     loadPersonalitySettings();
   }
@@ -632,8 +1334,123 @@ function processToastQueue() {
 }
 
 function addGiftMapping() {
-  // TODO: Implement gift mapping modal
-  showToast('Gift Mapping hinzufügen - Feature kommt bald!');
+  const giftName = prompt('TikTok Gift-Name oder Gift-ID für das Mapping:');
+  if (!giftName) return;
+
+  const allowedActionTypes = new Set(getAllowedActionTypes());
+  const actionType = prompt(`Aktionstyp (${Array.from(allowedActionTypes).join(', ')}):`, Array.from(allowedActionTypes)[0] || 'emote');
+  if (!actionType || !allowedActionTypes.has(actionType)) {
+    showToast('Ungültiger Aktionstyp', 'error');
+    return;
+  }
+
+  let actionValue = null;
+  if (actionType !== 'chatMessage' && actionType !== 'reset') {
+    const valuePrompt = prompt('Aktion-Wert (Emote-Name oder Index):', '');
+    if (valuePrompt === null) return;
+    const trimmedValue = valuePrompt.trim();
+    if (trimmedValue) {
+      actionValue = normalizeActionValue(actionType, trimmedValue);
+      if (['specialAction', 'pose', 'idle'].includes(actionType) && Number.isNaN(actionValue)) {
+        showToast('Bitte eine gültige Zahl eingeben', 'error');
+        return;
+      }
+    }
+  }
+
+  const chatMessage = prompt('Optionale Chat-Nachricht (leer lassen für keine):', '')?.trim() || null;
+  const useEcho = chatMessage ? confirm('Echo für diese Chat-Nachricht erzwingen?') : null;
+
+  const mappings = Array.isArray(currentConfig.giftMappings) ? [...currentConfig.giftMappings] : [];
+  mappings.push({
+    giftName: giftName.trim(),
+    actionType,
+    actionValue,
+    chatMessage,
+    useEcho
+  });
+
+  saveGiftMappings(mappings);
+}
+
+async function saveGiftMappings(mappings) {
+  try {
+    const response = await fetch('/api/animazingpal/gift-mappings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mappings })
+    });
+
+    const result = await response.json();
+    if (!result.success) {
+      showToast(`Gift-Mapping konnte nicht gespeichert werden: ${result.error || 'Unbekannter Fehler'}`, 'error');
+      return;
+    }
+
+    currentConfig.giftMappings = result.mappings || mappings;
+    renderGiftMappings();
+    showToast('Gift-Mapping gespeichert');
+  } catch (error) {
+    console.error('Failed to save gift mappings:', error);
+    showToast('Gift-Mapping konnte nicht gespeichert werden', 'error');
+  }
+}
+
+function renderGiftMappings() {
+  const list = document.getElementById('giftMappingsList');
+  if (!list) return;
+
+  const mappings = Array.isArray(currentConfig.giftMappings) ? currentConfig.giftMappings : [];
+  if (mappings.length === 0) {
+    list.innerHTML = '<p class="text-gray-400">Keine Gift Mappings konfiguriert</p>';
+    return;
+  }
+
+  list.innerHTML = '';
+
+  mappings.forEach((mapping, index) => {
+    const item = document.createElement('div');
+    item.className = 'card bg-gray-800 flex items-start justify-between gap-3';
+
+    const details = [];
+    details.push(`Typ: ${mapping.actionType || 'unbekannt'}`);
+    if (mapping.actionValue !== null && mapping.actionValue !== undefined && mapping.actionValue !== '') {
+      details.push(`Wert: ${mapping.actionValue}`);
+    }
+    if (mapping.chatMessage) {
+      details.push(`Chat: ${mapping.chatMessage}`);
+    }
+    if (mapping.useEcho !== null && mapping.useEcho !== undefined) {
+      details.push(`Echo: ${mapping.useEcho ? 'an' : 'aus'}`);
+    }
+
+    item.innerHTML = `
+      <div class="flex-1">
+        <div class="font-bold">${escapeHtml(mapping.giftName || mapping.giftId || `Mapping ${index + 1}`)}</div>
+        <div class="text-sm text-gray-400 mt-1">${escapeHtml(details.join(' · '))}</div>
+      </div>
+      <button class="btn btn-danger btn-sm" data-delete-gift-mapping="${index}">Entfernen</button>
+    `;
+    list.appendChild(item);
+  });
+
+  list.querySelectorAll('[data-delete-gift-mapping]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const index = parseInt(btn.dataset.deleteGiftMapping, 10);
+      const nextMappings = Array.isArray(currentConfig.giftMappings) ? [...currentConfig.giftMappings] : [];
+      nextMappings.splice(index, 1);
+      saveGiftMappings(nextMappings);
+    });
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 // ==================== Memory Search & Management ====================

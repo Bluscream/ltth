@@ -63,6 +63,148 @@ class MappingEngine {
   }
 
   /**
+   * Normalize incoming event payloads so mappings can work with all supported
+   * TikTok adapters and imported test payloads.
+   *
+   * @param {string} eventType - Type of event
+   * @param {Object} eventData - Raw event data
+   * @returns {Object} Normalized event data
+   */
+  normalizeEventData(eventType, eventData = {}) {
+    if (eventType !== 'gift') {
+      return eventData || {};
+    }
+
+    const normalized = { ...(eventData || {}) };
+    const giftName = this._extractGiftName(normalized);
+    const repeatCount = this._extractRepeatCount(normalized);
+    const coins = this._extractGiftCoins(normalized, repeatCount);
+
+    if (giftName && !normalized.giftName) {
+      normalized.giftName = giftName;
+    }
+
+    normalized.repeatCount = repeatCount;
+    normalized.coins = coins;
+
+    if (normalized.giftCoins === undefined || Number(normalized.giftCoins) <= 0) {
+      normalized.giftCoins = coins;
+    }
+
+    return normalized;
+  }
+
+  /**
+   * Extract the gift display name from common payload shapes.
+   * @param {Object} eventData - Gift event data
+   * @returns {string}
+   * @private
+   */
+  _extractGiftName(eventData = {}) {
+    return eventData.giftName ||
+      eventData.gift_name ||
+      eventData.gift?.name ||
+      eventData.gift?.giftName ||
+      eventData.gift?.gift_name ||
+      eventData.name ||
+      '';
+  }
+
+  /**
+   * Convert a potentially string-backed number field into a safe number.
+   * @param {*} value - Raw value
+   * @returns {number|null}
+   * @private
+   */
+  _toFiniteNumber(value) {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  /**
+   * Extract repeat count from common gift payload shapes.
+   * @param {Object} eventData - Gift event data
+   * @returns {number}
+   * @private
+   */
+  _extractRepeatCount(eventData = {}) {
+    const candidates = [
+      eventData.repeatCount,
+      eventData.repeat_count,
+      eventData.comboCount,
+      eventData.amount,
+      eventData.count,
+      eventData.gift?.repeatCount,
+      eventData.gift?.repeat_count
+    ];
+
+    for (const candidate of candidates) {
+      const value = this._toFiniteNumber(candidate);
+      if (value && value > 0) {
+        return value;
+      }
+    }
+
+    return 1;
+  }
+
+  /**
+   * Extract the per-event gift coin value, falling back to diamondCount *
+   * repeatCount when adapters do not provide coins directly.
+   * @param {Object} eventData - Gift event data
+   * @param {number} repeatCount - Normalized repeat count
+   * @returns {number}
+   * @private
+   */
+  _extractGiftCoins(eventData = {}, repeatCount = 1) {
+    const directCoinCandidates = [
+      eventData.giftCoins,
+      eventData.gift_coins,
+      eventData.coins,
+      eventData.giftValue,
+      eventData.gift_value,
+      eventData.gift?.giftCoins,
+      eventData.gift?.gift_coins,
+      eventData.gift?.coins,
+      eventData.gift?.giftValue,
+      eventData.gift?.gift_value
+    ];
+
+    for (const candidate of directCoinCandidates) {
+      const value = this._toFiniteNumber(candidate);
+      if (value !== null && value > 0) {
+        return value;
+      }
+    }
+
+    const diamondCandidates = [
+      eventData.diamondCount,
+      eventData.diamond_count,
+      eventData.diamonds,
+      eventData.cost,
+      eventData.value,
+      eventData.gift?.diamondCount,
+      eventData.gift?.diamond_count,
+      eventData.gift?.diamonds,
+      eventData.gift?.cost,
+      eventData.gift?.value
+    ];
+
+    for (const candidate of diamondCandidates) {
+      const value = this._toFiniteNumber(candidate);
+      if (value !== null && value > 0) {
+        return value * repeatCount;
+      }
+    }
+
+    return 0;
+  }
+
+  /**
    * Add a new mapping
    * @param {Object} mapping - Mapping configuration
    * @returns {Object} Added mapping with generated ID if needed
@@ -211,6 +353,7 @@ class MappingEngine {
    */
   evaluateEvent(eventType, eventData) {
     try {
+      eventData = this.normalizeEventData(eventType, eventData);
       const matches = [];
 
       // Get mappings for this event type
@@ -338,6 +481,7 @@ class MappingEngine {
    */
   checkConditions(mapping, eventData) {
     const conditions = mapping.conditions || {};
+    eventData = this.normalizeEventData(mapping.eventType, eventData);
 
     try {
       // User filters
@@ -384,7 +528,7 @@ class MappingEngine {
         case 'gift':
           // Check gift name if specified
           if (conditions.giftName) {
-            const giftName = eventData.giftName || eventData.gift?.name || '';
+            const giftName = this._extractGiftName(eventData);
             
             this.logger.debug(`[MappingEngine] Comparing gift names - Expected: "${conditions.giftName}", Received: "${giftName}"`);
             
@@ -398,7 +542,7 @@ class MappingEngine {
           }
           
           // Check coin range if specified
-          const coins = eventData.giftCoins || eventData.coins || 0;
+          const coins = this._extractGiftCoins(eventData, this._extractRepeatCount(eventData));
           
           this.logger.debug(`[MappingEngine] Gift coins: ${coins}, minCoins: ${conditions.minCoins}, maxCoins: ${conditions.maxCoins}`);
           

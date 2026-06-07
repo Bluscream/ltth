@@ -18,15 +18,21 @@
       "description": "Allow viewers to trigger weather effects via chat commands"
     },
     "weather_types": {
-      "clear": "☀️ Clear",
-      "rain": "🌧️ Rain",
-      "snow": "❄️ Snow",
-      "storm": "⛈️ Storm",
-      "fog": "🌫️ Fog",
-      "wind": "💨 Wind",
-      "thunder": "⚡ Thunder",
-      "sunbeam": "☀️ Sunbeam",
-      "glitchclouds": "☁️ Glitch Clouds"
+      "clear": "Clear",
+      "rain": "Rain",
+      "snow": "Snow",
+      "storm": "Storm",
+      "fog": "Fog",
+      "wind": "Wind",
+      "thunder": "Thunder",
+      "sunbeam": "Sunbeam",
+      "glitchclouds": "Glitch Clouds",
+      "aurora": "Aurora",
+      "fireflies": "Fireflies",
+      "meteors": "Meteors",
+      "sakura": "Sakura",
+      "embers": "Embers",
+      "heatwave": "Heatwave"
     },
     "commands": {
       "weather": {
@@ -39,15 +45,15 @@
         "syntax": "/weatherlist"
       },
       "weatherstop": {
-        "description": "Stop all active weather effects",
-        "syntax": "/weatherstop"
+        "description": "Stop all active weather effects or one specific effect",
+        "syntax": "/weatherstop [effect]"
       }
     },
     "triggers": {
       "title": "Event Triggers",
       "gift_trigger": "Trigger on Gift",
       "follow_trigger": "Trigger on Follow",
-      "weather_map": "Gift → Weather Mapping"
+      "weather_map": "Gift to Weather Mapping"
     },
     "overlay": {
       "title": "Overlay",

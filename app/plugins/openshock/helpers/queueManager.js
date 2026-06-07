@@ -876,12 +876,15 @@ class QueueManager extends EventEmitter {
       const safetyCheck = this.safetyManager.checkCommand(
         command,
         userId,
-        command.deviceId
+        command.deviceId,
+        item.sourceData || {}
       );
 
       if (!safetyCheck.allowed) {
         this.logger.warn(`[QueueManager] Safety check failed: ${safetyCheck.reason}`);
-        throw new Error(`Safety check failed: ${safetyCheck.reason}`);
+        const safetyError = new Error(`Safety check failed: ${safetyCheck.reason}`);
+        safetyError.nonRetryable = true;
+        throw safetyError;
       }
 
       // Extract adjusted values from modifiedCommand
@@ -940,6 +943,15 @@ class QueueManager extends EventEmitter {
         throw apiError;
       }
 
+      if (this.safetyManager && typeof this.safetyManager.registerCommand === 'function') {
+        this.safetyManager.registerCommand(command.deviceId, userId, {
+          ...command,
+          intensity: adjustedIntensity,
+          duration: adjustedDuration,
+          source: item.source
+        });
+      }
+
       // Handle success
       await this._handleCommandSuccess(item);
 
@@ -994,6 +1006,16 @@ class QueueManager extends EventEmitter {
       retries: item.retries,
       maxRetries: item.maxRetries
     });
+
+    // Safety and validation failures are deterministic; retrying only delays the queue.
+    if (error.nonRetryable) {
+      item.status = 'failed';
+      item.completedAt = Date.now();
+      this.stats.totalProcessed++;
+      this.stats.totalFailed++;
+      this.emit('item-processed', item, false);
+      return;
+    }
 
     // Check if should retry
     if (item.retries < item.maxRetries) {

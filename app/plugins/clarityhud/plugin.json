@@ -1,7 +1,7 @@
 {
   "id": "clarityhud",
   "name": "ClarityHUD",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Ultra-minimalistic, VR-optimized and accessible HUD overlays for chat and activity feeds",
   "author": "Plugin System",
   "entry": "main.js",

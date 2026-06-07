@@ -100,11 +100,7 @@ function discoverGlobalSettings(db) {
     const rows = db.prepare("SELECT key, value FROM settings WHERE key NOT LIKE 'plugin:%'").all();
     const result = {};
     for (const row of rows) {
-        try {
-            result[row.key] = JSON.parse(row.value);
-        } catch {
-            result[row.key] = row.value;
-        }
+        result[row.key] = row.value;
     }
     return result;
 }
@@ -192,7 +188,7 @@ function restoreGlobalSettings(db, settings, mode = 'merge') {
     const restore = db.transaction(() => {
         for (const [key, value] of Object.entries(settings)) {
             if (key.startsWith('plugin:')) continue; // handled separately
-            const rawValue = JSON.stringify(value);
+            const rawValue = typeof value === 'string' ? value : JSON.stringify(value);
             try {
                 if (mode === 'replace') {
                     upsertStmt.run(key, rawValue);

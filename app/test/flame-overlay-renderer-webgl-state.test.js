@@ -35,4 +35,40 @@ describe('Flame Overlay renderer WebGL state management', () => {
         expect(content).toContain('this.postProcessor.composite(');
         expect(content).toContain('// Direct rendering without bloom');
     });
+    
+    test('effects-engine selects the initial effect after shader programs are built', () => {
+        const content = fs.readFileSync(effectsEnginePath, 'utf8');
+        const initBody = content.match(/async init\(\) \{([\s\S]*?)\n    async loadConfig\(\)/)[1];
+        const setupIndex = initBody.indexOf('this.setupAllShaders();');
+        const switchIndex = initBody.indexOf("this.switchEffect(this.config.effectType ?? 'flames')");
+        
+        expect(setupIndex).toBeGreaterThan(-1);
+        expect(switchIndex).toBeGreaterThan(setupIndex);
+    });
+
+    test('effects-engine wires lifecycle cleanup and WebGL context recovery hooks', () => {
+        const content = fs.readFileSync(effectsEnginePath, 'utf8');
+
+        expect(content).toContain('window.addEventListener(\'beforeunload\', this.beforeUnloadHandler);');
+        expect(content).toContain('this.canvas.addEventListener(\'webglcontextlost\', this.contextLostHandler);');
+        expect(content).toContain('this.canvas.addEventListener(\'webglcontextrestored\', this.contextRestoredHandler);');
+        expect(content).toContain('destroy() {');
+        expect(content).toContain('this.postProcessor.destroy();');
+    });
+
+    test('effects-engine sends the first saved frame rectangle to shaders', () => {
+        const content = fs.readFileSync(effectsEnginePath, 'utf8');
+
+        expect(content).toContain('uniform vec4 uFrameRect;');
+        expect(content).toContain('frameRect: this.gl.getUniformLocation(program, \'uFrameRect\')');
+        expect(content).toContain('const frameRect = this.getActiveFrameRectPixels();');
+        expect(content).toContain('this.gl.uniform4f(this.uniforms.frameRect');
+    });
+
+    test('post-processor disables blend during bloom passes and composite', () => {
+        const content = fs.readFileSync(postProcessorPath, 'utf8');
+
+        expect(content).toContain('gl.disable(gl.BLEND);');
+        expect(content).toContain('gl.blendFunc(gl.ONE, gl.ZERO);');
+    });
 });

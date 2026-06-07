@@ -124,10 +124,17 @@ class ConfigPathManager {
     }
 
     /**
+     * Get the persistent plugins directory path
+     */
+    getPluginsDir() {
+        return path.join(this.getConfigDir(), 'plugins');
+    }
+
+    /**
      * Get plugin data directory path
      */
     getPluginDataDir(pluginId) {
-        return path.join(this.getConfigDir(), 'plugins', pluginId, 'data');
+        return path.join(this.getPluginsDir(), pluginId, 'data');
     }
 
     /**
@@ -186,6 +193,7 @@ class ConfigPathManager {
             this.getConfigDir(),
             this.getUserConfigsDir(),
             this.getUserDataDir(),
+            this.getPluginsDir(),
             this.getUploadsDir(),
             path.join(this.getUploadsDir(), 'animations')
         ];

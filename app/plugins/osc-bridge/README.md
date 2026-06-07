@@ -157,6 +157,31 @@ POST /api/osc/chatbox/send
 }
 ```
 
+#### 🤝 AnimazingPal Intent Bridge (NEW)
+OSC-Bridge can also consume high-level intents from AnimazingPal over the plugin event bus. This keeps AnimazingPal focused on brain, memory, and event selection while OSC-Bridge translates those intents into concrete VRChat OSC actions.
+
+**Supported intents:**
+- `chatbox` - Send text to VRChat chatbox
+- `gesture` - Trigger `wave`, `celebrate`, `dance`, `hearts`, or `confetti`
+- `emote` - Trigger an emote slot (0-7)
+- `parameter` - Send a custom avatar parameter
+- `avatar` - Switch avatar
+
+**Example payload:**
+```json
+{
+  "eventType": "brainResponse",
+  "kind": "chatbox",
+  "username": "ViewerOne",
+  "message": "Danke fürs Zuschauen!",
+  "showTyping": false,
+  "targetPluginId": "osc-bridge"
+}
+```
+
+**Plugin event:**
+- `animazingpal:vrchat-intent`
+
 #### 💾 Parameter Presets System (IMPLEMENTED)
 Save and load complete parameter configurations.
 

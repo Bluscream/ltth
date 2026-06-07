@@ -233,6 +233,95 @@ describe('Scoped User Profiles', () => {
       expect(stats.total_gifts_sent).toBe(5);
       expect(stats.streamer_id).toBe('default');
     });
+
+    test('should migrate minimal legacy user and milestone schemas', () => {
+      db.close();
+      
+      if (fs.existsSync(TEST_DB_PATH)) {
+        fs.unlinkSync(TEST_DB_PATH);
+      }
+      
+      const oldDb = new (require('better-sqlite3'))(TEST_DB_PATH);
+      oldDb.exec(`
+        CREATE TABLE user_statistics (
+          user_id TEXT PRIMARY KEY,
+          username TEXT NOT NULL,
+          total_coins_sent INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE milestone_user_stats (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
+          username TEXT NOT NULL,
+          cumulative_coins INTEGER DEFAULT 0
+        );
+
+        INSERT INTO user_statistics (user_id, username, total_coins_sent)
+        VALUES ('user123', 'LegacyUser', 750);
+
+        INSERT INTO milestone_user_stats (user_id, username, cumulative_coins)
+        VALUES ('user123', 'LegacyUser', 300);
+      `);
+      oldDb.close();
+      
+      db = new Database(TEST_DB_PATH, 'legacy_streamer');
+      
+      const stats = db.getUserStatistics('user123', 'legacy_streamer');
+      expect(stats).toBeDefined();
+      expect(stats.username).toBe('LegacyUser');
+      expect(stats.total_coins_sent).toBe(750);
+      expect(stats.total_gifts_sent).toBe(0);
+      expect(stats.streamer_id).toBe('legacy_streamer');
+
+      const milestoneStats = db.getUserMilestoneStats('user123', 'legacy_streamer');
+      expect(milestoneStats).toBeDefined();
+      expect(milestoneStats.cumulative_coins).toBe(300);
+      expect(milestoneStats.streamer_id).toBe('legacy_streamer');
+      expect(milestoneStats.last_tier_reached).toBe(0);
+    });
+
+    test('should add missing startup columns for legacy event and HUD tables', () => {
+      db.close();
+      
+      if (fs.existsSync(TEST_DB_PATH)) {
+        fs.unlinkSync(TEST_DB_PATH);
+      }
+      
+      const oldDb = new (require('better-sqlite3'))(TEST_DB_PATH);
+      oldDb.exec(`
+        CREATE TABLE event_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_type TEXT NOT NULL
+        );
+
+        CREATE TABLE hud_elements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          element_id TEXT UNIQUE NOT NULL
+        );
+      `);
+      oldDb.close();
+      
+      db = new Database(TEST_DB_PATH, 'legacy_streamer');
+      
+      const eventColumns = db.db.prepare('PRAGMA table_info(event_logs)').all().map(col => col.name);
+      expect(eventColumns).toEqual(expect.arrayContaining(['event_type', 'username', 'data', 'timestamp']));
+
+      const hudColumns = db.db.prepare('PRAGMA table_info(hud_elements)').all().map(col => col.name);
+      expect(hudColumns).toEqual(expect.arrayContaining([
+        'element_id',
+        'enabled',
+        'position_x',
+        'position_y',
+        'position_unit',
+        'width',
+        'height',
+        'anchor'
+      ]));
+
+      const alertElement = db.db.prepare('SELECT * FROM hud_elements WHERE element_id = ?').get('alert');
+      expect(alertElement).toBeDefined();
+      expect(alertElement.width).toBe(400);
+    });
   });
 });
 

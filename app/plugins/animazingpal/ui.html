@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AnimazingPal - Animaze Integration</title>
+  <title>AnimazingPal - Multi Platform VTubing Integration</title>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/css/themes.css">
   <style>
     .status-dot {
       width: 12px;
@@ -138,13 +139,16 @@
         <div class="text-3xl">🎭</div>
         <div>
           <h1 class="text-2xl font-bold">AnimazingPal</h1>
-          <p class="text-gray-400">Animaze VTuber Avatar Integration</p>
+          <p class="text-gray-400">TikTok-to-avatar integration for Animaze, VTube Studio and VSeeFace</p>
         </div>
       </div>
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-2">
           <span class="status-dot" id="statusDot"></span>
           <span id="statusText">Nicht verbunden</span>
+        </div>
+        <div class="text-sm text-gray-400">
+          Ziel: <span id="activePlatformName">Animaze</span>
         </div>
         <button class="btn btn-primary" id="connectBtn">Verbinden</button>
         <button class="btn btn-secondary" data-action="refresh">🔄 Aktualisieren</button>
@@ -161,6 +165,7 @@
       <div class="tab" data-tab="chatpal">ChatPal</div>
       <div class="tab" data-tab="personalities">Persönlichkeiten</div>
       <div class="tab" data-tab="memories">Erinnerungen</div>
+      <div class="tab" data-tab="viewerbase">Viewerbase</div>
       <div class="tab" data-tab="settings">Einstellungen</div>
     </div>
 
@@ -229,7 +234,7 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Emotes -->
         <div class="card">
-          <h2 class="text-xl font-bold mb-4">😀 Emotes</h2>
+          <h2 class="text-xl font-bold mb-4" id="emotesSectionTitle">😀 Emotes</h2>
           <div id="emotesList" class="grid grid-cols-2 gap-2 max-h-96 overflow-y-auto">
             <p class="text-gray-400 col-span-2">Keine Emotes verfügbar</p>
           </div>
@@ -237,7 +242,7 @@
 
         <!-- Special Actions -->
         <div class="card">
-          <h2 class="text-xl font-bold mb-4">⭐ Spezialaktionen</h2>
+          <h2 class="text-xl font-bold mb-4" id="specialActionsSectionTitle">⭐ Spezialaktionen</h2>
           <div id="specialActionsList" class="grid grid-cols-2 gap-2 max-h-96 overflow-y-auto">
             <p class="text-gray-400 col-span-2">Keine Spezialaktionen verfügbar</p>
           </div>
@@ -245,7 +250,7 @@
 
         <!-- Poses -->
         <div class="card">
-          <h2 class="text-xl font-bold mb-4">🧘 Posen</h2>
+          <h2 class="text-xl font-bold mb-4" id="posesSectionTitle">🧘 Posen</h2>
           <div id="posesList" class="grid grid-cols-2 gap-2 max-h-96 overflow-y-auto">
             <p class="text-gray-400 col-span-2">Keine Posen verfügbar</p>
           </div>
@@ -253,7 +258,7 @@
 
         <!-- Idle Animations -->
         <div class="card">
-          <h2 class="text-xl font-bold mb-4">💤 Idle Animationen</h2>
+          <h2 class="text-xl font-bold mb-4" id="idlesSectionTitle">💤 Idle Animationen</h2>
           <div id="idlesList" class="grid grid-cols-2 gap-2 max-h-96 overflow-y-auto">
             <p class="text-gray-400 col-span-2">Keine Idle Animationen verfügbar</p>
           </div>
@@ -757,18 +762,128 @@
       </div>
     </div>
 
+    <!-- Tab Content: Viewerbase -->
+    <div id="tab-viewerbase" class="tab-content hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="card">
+          <h2 class="text-xl font-bold mb-4">Viewerbase Status</h2>
+          <div class="space-y-3 text-sm">
+            <div class="flex justify-between"><span class="text-gray-400">Streamer</span><span id="viewerbaseStreamerId">-</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Viewer</span><span id="viewerbaseTotalUsers">0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Erinnerungen</span><span id="viewerbaseTotalMemories">0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Konversationen</span><span id="viewerbaseTotalConversations">0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Archive</span><span id="viewerbaseTotalArchives">0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Letzter Sync</span><span id="viewerbaseLastSyncAt">-</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Sync Status</span><span id="viewerbaseSyncStatus">idle</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Queue</span><span id="viewerbaseQueueLength">0</span></div>
+          </div>
+          <div id="viewerbaseSyncError" class="mt-3 text-sm text-red-400 hidden"></div>
+        </div>
+
+        <div class="card lg:col-span-2">
+          <h2 class="text-xl font-bold mb-4">Externer Viewerbase Sync</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label class="flex items-center gap-2">
+              <input type="checkbox" id="viewerbaseEnabled">
+              <span>Viewerbase intern aktiv</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input type="checkbox" id="viewerbaseShowInUI" checked>
+              <span>Viewerbase in UI anzeigen</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input type="checkbox" id="viewerbaseSyncEnabled">
+              <span>Externen Sync aktivieren</span>
+            </label>
+            <div></div>
+            <div class="md:col-span-2">
+              <label class="text-gray-400 text-sm">Endpoint URL</label>
+              <input type="text" class="input" id="viewerbaseEndpointUrl" placeholder="https://example.com/viewerbase/sync">
+            </div>
+            <div>
+              <label class="text-gray-400 text-sm">Auth Token</label>
+              <input type="password" class="input" id="viewerbaseAuthToken" placeholder="Optional">
+            </div>
+            <div>
+              <label class="text-gray-400 text-sm">Sync Timeout (ms)</label>
+              <input type="number" class="input" id="viewerbaseSyncTimeoutMs" min="1000" step="500" value="5000">
+            </div>
+            <div>
+              <label class="text-gray-400 text-sm">Retry Limit</label>
+              <input type="number" class="input" id="viewerbaseRetryLimit" min="0" step="1" value="3">
+            </div>
+            <div>
+              <label class="text-gray-400 text-sm">Recent Limit</label>
+              <input type="number" class="input" id="viewerbaseRecentLimit" min="1" step="1" value="12">
+            </div>
+            <div>
+              <label class="text-gray-400 text-sm">Supporter Limit</label>
+              <input type="number" class="input" id="viewerbaseSupporterLimit" min="1" step="1" value="10">
+            </div>
+            <div>
+              <label class="text-gray-400 text-sm">Chatter Limit</label>
+              <input type="number" class="input" id="viewerbaseChatterLimit" min="1" step="1" value="10">
+            </div>
+            <div>
+              <label class="text-gray-400 text-sm">Sync on Events</label>
+              <input type="text" class="input" id="viewerbaseSyncOnEvents" placeholder="chat, gift, follow, share, like, subscribe">
+            </div>
+          </div>
+          <div class="flex gap-3 mt-4">
+            <button class="btn btn-primary" data-action="save-viewerbase">Einstellungen speichern</button>
+            <button class="btn btn-success" data-action="sync-viewerbase">Sync jetzt auslösen</button>
+          </div>
+          <p class="text-xs text-gray-500 mt-2">Intern bleibt die Viewerbase immer lokal. Der Sync ist nur ein optionaler Export-Layer.</p>
+        </div>
+
+        <div class="card">
+          <h2 class="text-xl font-bold mb-4">Top Supporter</h2>
+          <div id="viewerbaseTopSupporters" class="space-y-2 max-h-80 overflow-y-auto">
+            <p class="text-gray-400">Keine Daten verfügbar</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="text-xl font-bold mb-4">Frequent Chatters</h2>
+          <div id="viewerbaseFrequentChatters" class="space-y-2 max-h-80 overflow-y-auto">
+            <p class="text-gray-400">Keine Daten verfügbar</p>
+          </div>
+        </div>
+
+        <div class="card lg:col-span-3">
+          <h2 class="text-xl font-bold mb-4">Recent Viewer Activity</h2>
+          <div id="viewerbaseRecentMemories" class="grid grid-cols-1 gap-3 max-h-96 overflow-y-auto">
+            <p class="text-gray-400">Keine Daten verfügbar</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab Content: Settings -->
     <div id="tab-settings" class="tab-content hidden">
       <div class="card">
         <h2 class="text-xl font-bold mb-4">⚙️ Verbindungseinstellungen</h2>
+        <div class="mb-4">
+          <label class="text-gray-400 text-sm">Plattform</label>
+          <select class="select" id="settingsPlatform">
+            <option value="animaze">Animaze</option>
+            <option value="vtube-studio">VTube Studio</option>
+            <option value="vseeface">VSeeFace</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1" id="platformActionHint">Animaze: Legacy Animaze WebSocket integration</p>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
+          <div id="settingsHostRow">
             <label class="text-gray-400 text-sm">Host</label>
             <input type="text" class="input" id="settingsHost" value="127.0.0.1">
           </div>
-          <div>
+          <div id="settingsPortRow">
             <label class="text-gray-400 text-sm">Port</label>
             <input type="number" class="input" id="settingsPort" value="9000">
+          </div>
+          <div id="settingsAuthTokenRow" class="hidden md:col-span-2">
+            <label class="text-gray-400 text-sm">VTube Studio Auth Token</label>
+            <input type="password" class="input" id="settingsAuthToken" placeholder="Optional: nur für VTube Studio">
           </div>
           <label class="flex items-center gap-2">
             <input type="checkbox" id="settingsAutoConnect" checked>
@@ -778,12 +893,46 @@
             <input type="checkbox" id="settingsReconnect" checked>
             <span>Automatisch neu verbinden</span>
           </label>
-          <label class="flex items-center gap-2">
+          <label class="flex items-center gap-2" id="settingsVerboseRow">
             <input type="checkbox" id="settingsVerbose">
             <span>Ausführliches Logging</span>
           </label>
         </div>
         <button class="btn btn-primary mt-4" data-action="save-settings">💾 Einstellungen speichern</button>
+        <button class="btn btn-success mt-4 ml-2" data-action="apply-stream-ready-preset">⚡ Stream Ready anwenden</button>
+        <p class="text-xs text-gray-500 mt-2">Aktiviert schnellere Reaktionen, aggressivere Auto-Responses und streamfreundliche Standardwerte.</p>
+      </div>
+
+      <div class="card mt-4">
+        <h2 class="text-xl font-bold mb-4">🌀 VRChat OSC Bridge</h2>
+        <p class="text-gray-400 mb-4">AnimazingPal sendet High-Level-Intents an OSC-Bridge, damit VRChat Chatbox, Emotes und Gesten live reagieren können.</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="vrchatBridgeEnabled">
+            <span>VRChat Bridge aktivieren</span>
+          </label>
+          <div>
+            <label class="text-gray-400 text-sm">Ziel-Plugin</label>
+            <input type="text" class="input" id="vrchatTargetPluginId" value="osc-bridge">
+          </div>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="vrchatForwardChat">
+            <span>Chatbox für Viewer-Chats nutzen</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="vrchatForwardBrain">
+            <span>Brain-Antworten an VRChat senden</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="vrchatForwardStandalone">
+            <span>Standalone-Antworten an VRChat senden</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="vrchatSendTypingIndicator">
+            <span>Typing-Indikator senden</span>
+          </label>
+        </div>
+        <p class="text-xs text-gray-500 mt-2">OSC-Bridge muss laufen, damit VRChat die Intents empfangen kann. Ohne lokale Avatar-Verbindung bleiben die VRChat-Intents trotzdem aktiv.</p>
       </div>
 
       <div class="card mt-4">

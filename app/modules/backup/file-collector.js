@@ -61,6 +61,7 @@ function shouldIgnore(basename, patterns) {
  * @param {object} opts
  * @param {Array<string|RegExp>} [opts.ignorePatterns] - Override ignore patterns
  * @param {number} [opts.maxFileSizeBytes] - Skip files larger than this
+ * @param {Function} [opts.getMaxFileSizeBytes] - Optional per-file size limit override; return null/Infinity for no limit
  * @param {number} [opts.maxDepth] - Maximum recursion depth (default: unlimited)
  * @param {number} [opts._depth] - Internal: current depth
  * @returns {{ files: Array<{absPath:string, relPath:string, size:number}>, warnings: string[] }}
@@ -69,6 +70,7 @@ function collectFiles(dir, baseDir, opts = {}) {
     const {
         ignorePatterns = DEFAULT_IGNORE_PATTERNS,
         maxFileSizeBytes = MAX_FILE_SIZE_BYTES,
+        getMaxFileSizeBytes = null,
         maxDepth = Infinity,
         _depth = 0
     } = opts;
@@ -120,14 +122,25 @@ function collectFiles(dir, baseDir, opts = {}) {
                 continue;
             }
 
-            if (stat.size > maxFileSizeBytes) {
+            const relPath = path.relative(baseDir, absPath);
+            const overrideMaxFileSizeBytes = typeof getMaxFileSizeBytes === 'function'
+                ? getMaxFileSizeBytes({ absPath, relPath, stat })
+                : undefined;
+            const effectiveMaxFileSizeBytes = overrideMaxFileSizeBytes === undefined
+                ? maxFileSizeBytes
+                : overrideMaxFileSizeBytes;
+
+            if (
+                typeof effectiveMaxFileSizeBytes === 'number' &&
+                Number.isFinite(effectiveMaxFileSizeBytes) &&
+                stat.size > effectiveMaxFileSizeBytes
+            ) {
                 warnings.push(
                     `Skipping oversized file (${(stat.size / 1024 / 1024).toFixed(1)} MB): ${absPath}`
                 );
                 continue;
             }
 
-            const relPath = path.relative(baseDir, absPath);
             files.push({ absPath, relPath, size: stat.size });
         }
     }

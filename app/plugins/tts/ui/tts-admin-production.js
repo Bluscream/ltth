@@ -279,7 +279,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!isPageUnloading) {
             console.error('✗ Initialization failed:', error);
             if (statusEl) {
-                statusEl.innerHTML = `<span class="text-red-500">✗ Init failed: ${error.message}</span>`;
+                statusEl.innerHTML = `<span class="text-red-500">✗ Init failed: ${escapeHtml(error.message || 'Unbekannter Fehler')}</span>`;
             }
             showNotification(`Initialization failed: ${error.message}`, 'error');
         }
@@ -3505,4 +3505,3 @@ async function deleteVoiceClone(voiceId, voiceName) {
         showNotification(`Failed to delete voice: ${error.message}`, 'error');
     }
 }
-

@@ -1,2028 +1,946 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stream Alchemy - Erweiterte Einstellungen</title>
-    <link rel="stylesheet" href="/css/themes.css">
-    <script src="/socket.io/socket.io.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--color-bg-primary);
-            color: var(--color-text-primary);
-            padding: 32px;
-            min-height: 100vh;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        .header {
-            margin-bottom: 32px;
-        }
-
-        .header h1 {
-            font-size: 2rem;
-            font-weight: 700;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
-        }
-
-        .header p {
-            color: var(--color-text-secondary);
-            font-size: 1rem;
-        }
-
-        .tabs {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 24px;
-            border-bottom: 2px solid var(--color-border);
-            overflow-x: auto;
-        }
-
-        .tab {
-            padding: 12px 24px;
-            background: transparent;
-            border: none;
-            color: var(--color-text-secondary);
-            font-weight: 600;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-            transition: all 0.2s;
-            white-space: nowrap;
-        }
-
-        .tab:hover {
-            color: var(--color-text-primary);
-        }
-
-        .tab.active {
-            color: var(--color-accent-primary);
-            border-bottom-color: var(--color-accent-primary);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .card {
-            background: var(--color-bg-card);
-            border: 1px solid var(--color-border);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-        }
-
-        .card-title {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .config-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-        }
-
-        .config-group {
-            margin-bottom: 20px;
-        }
-
-        .config-label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: var(--color-text-primary);
-        }
-
-        .config-description {
-            color: var(--color-text-secondary);
-            font-size: 0.875rem;
-            margin-bottom: 8px;
-        }
-
-        input[type="text"],
-        input[type="number"],
-        input[type="password"],
-        textarea,
-        select {
-            width: 100%;
-            padding: 10px 12px;
-            background: var(--color-bg-secondary);
-            border: 1px solid var(--color-border);
-            border-radius: 8px;
-            color: var(--color-text-primary);
-            font-size: 0.875rem;
-            font-family: inherit;
-        }
-
-        textarea {
-            min-height: 100px;
-            resize: vertical;
-            font-family: 'Courier New', monospace;
-        }
-
-        input:focus,
-        textarea:focus,
-        select:focus {
-            outline: none;
-            border-color: var(--color-accent-primary);
-        }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        input[type="checkbox"] {
-            width: auto;
-            cursor: pointer;
-        }
-
-        .btn {
-            padding: 10px 20px;
-            border-radius: 8px;
-            border: none;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 0.875rem;
-        }
-
-        .btn-primary {
-            background: var(--color-accent-primary);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            filter: brightness(1.1);
-            transform: translateY(-1px);
-        }
-
-        .btn-secondary {
-            background: var(--color-bg-secondary);
-            color: var(--color-text-primary);
-            border: 1px solid var(--color-border);
-        }
-
-        .btn-secondary:hover {
-            background: var(--color-bg-primary);
-        }
-
-        .btn-danger {
-            background: #ef4444;
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #dc2626;
-        }
-
-        .btn-group {
-            display: flex;
-            gap: 12px;
-            margin-top: 20px;
-        }
-
-        .success {
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            color: #10b981;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-        }
-
-        .error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #ef4444;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-        }
-
-        .info {
-            background: rgba(59, 130, 246, 0.1);
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            color: #3b82f6;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-        }
-
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .items-table th,
-        .items-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid var(--color-border);
-        }
-
-        .items-table th {
-            background: var(--color-bg-secondary);
-            font-weight: 600;
-        }
-
-        .items-table tr:hover {
-            background: var(--color-bg-secondary);
-        }
-
-        .item-image {
-            width: 48px;
-            height: 48px;
-            object-fit: cover;
-            border-radius: 4px;
-        }
-
-        .rarity-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .rarity-Common { background: #CD7F32; color: white; }
-        .rarity-Rare { background: #C0C0C0; color: white; }
-        .rarity-Legendary { background: #FFD700; color: #000; }
-        .rarity-Mythic { background: #9370DB; color: white; }
-
-        .upload-zone {
-            border: 2px dashed var(--color-border);
-            border-radius: 8px;
-            padding: 32px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .upload-zone:hover {
-            border-color: var(--color-accent-primary);
-            background: var(--color-bg-secondary);
-        }
-
-        .upload-zone.dragover {
-            border-color: var(--color-accent-primary);
-            background: rgba(var(--color-accent-primary-rgb), 0.1);
-        }
-
-        .prompt-placeholder {
-            background: var(--color-bg-secondary);
-            border: 1px solid var(--color-border);
-            border-radius: 4px;
-            padding: 8px;
-            font-size: 0.75rem;
-            color: var(--color-text-secondary);
-            margin-top: 8px;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-
-        .stat-card {
-            background: var(--color-bg-secondary);
-            border: 1px solid var(--color-border);
-            border-radius: 8px;
-            padding: 16px;
-        }
-
-        .stat-label {
-            color: var(--color-text-secondary);
-            font-size: 0.875rem;
-            margin-bottom: 4px;
-        }
-
-        .stat-value {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--color-accent-primary);
-        }
-
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .modal.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: var(--color-bg-card);
-            border-radius: 12px;
-            padding: 24px;
-            max-width: 600px;
-            width: 90%;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .modal-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-        }
-
-        .modal-close {
-            background: none;
-            border: none;
-            font-size: 1.5rem;
-            cursor: pointer;
-            color: var(--color-text-secondary);
-        }
-
-        .modal-close:hover {
-            color: var(--color-text-primary);
-        }
-
-        /* Fusion UI Styles */
-        .item-preview {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px;
-            background: var(--color-bg-secondary);
-            border-radius: 8px;
-            margin-top: 8px;
-        }
-
-        .item-preview.hidden {
-            display: none;
-        }
-
-        .preview-image {
-            width: 48px;
-            height: 48px;
-            object-fit: contain;
-            border-radius: 4px;
-        }
-
-        .preview-name {
-            font-weight: 600;
-        }
-
-        .fusion-item-select {
-            width: 100%;
-        }
-
-        #fusionResult .card {
-            border-left: 4px solid var(--color-accent-primary);
-        }
-
-        /* Rarity badges */
-        .rarity-badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .rarity-Common { background: #CD7F32; color: white; }
-        .rarity-Rare { background: #C0C0C0; color: black; }
-        .rarity-Legendary { background: #FFD700; color: black; }
-        .rarity-Mythic { background: #9370DB; color: white; }
-
-        /* Tier config styles */
-        .tier-config-item {
-            transition: all 0.2s ease;
-        }
-
-        .tier-config-item:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StreamAlchemy Relaunch</title>
+  <link rel="stylesheet" href="/css/themes.css">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--color-bg-primary, #111827);
+      color: var(--color-text-primary, #f8fafc);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    button, input, select { font: inherit; }
+    .shell {
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 24px 18px;
+      background: var(--color-bg-secondary, #182033);
+      border-right: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+    }
+    .brand { margin-bottom: 26px; }
+    .brand h1 { margin: 0; font-size: 1.15rem; line-height: 1.25; }
+    .brand p { margin: 6px 0 0; color: var(--color-text-secondary, #a7b0c0); font-size: 0.84rem; }
+    .nav { display: grid; gap: 6px; }
+    .nav button {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--color-text-secondary, #a7b0c0);
+      cursor: pointer;
+      text-align: left;
+      font-weight: 600;
+    }
+    .nav button:hover, .nav button.active {
+      color: var(--color-text-primary, #f8fafc);
+      background: rgba(148, 163, 184, 0.12);
+      border-color: var(--color-border, rgba(148, 163, 184, 0.25));
+    }
+    main { min-width: 0; padding: 28px; }
+    .topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+    .topline h2 { margin: 0; font-size: 1.45rem; line-height: 1.25; }
+    .topline p {
+      max-width: 760px;
+      margin: 7px 0 0;
+      color: var(--color-text-secondary, #a7b0c0);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .button {
+      min-height: 36px;
+      padding: 8px 12px;
+      border: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+      border-radius: 6px;
+      background: var(--color-bg-secondary, #182033);
+      color: var(--color-text-primary, #f8fafc);
+      cursor: pointer;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .button.primary {
+      background: var(--color-accent-primary, #2563eb);
+      border-color: var(--color-accent-primary, #2563eb);
+      color: #fff;
+    }
+    .button:disabled { opacity: 0.55; cursor: progress; }
+    .notice {
+      display: none;
+      margin-bottom: 18px;
+      padding: 10px 12px;
+      border: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+      border-radius: 6px;
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--color-text-primary, #f8fafc);
+    }
+    .notice.active { display: block; }
+    .notice.error {
+      border-color: rgba(220, 38, 38, 0.35);
+      background: rgba(220, 38, 38, 0.12);
+      color: #fecaca;
+    }
+    .view { display: none; }
+    .view.active { display: block; }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .metric, .panel, .item, .recipe, .job, .preset-card {
+      border: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+      border-radius: 8px;
+      background: var(--color-bg-card, rgba(15, 23, 42, 0.7));
+    }
+    .metric { padding: 14px; }
+    .metric span {
+      display: block;
+      color: var(--color-text-secondary, #a7b0c0);
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .metric strong { display: block; margin-top: 8px; font-size: 1.65rem; line-height: 1; }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 14px;
+      align-items: start;
+    }
+    .panel { padding: 16px; }
+    .panel h3 { margin: 0 0 12px; font-size: 1rem; }
+    .provider-list, .analysis-list, .item-list, .recipe-list, .job-list, .preset-list { display: grid; gap: 10px; }
+    .provider-row, .analysis-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+    }
+    .provider-row:last-child, .analysis-row:last-child { border-bottom: 0; }
+    .status {
+      display: inline-flex;
+      min-height: 24px;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.14);
+      color: var(--color-text-primary, #f8fafc);
+      font-size: 0.78rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .status.ready, .status.succeeded, .status.installed, .status.recommended {
+      background: rgba(22, 163, 74, 0.22);
+      color: #86efac;
+    }
+    .status.failed, .status.unreachable, .status.missing_api_key, .status.missing, .status.not_recommended {
+      background: rgba(220, 38, 38, 0.2);
+      color: #fca5a5;
+    }
+    .status.running, .status.installing, .status.partial, .status.supported_with_warning, .status.manual_only {
+      background: rgba(37, 99, 235, 0.22);
+      color: #93c5fd;
+    }
+    .item, .recipe, .job, .preset-card { display: grid; gap: 8px; padding: 12px; }
+    .item {
+      grid-template-columns: 60px minmax(0, 1fr) auto;
+      align-items: center;
+    }
+    .item-frame {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 68px;
+      height: 68px;
+      padding: 5px;
+      border: 2px solid rgba(148, 163, 184, 0.7);
+      border-radius: 8px;
+      background: rgba(15, 23, 42, 0.72);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 8px 24px rgba(0, 0, 0, 0.22);
+    }
+    .item-frame img {
+      width: 58px;
+      height: 58px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: rgba(148, 163, 184, 0.16);
+    }
+    .frame-common { border-color: #b7791f; }
+    .frame-rare { border-color: #93c5fd; }
+    .frame-legendary { border-color: #facc15; }
+    .frame-mythic { border-color: #d8b4fe; }
+    .muted { color: var(--color-text-secondary, #a7b0c0); font-size: 0.84rem; }
+    .name { font-weight: 800; overflow-wrap: anywhere; }
+    .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--color-text-secondary, #a7b0c0);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    input, select {
+      min-height: 38px;
+      width: 100%;
+      border: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+      border-radius: 6px;
+      background: var(--color-bg-secondary, #182033);
+      color: var(--color-text-primary, #f8fafc);
+      padding: 8px 10px;
+    }
+    input[type="checkbox"] { width: auto; min-height: auto; }
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 14px;
+      color: var(--color-text-primary, #f8fafc);
+      font-weight: 700;
+    }
+    .model-installer {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+    }
+    .model-help, .manual-steps {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--color-text-secondary, #a7b0c0);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+    .model-error {
+      display: none;
+      padding: 9px 10px;
+      border: 1px solid rgba(220, 38, 38, 0.35);
+      border-radius: 6px;
+      background: rgba(220, 38, 38, 0.12);
+      color: #fca5a5;
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+    .model-error.active { display: block; }
+    .progress-track {
+      width: 100%;
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.18);
+    }
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--color-accent-primary, #2563eb);
+      transition: width 180ms ease;
+    }
+    .preset-card .header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .empty {
+      padding: 18px;
+      border: 1px dashed var(--color-border, rgba(148, 163, 184, 0.25));
+      border-radius: 8px;
+      color: var(--color-text-secondary, #a7b0c0);
+    }
+    @media (max-width: 920px) {
+      .shell { display: block; }
+      .sidebar {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+      }
+      .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      main { padding: 20px; }
+      .topline, .layout { display: block; }
+      .actions { margin-top: 14px; justify-content: flex-start; }
+      .metric-grid, .field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 560px) {
+      .metric-grid, .field-grid, .nav { grid-template-columns: 1fr; }
+      .item { grid-template-columns: 58px minmax(0, 1fr); }
+      .item-frame { width: 58px; height: 58px; padding: 4px; }
+      .item-frame img { width: 48px; height: 48px; }
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🧪 Stream Alchemy - Erweiterte Einstellungen</h1>
-            <p>Umfangreiche Konfiguration für Item-Generierung, Custom Prompts und mehr</p>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>StreamAlchemy</h1>
+        <p>Relaunch Runtime</p>
+      </div>
+      <nav class="nav" aria-label="StreamAlchemy Bereiche">
+        <button class="active" data-target="overview">Overview</button>
+        <button data-target="items">Items</button>
+        <button data-target="recipes">Recipes</button>
+        <button data-target="generation-jobs">Generation</button>
+        <button data-target="settings">Settings</button>
+      </nav>
+    </aside>
+
+    <main>
+      <div class="topline">
+        <div>
+          <h2 id="viewTitle">Overview</h2>
+          <p id="viewSubtitle">Live status for inventory, cached recipes, generation providers, and local model readiness.</p>
         </div>
-
-        <div id="message-container"></div>
-
-        <!-- Tabs -->
-        <div class="tabs">
-            <button class="tab active" data-tab="general">⚙️ Allgemein</button>
-            <button class="tab" data-tab="prompts">✨ Custom Prompts</button>
-            <button class="tab" data-tab="items">🎁 Item Management</button>
-            <button class="tab" data-tab="rarity">💎 Seltenheitsstufen</button>
-            <button class="tab" data-tab="animations">🎬 Animationen</button>
-            <button class="tab" data-tab="stats">📊 Statistiken</button>
+        <div class="actions">
+          <button class="button" id="refreshBtn" type="button">Refresh</button>
+          <a class="button" href="/streamalchemy/overlay" target="_blank" rel="noreferrer">Overlay</a>
         </div>
+      </div>
 
-        <!-- Tab: General Settings -->
-        <div class="tab-content active" data-tab-content="general">
-            <div class="card">
-                <div class="card-title">Grundeinstellungen</div>
-                <form id="general-form">
-                    <div class="config-grid">
-                        <div class="config-group">
-                            <label class="config-label">Plugin Aktiviert</label>
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="enabled" name="enabled" checked>
-                                <label for="enabled">Stream Alchemy aktivieren</label>
-                            </div>
-                        </div>
+      <div class="notice" id="notice" role="status"></div>
 
-                        <div class="config-group">
-                            <label class="config-label">Auto-Crafting</label>
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="autoCrafting" name="autoCrafting" checked>
-                                <label for="autoCrafting">Automatisches Crafting bei 2 Gifts</label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="config-group">
-                        <label class="config-label" for="itemGenerationMode">Item Generierungs-Modus</label>
-                        <div class="config-description">Bestimme, wie Items erstellt werden</div>
-                        <select id="itemGenerationMode" name="itemGenerationMode">
-                            <option value="auto">Auto (KI-Generierung)</option>
-                            <option value="manual">Manuell (Upload)</option>
-                            <option value="hybrid">Hybrid (Beide Modi)</option>
-                        </select>
-                    </div>
-
-                    <div class="config-group">
-                        <label class="config-label" for="craftingWindowMs">Crafting Zeitfenster (Millisekunden)</label>
-                        <div class="config-description">Zeit, in der 2 Gifts gesendet werden müssen, um zu craften</div>
-                        <input type="number" id="craftingWindowMs" name="craftingWindowMs" min="1000" max="30000" step="1000" value="6000">
-                    </div>
-
-                    <div class="config-group">
-                        <label class="config-label">OpenAI Status</label>
-                        <div class="config-description" id="openaiStatus">Lade Status...</div>
-                        <div class="prompt-placeholder">API Keys werden zentral im Settings-Engine Bereich verwaltet.</div>
-                    </div>
-
-                    <div class="config-group">
-                        <label class="config-label">Silicon Flow Status</label>
-                        <div class="config-description" id="siliconFlowStatus">Lade Status...</div>
-                        <div class="config-description text-xs mt-1" style="color: var(--color-text-tertiary);">💡 Silicon Flow wird auch von Fish Speech genutzt und ist zentral gespeichert.</div>
-                    </div>
-
-                    <div class="btn-group">
-                        <button type="submit" class="btn btn-primary">Einstellungen speichern</button>
-                        <button type="button" class="btn btn-secondary" id="resetGeneralBtn">Zurücksetzen</button>
-                    </div>
-                </form>
-            </div>
-
-            <div class="card">
-                <div class="card-title">🔧 Erweiterte Einstellungen</div>
-                
-                <form id="advanced-form">
-                    <div class="config-grid">
-                        <div class="config-group">
-                            <label class="config-label">DALL-E Modell</label>
-                            <select name="dalleModel">
-                                <option value="dall-e-3">DALL-E 3 (Empfohlen)</option>
-                                <option value="dall-e-2">DALL-E 2 (Günstiger)</option>
-                            </select>
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label">Bildgröße</label>
-                            <select name="dalleSize">
-                                <option value="1024x1024">1024x1024 (Standard)</option>
-                                <option value="1024x1792">1024x1792 (Hochformat)</option>
-                                <option value="1792x1024">1792x1024 (Querformat)</option>
-                            </select>
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label">Bildqualität</label>
-                            <select name="dalleQuality">
-                                <option value="standard">Standard</option>
-                                <option value="hd">HD (Höhere Kosten)</option>
-                            </select>
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label">Bildstil</label>
-                            <select name="dalleStyle">
-                                <option value="vivid">Vivid (Lebhaft)</option>
-                                <option value="natural">Natural (Natürlich)</option>
-                            </select>
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label">Rate Limit - Gifts pro Minute</label>
-                            <input type="number" name="rateLimitGifts" min="1" max="100" value="30">
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label">Rate Limit - Crafts pro Minute</label>
-                            <input type="number" name="rateLimitCrafts" min="1" max="50" value="10">
-                        </div>
-                    </div>
-
-                    <div class="btn-group">
-                        <button type="submit" class="btn btn-primary">Erweiterte Einstellungen speichern</button>
-                    </div>
-                </form>
-            </div>
+      <section class="view active" data-view="overview">
+        <div class="metric-grid">
+          <div class="metric"><span>Items</span><strong id="metricItems">0</strong></div>
+          <div class="metric"><span>Recipes</span><strong id="metricRecipes">0</strong></div>
+          <div class="metric"><span>Jobs</span><strong id="metricJobs">0</strong></div>
+          <div class="metric"><span>Ready Providers</span><strong id="metricProvider">0</strong></div>
         </div>
-
-        <!-- Tab: Fusion Settings -->
-        <div class="tab-content" data-tab-content="fusion">
-            <div class="card">
-                <div class="card-title">⚗️ Manuelle Fusion</div>
-                <div class="info">
-                    Wähle zwei Items aus dem Katalog aus und fusioniere sie zu einem neuen Item.
-                </div>
-                
-                <div class="config-grid">
-                    <div class="config-group">
-                        <label class="config-label">Item 1</label>
-                        <select id="fusionItemA" class="fusion-item-select">
-                            <option value="">-- Item wählen --</option>
-                        </select>
-                        <div id="fusionItemAPreview" class="item-preview hidden">
-                            <img src="" alt="Item A" class="preview-image">
-                            <span class="preview-name"></span>
-                        </div>
-                    </div>
-                    
-                    <div class="config-group">
-                        <label class="config-label">Item 2</label>
-                        <select id="fusionItemB" class="fusion-item-select">
-                            <option value="">-- Item wählen --</option>
-                        </select>
-                        <div id="fusionItemBPreview" class="item-preview hidden">
-                            <img src="" alt="Item B" class="preview-image">
-                            <span class="preview-name"></span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="config-group">
-                    <label class="config-label" for="fusionStyle">Bild-Stil</label>
-                    <div class="config-description">Wähle den visuellen Stil für das fusionierte Item</div>
-                    <select id="fusionStyle" name="fusionStyle">
-                        <option value="rpg">RPG (Standard)</option>
-                        <option value="fantasy">Fantasy</option>
-                        <option value="comic">Comic</option>
-                        <option value="pixel">Pixel Art</option>
-                        <option value="anime">Anime</option>
-                        <option value="cyberpunk">Cyberpunk</option>
-                        <option value="minimalist">Minimalistisch</option>
-                        <option value="3d_render">3D Render</option>
-                        <option value="retro">Retro</option>
-                        <option value="rainbow">Regenbogen</option>
-                        <option value="cartoon">Cartoon</option>
-                        <option value="dark_fantasy">Dark Fantasy</option>
-                    </select>
-                </div>
-
-                <div class="btn-group">
-                    <button class="btn btn-primary" id="performFusionBtn" disabled>⚗️ Fusionieren</button>
-                </div>
-                
-                <div id="fusionResult" class="hidden" style="margin-top: 20px;">
-                    <div class="card" style="background: var(--color-bg-secondary);">
-                        <div class="card-title">Fusion-Ergebnis</div>
-                        <div id="fusionResultContent"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Fusion-Einstellungen</div>
-                <form id="fusion-config-form">
-                    <div class="config-grid">
-                        <div class="config-group">
-                            <label class="config-label">Auto-Fusion</label>
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="autoFusionEnabled" name="autoFusionEnabled">
-                                <label for="autoFusionEnabled">Automatische Fusion wenn Viewer 2 verschiedene Gifts sendet</label>
-                            </div>
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label" for="preferredGenerator">Bevorzugter Bild-Generator</label>
-                            <div class="config-description">Wähle den primären Dienst für Bildgenerierung</div>
-                            <select id="preferredGenerator" name="preferredGenerator">
-                                <option value="siliconflow">🚀 Silicon Flow (FLUX.1-schnell) - Sehr schnell</option>
-                                <option value="lightx">🎨 LightX - Image-to-Image Fusion</option>
-                                <option value="dalle">🖼️ DALL-E 3 - Höchste Qualität</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="config-group">
-                        <label class="config-label" for="defaultStyle">Standard-Stil</label>
-                        <div class="config-description">Wird für Auto-Fusion und wenn kein Stil gewählt wurde verwendet</div>
-                        <select id="defaultStyle" name="defaultStyle">
-                            <option value="rpg">RPG</option>
-                            <option value="fantasy">Fantasy</option>
-                            <option value="comic">Comic</option>
-                            <option value="pixel">Pixel Art</option>
-                            <option value="anime">Anime</option>
-                            <option value="cyberpunk">Cyberpunk</option>
-                        </select>
-                    </div>
-
-                    <div class="btn-group">
-                        <button type="submit" class="btn btn-primary">Fusion-Einstellungen speichern</button>
-                    </div>
-                </form>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Fusion-Statistiken</div>
-                <div class="stats-grid" id="fusion-stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">Gesamt Fusionen</div>
-                        <div class="stat-value" id="stat-total-fusions">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Manuelle Fusionen</div>
-                        <div class="stat-value" id="stat-manual-fusions">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Auto-Fusionen</div>
-                        <div class="stat-value" id="stat-auto-fusions">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Cache-Treffer</div>
-                        <div class="stat-value" id="stat-cache-hits">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">🚀 Silicon Flow</div>
-                        <div class="stat-value" id="stat-siliconflow-generations">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">🖼️ DALL-E</div>
-                        <div class="stat-value" id="stat-dalle-generations">-</div>
-                    </div>
-                </div>
-            </div>
+        <div class="layout">
+          <div class="panel">
+            <h3>Provider Status</h3>
+            <div class="provider-list" id="providerList"></div>
+          </div>
+          <div class="panel">
+            <h3>System Analysis</h3>
+            <div class="analysis-list" id="analysisList"></div>
+          </div>
         </div>
+      </section>
 
-        <!-- Tab: Tier System -->
-        <div class="tab-content" data-tab-content="tiers">
-            <div class="card">
-                <div class="card-title">🏆 Stufen-System (Tier/Rahmen)</div>
-                <div class="info">
-                    Items können aufgewertet werden! Sammle mehrere gleiche Items und upgrade sie zu höheren Stufen mit besseren Rahmen.
-                </div>
+      <section class="view" data-view="items">
+        <div class="item-list" id="itemList"></div>
+      </section>
 
-                <form id="tiers-form">
-                    <div class="config-group">
-                        <label class="config-label">Stufen-System aktiviert</label>
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="tierSystemEnabled" name="tierSystemEnabled" checked>
-                            <label for="tierSystemEnabled">Item-Stufen und Upgrade-System aktivieren</label>
-                        </div>
-                    </div>
+      <section class="view" data-view="recipes">
+        <div class="recipe-list" id="recipeList"></div>
+      </section>
 
-                    <div class="config-group">
-                        <label class="config-label">Auto-Upgrade</label>
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="autoUpgrade" name="autoUpgrade">
-                            <label for="autoUpgrade">Automatisch upgraden wenn genug Items vorhanden</label>
-                        </div>
-                    </div>
-                </form>
+      <section class="view" data-view="generation-jobs">
+        <div class="job-list" id="jobList"></div>
+      </section>
+
+      <section class="view" data-view="settings">
+        <form class="panel" id="settingsForm">
+          <label class="check-row">
+            <input type="checkbox" id="enabled">
+            Plugin enabled
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="autoCrafting">
+            Auto crafting enabled
+          </label>
+          <div class="field-grid">
+            <label>Crafting window ms
+              <input type="number" id="craftingWindowMs" min="1000" max="30000" step="500">
+            </label>
+            <label>Default style
+              <select id="defaultStyle">
+                <option value="rpg">RPG</option>
+                <option value="fantasy">Fantasy</option>
+                <option value="pixel">Pixel</option>
+                <option value="anime">Anime</option>
+                <option value="cyberpunk">Cyberpunk</option>
+                <option value="cartoon">Cartoon</option>
+              </select>
+            </label>
+            <label>Generation mode
+              <select id="generationMode">
+                <option value="remote">Remote provider</option>
+                <option value="local_strict">Local only (strict)</option>
+              </select>
+            </label>
+            <label>Preferred preset
+              <select id="selectedPresetId"></select>
+            </label>
+            <label>Provider order
+              <input type="text" id="providerOrder">
+            </label>
+            <label>ComfyUI URL
+              <input type="url" id="comfyUrl">
+            </label>
+            <label>ComfyUI root
+              <input type="text" id="comfyRootDir" placeholder="C:\ComfyUI">
+            </label>
+            <label>Hugging Face token
+              <input type="password" id="hfToken" autocomplete="off" placeholder="HF_TOKEN / HUGGINGFACE_TOKEN">
+            </label>
+            <label>Local size
+              <input type="text" id="localSize">
+            </label>
+            <label>Local steps
+              <input type="number" id="localSteps" min="1" max="40">
+            </label>
+            <label>Local concurrency
+              <input type="number" id="localConcurrency" min="1" max="4">
+            </label>
+          </div>
+
+          <div class="model-installer">
+            <div class="provider-row" style="border-bottom: 0; padding: 0;">
+              <div>
+                <div class="name">Local model installer</div>
+                <div class="muted" id="localModelPath">-</div>
+              </div>
+              <span class="status" id="localModelState">unknown</span>
             </div>
-
-            <div class="card">
-                <div class="card-title">Stufen-Konfiguration</div>
-                <div id="tiers-config-container">
-                    <!-- Tier configs will be dynamically generated -->
-                </div>
-                <div class="btn-group">
-                    <button class="btn btn-primary" id="saveTiersBtn">Stufen-Einstellungen speichern</button>
-                </div>
+            <div class="progress-track" aria-hidden="true">
+              <div class="progress-bar" id="localModelProgress"></div>
             </div>
-
-            <div class="card">
-                <div class="card-title">Rahmen-Vorschau</div>
-                <div class="config-grid" id="frame-preview-container">
-                    <!-- Frame previews will be dynamically generated -->
-                </div>
+            <div class="model-error" id="localModelError" role="alert"></div>
+            <div class="actions" style="justify-content: flex-start;">
+              <button class="button" id="installLocalModelBtn" type="button">Install local model</button>
+              <button class="button" id="runLocalTestBtn" type="button">Test local generation</button>
+              <span class="muted" id="localModelBytes"></span>
             </div>
+            <ul class="model-help">
+              <li>One-click download only works for open checkpoints and requires a valid ComfyUI root path.</li>
+              <li>For gated Hugging Face models, accept upstream terms and provide HF_TOKEN or HUGGINGFACE_TOKEN before starting LTTH.</li>
+              <li>If automatic download is blocked, place the file at the exact target path shown below and refresh the page.</li>
+            </ul>
+            <ul class="manual-steps" id="manualSteps"></ul>
+          </div>
+
+          <div class="panel" style="margin-top: 16px; padding: 14px;">
+            <h3>Recommended models for this system</h3>
+            <div class="preset-list" id="presetList"></div>
+          </div>
+
+          <div class="actions" style="margin-top: 16px;">
+            <button class="button primary" type="submit">Save Settings</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const state = {
+      config: null,
+      items: [],
+      recipes: [],
+      jobs: [],
+      providers: [],
+      analysis: null,
+      localModel: null,
+      presets: []
+    };
+    let localModelPollTimer = null;
+
+    const titles = {
+      overview: ['Overview', 'Live status for inventory, cached recipes, generation providers, and local model readiness.'],
+      items: ['Items', 'Base gifts and crafted results persisted in the StreamAlchemy store.'],
+      recipes: ['Recipes', 'Cached craft combinations reuse their existing images and avoid repeated generation costs.'],
+      'generation-jobs': ['Generation', 'Provider attempts, prompts, and image generation results.'],
+      settings: ['Settings', 'Guided local generation setup, model selection, and ComfyUI readiness.']
+    };
+
+    const notice = document.getElementById('notice');
+
+    function showNotice(message, kind = 'info') {
+      notice.textContent = message;
+      notice.className = `notice active ${kind}`;
+      clearTimeout(showNotice.timer);
+      showNotice.timer = setTimeout(() => {
+        notice.className = 'notice';
+      }, 5000);
+    }
+
+    async function getJson(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json();
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || `Request failed: ${url}`);
+      }
+      return payload;
+    }
+
+    function safeText(value) {
+      return value === null || value === undefined || value === '' ? '-' : String(value);
+    }
+
+    function escapeHtml(value) {
+      return safeText(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[char]));
+    }
+
+    function classToken(value) {
+      return safeText(value).replace(/[^a-z0-9_-]/gi, '_');
+    }
+
+    const RARITY_FRAMES = {
+      common: { className: 'frame-common', label: 'Bronze frame' },
+      rare: { className: 'frame-rare', label: 'Silver frame' },
+      legendary: { className: 'frame-legendary', label: 'Gold frame' },
+      mythic: { className: 'frame-mythic', label: 'Arcane frame' }
+    };
+
+    function frameDefinition(rarity) {
+      return RARITY_FRAMES[safeText(rarity).toLowerCase()] || RARITY_FRAMES.common;
+    }
+
+    function frameClass(rarity) {
+      return frameDefinition(rarity).className;
+    }
+
+    function frameLabel(rarity) {
+      return frameDefinition(rarity).label;
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value) || 0;
+      if (!bytes) return '-';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let current = bytes;
+      let unitIndex = 0;
+      while (current >= 1024 && unitIndex < units.length - 1) {
+        current /= 1024;
+        unitIndex += 1;
+      }
+      return `${current.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+    }
+
+    function installerErrorMessage(model) {
+      if (!model?.error) return '';
+      const tokenHint = model.error.includes('HTTP_401') || model.error.includes('HTTP_403')
+        ? ' Accept the Hugging Face model terms and set HF_TOKEN or HUGGINGFACE_TOKEN before starting LTTH.'
+        : '';
+      return `Install failed: ${model.error}.${tokenHint} You can also download the model manually and place it at the path shown above.`;
+    }
+
+    function imageSource(item) {
+      return item.image_url || item.imageURL || item.imageUrl || '';
+    }
+
+    function itemName(item) {
+      return item.name || item.item_name || item.itemId || item.item_id || 'Unknown item';
+    }
+
+    function selectedPreset() {
+      const selectedId = state.config?.localGeneration?.selectedPresetId;
+      return state.presets.find(preset => preset.id === selectedId) || state.presets[0] || null;
+    }
+
+    function renderMetrics() {
+      document.getElementById('metricItems').textContent = state.items.length;
+      document.getElementById('metricRecipes').textContent = state.recipes.length;
+      document.getElementById('metricJobs').textContent = state.jobs.length;
+      document.getElementById('metricProvider').textContent = state.providers.filter(provider => provider.state === 'ready').length;
+    }
+
+    function renderProviders() {
+      const list = document.getElementById('providerList');
+      if (!state.providers.length) {
+        list.innerHTML = '<div class="empty">No provider status available.</div>';
+        return;
+      }
+
+      list.innerHTML = state.providers.map(provider => `
+        <div class="provider-row">
+          <div>
+            <div class="name">${escapeHtml(provider.provider)}</div>
+            <div class="muted">${escapeHtml(provider.model || provider.detail || provider.lastError)}</div>
+          </div>
+          <span class="status ${classToken(provider.state)}">${escapeHtml(provider.state)}</span>
         </div>
+      `).join('');
+    }
 
-        <!-- Tab: Custom Prompts -->
-        <div class="tab-content" data-tab-content="prompts">
-            <div class="card">
-                <div class="card-title">Custom AI Prompts</div>
-                <div class="info">
-                    Definiere eigene Prompts für die KI-Generierung. Verwende Platzhalter für dynamische Werte.
-                </div>
-                
-                <form id="prompts-form">
-                    <div class="config-group">
-                        <label class="config-label" for="baseItemTemplate">Base Item Prompt Template</label>
-                        <div class="config-description" id="base-template-desc">Prompt für Basis-Items (von TikTok Gifts)</div>
-                        <textarea id="baseItemTemplate" name="baseItemTemplate" rows="4" placeholder="Leer lassen für Standard-Prompt" aria-describedby="base-template-desc base-template-placeholders"></textarea>
-                        <div class="prompt-placeholder" id="base-template-placeholders">
-                            <strong>Verfügbare Platzhalter:</strong><br>
-                            {giftName} - Name des TikTok Gifts<br>
-                            {coinValue} - Münzwert des Gifts
-                        </div>
-                        <div class="prompt-placeholder" style="margin-top: 8px;">
-                            <strong>Standard-Prompt:</strong><br>
-                            Create a fantasy RPG base item inspired by the TikTok gift "{giftName}". Isometric view, transparent background, soft glowing aura, crisp 2D icon.
-                        </div>
-                    </div>
+    function renderAnalysis() {
+      const list = document.getElementById('analysisList');
+      const analysis = state.analysis || {};
+      const rows = [
+        ['CPU', analysis.cpu?.model],
+        ['RAM', analysis.memory?.totalGb ? `${analysis.memory.totalGb} GB` : '-'],
+        ['GPU', analysis.gpu?.name],
+        ['VRAM', analysis.gpu?.vramGb ? `${analysis.gpu.vramGb} GB` : '-'],
+        ['Disk', analysis.disk?.freeGb ? `${analysis.disk.freeGb} GB free` : safeText(analysis.disk?.targetRoot)],
+        ['ComfyUI', analysis.comfy?.state],
+        ['Comfy root', analysis.comfyRoot?.state],
+        ['Recommendation', analysis.recommendation?.primaryModel]
+      ];
 
-                    <div class="config-group">
-                        <label class="config-label" for="craftedItemTemplate">Crafted Item Prompt Template</label>
-                        <div class="config-description" id="crafted-template-desc">Prompt für gecraftete Items (Kombinationen)</div>
-                        <textarea id="craftedItemTemplate" name="craftedItemTemplate" rows="4" placeholder="Leer lassen für Standard-Prompt" aria-describedby="crafted-template-desc crafted-template-placeholders"></textarea>
-                        <div class="prompt-placeholder" id="crafted-template-placeholders">
-                            <strong>Verfügbare Platzhalter:</strong><br>
-                            {itemA} - Name des ersten Items<br>
-                            {itemB} - Name des zweiten Items<br>
-                            {rarity} - Seltenheitsstufe (Common, Rare, Legendary, Mythic)<br>
-                            {rarityColor} - Farbe der Seltenheit (Hex-Code)<br>
-                            {auraEffect} - Aura-Effekt Beschreibung<br>
-                            {totalCoins} - Kombinierter Münzwert
-                        </div>
-                        <div class="prompt-placeholder" style="margin-top: 8px;">
-                            <strong>Standard-Prompt:</strong><br>
-                            Combine {itemA} and {itemB} into a single unique crafted fantasy RPG item. Isometric view, transparent background, {rarityColor} {auraEffect}, highly detailed, game-ready icon.
-                        </div>
-                    </div>
-
-                    <div class="btn-group">
-                        <button type="submit" class="btn btn-primary">Prompts speichern</button>
-                        <button type="button" class="btn btn-secondary" id="resetPromptsBtn">Auf Standard zurücksetzen</button>
-                    </div>
-                </form>
-            </div>
+      list.innerHTML = rows.map(([label, value]) => `
+        <div class="analysis-row">
+          <span class="muted">${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
         </div>
+      `).join('');
+    }
 
-        <!-- Tab: Item Management -->
-        <div class="tab-content" data-tab-content="items">
-            <div class="card">
-                <div class="card-title">Item Management</div>
-                <div class="btn-group">
-                    <button class="btn btn-primary" id="openCreateItemModalBtn">+ Neues Item erstellen</button>
-                    <button class="btn btn-secondary" id="refreshItemsBtn">🔄 Liste aktualisieren</button>
-                    <button class="btn btn-secondary" id="loadGiftCatalogBtn">🎁 Gift-Katalog laden</button>
-                </div>
-                <div class="config-description" id="giftCatalogStatus" style="margin-top: 10px;">Gift-Katalog noch nicht geladen</div>
+    function renderItems() {
+      const list = document.getElementById('itemList');
+      if (!state.items.length) {
+        list.innerHTML = '<div class="empty">No items stored yet.</div>';
+        return;
+      }
+
+      list.innerHTML = state.items.map(item => `
+        <article class="item">
+          <div class="item-frame ${frameClass(item.rarity)}" title="${escapeHtml(frameLabel(item.rarity))}">
+            <img src="${escapeHtml(imageSource(item))}" alt="">
+          </div>
+          <div>
+            <div class="name">${escapeHtml(itemName(item))}</div>
+            <div class="meta">
+              <span class="status">${escapeHtml(item.rarity)}</span>
+              <span class="muted">${item.is_crafted || item.isCrafted ? 'crafted' : 'base'}</span>
+              <span class="muted">${escapeHtml(item.coin_value || item.coinValue)} coins</span>
             </div>
+          </div>
+          <span class="muted">x${escapeHtml(item.quantity || 0)}</span>
+        </article>
+      `).join('');
+    }
 
-            <div class="card">
-                <div class="card-title">🎁 Alle Items</div>
-                <div id="items-container">Lade Items...</div>
+    function renderRecipes() {
+      const list = document.getElementById('recipeList');
+      if (!state.recipes.length) {
+        list.innerHTML = '<div class="empty">No cached recipes yet.</div>';
+        return;
+      }
+
+      list.innerHTML = state.recipes.map(recipe => `
+        <article class="recipe">
+          <div class="name">${escapeHtml(recipe.recipe_key || recipe.recipeKey)}</div>
+          <div class="muted">Result: ${escapeHtml(recipe.result_item_id || recipe.resultItemId)}</div>
+          <div class="muted">Prompt version: ${escapeHtml(recipe.prompt_version || recipe.promptVersion)}</div>
+        </article>
+      `).join('');
+    }
+
+    function renderJobs() {
+      const list = document.getElementById('jobList');
+      if (!state.jobs.length) {
+        list.innerHTML = '<div class="empty">No generation jobs recorded yet.</div>';
+        return;
+      }
+
+      list.innerHTML = state.jobs.map(job => `
+        <article class="job">
+          <div class="provider-row" style="border-bottom: 0; padding: 0;">
+            <div>
+              <div class="name">${escapeHtml(job.provider)}</div>
+              <div class="muted">${escapeHtml(job.model)}</div>
             </div>
-        </div>
+            <span class="status ${classToken(job.status)}">${escapeHtml(job.status)}</span>
+          </div>
+          <div class="muted">${escapeHtml(job.prompt)}</div>
+          ${job.error ? `<div class="muted">Error: ${escapeHtml(job.error)}</div>` : ''}
+        </article>
+      `).join('');
+    }
 
-        <!-- Tab: Rarity Tiers -->
-        <div class="tab-content" data-tab-content="rarity">
-            <div class="card">
-                <div class="card-title">Seltenheitsstufen Konfiguration</div>
-                <div class="info">
-                    Passe die Schwellenwerte und Farben für Seltenheitsstufen an.
-                </div>
-                
-                <form id="rarity-form">
-                    <div class="config-group">
-                        <label class="config-label">Standard-Seltenheit für neue Gifts</label>
-                        <div class="config-description">Legt fest, welche Seltenheit Basis-Items beim Spawnen erhalten.</div>
-                        <select id="defaultBaseRarity" name="default-base-rarity">
-                            <option value="Common">Common</option>
-                            <option value="Rare">Rare</option>
-                            <option value="Legendary">Legendary</option>
-                            <option value="Mythic">Mythic</option>
-                        </select>
-                    </div>
+    function renderPresetOptions() {
+      const select = document.getElementById('selectedPresetId');
+      const current = state.config?.localGeneration?.selectedPresetId || '';
+      select.innerHTML = state.presets.map(preset => `
+        <option value="${escapeHtml(preset.id)}"${preset.id === current ? ' selected' : ''}>${escapeHtml(preset.label)}</option>
+      `).join('');
+    }
 
-                    <div class="config-grid">
-                        <div class="config-group">
-                            <label class="config-label">Common (Bronze)</label>
-                            <label>Min. Coins:</label>
-                            <input type="number" name="common-min" value="0" readonly>
-                            <label>Max. Coins:</label>
-                            <input type="number" name="common-max" value="99">
-                            <label>Farbe:</label>
-                            <input type="text" name="common-color" value="#CD7F32">
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label">Rare (Silver)</label>
-                            <label>Min. Coins:</label>
-                            <input type="number" name="rare-min" value="100">
-                            <label>Max. Coins:</label>
-                            <input type="number" name="rare-max" value="999">
-                            <label>Farbe:</label>
-                            <input type="text" name="rare-color" value="#C0C0C0">
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label">Legendary (Gold)</label>
-                            <label>Min. Coins:</label>
-                            <input type="number" name="legendary-min" value="1000">
-                            <label>Max. Coins:</label>
-                            <input type="number" name="legendary-max" value="4999">
-                            <label>Farbe:</label>
-                            <input type="text" name="legendary-color" value="#FFD700">
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label">Mythic (Purple)</label>
-                            <label>Min. Coins:</label>
-                            <input type="number" name="mythic-min" value="5000">
-                            <label>Max. Coins:</label>
-                            <input type="text" name="mythic-max" value="∞" readonly>
-                            <label>Farbe:</label>
-                            <input type="text" name="mythic-color" value="#9370DB">
-                        </div>
-                    </div>
-
-                    <div class="btn-group">
-                        <button type="submit" class="btn btn-primary">Seltenheitsstufen speichern</button>
-                    </div>
-                </form>
+    function renderPresetCards() {
+      const list = document.getElementById('presetList');
+      if (!state.presets.length) {
+        list.innerHTML = '<div class="empty">No model presets available.</div>';
+        return;
+      }
+      const currentId = state.config?.localGeneration?.selectedPresetId;
+      list.innerHTML = state.presets.map(preset => `
+        <article class="preset-card">
+          <div class="header">
+            <div>
+              <div class="name">${escapeHtml(preset.label)}</div>
+              <div class="muted">${escapeHtml(preset.source)}</div>
             </div>
-        </div>
+            <span class="status ${classToken(preset.recommendationState)}">${escapeHtml(preset.recommendationState)}</span>
+          </div>
+          <div class="meta">
+            <span class="status">${escapeHtml(preset.installMethod)}</span>
+            <span class="muted">${preset.installed ? 'installed' : 'missing'}</span>
+            <span class="muted">${escapeHtml(preset.workflowId)}</span>
+          </div>
+          <div class="muted">${escapeHtml(preset.targetRelativePath)}</div>
+          <div class="muted">${escapeHtml(preset.notes)}</div>
+          <div class="actions" style="justify-content: flex-start;">
+            <button class="button preset-use-btn" type="button" data-preset-id="${escapeHtml(preset.id)}">${preset.id === currentId ? 'Selected' : 'Use this model'}</button>
+            <a class="button" href="${escapeHtml(preset.sourceUrl)}" target="_blank" rel="noreferrer">Source</a>
+          </div>
+        </article>
+      `).join('');
 
-        <!-- Tab: Animations -->
-        <div class="tab-content" data-tab-content="animations">
-            <div class="card">
-                <div class="card-title">Animations-Einstellungen</div>
-                
-                <form id="animations-form">
-                    <div class="config-grid">
-                        <div class="config-group">
-                            <label class="config-label" for="discoveryPopupDuration">Discovery Popup (ms)</label>
-                            <div class="config-description">Dauer der Anzeige für neue Items</div>
-                            <input type="number" id="discoveryPopupDuration" name="discoveryPopupDuration" min="1000" max="10000" step="500" value="5000">
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label" for="craftingAnimationDuration">Crafting Animation (ms)</label>
-                            <div class="config-description">Dauer der Crafting-Fusion</div>
-                            <input type="number" id="craftingAnimationDuration" name="craftingAnimationDuration" min="1000" max="10000" step="500" value="3000">
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label" for="counterBounceDuration">Counter Bounce (ms)</label>
-                            <div class="config-description">Dauer des Inventory-Counter-Effekts</div>
-                            <input type="number" id="counterBounceDuration" name="counterBounceDuration" min="100" max="2000" step="100" value="500">
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label" for="particleDuration">Partikel-Effekte (ms)</label>
-                            <div class="config-description">Dauer der Partikel-Animationen</div>
-                            <input type="number" id="particleDuration" name="particleDuration" min="500" max="5000" step="500" value="2000">
-                        </div>
-
-                        <div class="config-group">
-                            <label class="config-label" for="customAnimationFile">Custom Animation Upload</label>
-                            <div class="config-description">Lade eigene Animationen hoch (z.B. WebM/GIF). Wird zentral gespeichert.</div>
-                            <input type="file" id="customAnimationFile" accept=".webm,.gif,.mp4,.mov,.json,.zip,image/*">
-                            <div class="config-description" id="customAnimationStatus" style="margin-top: 6px;">Kein Custom-Upload vorhanden</div>
-                        </div>
-                    </div>
-
-                    <div class="btn-group">
-                        <button type="submit" class="btn btn-primary">Animations-Einstellungen speichern</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Tab: Statistics -->
-        <div class="tab-content" data-tab-content="stats">
-            <div class="card">
-                <div class="card-title">📊 Statistiken</div>
-                <div class="stats-grid" id="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">Total Items</div>
-                        <div class="stat-value" id="stat-total-items">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Base Items</div>
-                        <div class="stat-value" id="stat-base-items">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Crafted Items</div>
-                        <div class="stat-value" id="stat-crafted-items">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Aktive Alchemisten</div>
-                        <div class="stat-value" id="stat-total-users">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Aktive Buffers</div>
-                        <div class="stat-value" id="stat-active-buffers">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">KI Anfragen</div>
-                        <div class="stat-value" id="stat-ai-requests">-</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Seltenheitsverteilung</div>
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">Common</div>
-                        <div class="stat-value" id="stat-rarity-common">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Rare</div>
-                        <div class="stat-value" id="stat-rarity-rare">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Legendary</div>
-                        <div class="stat-value" id="stat-rarity-legendary">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Mythic</div>
-                        <div class="stat-value" id="stat-rarity-mythic">-</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Create Item Modal -->
-    <div class="modal" id="createItemModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title">Neues Item erstellen</h2>
-                <button class="modal-close" id="closeCreateItemModalBtn" aria-label="Schließen">×</button>
-            </div>
-            <form id="create-item-form">
-                <div class="config-group">
-                    <label class="config-label" for="newItemName">Item Name</label>
-                    <input type="text" id="newItemName" name="name" required>
-                </div>
-
-                <div class="config-group">
-                    <label class="config-label" for="newItemRarity">Seltenheit</label>
-                    <select id="newItemRarity" name="rarity" required>
-                        <option value="Common">Common</option>
-                        <option value="Rare">Rare</option>
-                        <option value="Legendary">Legendary</option>
-                        <option value="Mythic">Mythic</option>
-                    </select>
-                </div>
-
-                <div class="config-group">
-                    <label class="config-label" for="newItemCoins">Münzwert</label>
-                    <input type="number" id="newItemCoins" name="coinValue" min="0" value="0">
-                </div>
-
-                <div class="config-group">
-                    <label class="config-label" for="newItemImage">Bild URL (optional)</label>
-                    <input type="text" id="newItemImage" name="imageURL" placeholder="https://...">
-                </div>
-
-                <div class="config-group">
-                    <label class="config-label" for="newItemGiftId">Gift ID (optional)</label>
-                    <input type="number" id="newItemGiftId" name="giftId" placeholder="TikTok Gift ID">
-                </div>
-
-                <div class="config-group">
-                    <label class="config-label" for="giftCatalogSelect">Gift Catalogue</label>
-                    <select id="giftCatalogSelect">
-                        <option value="">-- Gift auswählen --</option>
-                    </select>
-                    <div class="config-description" id="giftCatalogSelectMeta">Wähle ein Gift aus dem Katalog, um Felder automatisch zu füllen.</div>
-                </div>
-
-                <div class="btn-group">
-                    <button type="submit" class="btn btn-primary">Item erstellen</button>
-                    <button type="button" class="btn btn-secondary" id="cancelCreateItemBtn">Abbrechen</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <script>
-        const socket = io();
-        let config = {};
-        let stats = {};
-        let items = [];
-        let giftCatalog = [];
-        const defaultBasePromptText = 'Create a fantasy RPG base item inspired by the TikTok gift "{giftName}". Isometric view, transparent background, soft glowing aura, crisp 2D icon.';
-        const defaultCraftedPromptText = 'Combine {itemA} and {itemB} into a single unique crafted fantasy RPG item. Isometric view, transparent background, {rarityColor} {auraEffect}, highly detailed, game-ready icon.';
-
-        const setActiveContents = (tabNames) => {
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            tabNames.forEach(name => {
-                const el = document.querySelector(`[data-tab-content="${name}"]`);
-                if (el) el.classList.add('active');
-            });
-        };
-
-        // Tab switching
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                const tabName = tab.dataset.tab;
-                
-                // Update active tab
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                
-                // Update active content (fusion + tiers are embedded under Item Management)
-                if (tabName === 'items') {
-                    setActiveContents(['items', 'fusion', 'tiers']);
-                } else {
-                    setActiveContents([tabName]);
-                }
-
-                // Load data for specific tabs
-                if (tabName === 'stats') {
-                    loadStats();
-                } else if (tabName === 'items') {
-                    loadItems();
-                    loadFusionData();
-                    loadTiersData();
-                    loadGiftCatalogData();
-                }
-            });
+      list.querySelectorAll('.preset-use-btn').forEach(button => {
+        button.addEventListener('click', () => {
+          document.getElementById('selectedPresetId').value = button.dataset.presetId;
+          if (!state.config) state.config = { localGeneration: {} };
+          if (!state.config.localGeneration) state.config.localGeneration = {};
+          state.config.localGeneration.selectedPresetId = button.dataset.presetId;
+          renderPresetCards();
+          renderLocalModelInstaller();
         });
+      });
+    }
 
-        // Load configuration
-        async function loadConfig() {
-            try {
-                const response = await fetch('/api/streamalchemy/config');
-                const data = await response.json();
-                if (data.success) {
-                    config = data.config;
-                    updateConfigForms();
-                }
-            } catch (error) {
-                console.error('Failed to load config:', error);
-                showMessage('Fehler beim Laden der Konfiguration', 'error');
-            }
+    function renderManualSteps() {
+      const preset = selectedPreset();
+      const steps = document.getElementById('manualSteps');
+      if (!preset) {
+        steps.innerHTML = '';
+        return;
+      }
+      const targetPath = state.localModel?.targetPath || preset.targetPath || preset.targetRelativePath;
+      steps.innerHTML = `
+        <li>Source: <a href="${escapeHtml(preset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(preset.source)}</a></li>
+        <li>Target file: ${escapeHtml(targetPath)}</li>
+        <li>Workflow: ${escapeHtml(preset.workflowId)}</li>
+        <li>${preset.installMethod === 'one_click' ? 'One-click is available when ComfyUI root is configured.' : 'Manual placement is required for this preset.'}</li>
+      `;
+    }
+
+    function renderLocalModelInstaller() {
+      const preset = selectedPreset();
+      const model = state.localModel || {};
+      const installButton = document.getElementById('installLocalModelBtn');
+      const stateValue = model.state || 'unknown';
+      const progress = model.bytesTotal
+        ? Math.min(100, Math.round(((model.bytesDownloaded || 0) / model.bytesTotal) * 100))
+        : (stateValue === 'installed' ? 100 : 0);
+
+      document.getElementById('localModelState').textContent = stateValue;
+      document.getElementById('localModelState').className = `status ${classToken(stateValue)}`;
+      document.getElementById('localModelPath').textContent = model.targetPath || preset?.targetPath || 'Model path not resolved yet.';
+      document.getElementById('localModelProgress').style.width = `${progress}%`;
+      document.getElementById('localModelBytes').textContent = model.bytesTotal
+        ? `${formatBytes(model.bytesDownloaded)} / ${formatBytes(model.bytesTotal)}`
+        : formatBytes(model.sizeBytes);
+
+      const errorMessage = installerErrorMessage(model);
+      const errorBox = document.getElementById('localModelError');
+      errorBox.textContent = errorMessage;
+      errorBox.classList.toggle('active', Boolean(errorMessage));
+
+      installButton.disabled = stateValue === 'installing' || model.canInstall === false;
+      installButton.textContent = stateValue === 'installing'
+        ? 'Installing...'
+        : (stateValue === 'installed' ? 'Local model installed' : (stateValue === 'failed' ? 'Retry local model install' : 'Install local model'));
+
+      renderManualSteps();
+    }
+
+    function renderSettings() {
+      const config = state.config || {};
+      const local = config.localGeneration || {};
+      document.getElementById('enabled').checked = config.enabled !== false;
+      document.getElementById('autoCrafting').checked = config.autoCrafting !== false;
+      document.getElementById('craftingWindowMs').value = config.craftingWindowMs || 6000;
+      document.getElementById('defaultStyle').value = config.defaultStyle || 'rpg';
+      document.getElementById('generationMode').value = local.generationMode || 'remote';
+      document.getElementById('providerOrder').value = (config.providerOrder || []).join(', ');
+      document.getElementById('comfyUrl').value = local.comfyUrl || 'http://127.0.0.1:8188';
+      document.getElementById('comfyRootDir').value = local.comfyRootDir || '';
+      document.getElementById('hfToken').value = '';
+      document.getElementById('localSize').value = `${local.width || 768}x${local.height || 768}`;
+      document.getElementById('localSteps').value = local.steps || 4;
+      document.getElementById('localConcurrency').value = local.concurrency || 1;
+      renderPresetOptions();
+      renderPresetCards();
+      renderLocalModelInstaller();
+    }
+
+    function renderAll() {
+      renderMetrics();
+      renderProviders();
+      renderAnalysis();
+      renderItems();
+      renderRecipes();
+      renderJobs();
+      renderSettings();
+    }
+
+    async function refresh() {
+      document.getElementById('refreshBtn').disabled = true;
+      try {
+        const [config, items, recipes, jobs, providers, analysis, catalog, localModel] = await Promise.all([
+          getJson('/api/streamalchemy/config'),
+          getJson('/api/streamalchemy/items'),
+          getJson('/api/streamalchemy/recipes'),
+          getJson('/api/streamalchemy/generation-jobs'),
+          getJson('/api/streamalchemy/providers/status'),
+          getJson('/api/streamalchemy/system-analysis'),
+          getJson('/api/streamalchemy/model-catalog'),
+          getJson('/api/streamalchemy/local-model/status')
+        ]);
+
+        state.config = config.config;
+        state.items = items.items || [];
+        state.recipes = recipes.recipes || [];
+        state.jobs = jobs.jobs || [];
+        state.providers = providers.providers || [];
+        state.analysis = analysis.analysis || null;
+        state.presets = catalog.presets || [];
+        state.localModel = localModel.model || null;
+        renderAll();
+        scheduleLocalModelPoll();
+      } catch (error) {
+        showNotice(error.message, 'error');
+      } finally {
+        document.getElementById('refreshBtn').disabled = false;
+      }
+    }
+
+    document.querySelectorAll('.nav button').forEach(button => {
+      button.addEventListener('click', () => {
+        const view = button.dataset.target;
+        document.querySelectorAll('.nav button').forEach(item => item.classList.toggle('active', item === button));
+        document.querySelectorAll('.view').forEach(section => section.classList.toggle('active', section.dataset.view === view));
+        document.getElementById('viewTitle').textContent = titles[view][0];
+        document.getElementById('viewSubtitle').textContent = titles[view][1];
+      });
+    });
+
+    document.getElementById('selectedPresetId').addEventListener('change', event => {
+      if (!state.config) state.config = { localGeneration: {} };
+      if (!state.config.localGeneration) state.config.localGeneration = {};
+      state.config.localGeneration.selectedPresetId = event.target.value;
+      renderPresetCards();
+      renderLocalModelInstaller();
+    });
+
+    document.getElementById('settingsForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const [width, height] = document.getElementById('localSize').value.split('x').map(value => Number(value.trim()));
+      const body = {
+        enabled: document.getElementById('enabled').checked,
+        autoCrafting: document.getElementById('autoCrafting').checked,
+        craftingWindowMs: Number(document.getElementById('craftingWindowMs').value),
+        defaultStyle: document.getElementById('defaultStyle').value,
+        providerOrder: document.getElementById('providerOrder').value.split(',').map(value => value.trim()).filter(Boolean),
+        localGeneration: {
+          generationMode: document.getElementById('generationMode').value,
+          selectedPresetId: document.getElementById('selectedPresetId').value,
+          comfyUrl: document.getElementById('comfyUrl').value.trim(),
+          comfyRootDir: document.getElementById('comfyRootDir').value.trim(),
+          width: width || 768,
+          height: height || 768,
+          steps: Number(document.getElementById('localSteps').value),
+          concurrency: Number(document.getElementById('localConcurrency').value)
         }
+      };
+      const hfToken = document.getElementById('hfToken').value.trim();
+      if (hfToken) {
+        body.localGeneration.modelAuthToken = hfToken;
+      }
 
-        // Update all config forms
-        function updateConfigForms() {
-            // General settings
-            document.getElementById('enabled').checked = config.enabled !== false;
-            document.getElementById('autoCrafting').checked = config.autoCrafting !== false;
-            document.getElementById('itemGenerationMode').value = config.itemGenerationMode || 'auto';
-            document.getElementById('craftingWindowMs').value = config.craftingWindowMs || 6000;
-            const openaiStatusEl = document.getElementById('openaiStatus');
-            if (openaiStatusEl) {
-                openaiStatusEl.textContent = config.hasOpenAIKey
-                    ? 'API Key vorhanden (zentral gespeichert)'
-                    : 'Kein API Key hinterlegt';
-            }
-            const siliconStatusEl = document.getElementById('siliconFlowStatus');
-            if (siliconStatusEl) {
-                siliconStatusEl.textContent = config.hasSiliconFlowKey
-                    ? 'API Key vorhanden (zentral gespeichert)'
-                    : 'Kein API Key hinterlegt';
-            }
-
-            // Fusion settings
-            const autoFusionEl = document.getElementById('autoFusionEnabled');
-            if (autoFusionEl) {
-                autoFusionEl.checked = config.autoFusionEnabled === true;
-            }
-            const preferredGeneratorEl = document.getElementById('preferredGenerator');
-            if (preferredGeneratorEl && config.preferredGenerator) {
-                preferredGeneratorEl.value = config.preferredGenerator;
-            }
-            const defaultStyleEl = document.getElementById('defaultStyle');
-            if (defaultStyleEl && config.defaultStyle) {
-                defaultStyleEl.value = config.defaultStyle;
-            }
-
-            // Silicon Flow API key - mask if exists
-            const siliconFlowInput = document.getElementById('siliconFlowApiKey');
-            if (siliconFlowInput) {
-                if (config.siliconFlowApiKey) {
-                    siliconFlowInput.value = '***SAVED***';
-                    siliconFlowInput.placeholder = 'API Key gespeichert (verborgen)';
-                } else {
-                    siliconFlowInput.value = '';
-                    siliconFlowInput.placeholder = 'sf-...';
-                }
-            }
-
-            // Custom prompts
-            if (config.customPrompts) {
-                document.getElementById('baseItemTemplate').value = config.customPrompts.baseItemTemplate || defaultBasePromptText;
-                document.getElementById('craftedItemTemplate').value = config.customPrompts.craftedItemTemplate || defaultCraftedPromptText;
-            }
-
-            // Animations
-            if (config.animations) {
-                document.getElementById('discoveryPopupDuration').value = config.animations.DISCOVERY_POPUP || 5000;
-                document.getElementById('craftingAnimationDuration').value = config.animations.CRAFTING_ANIMATION || 3000;
-                document.getElementById('counterBounceDuration').value = config.animations.COUNTER_BOUNCE || 500;
-                document.getElementById('particleDuration').value = config.animations.PARTICLE_DURATION || 2000;
-                const customStatus = document.getElementById('customAnimationStatus');
-                if (customStatus) {
-                    if (config.animations.customAnimationName || config.animations.customAnimationAsset) {
-                        customStatus.textContent = `Custom Upload vorhanden (${config.animations.customAnimationName || 'Datei'})`;
-                    } else {
-                        customStatus.textContent = 'Kein Custom-Upload vorhanden';
-                    }
-                }
-            }
-
-            // Tier settings
-            if (config.tierConfig) {
-                const tierEnabledEl = document.getElementById('tierSystemEnabled');
-                if (tierEnabledEl) {
-                    tierEnabledEl.checked = config.tierConfig.enabled !== false;
-                }
-            }
-
-            const baseRaritySelect = document.getElementById('defaultBaseRarity');
-            if (baseRaritySelect) {
-                baseRaritySelect.value = config.defaultBaseRarity || 'Common';
-            }
-        }
-
-        // General form submission
-        document.getElementById('general-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-
-            const updates = {
-                enabled: formData.get('enabled') === 'on',
-                autoCrafting: formData.get('autoCrafting') === 'on',
-                itemGenerationMode: formData.get('itemGenerationMode'),
-                craftingWindowMs: parseInt(formData.get('craftingWindowMs'))
-            };
-
-            await saveConfig(updates);
+      try {
+        await getJson('/api/streamalchemy/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
         });
+        showNotice('Settings saved.');
+        await refresh();
+      } catch (error) {
+        showNotice(error.message, 'error');
+      }
+    });
 
-        // Prompts form submission
-        document.getElementById('prompts-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            
-            const updates = {
-                customPrompts: {
-                    baseItemTemplate: formData.get('baseItemTemplate'),
-                    craftedItemTemplate: formData.get('craftedItemTemplate')
-                }
-            };
+    async function loadLocalModelStatus() {
+      try {
+        const previousState = state.localModel?.state;
+        const payload = await getJson('/api/streamalchemy/local-model/status');
+        state.localModel = payload.model || null;
+        renderLocalModelInstaller();
+        if (previousState === 'installing' && state.localModel?.state === 'failed') {
+          showNotice(installerErrorMessage(state.localModel), 'error');
+        }
+        scheduleLocalModelPoll();
+      } catch (error) {
+        showNotice(error.message, 'error');
+      }
+    }
 
-            await saveConfig(updates);
+    function scheduleLocalModelPoll() {
+      clearTimeout(localModelPollTimer);
+      if (state.localModel?.state === 'installing') {
+        localModelPollTimer = setTimeout(loadLocalModelStatus, 1500);
+      }
+    }
+
+    document.getElementById('installLocalModelBtn').addEventListener('click', async () => {
+      const button = document.getElementById('installLocalModelBtn');
+      button.disabled = true;
+      try {
+        const payload = await getJson('/api/streamalchemy/local-model/install', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            presetId: document.getElementById('selectedPresetId').value
+          })
         });
-
-        // Animations form submission
-        document.getElementById('animations-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            
-            const updates = {
-                animations: {
-                    DISCOVERY_POPUP: parseInt(formData.get('discoveryPopupDuration')),
-                    CRAFTING_ANIMATION: parseInt(formData.get('craftingAnimationDuration')),
-                    COUNTER_BOUNCE: parseInt(formData.get('counterBounceDuration')),
-                    PARTICLE_DURATION: parseInt(formData.get('particleDuration'))
-                }
-            };
-            const customFile = document.getElementById('customAnimationFile')?.files?.[0];
-            if (customFile) {
-                try {
-                    const base64 = await fileToBase64(customFile);
-                    updates.animations.customAnimationAsset = base64;
-                    updates.animations.customAnimationName = customFile.name;
-                } catch (error) {
-                    showMessage('❌ Fehler beim Lesen der Custom-Animation', 'error');
-                }
-            }
-
-            await saveConfig(updates);
-        });
-
-        // Advanced form submission
-        document.getElementById('advanced-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            
-            const updates = {
-                dalleConfig: {
-                    model: formData.get('dalleModel'),
-                    size: formData.get('dalleSize'),
-                    quality: formData.get('dalleQuality'),
-                    style: formData.get('dalleStyle')
-                },
-                rateLimit: {
-                    GIFTS_PER_USER_PER_MINUTE: parseInt(formData.get('rateLimitGifts')),
-                    CRAFTING_PER_USER_PER_MINUTE: parseInt(formData.get('rateLimitCrafts'))
-                }
-            };
-
-            await saveConfig(updates);
-        });
-
-        // Rarity form submission
-        document.getElementById('rarity-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            
-            const updates = {
-                defaultBaseRarity: formData.get('default-base-rarity') || 'Common',
-                rarityTiers: {
-                    BRONZE: {
-                        min: 0,
-                        max: parseInt(formData.get('common-max')),
-                        name: 'Common',
-                        color: formData.get('common-color')
-                    },
-                    SILVER: {
-                        min: parseInt(formData.get('rare-min')),
-                        max: parseInt(formData.get('rare-max')),
-                        name: 'Rare',
-                        color: formData.get('rare-color')
-                    },
-                    GOLD: {
-                        min: parseInt(formData.get('legendary-min')),
-                        max: parseInt(formData.get('legendary-max')),
-                        name: 'Legendary',
-                        color: formData.get('legendary-color')
-                    },
-                    PURPLE: {
-                        min: parseInt(formData.get('mythic-min')),
-                        max: Infinity,
-                        name: 'Mythic',
-                        color: formData.get('mythic-color')
-                    }
-                }
-            };
-
-            await saveConfig(updates);
-        });
-
-        // Save configuration
-        async function saveConfig(updates) {
-            try {
-                const response = await fetch('/api/streamalchemy/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updates)
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    config = data.config;
-                    showMessage('✅ Konfiguration erfolgreich gespeichert!', 'success');
-                } else {
-                    showMessage('❌ Fehler beim Speichern der Konfiguration', 'error');
-                }
-            } catch (error) {
-                console.error('Failed to save config:', error);
-                showMessage('❌ Fehler beim Speichern der Konfiguration', 'error');
-            }
-        }
-
-        // Reset prompts to default
-        function resetPrompts() {
-            document.getElementById('baseItemTemplate').value = defaultBasePromptText;
-            document.getElementById('craftedItemTemplate').value = defaultCraftedPromptText;
-            showMessage('Prompts auf Standard gesetzt (speichern nicht vergessen)', 'info');
-        }
-
-        // Load statistics
-        async function loadStats() {
-            try {
-                const response = await fetch('/api/streamalchemy/stats');
-                const data = await response.json();
-                if (data.success) {
-                    stats = data;
-                    updateStatsDisplay();
-                }
-            } catch (error) {
-                console.error('Failed to load stats:', error);
-            }
-        }
-
-        // Update stats display
-        function updateStatsDisplay() {
-            document.getElementById('stat-total-items').textContent = stats.database?.totalItems || 0;
-            document.getElementById('stat-base-items').textContent = stats.database?.baseItems || 0;
-            document.getElementById('stat-crafted-items').textContent = stats.database?.craftedItems || 0;
-            document.getElementById('stat-total-users').textContent = stats.database?.totalUsers || 0;
-            document.getElementById('stat-active-buffers').textContent = stats.activeBuffers || 0;
-            document.getElementById('stat-ai-requests').textContent = stats.crafting?.totalRequests || 0;
-
-            if (stats.database?.rarityDistribution) {
-                document.getElementById('stat-rarity-common').textContent = stats.database.rarityDistribution.Common || 0;
-                document.getElementById('stat-rarity-rare').textContent = stats.database.rarityDistribution.Rare || 0;
-                document.getElementById('stat-rarity-legendary').textContent = stats.database.rarityDistribution.Legendary || 0;
-                document.getElementById('stat-rarity-mythic').textContent = stats.database.rarityDistribution.Mythic || 0;
-            }
-        }
-
-        // Load items
-        async function loadItems() {
-            try {
-                const response = await fetch('/api/streamalchemy/items');
-                const data = await response.json();
-                if (data.success) {
-                    items = data.items;
-                    displayItems();
-                }
-            } catch (error) {
-                console.error('Failed to load items:', error);
-                document.getElementById('items-container').innerHTML = '<div class="error">Fehler beim Laden der Items</div>';
-            }
-        }
-
-        // Display items
-        function displayItems() {
-            const container = document.getElementById('items-container');
-            
-            if (!items || items.length === 0) {
-                container.innerHTML = '<p style="text-align: center; padding: 40px; color: var(--color-text-secondary);">Noch keine Items vorhanden</p>';
-                return;
-            }
-
-            const table = document.createElement('table');
-            table.className = 'items-table';
-            
-            // Create thead
-            const thead = document.createElement('thead');
-            thead.innerHTML = `
-                <tr>
-                    <th>Bild</th>
-                    <th>Name</th>
-                    <th>Seltenheit</th>
-                    <th>Typ</th>
-                    <th>Münzen</th>
-                    <th>Erstellt</th>
-                    <th>Aktionen</th>
-                </tr>
-            `;
-            table.appendChild(thead);
-            
-            // Create tbody with proper DOM manipulation to avoid XSS
-            const tbody = document.createElement('tbody');
-            items.forEach(item => {
-                const tr = document.createElement('tr');
-                
-                // Image cell
-                const tdImage = document.createElement('td');
-                if (item.imageURL) {
-                    const img = document.createElement('img');
-                    img.src = escapeHtml(item.imageURL);
-                    img.alt = escapeHtml(item.name);
-                    img.className = 'item-image';
-                    tdImage.appendChild(img);
-                } else {
-                    tdImage.textContent = '📦';
-                }
-                tr.appendChild(tdImage);
-                
-                // Name cell
-                const tdName = document.createElement('td');
-                tdName.textContent = item.name;
-                tr.appendChild(tdName);
-                
-                // Rarity cell
-                const tdRarity = document.createElement('td');
-                const rarityBadge = document.createElement('span');
-                rarityBadge.className = `rarity-badge rarity-${escapeHtml(item.rarity)}`;
-                rarityBadge.textContent = item.rarity;
-                tdRarity.appendChild(rarityBadge);
-                tr.appendChild(tdRarity);
-                
-                // Type cell
-                const tdType = document.createElement('td');
-                tdType.textContent = item.isCrafted ? '🔨 Crafted' : '🎁 Base';
-                tr.appendChild(tdType);
-                
-                // Coins cell
-                const tdCoins = document.createElement('td');
-                tdCoins.textContent = item.coinValue;
-                tr.appendChild(tdCoins);
-                
-                // Created cell
-                const tdCreated = document.createElement('td');
-                tdCreated.textContent = new Date(item.createdAt).toLocaleString('de-DE');
-                tr.appendChild(tdCreated);
-                
-                // Actions cell
-                const tdActions = document.createElement('td');
-                
-                const btnEdit = document.createElement('button');
-                btnEdit.className = 'btn btn-secondary';
-                btnEdit.style.cssText = 'padding: 4px 8px; font-size: 0.75rem;';
-                btnEdit.textContent = '✏️';
-                btnEdit.addEventListener('click', () => editItem(item.itemId));
-                tdActions.appendChild(btnEdit);
-                
-                const btnDelete = document.createElement('button');
-                btnDelete.className = 'btn btn-danger';
-                btnDelete.style.cssText = 'padding: 4px 8px; font-size: 0.75rem; margin-left: 4px;';
-                btnDelete.textContent = '🗑️';
-                btnDelete.addEventListener('click', () => deleteItem(item.itemId));
-                tdActions.appendChild(btnDelete);
-                
-                tr.appendChild(tdActions);
-                tbody.appendChild(tr);
-            });
-            
-            table.appendChild(tbody);
-            container.innerHTML = '';
-            container.appendChild(table);
-        }
-
-        async function loadGiftCatalogData() {
-            const status = document.getElementById('giftCatalogStatus');
-            if (status) status.textContent = 'Lade Gift-Katalog...';
-            try {
-                const response = await fetch('/api/gift-catalog');
-                const data = await response.json();
-                if (data.success) {
-                    giftCatalog = data.catalog || [];
-                    if (status) status.textContent = `Gift-Katalog geladen (${giftCatalog.length} Gifts)`;
-                    populateGiftSelect();
-                } else {
-                    if (status) status.textContent = 'Gift-Katalog konnte nicht geladen werden';
-                }
-            } catch (error) {
-                console.error('Failed to load gift catalog:', error);
-                if (status) status.textContent = 'Gift-Katalog Fehler';
-            }
-        }
-
-        function populateGiftSelect() {
-            const select = document.getElementById('giftCatalogSelect');
-            if (!select) return;
-            select.innerHTML = '<option value=\"\">-- Gift auswählen --</option>';
-            giftCatalog
-                .sort((a, b) => (b.diamond_count || 0) - (a.diamond_count || 0))
-                .forEach(gift => {
-                    const option = document.createElement('option');
-                    option.value = gift.id;
-                    option.textContent = `${gift.name || 'Gift'} (${gift.diamond_count || gift.coins || 0} Coins)`;
-                    select.appendChild(option);
-                });
-        }
-
-        function applyGiftSelection(giftId) {
-            const gift = giftCatalog.find(g => String(g.id) === String(giftId));
-            if (!gift) return;
-            const nameInput = document.getElementById('newItemName');
-            const coinInput = document.getElementById('newItemCoins');
-            const giftIdInput = document.getElementById('newItemGiftId');
-            const imageInput = document.getElementById('newItemImage');
-            const raritySelect = document.getElementById('newItemRarity');
-            if (nameInput) nameInput.value = gift.name || nameInput.value;
-            if (coinInput) coinInput.value = gift.diamond_count || gift.coins || coinInput.value || 0;
-            if (giftIdInput) giftIdInput.value = gift.id || '';
-            if (imageInput && gift.image) imageInput.value = gift.image;
-            if (raritySelect && config.defaultBaseRarity) raritySelect.value = config.defaultBaseRarity;
-
-            const meta = document.getElementById('giftCatalogSelectMeta');
-            if (meta) {
-                meta.textContent = `Ausgewählt: ${gift.name || 'Gift'} (${gift.diamond_count || gift.coins || 0} Coins)`;
-            }
-        }
-
-        // HTML escape helper function
-        function escapeHtml(text) {
-            if (typeof text !== 'string') return text;
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // File to base64 helper for uploads
-        function fileToBase64(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-        }
-
-        // Create item modal
-        function openCreateItemModal() {
-            document.getElementById('createItemModal').classList.add('active');
-            populateGiftSelect();
-        }
-
-        function closeCreateItemModal() {
-            document.getElementById('createItemModal').classList.remove('active');
-            document.getElementById('create-item-form').reset();
-        }
-
-        // Create item form submission
-        document.getElementById('create-item-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            
-            const itemData = {
-                name: formData.get('name'),
-                rarity: formData.get('rarity'),
-                coinValue: parseInt(formData.get('coinValue')) || 0,
-                imageURL: formData.get('imageURL') || null,
-                giftId: formData.get('giftId') ? parseInt(formData.get('giftId')) : null
-            };
-
-            try {
-                const response = await fetch('/api/streamalchemy/items', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(itemData)
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showMessage('✅ Item erfolgreich erstellt!', 'success');
-                    closeCreateItemModal();
-                    loadItems();
-                } else {
-                    showMessage('❌ Fehler beim Erstellen des Items', 'error');
-                }
-            } catch (error) {
-                console.error('Failed to create item:', error);
-                showMessage('❌ Fehler beim Erstellen des Items', 'error');
-            }
-        });
-
-        // Edit item (placeholder)
-        function editItem(itemId) {
-            showMessage('Item-Bearbeitung kommt bald', 'info');
-        }
-
-        // Delete item
-        async function deleteItem(itemId) {
-            if (!confirm('Möchtest du dieses Item wirklich löschen?')) {
-                return;
-            }
-
-            try {
-                const response = await fetch(`/api/streamalchemy/items/${itemId}`, {
-                    method: 'DELETE'
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showMessage('✅ Item erfolgreich gelöscht!', 'success');
-                    loadItems();
-                } else {
-                    showMessage('❌ Fehler beim Löschen des Items', 'error');
-                }
-            } catch (error) {
-                console.error('Failed to delete item:', error);
-                showMessage('❌ Fehler beim Löschen des Items', 'error');
-            }
-        }
-
-        // Show message
-        function showMessage(text, type) {
-            const container = document.getElementById('message-container');
-            const message = document.createElement('div');
-            message.className = type;
-            message.textContent = text;
-            container.appendChild(message);
-            
-            setTimeout(() => message.remove(), 5000);
-        }
-
-        // Socket.io listeners
-        socket.on('streamalchemy:item_discovery', (data) => {
-            if (document.querySelector('[data-tab-content="items"]').classList.contains('active')) {
-                loadItems();
-            }
-            loadStats();
-        });
-
-        socket.on('streamalchemy:crafting_complete', (data) => {
-            if (document.querySelector('[data-tab-content="items"]').classList.contains('active')) {
-                loadItems();
-            }
-            loadStats();
-        });
-
-        // Button event listeners
-        document.getElementById('resetGeneralBtn').addEventListener('click', loadConfig);
-        document.getElementById('resetPromptsBtn').addEventListener('click', resetPrompts);
-        document.getElementById('openCreateItemModalBtn').addEventListener('click', openCreateItemModal);
-        document.getElementById('refreshItemsBtn').addEventListener('click', loadItems);
-        document.getElementById('loadGiftCatalogBtn').addEventListener('click', loadGiftCatalogData);
-        document.getElementById('closeCreateItemModalBtn').addEventListener('click', closeCreateItemModal);
-        document.getElementById('cancelCreateItemBtn').addEventListener('click', closeCreateItemModal);
-        document.getElementById('giftCatalogSelect').addEventListener('change', function() {
-            if (this.value) {
-                applyGiftSelection(this.value);
-            } else {
-                const meta = document.getElementById('giftCatalogSelectMeta');
-                if (meta) meta.textContent = 'Wähle ein Gift aus dem Katalog, um Felder automatisch zu füllen.';
-            }
-        });
-
-        // ==================== FUSION FUNCTIONS ====================
-
-        // Load fusion data (items for selection, stats)
-        async function loadFusionData() {
-            try {
-                // Load items for fusion selection
-                const itemsResponse = await fetch('/api/streamalchemy/items');
-                const itemsData = await itemsResponse.json();
-                
-                if (itemsData.success) {
-                    populateFusionSelects(itemsData.items);
-                }
-
-                // Load fusion config
-                const configResponse = await fetch('/api/streamalchemy/fusion/config');
-                const configData = await configResponse.json();
-                
-                if (configData.success) {
-                    const autoFusionEl = document.getElementById('autoFusionEnabled');
-                    if (autoFusionEl) autoFusionEl.checked = configData.config.autoFusionEnabled;
-                    
-                    const preferredGeneratorEl = document.getElementById('preferredGenerator');
-                    if (preferredGeneratorEl && configData.config.preferredGenerator) {
-                        preferredGeneratorEl.value = configData.config.preferredGenerator;
-                    }
-                    
-                    const defaultStyleEl = document.getElementById('defaultStyle');
-                    if (defaultStyleEl && configData.config.defaultStyle) {
-                        defaultStyleEl.value = configData.config.defaultStyle;
-                    }
-                }
-
-                // Load fusion stats
-                loadFusionStats();
-            } catch (error) {
-                console.error('Failed to load fusion data:', error);
-            }
-        }
-
-        // Populate fusion item selects
-        function populateFusionSelects(items) {
-            const selectA = document.getElementById('fusionItemA');
-            const selectB = document.getElementById('fusionItemB');
-            
-            if (!selectA || !selectB) return;
-
-            // Clear existing options (keep the first placeholder)
-            selectA.innerHTML = '<option value="">-- Item wählen --</option>';
-            selectB.innerHTML = '<option value="">-- Item wählen --</option>';
-
-            // Add items
-            items.forEach(item => {
-                const optionA = document.createElement('option');
-                optionA.value = item.itemId;
-                optionA.textContent = `${item.name} (${item.rarity})`;
-                selectA.appendChild(optionA);
-
-                const optionB = document.createElement('option');
-                optionB.value = item.itemId;
-                optionB.textContent = `${item.name} (${item.rarity})`;
-                selectB.appendChild(optionB);
-            });
-
-            // Store items for preview
-            window.fusionItems = items;
-        }
-
-        // Handle fusion item selection change
-        document.getElementById('fusionItemA')?.addEventListener('change', function() {
-            updateFusionPreview('A', this.value);
-            updateFusionButton();
-        });
-
-        document.getElementById('fusionItemB')?.addEventListener('change', function() {
-            updateFusionPreview('B', this.value);
-            updateFusionButton();
-        });
-
-        function updateFusionPreview(side, itemId) {
-            const previewEl = document.getElementById(`fusionItem${side}Preview`);
-            if (!previewEl) return;
-
-            if (!itemId) {
-                previewEl.classList.add('hidden');
-                return;
-            }
-
-            const item = window.fusionItems?.find(i => i.itemId === itemId);
-            if (item) {
-                const img = previewEl.querySelector('.preview-image');
-                const name = previewEl.querySelector('.preview-name');
-                
-                if (img) img.src = item.imageURL || '/assets/placeholder-item.png';
-                if (name) name.textContent = item.name;
-                
-                previewEl.classList.remove('hidden');
-            }
-        }
-
-        function updateFusionButton() {
-            const itemA = document.getElementById('fusionItemA')?.value;
-            const itemB = document.getElementById('fusionItemB')?.value;
-            const btn = document.getElementById('performFusionBtn');
-            
-            if (btn) {
-                btn.disabled = !itemA || !itemB || itemA === itemB;
-            }
-        }
-
-        // Perform fusion
-        document.getElementById('performFusionBtn')?.addEventListener('click', async function() {
-            const itemAId = document.getElementById('fusionItemA')?.value;
-            const itemBId = document.getElementById('fusionItemB')?.value;
-            const style = document.getElementById('fusionStyle')?.value || 'rpg';
-
-            if (!itemAId || !itemBId) {
-                showMessage('Bitte wähle zwei Items aus', 'error');
-                return;
-            }
-
-            if (itemAId === itemBId) {
-                showMessage('Gleiche Items können nicht fusioniert werden', 'error');
-                return;
-            }
-
-            this.disabled = true;
-            this.textContent = '⏳ Fusioniere...';
-
-            try {
-                const response = await fetch('/api/streamalchemy/fusion/perform', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        itemAId,
-                        itemBId,
-                        style,
-                        userId: 'manual_ui_fusion'
-                    })
-                });
-
-                const data = await response.json();
-                
-                if (data.success) {
-                    showMessage(`✅ Fusion erfolgreich! ${data.item.name} erstellt.`, 'success');
-                    
-                    // Show result
-                    const resultEl = document.getElementById('fusionResult');
-                    const contentEl = document.getElementById('fusionResultContent');
-                    
-                    if (resultEl && contentEl) {
-                        contentEl.innerHTML = `
-                            <div style="display: flex; align-items: center; gap: 16px;">
-                                <img src="${escapeHtml(data.item.imageURL || '/assets/placeholder-item.png')}" 
-                                     alt="${escapeHtml(data.item.name)}" 
-                                     style="width: 100px; height: 100px; object-fit: contain; border-radius: 8px;">
-                                <div>
-                                    <h4>${escapeHtml(data.item.name)}</h4>
-                                    <p>Seltenheit: <span class="rarity-badge rarity-${data.item.rarity}">${data.item.rarity}</span></p>
-                                    <p>Stil: ${escapeHtml(data.item.style || 'rpg')}</p>
-                                    ${data.fromCache ? '<p><em>Aus Cache geladen</em></p>' : ''}
-                                </div>
-                            </div>
-                        `;
-                        resultEl.classList.remove('hidden');
-                    }
-
-                    // Refresh stats
-                    loadFusionStats();
-                    loadFusionData();
-                } else {
-                    showMessage(`❌ Fusion fehlgeschlagen: ${data.error}`, 'error');
-                }
-            } catch (error) {
-                console.error('Fusion error:', error);
-                showMessage('❌ Fusion fehlgeschlagen', 'error');
-            } finally {
-                this.disabled = false;
-                this.textContent = '⚗️ Fusionieren';
-                updateFusionButton();
-            }
-        });
-
-        // Load fusion stats
-        async function loadFusionStats() {
-            try {
-                const response = await fetch('/api/streamalchemy/fusion/stats');
-                const data = await response.json();
-                
-                if (data.success) {
-                    const s = data.stats;
-                    document.getElementById('stat-total-fusions').textContent = s.totalFusions || 0;
-                    document.getElementById('stat-manual-fusions').textContent = s.manualFusions || 0;
-                    document.getElementById('stat-auto-fusions').textContent = s.autoFusions || 0;
-                    document.getElementById('stat-cache-hits').textContent = s.cacheHits || 0;
-                    document.getElementById('stat-siliconflow-generations').textContent = s.siliconFlowGenerations || 0;
-                    document.getElementById('stat-dalle-generations').textContent = s.dalleGenerations || 0;
-                }
-            } catch (error) {
-                console.error('Failed to load fusion stats:', error);
-            }
-        }
-
-        // Fusion config form submission
-        document.getElementById('fusion-config-form')?.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const updates = {
-                autoFusionEnabled: document.getElementById('autoFusionEnabled')?.checked || false,
-                preferredGenerator: document.getElementById('preferredGenerator')?.value || 'siliconflow',
-                defaultStyle: document.getElementById('defaultStyle')?.value || 'rpg'
-            };
-
-            try {
-                const response = await fetch('/api/streamalchemy/fusion/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updates)
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showMessage('✅ Fusion-Einstellungen gespeichert!', 'success');
-                } else {
-                    showMessage('❌ Fehler beim Speichern', 'error');
-                }
-            } catch (error) {
-                console.error('Failed to save fusion config:', error);
-                showMessage('❌ Fehler beim Speichern', 'error');
-            }
-        });
-
-        // ==================== TIERS FUNCTIONS ====================
-
-        let tiersConfig = null;
-
-        async function loadTiersData() {
-            try {
-                const response = await fetch('/api/streamalchemy/tiers/config');
-                const data = await response.json();
-                
-                if (data.success) {
-                    tiersConfig = data.config;
-                    
-                    // Update enabled checkbox
-                    const tierEnabledEl = document.getElementById('tierSystemEnabled');
-                    if (tierEnabledEl) {
-                        tierEnabledEl.checked = tiersConfig.enabled !== false;
-                    }
-                    
-                    // Render tier configs
-                    renderTiersConfig();
-                    renderFramePreviews();
-                }
-            } catch (error) {
-                console.error('Failed to load tiers data:', error);
-            }
-        }
-
-        function renderTiersConfig() {
-            const container = document.getElementById('tiers-config-container');
-            if (!container || !tiersConfig?.tiers) return;
-
-            container.innerHTML = tiersConfig.tiers.map((tier, index) => `
-                <div class="config-group tier-config-item" style="padding: 16px; background: var(--color-bg-secondary); border-radius: 8px; margin-bottom: 12px;">
-                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                        <span style="width: 24px; height: 24px; border-radius: 50%; background: ${escapeHtml(tier.color)}; display: inline-block;"></span>
-                        <strong>Stufe ${tier.level}: ${escapeHtml(tier.name)}</strong>
-                    </div>
-                    <div class="config-grid">
-                        <div>
-                            <label>Name:</label>
-                            <input type="text" data-tier="${tier.level}" data-field="name" value="${escapeHtml(tier.name)}" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label>Farbe:</label>
-                            <input type="color" data-tier="${tier.level}" data-field="color" value="${tier.color}" style="width: 100%; height: 36px;">
-                        </div>
-                        <div>
-                            <label>Items für Upgrade:</label>
-                            <input type="number" data-tier="${tier.level}" data-field="itemsToUpgrade" 
-                                   value="${tier.itemsToUpgrade || ''}" 
-                                   placeholder="${tier.itemsToUpgrade === null ? 'Max Stufe' : ''}"
-                                   ${tier.itemsToUpgrade === null ? 'disabled' : ''}
-                                   min="1" max="100" style="width: 100%;">
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function renderFramePreviews() {
-            const container = document.getElementById('frame-preview-container');
-            if (!container || !tiersConfig?.tiers) return;
-
-            container.innerHTML = tiersConfig.tiers.map(tier => `
-                <div class="config-group" style="text-align: center;">
-                    <div style="width: 80px; height: 80px; margin: 0 auto 8px; border: 3px solid ${tier.color}; border-radius: 8px; box-shadow: 0 0 10px ${tier.glowColor || tier.color}; display: flex; align-items: center; justify-content: center; background: var(--color-bg-secondary);">
-                        <span style="font-size: 24px;">📦</span>
-                    </div>
-                    <div style="font-weight: bold;">${escapeHtml(tier.name)}</div>
-                    <div style="color: var(--color-text-secondary); font-size: 12px;">Stufe ${tier.level}</div>
-                </div>
-            `).join('');
-        }
-
-        // Save tiers config
-        document.getElementById('saveTiersBtn')?.addEventListener('click', async () => {
-            if (!tiersConfig) return;
-
-            // Collect updated values
-            const updatedTiers = tiersConfig.tiers.map(tier => {
-                const nameInput = document.querySelector(`[data-tier="${tier.level}"][data-field="name"]`);
-                const colorInput = document.querySelector(`[data-tier="${tier.level}"][data-field="color"]`);
-                const upgradeInput = document.querySelector(`[data-tier="${tier.level}"][data-field="itemsToUpgrade"]`);
-
-                return {
-                    ...tier,
-                    name: nameInput?.value || tier.name,
-                    color: colorInput?.value || tier.color,
-                    itemsToUpgrade: upgradeInput?.value ? parseInt(upgradeInput.value) : tier.itemsToUpgrade
-                };
-            });
-
-            try {
-                const response = await fetch('/api/streamalchemy/tiers/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        enabled: document.getElementById('tierSystemEnabled')?.checked,
-                        tiers: updatedTiers
-                    })
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showMessage('✅ Stufen-Einstellungen gespeichert!', 'success');
-                    tiersConfig = data.config;
-                    renderFramePreviews();
-                } else {
-                    showMessage('❌ Fehler beim Speichern', 'error');
-                }
-            } catch (error) {
-                console.error('Failed to save tiers config:', error);
-                showMessage('❌ Fehler beim Speichern', 'error');
-            }
-        });
-
-        // Initialize
-        loadConfig();
-        loadStats();
-
-        // Auto-refresh stats
-        setInterval(() => {
-            if (document.querySelector('[data-tab-content="stats"]').classList.contains('active')) {
-                loadStats();
-            }
-        }, 5000);
-    </script>
+        state.localModel = payload.model || null;
+        renderLocalModelInstaller();
+        showNotice('Local model installation started.');
+        scheduleLocalModelPoll();
+      } catch (error) {
+        showNotice(error.message, 'error');
+      } finally {
+        renderLocalModelInstaller();
+      }
+    });
+
+    document.getElementById('runLocalTestBtn').addEventListener('click', async () => {
+      try {
+        const payload = await getJson('/api/streamalchemy/local-generation/test', { method: 'POST' });
+        showNotice(`Local test generation succeeded via ${payload.result.provider}.`);
+      } catch (error) {
+        showNotice(error.message, 'error');
+      }
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', refresh);
+    refresh();
+  </script>
 </body>
 </html>

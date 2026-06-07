@@ -16,6 +16,7 @@
             background: transparent;
             overflow: hidden;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            position: relative;
         }
 
         #canvas-container {
@@ -29,6 +30,46 @@
             will-change: transform;
             transform: translate3d(0, 0, 0);
             backface-visibility: hidden;
+            isolation: isolate;
+        }
+
+        body[data-visual-mode="premium_stage"]::before,
+        body[data-visual-mode="premium_stage"]::after,
+        #canvas-container::before,
+        #canvas-container::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        body[data-visual-mode="premium_stage"]::before {
+            background:
+                radial-gradient(circle at 50% 18%, rgba(255, 214, 138, 0.14), transparent 30%),
+                radial-gradient(circle at 18% 78%, rgba(104, 160, 255, 0.09), transparent 24%),
+                radial-gradient(circle at 82% 80%, rgba(255, 112, 170, 0.08), transparent 22%);
+            filter: blur(10px);
+            opacity: 0.9;
+        }
+
+        body[data-visual-mode="premium_stage"]::after {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 28%, rgba(255, 255, 255, 0.02) 72%, transparent);
+            opacity: 0.65;
+            mix-blend-mode: screen;
+        }
+
+        body[data-visual-mode="premium_stage"] #canvas-container::before {
+            background:
+                radial-gradient(circle at 50% 12%, rgba(255, 230, 170, 0.16), transparent 24%),
+                radial-gradient(circle at 50% 72%, rgba(86, 133, 255, 0.08), transparent 34%);
+            filter: blur(20px);
+            opacity: 0.8;
+        }
+
+        body[data-visual-mode="premium_stage"] #canvas-container::after {
+            background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.05) 50%, transparent 65%);
+            opacity: 0.55;
+            mix-blend-mode: screen;
         }
 
         canvas {
@@ -47,15 +88,49 @@
             pointer-events: none;
             user-select: none;
             transform-origin: center;
-            transition: opacity 0.5s ease;
+            transition: opacity 0.24s ease, filter 0.24s ease;
             will-change: transform, opacity;
             /* Hardware acceleration */
             transform: translate3d(0, 0, 0);
             backface-visibility: hidden;
+            text-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+        }
+
+        .emoji-sprite[data-layer="background"] {
+            opacity: 0.74;
+        }
+
+        .emoji-sprite[data-layer="mid"] {
+            opacity: 0.92;
+        }
+
+        .emoji-sprite[data-layer="foreground"] {
+            opacity: 1;
+        }
+
+        .emoji-sprite[data-emphasis="gift"],
+        .emoji-sprite[data-emphasis="superfan"] {
+            text-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+        }
+
+        .emoji-sprite[data-emphasis="sticker"] {
+            text-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .particle-trail {
+            mix-blend-mode: screen;
         }
 
         .emoji-sprite.fading {
             opacity: 0;
+        }
+
+        .gift-ball {
+            border-radius: 18px;
+        }
+
+        .heart-balloon {
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22), 0 0 28px rgba(255, 120, 170, 0.16);
         }
 
         /* Bubble Blop Animation - using scale only to preserve position/rotation */
@@ -121,6 +196,6 @@
     <script src="/socket.io/socket.io.js"></script>
 
     <!-- Use enhanced engine -->
-    <script src="/js/webgpu-emoji-rain-engine.js"></script>
+    <script src="/js/webgpu-emoji-rain-engine.js?v=heart-balloons-pop-3"></script>
 </body>
 </html>

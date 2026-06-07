@@ -105,7 +105,7 @@ describe('Fireworks Performance Optimizations', () => {
             // Verify performance constants are defined
             expect(engineCode).toContain('IDEAL_FRAME_TIME: 16.67');
             expect(engineCode).toContain('FPS_TIMING_TOLERANCE: 1');
-            expect(engineCode).toContain('ALPHA_CULL_THRESHOLD: 0.01');
+            expect(engineCode).toContain('ALPHA_CULL_THRESHOLD: 0.05');
         });
 
         test('should use IDEAL_FRAME_TIME constant for deltaTime calculation', () => {

@@ -172,12 +172,7 @@ class BrainEngine {
   async loadActivePersonality() {
     const personality = this.memoryDb.getActivePersonality();
     if (personality) {
-      this.currentPersonality = {
-        ...personality,
-        emotion_tendencies: JSON.parse(personality.emotion_tendencies || '{}'),
-        catchphrases: JSON.parse(personality.catchphrases || '[]'),
-        topics_of_interest: JSON.parse(personality.topics_of_interest || '[]')
-      };
+      this.currentPersonality = this._parsePersonality(personality);
       this.config.activePersonality = personality.name;
       this.logger.info(`Loaded personality: ${personality.display_name}`);
     }
@@ -196,12 +191,7 @@ class BrainEngine {
    * Get all available personalities
    */
   getPersonalities() {
-    return this.memoryDb.getPersonalities().map(p => ({
-      ...p,
-      emotion_tendencies: JSON.parse(p.emotion_tendencies || '{}'),
-      catchphrases: JSON.parse(p.catchphrases || '[]'),
-      topics_of_interest: JSON.parse(p.topics_of_interest || '[]')
-    }));
+    return this.memoryDb.getPersonalities().map(p => this._parsePersonality(p));
   }
 
   /**
@@ -209,6 +199,62 @@ class BrainEngine {
    */
   createPersonality(data) {
     return this.memoryDb.createPersonality(data);
+  }
+
+  getPersonality(name) {
+    const personality = this.memoryDb.getPersonality(name);
+    return personality ? this._parsePersonality(personality) : undefined;
+  }
+
+  updatePersonality(name, updates) {
+    this.memoryDb.updatePersonality(name, updates);
+    if (this.currentPersonality?.name === name) {
+      const personality = this.memoryDb.getPersonality(name);
+      this.currentPersonality = personality ? this._parsePersonality(personality) : null;
+    }
+  }
+
+  deletePersonality(name) {
+    const deleted = this.memoryDb.deletePersonality(name);
+    if (deleted && this.currentPersonality?.name === name) {
+      this.currentPersonality = null;
+    }
+    return deleted;
+  }
+
+  _parseJsonField(value, fallback) {
+    if (value && typeof value === 'object') {
+      return value;
+    }
+
+    try {
+      return JSON.parse(value || JSON.stringify(fallback));
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  _parsePersonality(personality) {
+    return {
+      ...personality,
+      emotion_tendencies: this._parseJsonField(personality.emotion_tendencies, {}),
+      catchphrases: this._parseJsonField(personality.catchphrases, []),
+      topics_of_interest: this._parseJsonField(personality.topics_of_interest, []),
+      tone_settings: this._parseJsonField(personality.tone_settings, {
+        temperature: 0.7,
+        presencePenalty: 0.3,
+        frequencyPenalty: 0.2
+      }),
+      emote_config: this._parseJsonField(personality.emote_config, {
+        defaultEmote: 'neutral',
+        highEnergyEmote: 'excited',
+        lowEnergyEmote: 'calm'
+      }),
+      memory_behavior: this._parseJsonField(personality.memory_behavior, {
+        importanceThreshold: 0.5,
+        maxContextMemories: 10
+      })
+    };
   }
 
   /**

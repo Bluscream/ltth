@@ -9,6 +9,28 @@ const dns = require('dns').promises;
 const VRCHAT_EMOTE_SLOT_MIN = 0;
 const VRCHAT_EMOTE_SLOT_MAX = 7;
 
+function clampNumber(value, min, max, fallback, options = {}) {
+    const number = value === undefined || value === null || value === ''
+        ? Number.NaN
+        : Number(value);
+    const safeNumber = Number.isFinite(number) ? number : fallback;
+    const clamped = Math.min(max, Math.max(min, safeNumber));
+    return options.integer ? Math.round(clamped) : clamped;
+}
+
+function positiveInteger(value, fallback = 1) {
+    return clampNumber(value, 1, Number.MAX_SAFE_INTEGER, fallback, { integer: true });
+}
+
+function assertOscResult(result, label = 'OSC send failed') {
+    if (result === false) {
+        throw new Error(label);
+    }
+    if (result && typeof result === 'object' && result.success === false) {
+        throw new Error(result.error || label);
+    }
+}
+
 // Default allowed webhook domains (SSRF protection)
 const DEFAULT_ALLOWED_WEBHOOK_DOMAINS = [
     'webhook.site',
@@ -232,7 +254,7 @@ class ActionRegistry {
                 const ttsOptions = {
                     text: text,
                     voice: action.voice,
-                    volume: action.volume || 80,
+                    volume: clampNumber(action.volume, 0, 100, 80),
                     priority: action.priority || 'normal'
                 };
                 
@@ -274,8 +296,8 @@ class ActionRegistry {
                 const alertConfig = {
                     text_template: text,
                     sound_file: action.sound || null,
-                    sound_volume: action.volume || 80,
-                    duration: action.duration || 5,
+                    sound_volume: clampNumber(action.volume, 0, 100, 80),
+                    duration: clampNumber(action.duration, 1, 60, 5, { integer: true }),
                     enabled: true
                 };
                 
@@ -312,7 +334,7 @@ class ActionRegistry {
                 
                 const soundData = {
                     file: action.file,
-                    volume: action.volume || 80
+                    volume: clampNumber(action.volume, 0, 100, 80)
                 };
                 
                 services.logger?.info(`🔊 Sound: ${action.file} (${soundData.volume}%)`);
@@ -348,11 +370,11 @@ class ActionRegistry {
                 const overlayData = {
                     type: 'image',
                     url: action.url,
-                    duration: action.duration || 5,
+                    duration: clampNumber(action.duration, 1, 60, 5, { integer: true }),
                     position: action.position || 'center',
                     animation: action.animation || 'fade',
-                    width: action.width,
-                    height: action.height
+                    width: action.width === undefined || action.width === '' ? undefined : clampNumber(action.width, 50, 1920, 50, { integer: true }),
+                    height: action.height === undefined || action.height === '' ? undefined : clampNumber(action.height, 50, 1080, 50, { integer: true })
                 };
                 
                 services.logger?.info(`🖼️ Image Overlay: ${action.url.substring(0, 50)}...`);
@@ -389,13 +411,13 @@ class ActionRegistry {
                 const overlayData = {
                     type: 'video',
                     url: action.url,
-                    duration: action.duration || 10,
+                    duration: clampNumber(action.duration, 1, 60, 10, { integer: true }),
                     position: action.position || 'center',
                     animation: action.animation || 'fade',
-                    volume: action.volume !== undefined ? action.volume : 80,
+                    volume: clampNumber(action.volume, 0, 100, 80),
                     loop: action.loop || false,
-                    width: action.width,
-                    height: action.height
+                    width: action.width === undefined || action.width === '' ? undefined : clampNumber(action.width, 50, 1920, 50, { integer: true }),
+                    height: action.height === undefined || action.height === '' ? undefined : clampNumber(action.height, 50, 1080, 50, { integer: true })
                 };
                 
                 services.logger?.info(`🎬 Video Overlay: ${action.url.substring(0, 50)}... (vol: ${overlayData.volume}%)`);
@@ -409,7 +431,7 @@ class ActionRegistry {
             category: 'overlay',
             icon: 'type',
             fields: [
-                { name: 'text', label: 'Text', type: 'textarea', required: true, placeholder: 'Use {{username}} for viewer name, {{giftName}} for gift, etc.' },
+                { name: 'text', label: 'Text', type: 'textarea', required: true, placeholder: 'Use {username} for viewer name, {giftName} for gift, etc.' },
                 { name: 'duration', label: 'Duration (seconds)', type: 'number', min: 1, max: 60, default: 5 },
                 { name: 'position', label: 'Position', type: 'select', options: ['center', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right'], default: 'center' },
                 { name: 'animation', label: 'Animation', type: 'select', options: ['fade', 'zoom', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'bounce', 'none'], default: 'fade' },
@@ -432,10 +454,10 @@ class ActionRegistry {
                 const overlayData = {
                     type: 'text',
                     text: text,
-                    duration: action.duration || 5,
+                    duration: clampNumber(action.duration, 1, 60, 5, { integer: true }),
                     position: action.position || 'center',
                     animation: action.animation || 'fade',
-                    fontSize: action.fontSize || 48,
+                    fontSize: clampNumber(action.fontSize, 12, 200, 48, { integer: true }),
                     color: action.color || '#ffffff',
                     backgroundColor: action.backgroundColor || 'rgba(0, 0, 0, 0.7)'
                 };
@@ -485,9 +507,9 @@ class ActionRegistry {
                 
                 const emojiData = {
                     emoji: action.emoji || null,
-                    count: action.count || 10,
-                    duration: action.duration || 0,
-                    intensity: action.intensity || 1.0,
+                    count: clampNumber(action.count, 1, 100, 10, { integer: true }),
+                    duration: clampNumber(action.duration, 0, 30000, 0, { integer: true }),
+                    intensity: clampNumber(action.intensity, 0.1, 5, 1.0),
                     username: context.data?.username || context.data?.uniqueId,
                     burst: action.burst || false
                 };
@@ -706,8 +728,12 @@ class ActionRegistry {
                     throw new Error('Variable name is required');
                 }
                 
-                const current = variables.get(action.name) || 0;
-                const amount = parseFloat(action.amount) || 1;
+                const currentRaw = variables.get(action.name);
+                const current = Number.isFinite(Number(currentRaw)) ? Number(currentRaw) : 0;
+                const amountRaw = action.amount === undefined || action.amount === null || action.amount === ''
+                    ? 1
+                    : Number(action.amount);
+                const amount = Number.isFinite(amountRaw) ? amountRaw : 1;
                 const newValue = current + amount;
                 
                 services.logger?.info(`➕ Variable Increment: ${action.name} ${current} + ${amount} = ${newValue}`);
@@ -817,8 +843,10 @@ class ActionRegistry {
                 
                 services.logger?.info(`📡 OSC: ${action.address} ${JSON.stringify(args)}`);
                 
-                if (typeof osc.send === 'function') {
-                    osc.send(action.address, ...args);
+                if (typeof osc.sendMessage === 'function') {
+                    assertOscResult(osc.sendMessage(action.address, args), 'OSC send failed');
+                } else if (typeof osc.send === 'function') {
+                    assertOscResult(osc.send(action.address, ...args), 'OSC send failed');
                 } else {
                     throw new Error('OSC service does not have send method');
                 }
@@ -844,9 +872,9 @@ class ActionRegistry {
                 services.logger?.info('👋 VRChat: Wave');
                 
                 if (typeof osc.wave === 'function') {
-                    osc.wave(action.duration || 2000);
+                    assertOscResult(osc.wave(action.duration || 2000), 'OSC action failed: wave');
                 } else if (typeof osc.send === 'function') {
-                    osc.send('/avatar/parameters/Wave', 1);
+                    assertOscResult(osc.send('/avatar/parameters/Wave', 1), 'OSC action failed: wave');
                     setTimeout(() => osc.send('/avatar/parameters/Wave', 0), action.duration || 2000);
                 } else {
                     throw new Error('OSC service not available');
@@ -872,9 +900,9 @@ class ActionRegistry {
                 services.logger?.info('🎉 VRChat: Celebrate');
                 
                 if (typeof osc.celebrate === 'function') {
-                    osc.celebrate(action.duration || 3000);
+                    assertOscResult(osc.celebrate(action.duration || 3000), 'OSC action failed: celebrate');
                 } else if (typeof osc.send === 'function') {
-                    osc.send('/avatar/parameters/Celebrate', 1);
+                    assertOscResult(osc.send('/avatar/parameters/Celebrate', 1), 'OSC action failed: celebrate');
                     setTimeout(() => osc.send('/avatar/parameters/Celebrate', 0), action.duration || 3000);
                 } else {
                     throw new Error('OSC service not available');
@@ -900,9 +928,9 @@ class ActionRegistry {
                 services.logger?.info('💃 VRChat: Dance');
                 
                 if (typeof osc.dance === 'function') {
-                    osc.dance(action.duration || 5000);
+                    assertOscResult(osc.dance(action.duration || 5000), 'OSC action failed: dance');
                 } else if (typeof osc.send === 'function') {
-                    osc.send('/avatar/parameters/DanceTrigger', 1);
+                    assertOscResult(osc.send('/avatar/parameters/DanceTrigger', 1), 'OSC action failed: dance');
                     setTimeout(() => osc.send('/avatar/parameters/DanceTrigger', 0), action.duration || 5000);
                 } else {
                     throw new Error('OSC service not available');
@@ -928,9 +956,9 @@ class ActionRegistry {
                 services.logger?.info('❤️ VRChat: Hearts');
                 
                 if (typeof osc.hearts === 'function') {
-                    osc.hearts(action.duration || 2000);
+                    assertOscResult(osc.hearts(action.duration || 2000), 'OSC action failed: hearts');
                 } else if (typeof osc.send === 'function') {
-                    osc.send('/avatar/parameters/Hearts', 1);
+                    assertOscResult(osc.send('/avatar/parameters/Hearts', 1), 'OSC action failed: hearts');
                     setTimeout(() => osc.send('/avatar/parameters/Hearts', 0), action.duration || 2000);
                 } else {
                     throw new Error('OSC service not available');
@@ -956,9 +984,9 @@ class ActionRegistry {
                 services.logger?.info('🎊 VRChat: Confetti');
                 
                 if (typeof osc.confetti === 'function') {
-                    osc.confetti(action.duration || 3000);
+                    assertOscResult(osc.confetti(action.duration || 3000), 'OSC action failed: confetti');
                 } else if (typeof osc.send === 'function') {
-                    osc.send('/avatar/parameters/Confetti', 1);
+                    assertOscResult(osc.send('/avatar/parameters/Confetti', 1), 'OSC action failed: confetti');
                     setTimeout(() => osc.send('/avatar/parameters/Confetti', 0), action.duration || 3000);
                 } else {
                     throw new Error('OSC service not available');
@@ -990,9 +1018,9 @@ class ActionRegistry {
                 services.logger?.info(`😀 VRChat: Emote Slot ${slot}`);
                 
                 if (typeof osc.triggerEmote === 'function') {
-                    osc.triggerEmote(slot, action.duration || 2000);
+                    assertOscResult(osc.triggerEmote(slot, action.duration || 2000), 'OSC action failed: emote');
                 } else if (typeof osc.send === 'function') {
-                    osc.send(`/avatar/parameters/EmoteSlot${slot}`, 1);
+                    assertOscResult(osc.send(`/avatar/parameters/EmoteSlot${slot}`, 1), 'OSC action failed: emote');
                     setTimeout(() => osc.send(`/avatar/parameters/EmoteSlot${slot}`, 0), action.duration || 2000);
                 } else {
                     throw new Error('OSC service not available');
@@ -1027,9 +1055,9 @@ class ActionRegistry {
                 services.logger?.info(`👤 VRChat: Switching to avatar ${action.avatarName || action.avatarId}`);
                 
                 if (typeof osc.switchAvatar === 'function') {
-                    osc.switchAvatar(action.avatarId, action.avatarName);
+                    assertOscResult(osc.switchAvatar(action.avatarId, action.avatarName), 'OSC action failed: avatar');
                 } else if (typeof osc.send === 'function') {
-                    osc.send('/avatar/change', action.avatarId);
+                    assertOscResult(osc.send('/avatar/change', action.avatarId), 'OSC action failed: avatar');
                 } else {
                     throw new Error('OSC service not available');
                 }
@@ -1047,7 +1075,7 @@ class ActionRegistry {
                 { name: 'duration', label: 'Duration (milliseconds)', type: 'number', min: 100, max: 60000, default: 1000 }
             ],
             executor: async (action, context, services) => {
-                const duration = action.duration || 1000;
+                const duration = clampNumber(action.duration, 100, 60000, 1000, { integer: true });
                 services.logger?.info(`⏱️ Delay: ${duration}ms`);
                 await new Promise(resolve => setTimeout(resolve, duration));
             }
@@ -1078,7 +1106,9 @@ class ActionRegistry {
                 
                 services.logger?.info(`🔀 Flow Trigger: Executing flow ${action.flowId}`);
                 
-                await iftttEngine.executeFlowById(action.flowId, flowData);
+                await iftttEngine.executeFlowById(action.flowId, flowData, {
+                    lineage: context.metadata?.lineage || []
+                });
             }
         });
 
@@ -1228,8 +1258,8 @@ class ActionRegistry {
                 }
 
                 const deviceId = services.templateEngine.render(action.deviceId || '', context.data);
-                const intensity = parseInt(action.intensity) || 50;
-                const duration = parseInt(action.duration) || 1000;
+                const intensity = clampNumber(action.intensity, 1, 100, 50, { integer: true });
+                const duration = clampNumber(action.duration, 300, 30000, 1000, { integer: true });
 
                 if (!deviceId) {
                     throw new Error('Device ID is required');
@@ -1277,8 +1307,8 @@ class ActionRegistry {
                 }
 
                 const deviceId = services.templateEngine.render(action.deviceId || '', context.data);
-                const intensity = parseInt(action.intensity) || 50;
-                const duration = parseInt(action.duration) || 1000;
+                const intensity = clampNumber(action.intensity, 1, 100, 50, { integer: true });
+                const duration = clampNumber(action.duration, 300, 30000, 1000, { integer: true });
 
                 if (!deviceId) {
                     throw new Error('Device ID is required');
@@ -1368,7 +1398,7 @@ class ActionRegistry {
                     services.logger?.warn('⚠️ VDO.Ninja Manager not available');
                     throw new Error('VDO.Ninja Manager not available');
                 }
-                const slot = parseInt(action.guest_slot);
+                const slot = positiveInteger(action.guest_slot);
                 const muteAudio = action.mute_audio !== false;
                 const muteVideo = action.mute_video || false;
                 await vdoninja.muteGuest(slot, muteAudio, muteVideo);
@@ -1392,7 +1422,7 @@ class ActionRegistry {
                     services.logger?.warn('⚠️ VDO.Ninja Manager not available');
                     throw new Error('VDO.Ninja Manager not available');
                 }
-                const slot = parseInt(action.guest_slot);
+                const slot = positiveInteger(action.guest_slot);
                 const unmuteAudio = action.unmute_audio !== false;
                 const unmuteVideo = action.unmute_video || false;
                 await vdoninja.unmuteGuest(slot, unmuteAudio, unmuteVideo);
@@ -1415,8 +1445,8 @@ class ActionRegistry {
                     services.logger?.warn('⚠️ VDO.Ninja Manager not available');
                     throw new Error('VDO.Ninja Manager not available');
                 }
-                const slot = parseInt(action.guest_slot);
-                const duration = action.duration || 10000;
+                const slot = positiveInteger(action.guest_slot);
+                const duration = clampNumber(action.duration, 1000, 600000, 10000, { integer: true });
                 await vdoninja.soloGuest(slot, duration);
                 services.logger?.info(`⭐ VDO.Ninja: Guest ${slot} solo for ${duration}ms`);
             }
@@ -1459,8 +1489,8 @@ class ActionRegistry {
                     services.logger?.warn('⚠️ VDO.Ninja Manager not available');
                     throw new Error('VDO.Ninja Manager not available');
                 }
-                const slot = parseInt(action.guest_slot);
-                const volume = parseFloat(action.volume) || 1.0;
+                const slot = positiveInteger(action.guest_slot);
+                const volume = clampNumber(action.volume, 0, 1, 1.0);
                 await vdoninja.setGuestVolume(slot, volume);
                 services.logger?.info(`🔊 VDO.Ninja: Guest ${slot} volume set to ${volume}`);
             }
@@ -1481,7 +1511,7 @@ class ActionRegistry {
                     services.logger?.warn('⚠️ VDO.Ninja Manager not available');
                     throw new Error('VDO.Ninja Manager not available');
                 }
-                const slot = parseInt(action.guest_slot);
+                const slot = positiveInteger(action.guest_slot);
                 const reason = action.reason || 'Kicked by automation';
                 await vdoninja.kickGuest(slot, reason);
                 services.logger?.info(`❌ VDO.Ninja: Guest ${slot} kicked - reason: ${reason}`);

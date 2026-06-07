@@ -31,6 +31,46 @@
             will-change: transform;
             transform: translate3d(0, 0, 0);
             backface-visibility: hidden;
+            isolation: isolate;
+        }
+
+        body[data-visual-mode="premium_stage"]::before,
+        body[data-visual-mode="premium_stage"]::after,
+        #canvas-container::before,
+        #canvas-container::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        body[data-visual-mode="premium_stage"]::before {
+            background:
+                radial-gradient(circle at 50% 14%, rgba(255, 220, 150, 0.16), transparent 26%),
+                radial-gradient(circle at 20% 76%, rgba(90, 150, 255, 0.12), transparent 24%),
+                radial-gradient(circle at 80% 78%, rgba(255, 105, 170, 0.1), transparent 22%);
+            filter: blur(14px);
+            opacity: 0.95;
+        }
+
+        body[data-visual-mode="premium_stage"]::after {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 30%, rgba(255, 255, 255, 0.02) 70%, transparent);
+            opacity: 0.75;
+            mix-blend-mode: screen;
+        }
+
+        body[data-visual-mode="premium_stage"] #canvas-container::before {
+            background:
+                radial-gradient(circle at 50% 10%, rgba(255, 240, 188, 0.18), transparent 22%),
+                radial-gradient(circle at 50% 72%, rgba(66, 120, 255, 0.1), transparent 38%);
+            filter: blur(24px);
+            opacity: 0.92;
+        }
+
+        body[data-visual-mode="premium_stage"] #canvas-container::after {
+            background: linear-gradient(110deg, transparent 34%, rgba(255, 255, 255, 0.06) 50%, transparent 66%);
+            opacity: 0.62;
+            mix-blend-mode: screen;
         }
 
         canvas {
@@ -54,16 +94,50 @@
             filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4))
                     drop-shadow(0 0 12px rgba(255,255,255,0.3))
                     brightness(1.1);
-            transition: opacity 0.5s ease, filter 0.3s ease;
+            transition: opacity 0.24s ease, filter 0.24s ease;
             /* Hardware acceleration */
             transform: translate3d(0, 0, 0);
             backface-visibility: hidden;
             perspective: 1000px;
+            text-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+        }
+
+        .emoji-sprite[data-layer="background"] {
+            opacity: 0.74;
+        }
+
+        .emoji-sprite[data-layer="mid"] {
+            opacity: 0.92;
+        }
+
+        .emoji-sprite[data-layer="foreground"] {
+            opacity: 1;
+        }
+
+        .emoji-sprite[data-emphasis="gift"],
+        .emoji-sprite[data-emphasis="superfan"] {
+            text-shadow: 0 10px 22px rgba(0, 0, 0, 0.3);
+        }
+
+        .emoji-sprite[data-emphasis="sticker"] {
+            text-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+        }
+
+        .particle-trail {
+            mix-blend-mode: screen;
         }
 
         .emoji-sprite.fading {
             opacity: 0;
             filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)) blur(2px);
+        }
+
+        .gift-ball {
+            border-radius: 18px;
+        }
+
+        .heart-balloon {
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28), 0 0 34px rgba(255, 120, 170, 0.2);
         }
 
         /* Enhanced glow effect for emojis */
@@ -100,24 +174,29 @@
         /* Enhanced bubble blop animation with depth */
         @keyframes bubbleBlop {
             0% {
-                transform: translate(-50%, -50%) scale(1) rotateZ(0deg);
+                scale: 1;
+                rotate: 0deg;
                 filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4))
                         drop-shadow(0 0 12px rgba(255,255,255,0.3));
             }
             30% {
-                transform: translate(-50%, -50%) scale(1.3) rotateZ(5deg);
+                scale: 1.3;
+                rotate: 5deg;
                 filter: drop-shadow(0 8px 16px rgba(0,0,0,0.5))
                         drop-shadow(0 0 24px rgba(255,255,255,0.6))
                         brightness(1.3);
             }
             50% {
-                transform: translate(-50%, -50%) scale(1.4) rotateZ(-5deg);
+                scale: 1.4;
+                rotate: -5deg;
             }
             70% {
-                transform: translate(-50%, -50%) scale(0.95) rotateZ(3deg);
+                scale: 0.95;
+                rotate: 3deg;
             }
             100% {
-                transform: translate(-50%, -50%) scale(1) rotateZ(0deg);
+                scale: 1;
+                rotate: 0deg;
                 filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4))
                         drop-shadow(0 0 12px rgba(255,255,255,0.3));
             }
@@ -245,6 +324,6 @@
     <script src="/js/matter.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
 
-    <script src="/js/webgpu-emoji-rain-obs-hud.js"></script>
+    <script src="/js/webgpu-emoji-rain-obs-hud.js?v=heart-balloons-pop-3"></script>
 </body>
 </html>

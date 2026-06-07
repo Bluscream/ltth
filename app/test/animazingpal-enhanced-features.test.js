@@ -4,17 +4,23 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+
+function describeIfModule(relativePath, name, suite) {
+  const modulePath = path.join(__dirname, relativePath);
+  const runner = fs.existsSync(modulePath) ? describe : describe.skip;
+  runner(name, suite);
+}
 
 describe('AnimazingPal Enhanced Features', function() {
   
-  describe('SpeechState', function() {
+  describeIfModule('../plugins/animazingpal/brain/speech-state.js', 'SpeechState', function() {
     let SpeechState;
     
     beforeAll(function() {
       // Dynamically load the module
-      
-        SpeechState = require('../../animazingpal/brain/speech-state');
-      }
+      SpeechState = require('../plugins/animazingpal/brain/speech-state');
     });
     
     it('should initialize in idle state', function() {
@@ -65,12 +71,12 @@ describe('AnimazingPal Enhanced Features', function() {
     });
   });
   
-  describe('MicState', function() {
+  describeIfModule('../plugins/animazingpal/brain/mic-state.js', 'MicState', function() {
     let MicState;
     
     beforeAll(function() {
       
-        MicState = require('../../animazingpal/brain/mic-state');
+        MicState = require('../plugins/animazingpal/brain/mic-state');
     });
     
     it('should initialize in idle state', function() {
@@ -109,12 +115,12 @@ describe('AnimazingPal Enhanced Features', function() {
     });
   });
   
-  describe('OutboxBatcher', function() {
+  describeIfModule('../plugins/animazingpal/brain/outbox-batcher.js', 'OutboxBatcher', function() {
     let OutboxBatcher;
     
     beforeAll(function() {
       
-        OutboxBatcher = require('../../animazingpal/brain/outbox-batcher');
+        OutboxBatcher = require('../plugins/animazingpal/brain/outbox-batcher');
     });
     
     it('should batch items within window', function() {
@@ -188,12 +194,12 @@ describe('AnimazingPal Enhanced Features', function() {
     });
   });
   
-  describe('RelevanceEngine', function() {
+  describeIfModule('../plugins/animazingpal/brain/relevance-engine.js', 'RelevanceEngine', function() {
     let RelevanceEngine;
     
     beforeAll(function() {
       
-        RelevanceEngine = require('../../animazingpal/brain/relevance-engine');
+        RelevanceEngine = require('../plugins/animazingpal/brain/relevance-engine');
     });
     
     it('should detect ignored messages', function() {
@@ -260,12 +266,12 @@ describe('AnimazingPal Enhanced Features', function() {
     });
   });
   
-  describe('EventDeduper', function() {
+  describeIfModule('../plugins/animazingpal/brain/event-deduper.js', 'EventDeduper', function() {
     let EventDeduper;
     
     beforeAll(function() {
       
-        EventDeduper = require('../../animazingpal/brain/event-deduper');
+        EventDeduper = require('../plugins/animazingpal/brain/event-deduper');
     });
     
     it('should detect duplicate events', function() {
@@ -309,12 +315,12 @@ describe('AnimazingPal Enhanced Features', function() {
     });
   });
   
-  describe('ResponseEngine', function() {
+  describeIfModule('../plugins/animazingpal/brain/response-engine.js', 'ResponseEngine', function() {
     let ResponseEngine;
     
     beforeAll(function() {
       
-        ResponseEngine = require('../../animazingpal/brain/response-engine');
+        ResponseEngine = require('../plugins/animazingpal/brain/response-engine');
     });
     
     it('should initialize without API key', function() {

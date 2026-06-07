@@ -227,6 +227,8 @@ class GoalsEventHandlers {
         try {
             if (!this.db.goalExists(goalId)) return;
 
+            const previousGoal = this.db.getGoal(goalId);
+
             // Atomically increment in DB first
             const updatedGoal = this.db.incrementValue(goalId, amount);
 
@@ -236,6 +238,7 @@ class GoalsEventHandlers {
 
             // Broadcast to all clients
             this.plugin.broadcastGoalValueChanged(updatedGoal);
+            this.plugin.maybeTriggerGoalFireworkGamification(previousGoal, updatedGoal);
 
             // Check if goal reached
             if (machine.isReached() && machine.getState() === 'reached') {
@@ -251,6 +254,8 @@ class GoalsEventHandlers {
      */
     setGoalValue(goalId, value) {
         try {
+            const previousGoal = this.db.getGoal(goalId);
+
             // Update database first to ensure consistency
             const updatedGoal = this.db.updateValue(goalId, value);
             if (!updatedGoal) return;
@@ -261,6 +266,7 @@ class GoalsEventHandlers {
 
             // Broadcast to all clients
             this.plugin.broadcastGoalValueChanged(updatedGoal);
+            this.plugin.maybeTriggerGoalFireworkGamification(previousGoal, updatedGoal);
 
             // Check if goal reached
             if (machine.isReached() && machine.getState() === 'reached') {

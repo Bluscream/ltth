@@ -507,6 +507,111 @@ class PermissionManager {
             return false;
         }
     }
+
+    /**
+     * Export user permission and voice assignment records.
+     */
+    exportUsers() {
+        try {
+            const stmt = this.db.db.prepare(`
+                SELECT
+                    user_id,
+                    username,
+                    allow_tts,
+                    assigned_voice_id,
+                    assigned_engine,
+                    lang_preference,
+                    volume_gain,
+                    voice_emotion,
+                    is_blacklisted
+                FROM tts_user_permissions
+                ORDER BY username ASC
+            `);
+
+            return stmt.all();
+        } catch (error) {
+            this.logger.error(`Failed to export TTS users: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * Import user permission and voice assignment records.
+     */
+    importUsers(users) {
+        if (!Array.isArray(users)) {
+            return 0;
+        }
+
+        try {
+            const now = Math.floor(Date.now() / 1000);
+            const stmt = this.db.db.prepare(`
+                INSERT INTO tts_user_permissions (
+                    user_id,
+                    username,
+                    allow_tts,
+                    assigned_voice_id,
+                    assigned_engine,
+                    lang_preference,
+                    volume_gain,
+                    voice_emotion,
+                    is_blacklisted,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = excluded.username,
+                    allow_tts = excluded.allow_tts,
+                    assigned_voice_id = excluded.assigned_voice_id,
+                    assigned_engine = excluded.assigned_engine,
+                    lang_preference = excluded.lang_preference,
+                    volume_gain = excluded.volume_gain,
+                    voice_emotion = excluded.voice_emotion,
+                    is_blacklisted = excluded.is_blacklisted,
+                    updated_at = excluded.updated_at
+            `);
+
+            const importTransaction = this.db.db.transaction((rows) => {
+                let imported = 0;
+
+                rows.forEach((row) => {
+                    if (!row || !row.user_id) {
+                        return;
+                    }
+
+                    const gain = row.volume_gain !== undefined && row.volume_gain !== null
+                        ? Math.max(PermissionManager.MIN_GAIN, Math.min(PermissionManager.MAX_GAIN, parseFloat(row.volume_gain) || PermissionManager.DEFAULT_GAIN))
+                        : PermissionManager.DEFAULT_GAIN;
+
+                    stmt.run(
+                        String(row.user_id),
+                        String(row.username || row.user_id),
+                        row.allow_tts ? 1 : 0,
+                        row.assigned_voice_id || null,
+                        row.assigned_engine || null,
+                        row.lang_preference || null,
+                        gain,
+                        row.voice_emotion || null,
+                        row.is_blacklisted ? 1 : 0,
+                        now,
+                        now
+                    );
+                    imported++;
+                });
+
+                return imported;
+            });
+
+            const imported = importTransaction(users);
+            this.clearCache();
+            this.logger.info(`Imported ${imported} TTS user records`);
+            return imported;
+        } catch (error) {
+            this.logger.error(`Failed to import TTS users: ${error.message}`);
+            return 0;
+        }
+    }
 }
 
 module.exports = PermissionManager;

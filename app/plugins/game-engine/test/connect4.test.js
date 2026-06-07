@@ -95,6 +95,27 @@ describe('Connect4 Game', () => {
       expect(result.error).toBeTruthy();
     });
 
+    test('should reject moves after the game is completed', () => {
+      game.dropPiece('A'); // P1
+      game.dropPiece('A'); // P2
+      game.dropPiece('B'); // P1
+      game.dropPiece('B'); // P2
+      game.dropPiece('C'); // P1
+      game.dropPiece('C'); // P2
+
+      const winningResult = game.dropPiece('D'); // P1 wins
+      const boardAfterWin = game.getState().board.map(row => [...row]);
+      const moveCountAfterWin = game.moveCount;
+
+      const result = game.dropPiece('E');
+
+      expect(winningResult.gameOver).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('completed');
+      expect(game.moveCount).toBe(moveCountAfterWin);
+      expect(game.getState().board).toEqual(boardAfterWin);
+    });
+
     test('should alternate players', () => {
       game.dropPiece('A'); // Player 1
       expect(game.currentPlayer).toBe(2);

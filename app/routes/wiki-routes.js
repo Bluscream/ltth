@@ -7,6 +7,8 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs').promises;
 const path = require('path');
+const { sanitizeHtml } = require('../modules/html-sanitizer');
+const logger = require('../modules/logger');
 
 // marked is an ESM module, so we need to use dynamic import
 // Use a Promise to ensure single initialization and prevent race conditions
@@ -20,8 +22,6 @@ async function initMarked() {
             const marked = markedModule.marked;
             // Configure marked options
             marked.setOptions({
-                headerIds: true,
-                mangle: false,
                 breaks: true,
                 gfm: true
             });
@@ -44,6 +44,7 @@ const WIKI_STRUCTURE = {
             pages: [
                 { id: 'home', title: 'Home', icon: 'home', file: 'Home.md' },
                 { id: 'wiki-index', title: 'Wiki Index', icon: 'list', file: 'Wiki-Index.md' },
+                { id: 'snapshot-status', title: 'Snapshot Status', icon: 'clipboard-check', file: 'Snapshot-Status.md' },
                 { id: 'getting-started', title: 'Getting Started', icon: 'play-circle', file: 'Getting-Started.md' },
                 { id: 'installation', title: 'Installation & Setup', icon: 'download', file: 'Installation-&-Setup.md' },
                 { id: 'configuration', title: 'Configuration', icon: 'settings', file: 'Konfiguration.md' },
@@ -128,6 +129,107 @@ function findPageByFile(filePath) {
     return null;
 }
 
+const CP1252_REVERSE_MAP = new Map([
+    [0x20AC, 0x80],
+    [0x201A, 0x82],
+    [0x0192, 0x83],
+    [0x201E, 0x84],
+    [0x2026, 0x85],
+    [0x2020, 0x86],
+    [0x2021, 0x87],
+    [0x02C6, 0x88],
+    [0x2030, 0x89],
+    [0x0160, 0x8A],
+    [0x2039, 0x8B],
+    [0x0152, 0x8C],
+    [0x017D, 0x8E],
+    [0x2018, 0x91],
+    [0x2019, 0x92],
+    [0x201C, 0x93],
+    [0x201D, 0x94],
+    [0x2022, 0x95],
+    [0x2013, 0x96],
+    [0x2014, 0x97],
+    [0x02DC, 0x98],
+    [0x2122, 0x99],
+    [0x0161, 0x9A],
+    [0x203A, 0x9B],
+    [0x0153, 0x9C],
+    [0x017E, 0x9E],
+    [0x0178, 0x9F]
+]);
+
+const MOJIBAKE_RUN_PATTERN = /[ÃÂâð][\u0080-\u00FF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2013\u2014\u2018\u2019\u201A\u201C\u201D\u201E\u2020\u2021\u2022\u2026\u2030\u2039\u203A\u20AC\u2122]*/g;
+
+function getWindows1252Byte(char) {
+    const codePoint = char.codePointAt(0);
+
+    if (codePoint <= 0xFF) {
+        return codePoint;
+    }
+
+    return CP1252_REVERSE_MAP.get(codePoint);
+}
+
+function decodeMojibakeRun(value) {
+    const bytes = [];
+
+    for (const char of value) {
+        const byte = getWindows1252Byte(char);
+        if (byte === undefined) {
+            return value;
+        }
+        bytes.push(byte);
+    }
+
+    const decoded = Buffer.from(bytes).toString('utf8');
+    return decoded.includes('\uFFFD') ? value : decoded;
+}
+
+function repairMojibake(value) {
+    let repaired = String(value || '');
+
+    for (let i = 0; i < 2; i++) {
+        const next = repaired.replace(MOJIBAKE_RUN_PATTERN, match => decodeMojibakeRun(match));
+        if (next === repaired) {
+            break;
+        }
+        repaired = next;
+    }
+
+    return repaired;
+}
+
+function stripMarkdownInline(value) {
+    return String(value || '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[*_`~]/g, '')
+        .replace(/<[^>]+>/g, '');
+}
+
+function slugifyHeading(value) {
+    return repairMojibake(stripMarkdownInline(value))
+        .replace(/&amp;/g, 'and')
+        .replace(/ß/g, 'ss')
+        .replace(/ẞ/g, 'ss')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+}
+
+function normalizeAnchor(anchor) {
+    if (!anchor) {
+        return '';
+    }
+
+    const decodedAnchor = decodeURIComponent(String(anchor).replace(/^#/, ''));
+    return slugifyHeading(decodedAnchor);
+}
+
 // Helper function to extract table of contents from markdown
 function extractTOC(markdown) {
     const headings = [];
@@ -137,12 +239,8 @@ function extractTOC(markdown) {
         const match = line.match(/^(#{1,6})\s+(.+)$/);
         if (match) {
             const level = match[1].length;
-            const text = match[2].replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'); // Remove links
-            const id = text.toLowerCase()
-                .replace(/[^a-z0-9äöüß\s-]/g, '') // Keep German umlauts
-                .replace(/\s+/g, '-')
-                .replace(/-+/g, '-')
-                .replace(/^-|-$/g, '');
+            const text = stripMarkdownInline(match[2]);
+            const id = slugifyHeading(text);
             
             headings.push({
                 level,
@@ -208,7 +306,7 @@ router.get('/page/:pageId', async (req, res) => {
             // Create placeholder content for missing files
             const placeholderContent = createPlaceholderContent(page.title);
             const markdownParser = await initMarked();
-            const html = markdownParser(placeholderContent);
+            const html = sanitizeHtml(markdownParser(placeholderContent));
             
             return res.json({
                 id: page.id,
@@ -225,7 +323,7 @@ router.get('/page/:pageId', async (req, res) => {
         }
         
         // Read and process the file
-        const markdown = await fs.readFile(filePath, 'utf-8');
+        const markdown = repairMojibake(await fs.readFile(filePath, 'utf-8'));
         
         // Extract TOC
         const toc = extractTOC(markdown);
@@ -234,16 +332,22 @@ router.get('/page/:pageId', async (req, res) => {
         let processedMarkdown = markdown;
         
         // Convert markdown wiki links to in-app #wiki: links, including optional anchors
-        processedMarkdown = processedMarkdown.replace(/\[([^\]]+)\]\(([^)\s]+\.md(?:#[^)]+)?)\)/g, (match, text, link) => {
-            const [linkPath, anchor] = link.split('#');
+        processedMarkdown = processedMarkdown.replace(/\[([^\]]+)\]\((?!https?:|mailto:)([^)\n]+?\.md(?:#[^)]+)?)\)/gi, (match, text, link) => {
+            const [linkPath, anchor] = link.trim().split('#');
             const foundPage = findPageByFile(linkPath);
 
             if (!foundPage) {
                 return match;
             }
 
-            const anchorPart = anchor ? `::${encodeURIComponent(anchor)}` : '';
+            const normalizedAnchor = normalizeAnchor(anchor);
+            const anchorPart = normalizedAnchor ? `::${encodeURIComponent(normalizedAnchor)}` : '';
             return `[${text}](#wiki:${foundPage.id}${anchorPart})`;
+        });
+
+        processedMarkdown = processedMarkdown.replace(/\]\(#(?!wiki:)([^)]+)\)/g, (match, anchor) => {
+            const normalizedAnchor = normalizeAnchor(anchor);
+            return normalizedAnchor ? `](#${normalizedAnchor})` : match;
         });
         
         // Render markdown to HTML
@@ -258,15 +362,12 @@ router.get('/page/:pageId', async (req, res) => {
         });
         
         // Add IDs to headings for TOC linking
-        html = html.replace(/<h([2-6])>(.+?)<\/h\1>/g, (match, level, text) => {
-            const cleanText = text.replace(/<[^>]+>/g, ''); // Remove any HTML tags
-            const id = cleanText.toLowerCase()
-                .replace(/[^a-z0-9äöüß\s-]/g, '')
-                .replace(/\s+/g, '-')
-                .replace(/-+/g, '-')
-                .replace(/^-|-$/g, '');
+        html = html.replace(/<h([2-6])(?:\s+[^>]*)?>(.+?)<\/h\1>/g, (match, level, text) => {
+            const id = slugifyHeading(text);
             return `<h${level} id="${id}">${text}</h${level}>`;
         });
+
+        html = sanitizeHtml(html);
         
         // Build breadcrumb
         const breadcrumb = [
@@ -290,7 +391,7 @@ router.get('/page/:pageId', async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Error loading wiki page:', error);
+        logger.error('Error loading wiki page:', { error: error.message, stack: error.stack });
         res.status(500).json({ error: 'Failed to load page' });
     }
 });
@@ -330,7 +431,7 @@ router.get('/search', async (req, res) => {
                     }
                     
                     if (await fileExists(filePath)) {
-                        const content = await fs.readFile(filePath, 'utf-8');
+                        const content = repairMojibake(await fs.readFile(filePath, 'utf-8'));
                         const contentLower = content.toLowerCase();
                         
                         if (contentLower.includes(query)) {
@@ -359,7 +460,7 @@ router.get('/search', async (req, res) => {
         res.json(results.slice(0, 10)); // Limit to 10 results
         
     } catch (error) {
-        console.error('Error searching wiki:', error);
+        logger.error('Error searching wiki:', { error: error.message, stack: error.stack });
         res.status(500).json({ error: 'Search failed' });
     }
 });
@@ -413,8 +514,8 @@ function getLanguageAnchor(lang) {
     const languageAnchors = {
         'en': 'english',
         'de': 'deutsch',
-        'es': 'español',
-        'fr': 'français'
+        'es': 'espanol',
+        'fr': 'francais'
     };
     return languageAnchors[lang] || 'english';
 }

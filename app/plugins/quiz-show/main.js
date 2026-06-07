@@ -1,4 +1,4 @@
-const Database = require('better-sqlite3');
+﻿const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
@@ -49,6 +49,13 @@ class QuizShowPlugin {
             autoModeDelay: 5, // Seconds to wait before auto-advancing
             autoRestartRound: true, // Auto-restart a new round after the current round ends
             answerDisplayDuration: this.MIN_ANSWER_DISPLAY_DURATION, // Seconds to display the correct answer (including info text)
+            questionCooldownHours: 24, // Sliding cooldown before a question can repeat
+            activeShowId: null, // Optional quiz show / playlist id
+            categoryVotingEnabled: false,
+            categoryVoteDuration: 20,
+            categoryVoteCommand: '!vote',
+            categoryVoteBeforeQuestion: false,
+            categoryVoteOptionsLimit: 4,
             // Voter Icons Configuration
             voterIconsEnabled: true,
             voterIconSize: 'medium', // small, medium, large
@@ -57,6 +64,12 @@ class QuizShowPlugin {
             voterIconAnimation: 'fade', // fade, slide
             voterIconPosition: 'above', // above, beside, embedded
             voterIconShowOnScoreboard: false, // Show avatars in scoreboard
+            avatarPerformanceMode: 'balanced', // full, balanced, minimal
+            avatarCacheEnabled: true,
+            // Overlay accessibility and theme presets
+            hudThemePreset: 'neon', // minimal, neon, retro, casino, highContrast
+            reducedMotion: false,
+            highContrast: false,
             // NEW: Leaderboard display configuration
             leaderboardShowAfterRound: true,
             leaderboardShowAfterQuestion: true, // Show leaderboard after each question
@@ -92,7 +105,15 @@ class QuizShowPlugin {
             slotMachineEnabled: false, // Enable slot machine category selection
             slotMachineSpinDuration: 3, // Duration of slot machine spin animation in seconds
             slotMachineSpinSpeed: 100, // Speed of category changes in milliseconds
-            slotMachineAutoStart: false // Automatically trigger slot machine when starting quiz
+            slotMachineAutoStart: false, // Automatically trigger slot machine when starting quiz
+            // Expansion defaults
+            achievementPopupsEnabled: true,
+            achievementsEnabled: true,
+            seasonAutomationMode: 'manual', // manual, weekly, monthly
+            seasonAutomationDay: 1, // 0-6 for weekly, 1-28 for monthly
+            setupWizardCompleted: false,
+            setupWizardStep: 'questions',
+            healthOverlayTestMode: false
         };
 
         // Current game state
@@ -133,7 +154,28 @@ class QuizShowPlugin {
             originalCategoryFilter: null,
             // Slot machine state
             slotMachineActive: false,
-            slotMachineTimeout: null
+            slotMachineTimeout: null,
+            // Category voting state
+            categoryVote: {
+                active: false,
+                options: [],
+                votesByUser: {},
+                votesByCategory: {},
+                startedAt: null,
+                endsAt: null,
+                selectedCategory: null
+            },
+            categoryVoteTimeout: null,
+            // Duel mode state
+            duel: {
+                active: false,
+                left: { label: 'Team A', users: [], score: 0, streak: 0, lastAnswerCorrect: null },
+                right: { label: 'Team B', users: [], score: 0, streak: 0, lastAnswerCorrect: null },
+                winner: null
+            },
+            userStreaks: {},
+            categoryCorrectCounts: {},
+            pointsAwardedForRound: false
         };
 
         // Timer interval
@@ -183,6 +225,10 @@ class QuizShowPlugin {
 
         // Load slot machine configuration from database
         this.loadSlotMachineConfig();
+
+        // Load expansion configuration from database
+        this.loadSeasonAutomationConfig();
+        this.loadSetupWizardState();
 
         // Register routes
         this.registerRoutes();
@@ -363,6 +409,69 @@ class QuizShowPlugin {
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS quiz_shows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    categories TEXT DEFAULT '[]',
+                    package_ids TEXT DEFAULT '[]',
+                    round_count INTEGER DEFAULT 10,
+                    question_order TEXT DEFAULT 'random' CHECK(question_order IN ('random', 'sequential')),
+                    audience_voting BOOLEAN DEFAULT FALSE,
+                    is_active BOOLEAN DEFAULT FALSE,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS category_vote_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    options TEXT NOT NULL,
+                    votes TEXT DEFAULT '{}',
+                    selected_category TEXT,
+                    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    ended_at DATETIME
+                );
+
+                CREATE TABLE IF NOT EXISTS achievement_rules (
+                    id TEXT PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    threshold INTEGER DEFAULT 1,
+                    enabled BOOLEAN DEFAULT TRUE
+                );
+
+                CREATE TABLE IF NOT EXISTS user_achievements (
+                    user_id TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    achievement_id TEXT NOT NULL,
+                    achievement_label TEXT NOT NULL,
+                    unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, achievement_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS sound_assets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_name TEXT NOT NULL UNIQUE,
+                    file_name TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    volume REAL DEFAULT 1.0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS season_automation_config (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    mode TEXT DEFAULT 'manual' CHECK(mode IN ('manual', 'weekly', 'monthly')),
+                    rollover_day INTEGER DEFAULT 1,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS setup_wizard_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    completed BOOLEAN DEFAULT FALSE,
+                    current_step TEXT DEFAULT 'questions',
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_questions_category ON questions(category);
                 CREATE INDEX IF NOT EXISTS idx_questions_difficulty ON questions(difficulty);
                 CREATE INDEX IF NOT EXISTS idx_questions_package ON questions(package_id);
@@ -371,6 +480,8 @@ class QuizShowPlugin {
                 CREATE INDEX IF NOT EXISTS idx_question_history_question_id ON question_history(question_id);
                 CREATE INDEX IF NOT EXISTS idx_gift_joker_gift_id ON gift_joker_mappings(gift_id);
                 CREATE INDEX IF NOT EXISTS idx_overlay_layouts_orientation ON overlay_layouts(orientation);
+                CREATE INDEX IF NOT EXISTS idx_quiz_shows_active ON quiz_shows(is_active);
+                CREATE INDEX IF NOT EXISTS idx_user_achievements_user ON user_achievements(user_id);
             `);
             
             // Create quiz_leaderboard_entries in main scoped database (per-streamer)
@@ -436,7 +547,28 @@ class QuizShowPlugin {
                 this.db.prepare('INSERT INTO slot_machine_config (id, enabled, spin_duration, spin_speed, auto_start) VALUES (1, 0, 3.0, 100, 0)').run();
             }
 
+            const seasonAutomationConfig = this.db.prepare('SELECT id FROM season_automation_config WHERE id = 1').get();
+            if (!seasonAutomationConfig) {
+                this.db.prepare('INSERT INTO season_automation_config (id, mode, rollover_day) VALUES (1, ?, ?)')
+                    .run(this.config.seasonAutomationMode, this.config.seasonAutomationDay);
+            }
+
+            const setupWizardState = this.db.prepare('SELECT id FROM setup_wizard_state WHERE id = 1').get();
+            if (!setupWizardState) {
+                this.db.prepare('INSERT INTO setup_wizard_state (id, completed, current_step) VALUES (1, 0, ?)')
+                    .run(this.config.setupWizardStep);
+            }
+
+            const insertAchievementRule = this.db.prepare(`
+                INSERT OR IGNORE INTO achievement_rules (id, label, type, threshold, enabled)
+                VALUES (?, ?, ?, ?, ?)
+            `);
+            for (const rule of this.getDefaultAchievementRules()) {
+                insertAchievementRule.run(rule.id, rule.label, rule.type, rule.threshold, rule.enabled ? 1 : 0);
+            }
+
             // Initialize default overlay layouts if none exist
+            const insertOverlayLayout = this.db.prepare('INSERT INTO overlay_layouts (name, resolution_width, resolution_height, orientation, is_default, layout_config) VALUES (?, ?, ?, ?, ?, ?)');
             const layoutCount = this.db.prepare('SELECT COUNT(*) as count FROM overlay_layouts').get().count;
             if (layoutCount === 0) {
                 // Default horizontal layout (1920x1080)
@@ -447,8 +579,7 @@ class QuizShowPlugin {
                     leaderboard: { x: 1400, y: 100, width: 470, height: 800 },
                     jokerInfo: { x: 50, y: 900, width: 400, height: 150 }
                 };
-                this.db.prepare('INSERT INTO overlay_layouts (name, resolution_width, resolution_height, orientation, is_default, layout_config) VALUES (?, ?, ?, ?, ?, ?)')
-                    .run('Default Horizontal', 1920, 1080, 'horizontal', 1, JSON.stringify(horizontalLayout));
+                insertOverlayLayout.run('Default Horizontal', 1920, 1080, 'horizontal', 1, JSON.stringify(horizontalLayout));
 
                 // Default vertical layout (1080x1920)
                 const verticalLayout = {
@@ -458,8 +589,20 @@ class QuizShowPlugin {
                     leaderboard: { x: 40, y: 1550, width: 1000, height: 320 },
                     jokerInfo: { x: 40, y: 50, width: 400, height: 100 }
                 };
-                this.db.prepare('INSERT INTO overlay_layouts (name, resolution_width, resolution_height, orientation, is_default, layout_config) VALUES (?, ?, ?, ?, ?, ?)')
-                    .run('Default Vertical', 1080, 1920, 'vertical', 1, JSON.stringify(verticalLayout));
+                insertOverlayLayout.run('Default Vertical', 1080, 1920, 'vertical', 1, JSON.stringify(verticalLayout));
+            }
+
+            const splitscreenLayoutExists = this.db.prepare('SELECT id FROM overlay_layouts WHERE LOWER(name) = ?').get('splitscreen');
+            if (!splitscreenLayoutExists) {
+                const splitscreenLayout = {
+                    mode: 'splitscreen',
+                    question: { x: 170, y: 1010, width: 740, height: 150, visible: true },
+                    answers: { x: 170, y: 1175, width: 740, height: 420, visible: true },
+                    timer: { x: 170, y: 970, width: 740, height: 34, visible: true },
+                    leaderboard: { x: 170, y: 1010, width: 740, height: 650, visible: true },
+                    jokerInfo: { x: 170, y: 1610, width: 740, height: 90, visible: true }
+                };
+                insertOverlayLayout.run('splitscreen', 1080, 1920, 'vertical', 0, JSON.stringify(splitscreenLayout));
             }
 
             // Clean up question history older than 24 hours
@@ -605,9 +748,8 @@ class QuizShowPlugin {
 
     cleanupQuestionHistory() {
         try {
-            // Delete question history entries older than 24 hours
-            const oneDayAgo = new Date(Date.now() - this.QUESTION_COOLDOWN_MS).toISOString();
-            const result = this.db.prepare('DELETE FROM question_history WHERE asked_at < ?').run(oneDayAgo);
+            const cutoff = this.getQuestionCooldownCutoff();
+            const result = this.db.prepare('DELETE FROM question_history WHERE asked_at < ?').run(cutoff);
             
             if (result.changes > 0) {
                 this.api.log(`Cleaned up ${result.changes} old question history entries`, 'info');
@@ -619,11 +761,10 @@ class QuizShowPlugin {
 
     getTodaysAskedQuestionIds() {
         try {
-            // Get all question IDs asked within the last 24 hours (sliding window)
-            const oneDayAgo = new Date(Date.now() - this.QUESTION_COOLDOWN_MS).toISOString();
+            const cooldownCutoff = this.getQuestionCooldownCutoff();
             const rows = this.db.prepare(
                 'SELECT DISTINCT question_id FROM question_history WHERE asked_at >= ?'
-            ).all(oneDayAgo);
+            ).all(cooldownCutoff);
             
             return new Set(rows.map(row => row.question_id));
         } catch (error) {
@@ -682,6 +823,516 @@ class QuizShowPlugin {
         } catch (error) {
             this.api.log('Error saving config: ' + error.message, 'error');
         }
+    }
+
+    getQuestionCooldownMs() {
+        const hours = Number(this.config.questionCooldownHours);
+        const safeHours = Number.isFinite(hours) && hours >= 0 ? hours : 24;
+        return safeHours * 60 * 60 * 1000;
+    }
+
+    getQuestionCooldownCutoff() {
+        return new Date(Date.now() - this.getQuestionCooldownMs()).toISOString();
+    }
+
+    normalizeVoteValue(value) {
+        return String(value || '')
+            .trim()
+            .toLowerCase()
+            .replace(/^#/, '');
+    }
+
+    startCategoryVote(categories = [], durationSeconds = this.config.categoryVoteDuration) {
+        const options = [...new Set(categories.map(category => String(category || '').trim()).filter(Boolean))]
+            .slice(0, Math.max(2, Number(this.config.categoryVoteOptionsLimit) || 4));
+
+        if (options.length < 2) {
+            return null;
+        }
+
+        if (this.gameState.categoryVoteTimeout) {
+            clearTimeout(this.gameState.categoryVoteTimeout);
+            this.gameState.categoryVoteTimeout = null;
+        }
+
+        const duration = Math.max(5, Math.min(120, Number(durationSeconds) || 20));
+        const votesByCategory = {};
+        for (const option of options) {
+            votesByCategory[option] = 0;
+        }
+
+        this.gameState.categoryVote = {
+            active: true,
+            options,
+            votesByUser: {},
+            votesByCategory,
+            startedAt: Date.now(),
+            endsAt: Date.now() + duration * 1000,
+            selectedCategory: null
+        };
+
+        this.api.emit('quiz-show:category-vote-started', this.gameState.categoryVote);
+        this.api.emit('quiz-show:category-vote-update', this.gameState.categoryVote);
+
+        this.gameState.categoryVoteTimeout = setTimeout(() => {
+            this.finishCategoryVote();
+        }, duration * 1000);
+        if (this.gameState.categoryVoteTimeout.unref) {
+            this.gameState.categoryVoteTimeout.unref();
+        }
+
+        return this.gameState.categoryVote;
+    }
+
+    resolveCategoryVote(message) {
+        const voteState = this.gameState.categoryVote;
+        if (!voteState || !voteState.active) {
+            return null;
+        }
+
+        const trimmed = String(message || '').trim();
+        const command = this.config.categoryVoteCommand || '!vote';
+        let rawVote = trimmed;
+
+        if (trimmed.toLowerCase().startsWith(command.toLowerCase())) {
+            rawVote = trimmed.slice(command.length).trim();
+        }
+
+        const numericIndex = parseInt(rawVote, 10);
+        if (Number.isInteger(numericIndex) && numericIndex >= 1 && numericIndex <= voteState.options.length) {
+            return voteState.options[numericIndex - 1];
+        }
+
+        const normalized = this.normalizeVoteValue(rawVote);
+        return voteState.options.find(option => this.normalizeVoteValue(option) === normalized) || null;
+    }
+
+    recordCategoryVote({ userId, username, message }) {
+        const voteState = this.gameState.categoryVote;
+        if (!voteState || !voteState.active || !userId) {
+            return false;
+        }
+
+        if (voteState.votesByUser[userId]) {
+            return false;
+        }
+
+        const category = this.resolveCategoryVote(message);
+        if (!category) {
+            return false;
+        }
+
+        voteState.votesByUser[userId] = {
+            username: username || userId,
+            category,
+            votedAt: Date.now()
+        };
+        voteState.votesByCategory[category] = (voteState.votesByCategory[category] || 0) + 1;
+
+        this.api.emit('quiz-show:category-vote-update', voteState);
+        return true;
+    }
+
+    finishCategoryVote() {
+        const voteState = this.gameState.categoryVote;
+        if (!voteState || !voteState.active) {
+            return {
+                selectedCategory: voteState?.selectedCategory || null,
+                vote: voteState || null
+            };
+        }
+
+        if (this.gameState.categoryVoteTimeout) {
+            clearTimeout(this.gameState.categoryVoteTimeout);
+            this.gameState.categoryVoteTimeout = null;
+        }
+
+        let selectedCategory = voteState.options[0] || null;
+        let highestVotes = -1;
+        for (const option of voteState.options) {
+            const count = voteState.votesByCategory[option] || 0;
+            if (count > highestVotes) {
+                highestVotes = count;
+                selectedCategory = option;
+            }
+        }
+
+        voteState.active = false;
+        voteState.selectedCategory = selectedCategory;
+        if (selectedCategory) {
+            this.config.categoryFilter = [selectedCategory];
+            this.saveConfig();
+        }
+
+        this.api.emit('quiz-show:category-vote-ended', {
+            selectedCategory,
+            votesByCategory: voteState.votesByCategory,
+            totalVotes: Object.keys(voteState.votesByUser).length
+        });
+
+        return {
+            selectedCategory,
+            vote: voteState
+        };
+    }
+
+    startDuel(options = {}) {
+        const toUserList = (users) => Array.isArray(users)
+            ? users.map(user => String(user || '').trim()).filter(Boolean)
+            : String(users || '').split(',').map(user => user.trim()).filter(Boolean);
+
+        this.gameState.duel = {
+            active: true,
+            left: {
+                label: options.leftLabel || 'Team A',
+                users: toUserList(options.leftUsers),
+                score: 0,
+                streak: 0,
+                lastAnswerCorrect: null
+            },
+            right: {
+                label: options.rightLabel || 'Team B',
+                users: toUserList(options.rightUsers),
+                score: 0,
+                streak: 0,
+                lastAnswerCorrect: null
+            },
+            winner: null
+        };
+
+        this.config.gameMode = 'duel';
+        this.api.emit('quiz-show:duel-update', this.gameState.duel);
+        return this.gameState.duel;
+    }
+
+    stopDuel() {
+        if (!this.gameState.duel) {
+            return null;
+        }
+
+        const duel = this.gameState.duel;
+        if (duel.left.score > duel.right.score) {
+            duel.winner = 'left';
+        } else if (duel.right.score > duel.left.score) {
+            duel.winner = 'right';
+        } else {
+            duel.winner = 'tie';
+        }
+        duel.active = false;
+        this.api.emit('quiz-show:duel-ended', duel);
+        return duel;
+    }
+
+    getDuelSideForUser(userId) {
+        const duel = this.gameState.duel;
+        if (!duel || !duel.active || !userId) {
+            return null;
+        }
+        if (duel.left.users.includes(userId)) {
+            return duel.left;
+        }
+        if (duel.right.users.includes(userId)) {
+            return duel.right;
+        }
+        return null;
+    }
+
+    applyDuelAnswerResult(userId, isCorrect, points = 0) {
+        const side = this.getDuelSideForUser(userId);
+        if (!side) {
+            return null;
+        }
+
+        side.lastAnswerCorrect = !!isCorrect;
+        if (isCorrect) {
+            side.score += Number(points) || 0;
+            side.streak += 1;
+        } else {
+            side.streak = 0;
+        }
+
+        this.api.emit('quiz-show:duel-update', this.gameState.duel);
+        return side;
+    }
+
+    getDefaultAchievementRules() {
+        return [
+            { id: 'fastest-answer', label: 'Schnellste Antwort', type: 'fastest', threshold: 1, enabled: true },
+            { id: 'streak-3', label: '3er-Serie', type: 'streak', threshold: 3, enabled: true },
+            { id: 'streak-5', label: '5er-Serie', type: 'streak', threshold: 5, enabled: true },
+            { id: 'category-specialist', label: 'Kategorie-Profi', type: 'categoryCorrect', threshold: 5, enabled: true },
+            { id: 'duel-winner', label: 'Duel-Sieg', type: 'duelWinner', threshold: 1, enabled: true }
+        ];
+    }
+
+    evaluateAchievements(context = {}) {
+        if (!this.config.achievementsEnabled) {
+            return [];
+        }
+
+        const rules = this.getDefaultAchievementRules();
+        const awards = [];
+
+        for (const rule of rules) {
+            if (!rule.enabled) continue;
+
+            const matches =
+                (rule.type === 'fastest' && context.isFirstCorrect) ||
+                (rule.type === 'streak' && Number(context.streak || 0) >= rule.threshold) ||
+                (rule.type === 'categoryCorrect' && Number(context.categoryCorrectCount || 0) >= rule.threshold) ||
+                (rule.type === 'duelWinner' && context.duelWinner);
+
+            if (matches) {
+                awards.push({
+                    id: rule.id,
+                    label: rule.label,
+                    userId: context.userId,
+                    username: context.username,
+                    unlockedAt: new Date().toISOString()
+                });
+            }
+        }
+
+        for (const award of awards) {
+            this.persistAchievementAward(award);
+            if (this.config.achievementPopupsEnabled) {
+                this.api.emit('quiz-show:achievement-unlocked', award);
+            }
+        }
+
+        return awards;
+    }
+
+    persistAchievementAward(award) {
+        if (!this.db || !award.userId || !award.id) {
+            return;
+        }
+
+        try {
+            this.db.prepare(`
+                INSERT OR IGNORE INTO user_achievements (user_id, username, achievement_id, achievement_label, unlocked_at)
+                VALUES (?, ?, ?, ?, ?)
+            `).run(award.userId, award.username || award.userId, award.id, award.label, award.unlockedAt);
+        } catch (error) {
+            this.api.log('Error persisting achievement: ' + error.message, 'warn');
+        }
+    }
+
+    shouldRollSeason({ now = new Date(), activeSeason = null } = {}) {
+        const mode = this.config.seasonAutomationMode || 'manual';
+        if (mode === 'manual' || !activeSeason || !activeSeason.start_date) {
+            return false;
+        }
+
+        const start = new Date(activeSeason.start_date);
+        if (Number.isNaN(start.getTime())) {
+            return false;
+        }
+
+        const current = new Date(now);
+        if (mode === 'weekly') {
+            const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+            return current.getTime() - start.getTime() >= oneWeekMs &&
+                current.getUTCDay() === Number(this.config.seasonAutomationDay);
+        }
+
+        if (mode === 'monthly') {
+            const day = Math.max(1, Math.min(28, Number(this.config.seasonAutomationDay) || 1));
+            return (current.getUTCFullYear() > start.getUTCFullYear() ||
+                current.getUTCMonth() > start.getUTCMonth()) &&
+                current.getUTCDate() >= day;
+        }
+
+        return false;
+    }
+
+    checkSeasonAutomation() {
+        if (!this.db) {
+            return null;
+        }
+
+        try {
+            const activeSeason = this.db.prepare('SELECT * FROM leaderboard_seasons WHERE is_active = 1').get();
+            if (!this.shouldRollSeason({ activeSeason })) {
+                return activeSeason || null;
+            }
+
+            const now = new Date().toISOString();
+            const nextName = this.config.seasonAutomationMode === 'monthly'
+                ? `Season ${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+                : `Season KW ${this.getISOWeek(new Date())}`;
+
+            this.db.prepare('UPDATE leaderboard_seasons SET is_active = 0, end_date = ? WHERE is_active = 1').run(now);
+            const result = this.db.prepare('INSERT INTO leaderboard_seasons (season_name, start_date, is_active) VALUES (?, ?, 1)')
+                .run(nextName, now);
+            const season = { id: result.lastInsertRowid, season_name: nextName, start_date: now, end_date: null, is_active: 1 };
+            this.api.emit('quiz-show:season-changed', season);
+            return season;
+        } catch (error) {
+            this.api.log('Error checking season automation: ' + error.message, 'warn');
+            return null;
+        }
+    }
+
+    getISOWeek(date) {
+        const tmp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+        const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+        return Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
+    }
+
+    isAllowedSoundFileName(fileName) {
+        const baseName = path.basename(String(fileName || ''));
+        if (!baseName || baseName !== fileName || !/^[\w .()-]+$/.test(baseName)) {
+            return false;
+        }
+        return ['.mp3', '.wav', '.ogg', '.m4a', '.aac'].includes(path.extname(baseName).toLowerCase());
+    }
+
+    buildHealthPayload() {
+        const safeCount = (sql) => {
+            if (!this.db) return 0;
+            try {
+                return this.db.prepare(sql).get().count || 0;
+            } catch (error) {
+                return 0;
+            }
+        };
+
+        const safeGet = (sql) => {
+            if (!this.db) return null;
+            try {
+                return this.db.prepare(sql).get() || null;
+            } catch (error) {
+                return null;
+            }
+        };
+
+        return {
+            success: true,
+            checks: {
+                database: { status: this.db ? 'ok' : 'missing' },
+                socket: { status: this.api && this.api.emit ? 'ok' : 'missing' },
+                tts: { status: this.config.ttsEnabled ? 'enabled' : 'disabled' },
+                openai: { status: this.getOpenAIConfig().api_key ? 'configured' : 'missing' }
+            },
+            inventory: {
+                questions: safeCount('SELECT COUNT(*) as count FROM questions'),
+                categories: safeCount('SELECT COUNT(*) as count FROM categories'),
+                sounds: safeCount('SELECT COUNT(*) as count FROM game_sounds')
+            },
+            setup: {
+                completed: !!this.config.setupWizardCompleted,
+                step: this.config.setupWizardStep || 'questions'
+            },
+            activeSeason: safeGet('SELECT * FROM leaderboard_seasons WHERE is_active = 1'),
+            overlay: {
+                url: '/quiz-show/overlay',
+                splitscreenUrl: '/quiz-show/overlay/splitscreen',
+                leaderboardUrl: '/quiz-show/leaderboard-overlay'
+            },
+            quiz: {
+                isRunning: this.gameState.isRunning,
+                roundState: this.gameState.roundState,
+                currentRound: this.gameState.currentRound,
+                totalRounds: this.config.totalRounds
+            }
+        };
+    }
+
+    getActiveShowConfig() {
+        if (!this.db || !this.config.activeShowId) {
+            return null;
+        }
+
+        try {
+            const row = this.db.prepare('SELECT * FROM quiz_shows WHERE id = ?').get(this.config.activeShowId);
+            if (!row) {
+                return null;
+            }
+            return {
+                ...row,
+                categories: JSON.parse(row.categories || '[]'),
+                packageIds: JSON.parse(row.package_ids || '[]'),
+                audienceVoting: !!row.audience_voting
+            };
+        } catch (error) {
+            this.api.log('Error loading active quiz show: ' + error.message, 'warn');
+            return null;
+        }
+    }
+
+    applyActiveShowConfig(show) {
+        if (!show) {
+            return;
+        }
+
+        if (Array.isArray(show.categories) && show.categories.length > 0 && !this.config.categoryVotingEnabled) {
+            this.config.categoryFilter = show.categories;
+        }
+        if (show.round_count) {
+            this.config.totalRounds = show.round_count;
+        }
+        this.config.randomQuestions = show.question_order !== 'sequential';
+
+        if (Array.isArray(show.packageIds) && show.packageIds.length > 0 && this.db) {
+            try {
+                this.db.prepare('UPDATE question_packages SET is_selected = 0').run();
+                const selectPackage = this.db.prepare('UPDATE question_packages SET is_selected = 1 WHERE id = ?');
+                for (const packageId of show.packageIds) {
+                    selectPackage.run(packageId);
+                }
+            } catch (error) {
+                this.api.log('Error applying quiz show packages: ' + error.message, 'warn');
+            }
+        }
+    }
+
+    getCategoryVoteOptions(show = null) {
+        if (show && Array.isArray(show.categories) && show.categories.length >= 2) {
+            return show.categories;
+        }
+
+        if (!this.db) {
+            return [];
+        }
+
+        try {
+            const limit = Math.max(2, Number(this.config.categoryVoteOptionsLimit) || 4);
+            return this.db.prepare(`
+                SELECT category as name, COUNT(*) as count
+                FROM questions
+                WHERE category IS NOT NULL AND category != ''
+                GROUP BY category
+                ORDER BY count DESC, category ASC
+                LIMIT ?
+            `).all(limit).map(row => row.name);
+        } catch (error) {
+            this.api.log('Error loading category vote options: ' + error.message, 'warn');
+            return [];
+        }
+    }
+
+    async runCategoryVotingBeforeRound(show = null) {
+        if (!this.config.categoryVotingEnabled && !(show && show.audienceVoting)) {
+            return null;
+        }
+        if (!this.config.categoryVoteBeforeQuestion && !(show && show.audienceVoting)) {
+            return null;
+        }
+        if (this.gameState.categoryVote && this.gameState.categoryVote.active) {
+            return null;
+        }
+
+        const options = this.getCategoryVoteOptions(show);
+        if (options.length < 2) {
+            return null;
+        }
+
+        const duration = Math.max(5, Math.min(120, Number(this.config.categoryVoteDuration) || 20));
+        this.startCategoryVote(options, duration);
+        await new Promise(resolve => setTimeout(resolve, duration * 1000 + 100));
+        return this.finishCategoryVote();
     }
 
     loadGiftJokerMappings() {
@@ -746,6 +1397,30 @@ class QuizShowPlugin {
         }
     }
 
+    loadSeasonAutomationConfig() {
+        try {
+            const config = this.db.prepare('SELECT * FROM season_automation_config WHERE id = 1').get();
+            if (config) {
+                this.config.seasonAutomationMode = config.mode || 'manual';
+                this.config.seasonAutomationDay = config.rollover_day || 1;
+            }
+        } catch (error) {
+            this.api.log('Error loading season automation config: ' + error.message, 'warn');
+        }
+    }
+
+    loadSetupWizardState() {
+        try {
+            const state = this.db.prepare('SELECT * FROM setup_wizard_state WHERE id = 1').get();
+            if (state) {
+                this.config.setupWizardCompleted = !!state.completed;
+                this.config.setupWizardStep = state.current_step || 'questions';
+            }
+        } catch (error) {
+            this.api.log('Error loading setup wizard state: ' + error.message, 'warn');
+        }
+    }
+
     registerRoutes() {
         const path = require('path');
 
@@ -755,6 +1430,10 @@ class QuizShowPlugin {
         });
 
         this.api.registerRoute('get', '/quiz-show/overlay', (req, res) => {
+            res.sendFile(path.join(__dirname, 'quiz_show_overlay.html'));
+        });
+
+        this.api.registerRoute('get', '/quiz-show/overlay/splitscreen', (req, res) => {
             res.sendFile(path.join(__dirname, 'quiz_show_overlay.html'));
         });
 
@@ -782,6 +1461,8 @@ class QuizShowPlugin {
         // Get current state
         this.api.registerRoute('get', '/api/quiz-show/state', (req, res) => {
             try {
+                this.checkSeasonAutomation();
+
                 // Get questions from database
                 const questions = this.db.prepare('SELECT * FROM questions ORDER BY created_at DESC').all();
                 const formattedQuestions = questions.map(q => ({
@@ -1246,11 +1927,281 @@ class QuizShowPlugin {
             }
         });
 
+        // Question cooldown configuration
+        this.api.registerRoute('get', '/api/quiz-show/question-cooldown', (req, res) => {
+            res.json({
+                success: true,
+                hours: this.config.questionCooldownHours,
+                milliseconds: this.getQuestionCooldownMs()
+            });
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/question-cooldown', async (req, res) => {
+            try {
+                const hours = Number(req.body.hours);
+                if (!Number.isFinite(hours) || hours < 0 || hours > 168) {
+                    return res.status(400).json({ success: false, error: 'Cooldown must be between 0 and 168 hours' });
+                }
+                this.config.questionCooldownHours = hours;
+                await this.saveConfig();
+                this.cleanupQuestionHistory();
+                this.api.emit('quiz-show:config-updated', this.config);
+                res.json({ success: true, hours, milliseconds: this.getQuestionCooldownMs() });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Quiz show / playlist management
+        this.api.registerRoute('get', '/api/quiz-show/shows', (req, res) => {
+            try {
+                const shows = this.db.prepare('SELECT * FROM quiz_shows ORDER BY created_at DESC').all()
+                    .map(show => ({
+                        ...show,
+                        categories: JSON.parse(show.categories || '[]'),
+                        package_ids: JSON.parse(show.package_ids || '[]'),
+                        audience_voting: !!show.audience_voting,
+                        is_active: !!show.is_active
+                    }));
+                res.json({ success: true, shows, activeShowId: this.config.activeShowId });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/shows', async (req, res) => {
+            try {
+                const name = String(req.body.name || '').trim();
+                if (!name) {
+                    return res.status(400).json({ success: false, error: 'Show name is required' });
+                }
+
+                const categories = Array.isArray(req.body.categories) ? req.body.categories.filter(Boolean) : [];
+                const packageIds = Array.isArray(req.body.packageIds) ? req.body.packageIds.map(Number).filter(Number.isInteger) : [];
+                const roundCount = Math.max(1, Math.min(250, Number(req.body.roundCount) || 10));
+                const questionOrder = ['random', 'sequential'].includes(req.body.questionOrder) ? req.body.questionOrder : 'random';
+                const audienceVoting = req.body.audienceVoting ? 1 : 0;
+
+                const result = this.db.prepare(`
+                    INSERT INTO quiz_shows (name, description, categories, package_ids, round_count, question_order, audience_voting)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                    name,
+                    String(req.body.description || ''),
+                    JSON.stringify(categories),
+                    JSON.stringify(packageIds),
+                    roundCount,
+                    questionOrder,
+                    audienceVoting
+                );
+
+                res.json({ success: true, id: result.lastInsertRowid });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('put', '/api/quiz-show/shows/:id', async (req, res) => {
+            try {
+                const id = parseInt(req.params.id, 10);
+                const name = String(req.body.name || '').trim();
+                if (!Number.isInteger(id) || !name) {
+                    return res.status(400).json({ success: false, error: 'Valid id and name are required' });
+                }
+
+                if (req.body.activate) {
+                    this.db.prepare('UPDATE quiz_shows SET is_active = 0').run();
+                    this.config.activeShowId = id;
+                    this.config.categoryFilter = Array.isArray(req.body.categories) && req.body.categories.length > 0 ? req.body.categories : this.config.categoryFilter;
+                    this.config.totalRounds = Number(req.body.roundCount) || this.config.totalRounds;
+                    this.config.randomQuestions = req.body.questionOrder !== 'sequential';
+                    this.config.categoryVoteBeforeQuestion = !!req.body.audienceVoting;
+                }
+
+                const result = this.db.prepare(`
+                    UPDATE quiz_shows
+                    SET name = ?, description = ?, categories = ?, package_ids = ?, round_count = ?, question_order = ?,
+                        audience_voting = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `).run(
+                    name,
+                    String(req.body.description || ''),
+                    JSON.stringify(Array.isArray(req.body.categories) ? req.body.categories.filter(Boolean) : []),
+                    JSON.stringify(Array.isArray(req.body.packageIds) ? req.body.packageIds.map(Number).filter(Number.isInteger) : []),
+                    Math.max(1, Math.min(250, Number(req.body.roundCount) || 10)),
+                    ['random', 'sequential'].includes(req.body.questionOrder) ? req.body.questionOrder : 'random',
+                    req.body.audienceVoting ? 1 : 0,
+                    req.body.activate ? 1 : 0,
+                    id
+                );
+
+                await this.saveConfig();
+                res.json({ success: true, changed: result.changes });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('delete', '/api/quiz-show/shows/:id', async (req, res) => {
+            try {
+                const id = parseInt(req.params.id, 10);
+                const result = this.db.prepare('DELETE FROM quiz_shows WHERE id = ?').run(id);
+                if (this.config.activeShowId === id) {
+                    this.config.activeShowId = null;
+                    await this.saveConfig();
+                }
+                res.json({ success: true, changed: result.changes });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Audience category voting
+        this.api.registerRoute('get', '/api/quiz-show/category-vote', (req, res) => {
+            res.json({ success: true, vote: this.gameState.categoryVote });
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/category-vote/start', (req, res) => {
+            try {
+                const categories = Array.isArray(req.body.categories) && req.body.categories.length > 0
+                    ? req.body.categories
+                    : this.db.prepare('SELECT name FROM categories ORDER BY name LIMIT ?').all(this.config.categoryVoteOptionsLimit || 4).map(row => row.name);
+                const vote = this.startCategoryVote(categories, req.body.duration || this.config.categoryVoteDuration);
+                if (!vote) {
+                    return res.status(400).json({ success: false, error: 'At least two categories are required' });
+                }
+                res.json({ success: true, vote });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/category-vote/finish', (req, res) => {
+            try {
+                res.json({ success: true, ...this.finishCategoryVote() });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Duel mode controls
+        this.api.registerRoute('post', '/api/quiz-show/duel/start', async (req, res) => {
+            try {
+                const duel = this.startDuel(req.body || {});
+                await this.saveConfig();
+                res.json({ success: true, duel });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/duel/stop', async (req, res) => {
+            try {
+                const duel = this.stopDuel();
+                if (this.config.gameMode === 'duel') {
+                    this.config.gameMode = 'classic';
+                    await this.saveConfig();
+                }
+                res.json({ success: true, duel });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Achievements
+        this.api.registerRoute('get', '/api/quiz-show/achievements', (req, res) => {
+            try {
+                const rules = this.db.prepare('SELECT * FROM achievement_rules ORDER BY id').all();
+                const unlocked = this.db.prepare('SELECT * FROM user_achievements ORDER BY unlocked_at DESC LIMIT 100').all();
+                res.json({ success: true, rules, unlocked });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/achievements/rules', (req, res) => {
+            try {
+                const rules = Array.isArray(req.body.rules) ? req.body.rules : [];
+                const upsert = this.db.prepare(`
+                    INSERT OR REPLACE INTO achievement_rules (id, label, type, threshold, enabled)
+                    VALUES (?, ?, ?, ?, ?)
+                `);
+                for (const rule of rules) {
+                    if (!rule.id || !rule.label || !rule.type) continue;
+                    upsert.run(rule.id, rule.label, rule.type, Number(rule.threshold) || 1, rule.enabled ? 1 : 0);
+                }
+                res.json({ success: true, rules: this.db.prepare('SELECT * FROM achievement_rules ORDER BY id').all() });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Season automation
+        this.api.registerRoute('get', '/api/quiz-show/season-automation', (req, res) => {
+            try {
+                const config = this.db.prepare('SELECT * FROM season_automation_config WHERE id = 1').get();
+                res.json({ success: true, config });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/season-automation', async (req, res) => {
+            try {
+                const mode = ['manual', 'weekly', 'monthly'].includes(req.body.mode) ? req.body.mode : 'manual';
+                const day = mode === 'monthly'
+                    ? Math.max(1, Math.min(28, Number(req.body.rolloverDay) || 1))
+                    : Math.max(0, Math.min(6, Number(req.body.rolloverDay) || 1));
+                this.db.prepare(`
+                    INSERT OR REPLACE INTO season_automation_config (id, mode, rollover_day, updated_at)
+                    VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+                `).run(mode, day);
+                this.config.seasonAutomationMode = mode;
+                this.config.seasonAutomationDay = day;
+                await this.saveConfig();
+                res.json({ success: true, config: { mode, rollover_day: day } });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Health and setup
+        this.api.registerRoute('get', '/api/quiz-show/health', (req, res) => {
+            res.json(this.buildHealthPayload());
+        });
+
+        this.api.registerRoute('get', '/api/quiz-show/setup-wizard', (req, res) => {
+            res.json({
+                success: true,
+                completed: !!this.config.setupWizardCompleted,
+                step: this.config.setupWizardStep || 'questions',
+                health: this.buildHealthPayload()
+            });
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/setup-wizard', async (req, res) => {
+            try {
+                const step = String(req.body.step || this.config.setupWizardStep || 'questions');
+                const completed = !!req.body.completed;
+                this.db.prepare(`
+                    INSERT OR REPLACE INTO setup_wizard_state (id, completed, current_step, updated_at)
+                    VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+                `).run(completed ? 1 : 0, step);
+                this.config.setupWizardCompleted = completed;
+                this.config.setupWizardStep = step;
+                await this.saveConfig();
+                res.json({ success: true, completed, step });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
         // Sound effects management
         this.api.registerRoute('get', '/api/quiz-show/sounds', (req, res) => {
             try {
-                const sounds = this.db.prepare('SELECT * FROM game_sounds').all();
-                res.json({ success: true, sounds });
+                const sounds = this.db.prepare('SELECT * FROM game_sounds ORDER BY event_name').all();
+                const assets = this.db.prepare('SELECT * FROM sound_assets ORDER BY event_name').all();
+                res.json({ success: true, sounds, assets });
             } catch (error) {
                 res.status(500).json({ success: false, error: error.message });
             }
@@ -1258,16 +2209,74 @@ class QuizShowPlugin {
 
         this.api.registerRoute('post', '/api/quiz-show/sounds', (req, res) => {
             try {
-                const { event_name, file_path, volume } = req.body;
+                const { event_name, file_path, fileName, contentBase64, volume } = req.body;
+                const eventName = String(event_name || '').trim();
+                if (!eventName) {
+                    return res.status(400).json({ success: false, error: 'event_name is required' });
+                }
+
+                let resolvedPath = file_path;
+                let resolvedFileName = fileName;
+
+                if (contentBase64 || fileName) {
+                    if (!this.isAllowedSoundFileName(fileName)) {
+                        return res.status(400).json({ success: false, error: 'Unsupported or unsafe sound file name' });
+                    }
+
+                    const soundsDir = path.join(this.api.getPluginDataDir(), 'sounds');
+                    fs.mkdirSync(soundsDir, { recursive: true });
+                    resolvedFileName = `${Date.now()}-${path.basename(fileName)}`;
+                    resolvedPath = path.join(soundsDir, resolvedFileName);
+
+                    if (contentBase64) {
+                        const buffer = Buffer.from(String(contentBase64).replace(/^data:audio\/[a-z0-9.+-]+;base64,/i, ''), 'base64');
+                        fs.writeFileSync(resolvedPath, buffer);
+                    }
+
+                    this.db.prepare(`
+                        INSERT OR REPLACE INTO sound_assets (event_name, file_name, file_path, volume)
+                        VALUES (?, ?, ?, ?)
+                    `).run(eventName, resolvedFileName, resolvedPath, Number(volume) || 1.0);
+                }
                 
                 this.db.prepare(`
                     INSERT OR REPLACE INTO game_sounds (event_name, file_path, volume) 
                     VALUES (?, ?, ?)
-                `).run(event_name, file_path, volume || 1.0);
+                `).run(eventName, resolvedPath, Number(volume) || 1.0);
 
                 const sounds = this.db.prepare('SELECT * FROM game_sounds').all();
                 this.api.emit('quiz-show:sounds-updated', sounds);
 
+                res.json({ success: true, sounds });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('delete', '/api/quiz-show/sounds/:eventName', (req, res) => {
+            try {
+                const eventName = String(req.params.eventName || '').trim();
+                const asset = this.db.prepare('SELECT * FROM sound_assets WHERE event_name = ?').get(eventName);
+                this.db.prepare('DELETE FROM game_sounds WHERE event_name = ?').run(eventName);
+                this.db.prepare('DELETE FROM sound_assets WHERE event_name = ?').run(eventName);
+                if (asset && asset.file_path && fs.existsSync(asset.file_path)) {
+                    fs.unlinkSync(asset.file_path);
+                }
+                const sounds = this.db.prepare('SELECT * FROM game_sounds ORDER BY event_name').all();
+                this.api.emit('quiz-show:sounds-updated', sounds);
+                res.json({ success: true, sounds });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('post', '/api/quiz-show/sounds/test', (req, res) => {
+            try {
+                const eventName = String(req.body.eventName || '').trim();
+                if (!eventName) {
+                    return res.status(400).json({ success: false, error: 'eventName is required' });
+                }
+                this.playSound(eventName);
                 res.json({ success: true });
             } catch (error) {
                 res.status(500).json({ success: false, error: error.message });
@@ -2213,6 +3222,9 @@ class QuizShowPlugin {
     getDefaultHUDConfig() {
         return {
             theme: 'dark',
+            themePreset: this.config.hudThemePreset || 'neon',
+            reducedMotion: !!this.config.reducedMotion,
+            highContrast: !!this.config.highContrast,
             questionAnimation: 'slide-in-bottom',
             correctAnimation: 'glow-pulse',
             wrongAnimation: 'shake',
@@ -2239,6 +3251,11 @@ class QuizShowPlugin {
                 family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                 sizeQuestion: '2.2rem',
                 sizeAnswer: '1.1rem'
+            },
+            avatarPerformance: {
+                mode: this.config.avatarPerformanceMode || 'balanced',
+                cacheEnabled: this.config.avatarCacheEnabled !== false,
+                maxVisible: this.config.voterIconMaxVisible || 10
             }
         };
     }
@@ -2393,14 +3410,21 @@ class QuizShowPlugin {
     registerTikTokEvents() {
         // Handle chat messages for answers and jokers
         this.api.registerTikTokEvent('chat', async (data) => {
-            if (!this.gameState.isRunning) {
-                return;
-            }
-
             const userId = data.uniqueId || data.nickname || data.userId;
             const username = data.nickname || data.username || userId;
             const message = (data.message || data.comment || '').trim();
             const isSuperFan = data.teamMemberLevel >= 1 || data.isSubscriber;
+
+            if (this.gameState.categoryVote && this.gameState.categoryVote.active) {
+                const recorded = this.recordCategoryVote({ userId, username, message });
+                if (recorded) {
+                    return;
+                }
+            }
+
+            if (!this.gameState.isRunning) {
+                return;
+            }
             
             // Extract profile picture URL from various possible fields
             const profilePictureUrl = this.extractProfilePicture(data);
@@ -2674,6 +3698,8 @@ class QuizShowPlugin {
     }
 
     async startRound() {
+        this.checkSeasonAutomation();
+
         // If total round limit reached but state not reset yet (e.g., auto-mode edge case), reset before starting new session
         // This covers situations where a scheduled restart fires after the previous game exceeded totalRounds but state was not cleared yet
         this.api.log(`startRound invoked with currentRound=${this.gameState.currentRound}, totalRounds=${this.config.totalRounds}`, 'debug');
@@ -2682,6 +3708,10 @@ class QuizShowPlugin {
             this.api.log('Round limit reached before startRound - resetting game state for new session', 'info');
             this.resetGameState();
         }
+
+        const activeShow = this.getActiveShowConfig();
+        this.applyActiveShowConfig(activeShow);
+        await this.runCategoryVotingBeforeRound(activeShow);
 
         // Get questions from database
         let questions;
@@ -2802,7 +3832,8 @@ class QuizShowPlugin {
                 1: [], // Answer B
                 2: [], // Answer C
                 3: []  // Answer D
-            }
+            },
+            pointsAwardedForRound: false
         };
 
         // TTS announcement if enabled - generate and wait before showing question
@@ -2872,11 +3903,11 @@ class QuizShowPlugin {
                 answers: typeof q.answers === 'string' ? JSON.parse(q.answers) : q.answers
             }));
 
-            // Filter out questions asked recently (within 24 hours)
-            const oneDayAgo = Date.now() - this.QUESTION_COOLDOWN_MS;
+            // Filter out questions asked recently using the configured cooldown
+            const cooldownCutoff = Date.now() - this.getQuestionCooldownMs();
             const recentlyAskedIds = this.db.prepare(
                 'SELECT DISTINCT question_id FROM question_history WHERE asked_at > ?'
-            ).all(new Date(oneDayAgo).toISOString()).map(row => row.question_id);
+            ).all(new Date(cooldownCutoff).toISOString()).map(row => row.question_id);
 
             // Filter out recently asked questions AND questions asked in this session
             const availableQuestions = questions.filter(q => 
@@ -3439,18 +4470,41 @@ class QuizShowPlugin {
         }
 
         // Award points
-        if (correctUsers.length > 0) {
+        if (correctUsers.length > 0 && !this.gameState.pointsAwardedForRound) {
             // First correct answer
             const firstUser = correctUsers[0];
             this.addPoints(firstUser.userId, firstUser.username, this.config.pointsFirstCorrect);
+            this.applyAnswerProgress(firstUser, true, this.config.pointsFirstCorrect, true);
 
             // Other correct answers (if multiple winners enabled)
             if (this.config.multipleWinners && correctUsers.length > 1) {
                 for (let i = 1; i < correctUsers.length; i++) {
                     const user = correctUsers[i];
                     this.addPoints(user.userId, user.username, this.config.pointsOtherCorrect);
+                    this.applyAnswerProgress(user, true, this.config.pointsOtherCorrect, false);
                 }
             }
+
+            for (const [userId, answerData] of answers) {
+                if (!correctUsers.some(user => user.userId === userId)) {
+                    this.applyAnswerProgress({
+                        userId,
+                        username: answerData.username,
+                        answer: answerData.answer
+                    }, false, 0, false);
+                }
+            }
+
+            this.gameState.pointsAwardedForRound = true;
+        } else if (correctUsers.length === 0 && !this.gameState.pointsAwardedForRound) {
+            for (const [userId, answerData] of answers) {
+                this.applyAnswerProgress({
+                    userId,
+                    username: answerData.username,
+                    answer: answerData.answer
+                }, false, 0, false);
+            }
+            this.gameState.pointsAwardedForRound = true;
         }
 
         return {
@@ -3461,6 +4515,31 @@ class QuizShowPlugin {
                 text: correctAnswerText
             }
         };
+    }
+
+    applyAnswerProgress(user, isCorrect, points, isFirstCorrect) {
+        if (!user || !user.userId) {
+            return;
+        }
+
+        if (isCorrect) {
+            this.gameState.userStreaks[user.userId] = (this.gameState.userStreaks[user.userId] || 0) + 1;
+            const category = this.gameState.currentQuestion?.category || 'Allgemein';
+            const categoryKey = `${user.userId}:${category}`;
+            this.gameState.categoryCorrectCounts[categoryKey] = (this.gameState.categoryCorrectCounts[categoryKey] || 0) + 1;
+            this.applyDuelAnswerResult(user.userId, true, points);
+            this.evaluateAchievements({
+                userId: user.userId,
+                username: user.username,
+                isFirstCorrect,
+                streak: this.gameState.userStreaks[user.userId],
+                categoryCorrectCount: this.gameState.categoryCorrectCounts[categoryKey],
+                duelWinner: false
+            });
+        } else {
+            this.gameState.userStreaks[user.userId] = 0;
+            this.applyDuelAnswerResult(user.userId, false, 0);
+        }
     }
 
     isAnswerCorrect(answer, correctIndex, correctText) {
@@ -3724,7 +4803,7 @@ class QuizShowPlugin {
             jokerData = this.activateTimeJoker();
             this.gameState.jokersUsed['time']++;
         } else if (jokerSuffix === '' || jokerSuffix.trim() === '') {
-            // No specific joker type - auto-select first available with priority: 50:50 → 25% → time
+            // No specific joker type - auto-select first available with priority: 50:50 -> 25% -> time
             if (this.config.joker50Enabled && this.gameState.jokersUsed['50'] === 0) {
                 jokerType = '50';
                 jokerData = this.activate5050Joker();
@@ -3850,8 +4929,14 @@ class QuizShowPlugin {
                 maxVisible: this.config.voterIconMaxVisible,
                 compactMode: this.config.voterIconCompactMode,
                 animation: this.config.voterIconAnimation,
-                position: this.config.voterIconPosition
+                position: this.config.voterIconPosition,
+                performanceMode: this.config.avatarPerformanceMode,
+                cacheEnabled: this.config.avatarCacheEnabled
             },
+            themePreset: this.config.hudThemePreset,
+            reducedMotion: this.config.reducedMotion,
+            highContrast: this.config.highContrast,
+            duel: this.gameState.duel,
             ultraKompaktModus: this.config.ultraKompaktModus, // NEW: Ultra-compact mode
             ultraKompaktAnswerDelay: this.config.ultraKompaktAnswerDelay // NEW: Answer delay in ultra-compact mode
         };
@@ -3901,6 +4986,10 @@ class QuizShowPlugin {
             clearTimeout(this.gameState.slotMachineTimeout);
         }
 
+        if (this.gameState.categoryVoteTimeout) {
+            clearTimeout(this.gameState.categoryVoteTimeout);
+        }
+
         // Restore original category filter if it was modified by slot machine
         if (this.gameState.originalCategoryFilter) {
             this.config.categoryFilter = this.gameState.originalCategoryFilter;
@@ -3941,7 +5030,26 @@ class QuizShowPlugin {
             // Reset slot machine state
             originalCategoryFilter: null,
             slotMachineActive: false,
-            slotMachineTimeout: null
+            slotMachineTimeout: null,
+            categoryVote: {
+                active: false,
+                options: [],
+                votesByUser: {},
+                votesByCategory: {},
+                startedAt: null,
+                endsAt: null,
+                selectedCategory: null
+            },
+            categoryVoteTimeout: null,
+            duel: {
+                active: false,
+                left: { label: 'Team A', users: [], score: 0, streak: 0, lastAnswerCorrect: null },
+                right: { label: 'Team B', users: [], score: 0, streak: 0, lastAnswerCorrect: null },
+                winner: null
+            },
+            userStreaks: {},
+            categoryCorrectCounts: {},
+            pointsAwardedForRound: false
         };
         
         // Clear TTS cache on reset
@@ -4291,3 +5399,4 @@ class QuizShowPlugin {
 }
 
 module.exports = QuizShowPlugin;
+

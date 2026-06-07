@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Snapshot cleanup: root package metadata now targets the maintained backend app and Go launcher sources instead of missing Electron files.
+- Active documentation was refreshed for the local snapshot workflow and future agent work.
+- Stale Electron and obsolete plugin-specific CI workflows were removed from the active workflow set.
+
 ## [1.3.3] - 2026-03-26
 
 ### Added

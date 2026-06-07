@@ -4,7 +4,7 @@ Ultra-minimalistic, VR-optimized and accessible HUD overlays for TikTok live str
 
 ## Features
 
-### Three Fixed Overlay URLs
+### Four Fixed Overlay URLs
 
 1. **Chat-Only HUD** (`/overlay/clarity/chat`)
    - Ultra-readable chat panel with very large font
@@ -30,6 +30,11 @@ Ultra-minimalistic, VR-optimized and accessible HUD overlays for TikTok live str
    - Auto-contrast for better readability on colored backgrounds
    - Pulse animation on new messages (optional)
    - Virtual scrolling for high performance with 250-500 messages
+
+4. **Stream Overlay** (`/overlay/clarity/stream`)
+   - Viewer-facing OBS overlay for alerts, highlights, and ticker content
+   - Configurable slots, TTLs, highlight thresholds, and event toggles
+   - Optional ticker for compact activity summaries
 
 ### Layout Modes (Full HUD)
 
@@ -144,13 +149,36 @@ Use the preset buttons for instant configuration:
 - **Dyslexia Friendly**: OpenDyslexic font with optimized spacing
 - **Motion Sensitive**: Reduced animations, gentle transitions
 
+### Setup Wizard and Profiles
+
+The dashboard includes a **Setup Wizard** for fast starter configurations:
+- `vrchat-readable` for large, high-contrast, low-motion VRChat usage
+- `obs-clean` for a restrained broadcast overlay
+- `high-activity` for busy streams with stronger aggregation
+
+Profiles can be exported and imported as JSON, including settings and custom presets. This makes it practical to move ClarityHUD between machines or keep separate OBS/VRChat setups.
+
+### Activity Optimization Settings
+
+- `giftStreakMode`: `immediate` shows gift events as they arrive, while `finalOnly` waits for the final repeat event.
+- `likeAggregationWindowMs`: controls how long likes are batched before one aggregated event appears.
+- `likeAggregationMinCount`: suppresses very small like batches when desired.
+- Multi-stream reconnect settings expose retry attempts, base delay, and per-stream connection status.
+
 ## API Endpoints
 
 - `GET /api/clarityhud/settings` - Get all settings
-- `GET /api/clarityhud/settings/:dock` - Get settings for specific dock (chat/full/multi)
+- `GET /api/clarityhud/settings/:dock` - Get settings for specific dock (chat/full/multi/stream)
 - `POST /api/clarityhud/settings/:dock` - Update settings for specific dock
 - `GET /api/clarityhud/state/:dock` - Get current event state
 - `POST /api/clarityhud/settings/:dock/reset` - Reset to default settings
+- `POST /api/clarityhud/test/multi` - Send test events to the multi-stream HUD
+- `GET /api/clarityhud/profile/export` - Export a complete ClarityHUD profile
+- `POST /api/clarityhud/profile/import` - Import a ClarityHUD profile
+- `GET /api/clarityhud/presets` - List built-in and custom presets
+- `POST /api/clarityhud/presets` - Save a custom preset
+- `POST /api/clarityhud/presets/:id/apply` - Apply a built-in or custom preset
+- `GET /api/clarityhud/multi/status` - Inspect per-stream multi connector status
 
 ## WebSocket Events
 

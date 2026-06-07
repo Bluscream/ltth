@@ -6,6 +6,22 @@
  * positioned in configurable screen slots.
  */
 
+function createClarityHUDLogger(scope) {
+  const params = new URLSearchParams(window.location.search);
+  const debugEnabled = params.get('debug') === '1' ||
+    params.get('debug') === 'true' ||
+    localStorage.getItem('clarityhud.debug') === '1';
+  const prefix = `[${scope}]`;
+
+  return {
+    debug: (...args) => { if (debugEnabled) console.debug(prefix, ...args); },
+    warn: (...args) => { if (debugEnabled) console.warn(prefix, ...args); },
+    error: (...args) => console.error(prefix, ...args)
+  };
+}
+
+const HUD_LOG = createClarityHUDLogger('CLARITY STREAM');
+
 // ==================== CONSTANTS ====================
 
 /** Maximum characters shown for chat messages in AlertCards */
@@ -110,7 +126,7 @@ async function loadSettings() {
     }
     applySettings(STATE.settings);
   } catch (error) {
-    console.error('[CLARITY STREAM] Error loading settings:', error);
+    HUD_LOG.error('[CLARITY STREAM] Error loading settings:', error);
     STATE.settings = getDefaultSettings();
     applySettings(STATE.settings);
   }
@@ -123,15 +139,15 @@ function connectSocket() {
   STATE.socket = socket;
 
   socket.on('connect', () => {
-    console.log('[CLARITY STREAM] Connected to server');
+    HUD_LOG.debug('[CLARITY STREAM] Connected to server');
   });
 
   socket.on('disconnect', () => {
-    console.log('[CLARITY STREAM] Disconnected from server');
+    HUD_LOG.debug('[CLARITY STREAM] Disconnected from server');
   });
 
   socket.on('clarityhud.settings.stream', (newSettings) => {
-    console.log('[CLARITY STREAM] Settings update received');
+    HUD_LOG.debug('[CLARITY STREAM] Settings update received');
     STATE.settings = { ...getDefaultSettings(), ...newSettings };
     applySettings(STATE.settings);
   });
@@ -287,7 +303,7 @@ function showAlertCard(type, data, slotId, ttl) {
   // Append to slot
   const slotEl = document.getElementById(slotId);
   if (!slotEl) {
-    console.warn(`[CLARITY STREAM] Slot not found: ${slotId}`);
+    HUD_LOG.warn(`[CLARITY STREAM] Slot not found: ${slotId}`);
     return;
   }
   slotEl.appendChild(card);
@@ -361,7 +377,7 @@ function showHighlightCard(type, data, slotId, ttl) {
   // Append to slot
   const slotEl = document.getElementById(slotId);
   if (!slotEl) {
-    console.warn(`[CLARITY STREAM] Slot not found: ${slotId}`);
+    HUD_LOG.warn(`[CLARITY STREAM] Slot not found: ${slotId}`);
     return;
   }
   slotEl.appendChild(card);
@@ -582,19 +598,39 @@ function renderTicker() {
   const inner = document.getElementById('ticker-inner');
   if (!inner) return;
 
-  // Build item HTML
-  const itemsHTML = STATE._tickerItems.map(function (item) {
-    return '<span class="ticker-item">' +
-      '<span class="ticker-icon">' + escapeHTML(item.icon) + '</span>' +
-      '<span class="ticker-name">' + escapeHTML(item.username) + '</span>' +
-      ' ' + escapeHTML(item.text) +
-      '</span><span class="ticker-sep"></span>';
-  }).join('');
-
-  // Duplicate for seamless loop
-  inner.innerHTML = itemsHTML + itemsHTML;
+  inner.replaceChildren();
+  renderTickerItems(inner, STATE._tickerItems);
+  renderTickerItems(inner, STATE._tickerItems);
 
   restartTickerScroll();
+}
+
+function renderTickerItems(container, items) {
+  const fragment = document.createDocumentFragment();
+
+  items.forEach(function (item) {
+    const tickerItem = document.createElement('span');
+    tickerItem.className = 'ticker-item';
+
+    const icon = document.createElement('span');
+    icon.className = 'ticker-icon';
+    icon.textContent = item.icon;
+    tickerItem.appendChild(icon);
+
+    const name = document.createElement('span');
+    name.className = 'ticker-name';
+    name.textContent = item.username;
+    tickerItem.appendChild(name);
+
+    tickerItem.appendChild(document.createTextNode(` ${item.text}`));
+    fragment.appendChild(tickerItem);
+
+    const separator = document.createElement('span');
+    separator.className = 'ticker-sep';
+    fragment.appendChild(separator);
+  });
+
+  container.appendChild(fragment);
 }
 
 /**
@@ -648,7 +684,7 @@ function capitalize(str) {
 // ==================== INIT ====================
 
 async function _initOnce() {
-  console.log('[CLARITY STREAM] Initializing stream overlay...');
+  HUD_LOG.debug('[CLARITY STREAM] Initializing stream overlay...');
 
   // Inject StreamAnimations CSS
   if (typeof StreamAnimations !== 'undefined') {
@@ -669,7 +705,7 @@ async function _initOnce() {
   connectSocket();
 
   STATE._initialized = true;
-  console.log('[CLARITY STREAM] Stream overlay initialized successfully');
+  HUD_LOG.debug('[CLARITY STREAM] Stream overlay initialized successfully');
 }
 
 async function init() {
@@ -678,7 +714,7 @@ async function init() {
       await _initOnce();
       return;
     } catch (error) {
-      console.error(`[CLARITY STREAM] Init attempt ${attempt}/${MAX_RETRIES} failed:`, error);
+      HUD_LOG.error(`[CLARITY STREAM] Init attempt ${attempt}/${MAX_RETRIES} failed:`, error);
 
       if (attempt < MAX_RETRIES) {
         await sleep(RETRY_DELAY_MS);
@@ -686,10 +722,18 @@ async function init() {
     }
   }
 
-  console.error('[CLARITY STREAM] Failed to initialize after ' + MAX_RETRIES + ' attempts.');
+  HUD_LOG.error('[CLARITY STREAM] Failed to initialize after ' + MAX_RETRIES + ' attempts.');
 }
 
 // ==================== ENTRY POINT ====================
 document.addEventListener('DOMContentLoaded', () => {
   init();
+});
+
+window.addEventListener('message', (event) => {
+  const payload = event.data || {};
+  if (payload.source !== 'clarityhud-ui' || payload.type !== 'settings-preview' || payload.dock !== 'stream') {
+    return;
+  }
+  applySettings(payload.settings);
 });

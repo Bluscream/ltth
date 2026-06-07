@@ -1,8 +1,8 @@
 {
   "id": "animazingpal",
   "name": "AnimazingPal",
-  "version": "1.2.0",
-  "description": "Integration mit Animaze für VTuber Avatar-Steuerung mit KI-Brain und Langzeit-Gedächtnis",
+  "version": "1.4.0",
+  "description": "Multi-platform VTuber avatar control with Animaze, VTube Studio, and VSeeFace plus AI brain, long-term memory, and viewerbase sync",
   "author": "copilot",
   "entry": "main.js",
   "enabled": false,
@@ -15,9 +15,9 @@
     "database"
   ],
   "descriptions": {
-    "en": "Integration with Animaze for VTuber avatar control via TikTok LIVE events. Features an AI Brain Engine with long-term memory, personality system, and GPT-powered intelligent responses.",
-    "de": "Integration mit Animaze für VTuber Avatar-Steuerung über TikTok LIVE Events. Mit KI-Brain Engine: Langzeit-Gedächtnis, Persönlichkeits-System und GPT-gesteuerte intelligente Antworten.",
-    "es": "Integración con Animaze para control de avatar VTuber a través de eventos de TikTok LIVE. Incluye un Motor de Cerebro IA con memoria a largo plazo, sistema de personalidades y respuestas inteligentes con GPT.",
-    "fr": "Intégration avec Animaze pour le contrôle d'avatar VTuber via les événements TikTok LIVE. Comprend un moteur IA avec mémoire à long terme, système de personnalités et réponses intelligentes GPT."
+    "en": "Multi-platform VTuber avatar control via TikTok LIVE events. Supports Animaze, VTube Studio, and VSeeFace with an AI Brain Engine, long-term memory, personality system, and GPT-powered intelligent responses.",
+    "de": "Mehrplattform-Integration für VTuber-Avatar-Steuerung über TikTok LIVE Events. Unterstützt Animaze, VTube Studio und VSeeFace mit KI-Brain Engine, Langzeit-Gedächtnis, Persönlichkeits-System und GPT-gesteuerten Antworten.",
+    "es": "Control de avatar VTuber multiplataforma a través de eventos de TikTok LIVE. Compatible con Animaze, VTube Studio y VSeeFace con un Motor de Cerebro IA, memoria a largo plazo, sistema de personalidades y respuestas inteligentes con GPT.",
+    "fr": "Contrôle d'avatar VTuber multiplateforme via les événements TikTok LIVE. Compatible avec Animaze, VTube Studio et VSeeFace avec un moteur IA, mémoire à long terme, système de personnalités et réponses intelligentes GPT."
   }
 }

@@ -168,7 +168,7 @@ describe('OSC-Bridge Avatar Detection', () => {
                 changedAt: expect.any(Number)
             });
             expect(mockLogger.info).toHaveBeenCalledWith(
-                '✅ Avatar ID from parameters: avtr_test_cache'
+                '[OK] Avatar ID from parameters: avtr_test_cache'
             );
         });
 

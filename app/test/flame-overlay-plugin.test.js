@@ -7,6 +7,33 @@
 const fs = require('fs');
 const path = require('path');
 
+function getInlineEventHandlers(html) {
+    return [...html.matchAll(/\s(on[a-z][\w:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)]
+        .map(match => ({
+            attribute: match[1].toLowerCase(),
+            code: match[2] ?? match[3] ?? match[4] ?? ''
+        }));
+}
+
+function extractFunctionBody(content, functionName) {
+    const functionStart = content.indexOf(`function ${functionName}(`);
+    expect(functionStart).toBeGreaterThanOrEqual(0);
+
+    const openBrace = content.indexOf('{', functionStart);
+    expect(openBrace).toBeGreaterThanOrEqual(0);
+
+    let depth = 0;
+    for (let i = openBrace; i < content.length; i++) {
+        if (content[i] === '{') depth++;
+        if (content[i] === '}') depth--;
+        if (depth === 0) {
+            return content.slice(openBrace + 1, i);
+        }
+    }
+
+    throw new Error(`Could not extract function body for ${functionName}`);
+}
+
 describe('Flame Overlay Plugin', () => {
     const pluginDir = path.join(__dirname, '..', 'plugins', 'flame-overlay');
     
@@ -55,7 +82,6 @@ describe('Flame Overlay Plugin', () => {
         const files = [
             'ui/settings.html',
             'renderer/index.html',
-            'renderer/flame.js',
             'textures/nzw.png',
             'textures/firetex.png',
             'README.md'
@@ -134,24 +160,13 @@ describe('Flame Overlay Plugin', () => {
         expect(engineContent).toContain('uFrameThickness');
     });
     
-    test('flame.js has WebGL setup', () => {
+    test('legacy flame.js is not an active renderer artifact', () => {
         const flameJsPath = path.join(pluginDir, 'renderer', 'flame.js');
-        const content = fs.readFileSync(flameJsPath, 'utf8');
-        
-        // Check for WebGL context creation
-        expect(content).toContain('getContext(\'webgl\'');
-        expect(content).toContain('alpha: true');
-        expect(content).toContain('premultipliedAlpha: true');
-        
-        // Check for shader compilation
-        expect(content).toContain('compileShader');
-        expect(content).toContain('VERTEX_SHADER');
-        expect(content).toContain('FRAGMENT_SHADER');
-        
-        // Check for texture loading
-        expect(content).toContain('loadTexture');
-        expect(content).toContain('/plugins/flame-overlay/textures/nzw.png');
-        expect(content).toContain('/plugins/flame-overlay/textures/firetex.png');
+        const rendererPath = path.join(pluginDir, 'renderer', 'index.html');
+        const indexContent = fs.readFileSync(rendererPath, 'utf8');
+
+        expect(fs.existsSync(flameJsPath)).toBe(false);
+        expect(indexContent).not.toContain('flame.js');
     });
     
     test('settings UI has required controls', () => {
@@ -180,6 +195,10 @@ describe('Flame Overlay Plugin', () => {
         
         // Check for API endpoints
         expect(content).toContain('/api/flame-overlay/config');
+        expect(content).toContain('/api/flame-overlay/gift-catalog');
+        expect(content).toContain('/api/flame-overlay/test-event');
+        expect(content).toContain('/api/flame-overlay/clear-triggers');
+        expect(content).toContain('id="giftCatalogGrid"');
         expect(content).toContain('saveConfig');
         expect(content).toContain('loadConfig');
     });
@@ -230,7 +249,7 @@ describe('Flame Overlay Plugin', () => {
         expect(plugin.config.flameColor).toBe('#ff6600');
         expect(plugin.config.flameSpeed).toBe(0.5);
         expect(plugin.config.flameIntensity).toBe(1.3);
-        expect(plugin.config.flameBrightness).toBe(0.25);
+        expect(plugin.config.flameBrightness).toBe(0.38);
     });
     
     test('getResolution returns correct values', () => {
@@ -262,8 +281,9 @@ describe('Flame Overlay Plugin', () => {
         expect(resolution).toEqual({ width: 1000, height: 2000 });
     });
     
-    test('renderer directory is served for flame.js access', () => {
+    test('renderer assets are served through lifecycle-managed plugin routes', () => {
         const FlameOverlayPlugin = require(path.join(pluginDir, 'main.js'));
+        const registeredRoutes = new Map();
         const mockApp = {
             use: jest.fn()
         };
@@ -271,7 +291,9 @@ describe('Flame Overlay Plugin', () => {
             log: jest.fn(),
             getConfig: jest.fn(() => null),
             setConfig: jest.fn(),
-            registerRoute: jest.fn(),
+            registerRoute: jest.fn((method, routePath, handler) => {
+                registeredRoutes.set(`${method.toLowerCase()} ${routePath}`, handler);
+            }),
             registerSocket: jest.fn(),
             registerTikTokEvent: jest.fn(),
             emit: jest.fn(),
@@ -280,29 +302,130 @@ describe('Flame Overlay Plugin', () => {
         
         const plugin = new FlameOverlayPlugin(mockApi);
         plugin.registerRoutes();
-        
-        // Verify that express.static is called for /flame-overlay path
-        // This ensures flame.js can be loaded from http://localhost:3000/flame-overlay/flame.js
-        expect(mockApp.use).toHaveBeenCalledWith(
-            '/flame-overlay',
-            expect.any(Function)
+
+        expect(mockApp.use).not.toHaveBeenCalled();
+        expect(registeredRoutes.has('get /flame-overlay/:asset')).toBe(true);
+        expect(registeredRoutes.has('get /plugins/flame-overlay/textures/:texture')).toBe(true);
+
+        const createResponse = () => ({
+            status: jest.fn(function setStatus(code) {
+                this.statusCode = code;
+                return this;
+            }),
+            json: jest.fn(),
+            sendFile: jest.fn()
+        });
+
+        const rendererRes = createResponse();
+        registeredRoutes.get('get /flame-overlay/:asset')(
+            { params: { asset: 'effects-engine.js' } },
+            rendererRes
         );
-        
-        // Verify textures directory is also served
-        expect(mockApp.use).toHaveBeenCalledWith(
-            '/plugins/flame-overlay/textures',
-            expect.any(Function)
+        expect(rendererRes.sendFile).toHaveBeenCalledWith(
+            path.join(pluginDir, 'renderer', 'effects-engine.js')
         );
+
+        const textureRes = createResponse();
+        registeredRoutes.get('get /plugins/flame-overlay/textures/:texture')(
+            { params: { texture: 'nzw.png' } },
+            textureRes
+        );
+        expect(textureRes.sendFile).toHaveBeenCalledWith(
+            path.join(pluginDir, 'textures', 'nzw.png')
+        );
+
+        const traversalRes = createResponse();
+        registeredRoutes.get('get /flame-overlay/:asset')(
+            { params: { asset: '../main.js' } },
+            traversalRes
+        );
+        expect(traversalRes.status).toHaveBeenCalledWith(404);
+        expect(traversalRes.json).toHaveBeenCalledWith({
+            success: false,
+            error: 'Asset not found'
+        });
     });
     
-    test('settings HTML has inline event handlers for CSP', () => {
+    test('settings HTML binds UI actions without inline event handlers', () => {
         const settingsPath = path.join(pluginDir, 'ui', 'settings.html');
         const content = fs.readFileSync(settingsPath, 'utf8');
-        
-        // These inline event handlers need CSP hashes to work
-        expect(content).toContain('onclick="saveConfig()"');
-        expect(content).toContain('onclick="loadConfig()"');
-        expect(content).toContain('onclick="openOverlay()"');
-        expect(content).toContain('onclick="savePreset()"');
+
+        expect(getInlineEventHandlers(content)).toEqual([]);
+
+        const expectedButtonBindings = [
+            ['previewToggle', 'togglePreview'],
+            ['previewRefreshBtn', 'refreshPreview'],
+            ['previewFullscreenBtn', 'toggleFullscreen'],
+            ['applyFramePositionBtn', 'applyFramePosition'],
+            ['savePresetBtn', 'savePreset'],
+            ['saveConfigBtn', 'saveConfig'],
+            ['reloadConfigBtn', 'loadConfig'],
+            ['openOverlayBtn', 'openOverlay']
+        ];
+
+        expectedButtonBindings.forEach(([id, handler]) => {
+            expect(content).toContain(`id="${id}"`);
+            expect(content).toContain(`document.getElementById('${id}').addEventListener('click', ${handler})`);
+        });
+    });
+
+    test('trigger save button persists adjacent trigger settings', () => {
+        const settingsPath = path.join(pluginDir, 'ui', 'settings.html');
+        const content = fs.readFileSync(settingsPath, 'utf8');
+        const body = extractFunctionBody(content, 'saveTriggerRules');
+
+        expect(body).toContain("fetch('/api/flame-overlay/config'");
+        expect(body).toContain('triggerRules');
+        expect(body).toContain('triggersEnabled');
+        expect(body).toContain('chatColorCommands');
+        expect(body).toContain('triggerCooldown');
+        expect(body).toContain('triggerMaxStack');
+    });
+
+    test('trigger status rendering does not inject HTML', () => {
+        const settingsPath = path.join(pluginDir, 'ui', 'settings.html');
+        const content = fs.readFileSync(settingsPath, 'utf8');
+        const body = extractFunctionBody(content, 'updateTriggerStatus');
+
+        expect(body).not.toContain('innerHTML');
+        expect(body).toContain('createElement');
+        expect(body).toContain('textContent');
+    });
+
+    test('preview sizing and overlay window use selected resolution', () => {
+        const settingsPath = path.join(pluginDir, 'ui', 'settings.html');
+        const content = fs.readFileSync(settingsPath, 'utf8');
+        const previewBody = extractFunctionBody(content, 'updatePreviewAspectRatio');
+        const openOverlayBody = extractFunctionBody(content, 'openOverlay');
+
+        expect(content).toContain('function getSelectedResolution()');
+        expect(previewBody).toContain('getSelectedResolution()');
+        expect(previewBody).toMatch(/paddingBottom|aspectRatio/);
+        expect(openOverlayBody).toContain('getSelectedResolution()');
+        expect(openOverlayBody).not.toContain('width=720,height=1280');
+    });
+
+    test('custom resolution edits refresh preview aspect ratio', () => {
+        const settingsPath = path.join(pluginDir, 'ui', 'settings.html');
+        const content = fs.readFileSync(settingsPath, 'utf8');
+        const listenerStart = content.indexOf('CUSTOM_RESOLUTION_INPUTS.forEach');
+        expect(listenerStart).toBeGreaterThanOrEqual(0);
+
+        const listenerBlock = content.slice(listenerStart, content.indexOf('// Load configuration', listenerStart));
+        expect(listenerBlock).toContain('updatePreviewAspectRatio();');
+    });
+
+    test('settings UI exposes accessible status, preview, and remove controls', () => {
+        const settingsPath = path.join(pluginDir, 'ui', 'settings.html');
+        const content = fs.readFileSync(settingsPath, 'utf8');
+
+        expect(content).toMatch(/id="status"[^>]*role="status"[^>]*aria-live="polite"/);
+        expect(content).toMatch(/<iframe[^>]*id="previewIframe"[^>]*title="/);
+        expect(content).toContain('<label for="frameX">');
+        expect(content).toContain('<label for="frameY">');
+        expect(content).toContain('<label for="frameWidth">');
+        expect(content).toContain('<label for="frameHeight">');
+        expect(content).toContain("removeBtn.setAttribute('aria-label'");
+        expect(content).toMatch(/class="btn btn-secondary preset-delete-btn"[^>]*aria-label=/);
     });
 });

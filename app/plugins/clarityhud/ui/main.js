@@ -1,6 +1,8 @@
 let currentDock = null;
 let currentSettings = {};
 let socket = null;
+let cachedPresets = { builtin: [], custom: [] };
+let multiStatusTimer = null;
 
 // Initialize
 function init() {
@@ -18,6 +20,10 @@ function init() {
     console.log('Connected to Socket.IO');
   });
 
+  socket.on('clarityhud.multi.status', (streams) => {
+    renderMultiStreamStatus(streams);
+  });
+
   // Listen for settings updates
   socket.on('clarityhud:settings:updated', (data) => {
     if (data.dock === currentDock) {
@@ -25,6 +31,21 @@ function init() {
       showToast('Settings updated from server', 'success');
     }
   });
+
+  const schemaVersion = window.ClarityHUDSettingsSchema && window.ClarityHUDSettingsSchema.VERSION;
+  const versionEl = document.getElementById('plugin-version');
+  if (schemaVersion && versionEl) {
+    versionEl.textContent = `v${schemaVersion}`;
+  }
+
+  const importInput = document.getElementById('profile-import-input');
+  if (importInput) {
+    importInput.addEventListener('change', importProfile);
+  }
+
+  loadPresets();
+  loadMultiStreamStatus();
+  multiStatusTimer = setInterval(loadMultiStreamStatus, 10000);
 }
 
 // Copy URL to clipboard
@@ -45,6 +66,18 @@ function refreshPreview(dock) {
   const iframe = document.getElementById(`${dock}-preview`);
   iframe.src = iframe.src;
   showToast('Preview refreshed', 'success');
+}
+
+function sendLivePreviewSettings(dock, settings = currentSettings) {
+  const iframe = document.getElementById(`${dock}-preview`);
+  if (!iframe || !iframe.contentWindow || !settings) return;
+
+  iframe.contentWindow.postMessage({
+    source: 'clarityhud-ui',
+    type: 'settings-preview',
+    dock,
+    settings
+  }, window.location.origin);
 }
 
 // Test event
@@ -439,6 +472,29 @@ function renderTabContent(dock, tabId) {
               </select>
               <span class="help-text">Size of gift images when "Show Gift Images" is enabled</span>
             </div>
+            <div class="form-group">
+              <label>Gift Streak Display</label>
+              <select id="giftStreakMode">
+                <option value="immediate" ${s.giftStreakMode !== 'finalOnly' ? 'selected' : ''}>Show immediately</option>
+                <option value="finalOnly" ${s.giftStreakMode === 'finalOnly' ? 'selected' : ''}>Only final repeat</option>
+              </select>
+              <span class="help-text">Use final-only for cleaner feeds during gift streaks</span>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <h3>Like Aggregation</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Aggregation Window (ms)</label>
+              <input type="number" id="likeAggregationWindowMs" min="100" max="30000" value="${s.likeAggregationWindowMs || 5000}">
+              <span class="help-text">Likes are grouped for this long before display</span>
+            </div>
+            <div class="form-group">
+              <label>Minimum Likes</label>
+              <input type="number" id="likeAggregationMinCount" min="1" max="10000" value="${s.likeAggregationMinCount || 1}">
+              <span class="help-text">Suppress tiny batches when the stream is busy</span>
+            </div>
           </div>
         </div>
       `;
@@ -481,14 +537,14 @@ function renderTabContent(dock, tabId) {
                 <select id="messageStyle">
                   <option value="stripe" ${s.messageStyle === 'stripe' ? 'selected' : ''}>Stripe</option>
                   <option value="badge" ${s.messageStyle === 'badge' ? 'selected' : ''}>Badge</option>
-                  <option value="bg" ${s.messageStyle === 'bg' ? 'selected' : ''}>Background</option>
+                  <option value="background" ${s.messageStyle === 'background' ? 'selected' : ''}>Background</option>
                 </select>
                 <span class="help-text">Stripe: Left border. Badge: Source label. BG: Colored background</span>
               </div>
               <div class="form-group">
                 <label>Density</label>
                 <select id="density">
-                  <option value="ultra" ${s.density === 'ultra' ? 'selected' : ''}>Ultra Compact</option>
+                  <option value="ultra-compact" ${s.density === 'ultra-compact' ? 'selected' : ''}>Ultra Compact</option>
                   <option value="compact" ${s.density === 'compact' ? 'selected' : ''}>Compact</option>
                   <option value="comfortable" ${s.density === 'comfortable' ? 'selected' : ''}>Comfortable</option>
                 </select>
@@ -513,6 +569,18 @@ function renderTabContent(dock, tabId) {
             <div class="checkbox-group">
               <input type="checkbox" id="pulseOnNew" ${s.pulseOnNew ? 'checked' : ''}>
               <label for="pulseOnNew">Pulse animation on new messages</label>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Reconnect Attempts</label>
+                <input type="number" id="reconnectMaxAttempts" min="0" max="10" value="${s.reconnectMaxAttempts || 3}">
+                <span class="help-text">Retries per additional stream after a connection failure</span>
+              </div>
+              <div class="form-group">
+                <label>Reconnect Base Delay (ms)</label>
+                <input type="number" id="reconnectBaseDelayMs" min="10" max="60000" value="${s.reconnectBaseDelayMs || 2000}">
+                <span class="help-text">Retry delay grows from this base value</span>
+              </div>
             </div>
           </div>
         `;
@@ -919,9 +987,9 @@ async function saveSettings() {
       const newSettings = window.StreamSettingsTab.collectStreamSettings();
       const saved = await window.StreamSettingsTab.saveStreamSettings(newSettings);
       currentSettings = saved;
+      sendLivePreviewSettings('stream', saved);
       showToast('Stream settings saved successfully!', 'success');
       closeSettings();
-      setTimeout(() => { refreshPreview('stream'); }, 500);
     } catch (error) {
       console.error('Error saving stream settings:', error);
       showToast('Error saving stream settings', 'error');
@@ -962,26 +1030,28 @@ async function saveSettings() {
       highlightPrimary: getFieldValue('highlightPrimary', 'checkbox'),
       maxMessages: parseInt(getFieldValue('maxMessages')) || 300,
       autoContrast: getFieldValue('autoContrast', 'checkbox'),
-      pulseOnNew: getFieldValue('pulseOnNew', 'checkbox')
+      pulseOnNew: getFieldValue('pulseOnNew', 'checkbox'),
+      reconnectMaxAttempts: parseInt(getFieldValue('reconnectMaxAttempts'), 10) || 3,
+      reconnectBaseDelayMs: parseInt(getFieldValue('reconnectBaseDelayMs'), 10) || 2000
     };
   } else {
     // Chat and Full HUD settings
     newSettings = {
       // Appearance
       fontFamily: getFieldValue('fontFamily'),
-      fontSize: parseInt(getFieldValue('fontSize')),
+      fontSize: `${parseInt(getFieldValue('fontSize'), 10) || 48}px`,
       fontColor: getFieldValue('fontColor'),
       backgroundColor: getFieldValue('backgroundColor'),
       lineHeight: parseFloat(getFieldValue('lineHeight')),
-      letterSpacing: parseFloat(getFieldValue('letterSpacing')),
+      letterSpacing: `${parseFloat(getFieldValue('letterSpacing')) || 0}px`,
 
       // Layout
-      alignLeft: getFieldValue('alignment') === 'left',
+      align: getFieldValue('alignment') || 'left',
       showTimestamps: getFieldValue('showTimestamps', 'checkbox'),
       maxLines: parseInt(getFieldValue('maxLines')),
 
       // Styling
-      outlineThickness: parseFloat(getFieldValue('outlineThickness')),
+      outlineThickness: `${parseFloat(getFieldValue('outlineThickness')) || 0}px`,
       outlineColor: getFieldValue('outlineColor'),
       wrapLongWords: getFieldValue('wrapLongWords', 'checkbox'),
 
@@ -1029,7 +1099,10 @@ async function saveSettings() {
       animationOut: getFieldValue('animationOut'),
       animationSpeed: getFieldValue('animationSpeed'),
       showGiftImages: getFieldValue('showGiftImages', 'checkbox'),
-      giftImageSize: getFieldValue('giftImageSize')
+      giftImageSize: getFieldValue('giftImageSize'),
+      giftStreakMode: getFieldValue('giftStreakMode') || 'immediate',
+      likeAggregationWindowMs: parseInt(getFieldValue('likeAggregationWindowMs'), 10) || 5000,
+      likeAggregationMinCount: parseInt(getFieldValue('likeAggregationMinCount'), 10) || 1
     });
   }
 
@@ -1046,13 +1119,13 @@ async function saveSettings() {
 
     if (data.success) {
       currentSettings = data.settings;
+      const savedDock = currentDock;
+      sendLivePreviewSettings(savedDock, currentSettings);
       showToast('Settings saved successfully!', 'success');
       closeSettings();
-
-      // Refresh preview
-      setTimeout(() => {
-        refreshPreview(currentDock);
-      }, 500);
+      if (savedDock === 'multi') {
+        loadMultiStreamStatus();
+      }
     } else {
       showToast(`Error saving settings: ${data.error}`, 'error');
     }
@@ -1074,6 +1147,182 @@ function getFieldValue(fieldId, type = 'text') {
     return field.checked;
   }
   return field.value;
+}
+
+async function exportProfile() {
+  try {
+    const response = await fetch('/api/clarityhud/profile/export');
+    const data = await response.json();
+    if (!data.success) {
+      showToast(`Export failed: ${data.error}`, 'error');
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(data.profile, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `clarityhud-profile-${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast('Profile exported', 'success');
+  } catch (error) {
+    console.error('Error exporting profile:', error);
+    showToast('Error exporting profile', 'error');
+  }
+}
+
+async function importProfile(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const profile = JSON.parse(text);
+    const response = await fetch('/api/clarityhud/profile/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile })
+    });
+    const data = await response.json();
+
+    if (!data.success) {
+      showToast(`Import failed: ${data.error}`, 'error');
+      return;
+    }
+
+    currentSettings = data.settings[currentDock] || currentSettings;
+    ['chat', 'full', 'multi', 'stream'].forEach((dock) => {
+      if (data.settings[dock]) {
+        sendLivePreviewSettings(dock, data.settings[dock]);
+      }
+    });
+    loadMultiStreamStatus();
+    showToast('Profile imported', 'success');
+  } catch (error) {
+    console.error('Error importing profile:', error);
+    showToast('Error importing profile', 'error');
+  } finally {
+    event.target.value = '';
+  }
+}
+
+async function loadPresets() {
+  try {
+    const response = await fetch('/api/clarityhud/presets');
+    const data = await response.json();
+    if (data.success) {
+      cachedPresets = data.presets;
+    }
+  } catch (error) {
+    console.error('Error loading presets:', error);
+  }
+}
+
+async function saveCustomPreset() {
+  const name = window.prompt('Preset name');
+  if (!name) return;
+
+  try {
+    const settings = currentDock ? { [currentDock]: currentSettings } : {};
+    const response = await fetch('/api/clarityhud/presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, settings })
+    });
+    const data = await response.json();
+
+    if (!data.success) {
+      showToast(`Preset failed: ${data.error}`, 'error');
+      return;
+    }
+
+    await loadPresets();
+    showToast('Preset saved', 'success');
+  } catch (error) {
+    console.error('Error saving preset:', error);
+    showToast('Error saving preset', 'error');
+  }
+}
+
+async function applyPresetFromApi(presetId) {
+  try {
+    const response = await fetch(`/api/clarityhud/presets/${presetId}/apply`, {
+      method: 'POST'
+    });
+    const data = await response.json();
+
+    if (!data.success) {
+      showToast(`Preset failed: ${data.error}`, 'error');
+      return;
+    }
+
+    ['chat', 'full', 'multi', 'stream'].forEach((dock) => {
+      if (data.settings[dock]) {
+        sendLivePreviewSettings(dock, data.settings[dock]);
+      }
+    });
+    await loadMultiStreamStatus();
+    closeSetupWizard();
+    showToast(`Applied ${data.preset.name}`, 'success');
+  } catch (error) {
+    console.error('Error applying preset:', error);
+    showToast('Error applying preset', 'error');
+  }
+}
+
+function openSetupWizard() {
+  const modal = document.getElementById('setup-wizard-modal');
+  if (modal) {
+    modal.classList.add('active');
+  }
+}
+
+function closeSetupWizard() {
+  const modal = document.getElementById('setup-wizard-modal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+}
+
+async function loadMultiStreamStatus() {
+  try {
+    const response = await fetch('/api/clarityhud/multi/status');
+    const data = await response.json();
+    if (data.success) {
+      renderMultiStreamStatus(data.streams);
+    }
+  } catch (error) {
+    renderMultiStreamStatus([]);
+  }
+}
+
+function renderMultiStreamStatus(streams) {
+  const container = document.getElementById('multi-status');
+  if (!container) return;
+
+  container.replaceChildren();
+  if (!Array.isArray(streams) || streams.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'status-item';
+    empty.textContent = 'No additional streams configured';
+    container.appendChild(empty);
+    return;
+  }
+
+  streams.forEach((stream) => {
+    const item = document.createElement('div');
+    item.className = 'status-item';
+    const label = document.createElement('span');
+    label.textContent = stream.displayName || stream.username || `Stream ${stream.index + 1}`;
+    const status = document.createElement('span');
+    status.textContent = stream.lastError ? `${stream.status}: ${stream.lastError}` : stream.status;
+    item.appendChild(label);
+    item.appendChild(status);
+    container.appendChild(item);
+  });
 }
 
 // Reset to defaults
@@ -1110,7 +1359,7 @@ function showToast(message, type = 'success') {
   const icon = toast.querySelector('.toast-icon');
   const messageEl = toast.querySelector('.toast-message');
 
-  icon.textContent = type === 'success' ? '✓' : '✗';
+  icon.textContent = type === 'success' ? 'OK' : '!';
   messageEl.textContent = message;
 
   toast.className = `toast ${type} show`;
@@ -1149,6 +1398,18 @@ document.addEventListener('click', function(event) {
     case 'refresh-preview':
       refreshPreview(type);
       break;
+    case 'export-profile':
+      exportProfile();
+      break;
+    case 'import-profile':
+      document.getElementById('profile-import-input')?.click();
+      break;
+    case 'open-setup-wizard':
+      openSetupWizard();
+      break;
+    case 'save-custom-preset':
+      saveCustomPreset();
+      break;
   }
 });
 
@@ -1157,6 +1418,18 @@ document.getElementById('close-settings-modal').addEventListener('click', closeS
 document.getElementById('reset-defaults-btn').addEventListener('click', resetToDefaults);
 document.getElementById('cancel-settings-btn').addEventListener('click', closeSettings);
 document.getElementById('save-settings-btn').addEventListener('click', saveSettings);
+document.getElementById('close-setup-wizard').addEventListener('click', closeSetupWizard);
+
+document.addEventListener('click', function(event) {
+  const wizardButton = event.target.closest('[data-wizard-preset]');
+  if (!wizardButton) return;
+  applyPresetFromApi(wizardButton.dataset.wizardPreset);
+});
+
+document.getElementById('tab-contents').addEventListener('input', function() {
+  if (!currentDock) return;
+  sendLivePreviewSettings(currentDock, currentSettings);
+});
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', init);

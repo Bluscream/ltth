@@ -1,94 +1,94 @@
-# Pup Cid´s Little Quiz Show Plugin
+﻿# Pup Cid's Little Quiz Show Plugin
 
 Ein vollständig funktionierendes interaktives Quiz-Show-Plugin für TikTok Livestreams.
 
 ## Features
 
 ### 1. Fragen-Datenbank
-- ✅ JSON-Upload für Massenfragen-Import
-- ✅ Manueller Editor für einzelne Fragen
-- ✅ Bearbeiten und Löschen von Fragen
-- ✅ Export-Funktion für Backup
-- ✅ Persistente Speicherung
+- OK JSON-Upload für Massenfragen-Import
+- OK Manueller Editor für einzelne Fragen
+- OK Bearbeiten und Löschen von Fragen
+- OK Export-Funktion für Backup
+- OK Persistente Speicherung
 
 ### 2. Spielsystem
-- ✅ Konfigurierbarer Countdown-Timer
-- ✅ Flexible Punktevergabe (erste/weitere richtige Antworten)
-- ✅ Zufällige oder sequenzielle Fragenreihenfolge
-- ✅ Optional: Antworten mischen
-- ✅ Mehrere Gewinner oder nur schnellster
-- ✅ Anti-Spam: Eine Antwort pro User pro Frage
+- OK Konfigurierbarer Countdown-Timer
+- OK Flexible Punktevergabe (erste/weitere richtige Antworten)
+- OK Zufällige oder sequenzielle Fragenreihenfolge
+- OK Optional: Antworten mischen
+- OK Mehrere Gewinner oder nur schnellster
+- OK Anti-Spam: Eine Antwort pro User pro Frage
 
 ### 3. Chat-Integration
-- ✅ Erkennung von A/B/C/D Antworten
-- ✅ Vollständige Antworttexte möglich
-- ✅ Case-insensitive Matching
-- ✅ Superfan-Joker Support
+- OK Erkennung von A/B/C/D Antworten
+- OK Vollständige Antworttexte möglich
+- OK Case-insensitive Matching
+- OK Superfan-Joker Support
 
 ### 4. Joker-System
-- ✅ **!joker25**: 25% Joker (entfernt 1 falsche Antwort) - NEU!
-- ✅ **!joker50**: 50:50 Joker (entfernt 2 falsche Antworten)
-- ✅ **!jokerInfo**: Info Joker (zeigt eine falsche Antwort)
-- ✅ **!jokerTime**: Zeit Joker (verlängert Countdown)
-- ✅ Konfigurierbare Joker-Limits pro Runde
-- ✅ Visuelle Joker-Aktivierungs-Animationen
-- ✅ **Gift-Joker Integration**: TikTok-Geschenke können Jokern zugeordnet werden - NEU!
-- ✅ **Joker HUD**: Aktive Joker werden im Overlay angezeigt - NEU!
+- OK **!joker25**: 25% Joker (entfernt 1 falsche Antwort) - NEU!
+- OK **!joker50**: 50:50 Joker (entfernt 2 falsche Antworten)
+- OK **!jokerInfo**: Info Joker (zeigt eine falsche Antwort)
+- OK **!jokerTime**: Zeit Joker (verlängert Countdown)
+- OK Konfigurierbare Joker-Limits pro Runde
+- OK Visuelle Joker-Aktivierungs-Animationen
+- OK **Gift-Joker Integration**: TikTok-Geschenke können Jokern zugeordnet werden - NEU!
+- OK **Joker HUD**: Aktive Joker werden im Overlay angezeigt - NEU!
 
 ### 5. Leaderboard
-- ✅ Persistente Punkteverfolgung pro User
-- ✅ Season-basiertes Leaderboard System - NEU!
-- ✅ Sortierung nach Punkten
-- ✅ Export/Import Funktionalität
-- ✅ Reset-Option
-- ✅ Live-Updates
-- ✅ **Automatische Anzeige**: Leaderboard wird nach jeder Runde automatisch angezeigt - NEU!
-- ✅ **Konfigurierbar**: Runden-Leaderboard, Season-Leaderboard oder beides - NEU!
-- ✅ **Animationen**: Einblenden, Gleiten, Zoomen - NEU!
+- OK Persistente Punkteverfolgung pro User
+- OK Season-basiertes Leaderboard System - NEU!
+- OK Sortierung nach Punkten
+- OK Export/Import Funktionalität
+- OK Reset-Option
+- OK Live-Updates
+- OK **Automatische Anzeige**: Leaderboard wird nach jeder Runde automatisch angezeigt - NEU!
+- OK **Konfigurierbar**: Runden-Leaderboard, Season-Leaderboard oder beides - NEU!
+- OK **Animationen**: Einblenden, Gleiten, Zoomen - NEU!
 
 ### 6. Modern UI
-- ✅ Tab-basiertes Interface (Dashboard, Fragen, Einstellungen, Leaderboard)
-- ✅ Dark Theme mit Neon-Akzenten
-- ✅ Live-Statistiken
-- ✅ Responsive Design
-- ✅ Echtzeit-Updates via Socket.IO
+- OK Tab-basiertes Interface (Dashboard, Fragen, Einstellungen, Leaderboard)
+- OK Dark Theme mit Neon-Akzenten
+- OK Live-Statistiken
+- OK Responsive Design
+- OK Echtzeit-Updates via Socket.IO
 
 ### 7. High-End Overlay
-- ✅ Glassmorphism Design
-- ✅ Neon-Glow-Effekte
-- ✅ Circular Progress Timer mit Farbverlauf
-- ✅ Smooth Animationen (GPU-beschleunigt)
-- ✅ State Machine für flüssige Übergänge
-- ✅ Joker-Animationen
-- ✅ Richtige-Antwort-Reveal-Effekt
-- ✅ **Responsive Design**: Funktioniert in horizontaler und vertikaler Ausrichtung - NEU!
-- ✅ **Custom Layouts**: Drag-and-Drop Editor für benutzerdefinierte Layouts - NEU!
-- ✅ **Orientation Support**: Automatische Anpassung an Portrait/Landscape - NEU!
+- OK Glassmorphism Design
+- OK Neon-Glow-Effekte
+- OK Circular Progress Timer mit Farbverlauf
+- OK Smooth Animationen (GPU-beschleunigt)
+- OK State Machine für flüssige Übergänge
+- OK Joker-Animationen
+- OK Richtige-Antwort-Reveal-Effekt
+- OK **Responsive Design**: Funktioniert in horizontaler und vertikaler Ausrichtung - NEU!
+- OK **Custom Layouts**: Drag-and-Drop Editor für benutzerdefinierte Layouts - NEU!
+- OK **Orientation Support**: Automatische Anpassung an Portrait/Landscape - NEU!
 
 ### 8. TTS Integration - NEU!
-- ✅ **Lautstärkeregelung**: Globale und Session-spezifische TTS-Lautstärke (0-100%)
-- ✅ **Konfigurierbar**: Ein-/Ausschaltbar per Einstellung
-- ✅ **Ansagen**: Automatische Ansage der richtigen Antwort und Zusatzinfos
+- OK **Lautstärkeregelung**: Globale und Session-spezifische TTS-Lautstärke (0-100%)
+- OK **Konfigurierbar**: Ein-/Ausschaltbar per Einstellung
+- OK **Ansagen**: Automatische Ansage der richtigen Antwort und Zusatzinfos
 
 ### 9. Layout Editor - NEU!
-- ✅ **Drag & Drop**: Visuelle Positionierung aller Overlay-Elemente
-- ✅ **Auflösungsauswahl**: Unterstützt beliebige Auflösungen (Standard: 1920x1080, 1080x1920)
-- ✅ **Vorschau**: Live-Vorschau des Layouts während der Bearbeitung
-- ✅ **Speichern & Laden**: Mehrere Layouts pro Ausrichtung speicherbar
-- ✅ **Standard-Layouts**: Vorkonfigurierte Layouts für horizontal und vertikal
+- OK **Drag & Drop**: Visuelle Positionierung aller Overlay-Elemente
+- OK **Auflösungsauswahl**: Unterstützt beliebige Auflösungen (Standard: 1920x1080, 1080x1920)
+- OK **Vorschau**: Live-Vorschau des Layouts während der Bearbeitung
+- OK **Speichern & Laden**: Mehrere Layouts pro Ausrichtung speicherbar
+- OK **Standard-Layouts**: Vorkonfigurierte Layouts für horizontal und vertikal
 
 ### 10. Gift Catalogue Integration - NEU!
-- ✅ **Joker-Zuordnung**: TikTok-Geschenke können Jokern zugeordnet werden
-- ✅ **Automatische Aktivierung**: Geschenk senden = Joker aktivieren
-- ✅ **Verwaltung**: Einfaches Zuordnungs-Interface im Admin-Panel
-- ✅ **Anzeige**: Gift-Grafiken werden im Joker-HUD angezeigt
-- ✅ Neon-Glow-Effekte
-- ✅ Circular Progress Timer mit Farbverlauf
-- ✅ Smooth Animationen (GPU-beschleunigt)
-- ✅ State Machine für flüssige Übergänge
-- ✅ Joker-Animationen
-- ✅ Richtige-Antwort-Reveal-Effekt
-- ✅ Responsive für Mobile/Desktop
+- OK **Joker-Zuordnung**: TikTok-Geschenke können Jokern zugeordnet werden
+- OK **Automatische Aktivierung**: Geschenk senden = Joker aktivieren
+- OK **Verwaltung**: Einfaches Zuordnungs-Interface im Admin-Panel
+- OK **Anzeige**: Gift-Grafiken werden im Joker-HUD angezeigt
+- OK Neon-Glow-Effekte
+- OK Circular Progress Timer mit Farbverlauf
+- OK Smooth Animationen (GPU-beschleunigt)
+- OK State Machine für flüssige Übergänge
+- OK Joker-Animationen
+- OK Richtige-Antwort-Reveal-Effekt
+- OK Responsive für Mobile/Desktop
 
 ## Installation
 
@@ -172,7 +172,7 @@ Im Einstellungen-Tab können konfiguriert werden:
 
 ### IPC Events
 
-**Server → Client:**
+**Server  Client:**
 - `quiz-show:state-update` - Game-State-Updates
 - `quiz-show:time-update` - Timer-Updates
 - `quiz-show:round-ended` - Rundenende mit Ergebnissen
@@ -180,7 +180,7 @@ Im Einstellungen-Tab können konfiguriert werden:
 - `quiz-show:leaderboard-updated` - Leaderboard-Änderungen
 - `quiz-show:questions-updated` - Fragen-Updates
 
-**Client → Server:**
+**Client  Server:**
 - `quiz-show:start` - Quiz starten
 - `quiz-show:next` - Nächste Frage
 - `quiz-show:stop` - Quiz stoppen
@@ -207,10 +207,10 @@ Im Einstellungen-Tab können konfiguriert werden:
 
 ## Browser-Kompatibilität
 
-- Chrome/Edge: ✅ Vollständig unterstützt
-- Firefox: ✅ Vollständig unterstützt
-- Safari: ✅ Vollständig unterstützt
-- OBS Browser: ✅ Vollständig unterstützt
+- Chrome/Edge: OK Vollständig unterstützt
+- Firefox: OK Vollständig unterstützt
+- Safari: OK Vollständig unterstützt
+- OBS Browser: OK Vollständig unterstützt
 
 ## Lizenz
 
@@ -219,3 +219,10 @@ Teil des TikTok Helper Projekts
 ## Support
 
 Bei Fragen oder Problemen bitte ein Issue erstellen.
+# Pup Cid's Little Quiz Show Plugin - Expansion Notes
+
+The active plugin now includes configurable question cooldowns, show playlists, audience category voting with `!vote <category>` or numeric chat votes, duel mode, theme presets, reduced-motion and high-contrast accessibility switches, avatar performance controls, sound upload, achievements, season automation, a health panel, and setup wizard state tracking.
+
+Uploaded sound files are stored in the plugin data directory, not inside the plugin source directory.
+
+

@@ -19,6 +19,8 @@ let selectedEvents = [];
 let rotationIntervalSeconds = 5;
 let currentEventIndex = 0;
 let rotationTimer = null;
+let sessionId = null;
+let requestGeneration = 0;
 
 // Initialize animation system
 const animationRegistry = new AnimationRegistry();
@@ -41,12 +43,19 @@ socket.on('disconnect', () => {
 socket.on('lastevent.multihud.update', async (data) => {
   console.log('Received multihud update:', data);
   if (data && data.type && data.user) {
+    const incomingSessionId = data.sessionId || data.user.sessionId;
+    if (incomingSessionId && sessionId && incomingSessionId !== sessionId) {
+      return;
+    }
+    if (incomingSessionId) {
+      sessionId = incomingSessionId;
+    }
+
     // Update our local event data
     allEventData[data.type] = data.user;
-    
-    // If we're currently showing this event, update the display immediately
-    if (selectedEvents.length > 0 && selectedEvents[currentEventIndex] === data.type) {
-      await updateDisplay(data.user);
+
+    if (selectedEvents.includes(data.type)) {
+      startRotation(data.type);
     }
   }
 });
@@ -70,15 +79,25 @@ socket.on(`lastevent.settings.${OVERLAY_TYPE}`, async (newSettings) => {
   
   // Restart rotation with new settings
   stopRotation();
-  await loadAllEventData();
-  startRotation();
+  const loaded = await loadAllEventData();
+  if (loaded) {
+    startRotation();
+  }
 });
 
 // Listen for session reset (new stream started)
-socket.on('lastevent.session.reset', () => {
+socket.on('lastevent.session.reset', (payload = {}) => {
   console.log('Session reset - clearing overlay');
+  requestGeneration += 1;
+  if (payload.sessionId) {
+    sessionId = payload.sessionId;
+  }
   allEventData = {};
-  container.innerHTML = '';
+  if (renderer && typeof renderer.clear === 'function') {
+    renderer.clear();
+  } else {
+    container.innerHTML = '';
+  }
   stopRotation();
 });
 
@@ -101,10 +120,12 @@ async function init() {
     renderer = new TemplateRenderer(container, settings);
 
     // Load all event data
-    await loadAllEventData();
+    const loaded = await loadAllEventData();
 
     // Start rotation
-    startRotation();
+    if (loaded) {
+      startRotation();
+    }
 
     console.log('Multi-HUD overlay initialized with events:', selectedEvents);
   } catch (error) {
@@ -115,20 +136,38 @@ async function init() {
 // Load all event data from server
 async function loadAllEventData() {
   try {
-    const response = await fetch('/api/lastevent/all');
+    const currentGeneration = requestGeneration;
+    const selectedQuery = selectedEvents.length > 0
+      ? `?selected=${encodeURIComponent(selectedEvents.join(','))}`
+      : '';
+    const response = await fetch(`/api/lastevent/all${selectedQuery}`);
     const data = await response.json();
+
+    if (currentGeneration !== requestGeneration) {
+      return false;
+    }
+
+    if (data.sessionId && sessionId && data.sessionId !== sessionId) {
+      return false;
+    }
     
     if (data.success && data.users) {
+      if (data.sessionId) {
+        sessionId = data.sessionId;
+      }
       allEventData = data.users;
       console.log('Loaded all event data:', allEventData);
     }
+
+    return true;
   } catch (error) {
     console.error('Error loading event data:', error);
+    return false;
   }
 }
 
 // Start rotation timer
-function startRotation() {
+function startRotation(preferredEventType = null) {
   if (selectedEvents.length === 0) {
     console.log('No events selected for rotation');
     container.innerHTML = '<div class="no-data">No events selected for rotation</div>';
@@ -138,19 +177,39 @@ function startRotation() {
   // Clear any existing timer
   stopRotation();
 
+  const rotationEvents = getRotatableEvents();
+
+  if (rotationEvents.length === 0) {
+    currentEventIndex = 0;
+    showCurrentEvent();
+    console.log('No event data available for selected Multi-HUD events');
+    return;
+  }
+
+  if (preferredEventType && rotationEvents.includes(preferredEventType)) {
+    currentEventIndex = rotationEvents.indexOf(preferredEventType);
+  } else if (currentEventIndex >= rotationEvents.length) {
+    currentEventIndex = 0;
+  }
+
   // Show first event immediately
-  currentEventIndex = 0;
   showCurrentEvent();
 
   // Set up rotation timer
-  if (selectedEvents.length > 1) {
+  if (rotationEvents.length > 1) {
     rotationTimer = setInterval(() => {
-      currentEventIndex = (currentEventIndex + 1) % selectedEvents.length;
+      const currentRotationEvents = getRotatableEvents();
+      if (currentRotationEvents.length === 0) {
+        stopRotation();
+        showCurrentEvent();
+        return;
+      }
+      currentEventIndex = (currentEventIndex + 1) % currentRotationEvents.length;
       showCurrentEvent();
     }, rotationIntervalSeconds * 1000);
   }
 
-  console.log(`Rotation started: ${selectedEvents.length} events, ${rotationIntervalSeconds}s interval`);
+  console.log(`Rotation started: ${rotationEvents.length} active events, ${rotationIntervalSeconds}s interval`);
 }
 
 // Stop rotation timer
@@ -165,14 +224,28 @@ function stopRotation() {
 async function showCurrentEvent() {
   if (selectedEvents.length === 0) return;
 
-  const eventType = selectedEvents[currentEventIndex];
+  const rotationEvents = getRotatableEvents();
+
+  if (rotationEvents.length === 0) {
+    await updateDisplay(null);
+    return;
+  }
+
+  if (currentEventIndex >= rotationEvents.length) {
+    currentEventIndex = 0;
+  }
+
+  const eventType = rotationEvents[currentEventIndex];
   const userData = allEventData[eventType];
 
-  console.log(`Showing event ${currentEventIndex + 1}/${selectedEvents.length}: ${eventType}`, userData);
+  console.log(`Showing event ${currentEventIndex + 1}/${rotationEvents.length}: ${eventType}`, userData);
 
-  // Always call updateDisplay to let TemplateRenderer handle null userData
-  // The renderer will respect hideOnNullUser setting
   await updateDisplay(userData);
+}
+
+// Get selected events that have data available for display
+function getRotatableEvents() {
+  return selectedEvents.filter(eventType => allEventData[eventType]);
 }
 
 // Update display with animation

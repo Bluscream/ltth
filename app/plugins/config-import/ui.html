@@ -185,11 +185,15 @@
                     📁 Plugin Data Files
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" id="incUploads">
+                    <input type="checkbox" id="incUserConfigs" checked>
+                    User Configs
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="incUploads" checked>
                     🖼️ Uploads
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" id="incUserData">
+                    <input type="checkbox" id="incUserData" checked>
                     🗄️ User Data
                 </label>
             </div>
@@ -276,11 +280,11 @@
 
             <p class="section-title">Import mode</p>
             <div class="mode-group">
-                <button class="mode-btn selected" data-mode="merge" id="modeMerge">
+                <button class="mode-btn" data-mode="merge" id="modeMerge">
                     🔀 Merge
                     <div class="mode-desc">Add missing settings only; existing values are kept.</div>
                 </button>
-                <button class="mode-btn" data-mode="replace" id="modeReplace">
+                <button class="mode-btn selected" data-mode="replace" id="modeReplace">
                     🔄 Replace
                     <div class="mode-desc">Overwrite all matching settings with backup values.</div>
                 </button>
@@ -434,6 +438,7 @@
             includeGlobalSettings: document.getElementById('incGlobal').checked,
             includePluginSettings: document.getElementById('incPluginSettings').checked,
             includePluginData: document.getElementById('incPluginData').checked,
+            includeUserConfigs: document.getElementById('incUserConfigs').checked,
             includeUploads: document.getElementById('incUploads').checked,
             includeUserData: document.getElementById('incUserData').checked
         };
@@ -527,9 +532,22 @@
     const importStep2 = document.getElementById('importStep2');
     const importStep3 = document.getElementById('importStep3');
 
+    const importSections = document.getElementById('importSections');
+    if (importSections && !document.getElementById('impUserConfigs')) {
+        const userConfigsLabel = document.createElement('label');
+        userConfigsLabel.className = 'checkbox-label';
+        userConfigsLabel.id = 'impUserConfigsLbl';
+        userConfigsLabel.innerHTML = '<input type="checkbox" id="impUserConfigs" checked> User Configs';
+        importSections.insertBefore(userConfigsLabel, document.getElementById('impUploadsLbl'));
+    }
+    ['impUploads', 'impUserData'].forEach(id => {
+        const checkbox = document.getElementById(id);
+        if (checkbox) checkbox.checked = true;
+    });
+
     let selectedFile = null;
     let parsedPreview = null;
-    let importMode = 'merge';
+    let importMode = 'replace';
 
     uploadZone.addEventListener('click', () => fileInput.click());
     uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
@@ -632,6 +650,7 @@
             { num: totalNew, lbl: 'New Settings' },
             { num: totalConflicts, lbl: 'Conflicts' },
             { num: totalFiles, lbl: 'Data Files' },
+            { num: preview.userConfigFiles || 0, lbl: 'User Configs' },
             { num: preview.uploadFiles || 0, lbl: 'Upload Files' }
         ].map(item =>
             `<div class="summary-item"><div class="num">${item.num}</div><div class="lbl">${item.lbl}</div></div>`
@@ -664,14 +683,22 @@
             warnEl.innerHTML = '';
         }
 
-        // Show/hide upload and user_data sections based on backup content
+        // Show/hide file sections based on backup content
+        if ((preview.userConfigFiles || 0) > 0) {
+            showEl(document.getElementById('impUserConfigsLbl'));
+            document.getElementById('impUserConfigs').checked = true;
+        } else {
+            hideEl(document.getElementById('impUserConfigsLbl'));
+        }
         if ((preview.uploadFiles || 0) > 0) {
             showEl(document.getElementById('impUploadsLbl'));
+            document.getElementById('impUploads').checked = true;
         } else {
             hideEl(document.getElementById('impUploadsLbl'));
         }
         if ((preview.userDataFiles || 0) > 0) {
             showEl(document.getElementById('impUserDataLbl'));
+            document.getElementById('impUserData').checked = true;
         } else {
             hideEl(document.getElementById('impUserDataLbl'));
         }
@@ -689,6 +716,7 @@
         fd.append('includeGlobalSettings', document.getElementById('impGlobal').checked);
         fd.append('includePluginSettings', document.getElementById('impPluginSettings').checked);
         fd.append('includePluginData', document.getElementById('impPluginData').checked);
+        fd.append('includeUserConfigs', document.getElementById('impUserConfigs').checked);
         fd.append('includeUploads', document.getElementById('impUploads').checked);
         fd.append('includeUserData', document.getElementById('impUserData').checked);
 
@@ -724,6 +752,9 @@
                 const report = data.report;
                 if (report.globalSettings) {
                     allLines.push({ cls: 'log-ok', text: `Global settings: ${report.globalSettings.imported?.length || 0} imported, ${report.globalSettings.skipped?.length || 0} skipped` });
+                }
+                if (report.userConfigs) {
+                    allLines.push({ cls: 'log-ok', text: `User configs: ${report.userConfigs.imported?.length || 0} imported, ${report.userConfigs.skipped?.length || 0} skipped, ${report.userConfigs.renamed?.length || 0} renamed` });
                 }
                 Object.entries(report.plugins || {}).forEach(([id, p]) => {
                     allLines.push({ cls: 'log-info', text: `[${id}] settings: +${p.importedSettings?.length || 0} files: +${p.importedFiles?.length || 0}` });

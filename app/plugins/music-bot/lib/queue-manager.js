@@ -135,6 +135,17 @@ class QueueManager {
     return this.current;
   }
 
+  returnToFront(song) {
+    if (!song) return;
+    if (song.id && this.queue.some((entry) => entry.id === song.id)) {
+      this.current = null;
+      return;
+    }
+    this.queue.unshift(song);
+    this.current = null;
+    this.persistQueue();
+  }
+
   clear() {
     this.queue = [];
     this.current = null;
@@ -274,14 +285,15 @@ class QueueManager {
       normalizedMaxSongDuration,
       MIN_ALLOWED_MAX_SONG_DURATION_SECONDS
     );
+    const hasDuration = song.duration !== undefined;
     const duration = Number(song.duration);
-    if (!Number.isFinite(duration) || duration <= 0) {
+    if (hasDuration && (!Number.isFinite(duration) || duration <= 0)) {
       return {
         success: false,
         error: 'Songdauer konnte nicht ermittelt werden. Bitte einen anderen Song wählen.'
       };
     }
-    if (duration > maxSongDurationSeconds) {
+    if (hasDuration && duration > maxSongDurationSeconds) {
       return {
         success: false,
         error: `Song ist zu lang (${Math.ceil(duration)}s). Maximum: ${maxSongDurationSeconds}s.`
@@ -375,8 +387,8 @@ class QueueManager {
     try {
       const stmt = this.db.prepare(
         `INSERT INTO plugin_music_bot_queue
-          (id, position, title, artist, duration, thumbnail, url, youtubeId, source, requestedBy, isGiftRequest, addedAt)
-          VALUES (@id, @position, @title, @artist, @duration, @thumbnail, @url, @youtubeId, @source, @requestedBy, @isGiftRequest, @addedAt)`
+          (id, position, title, artist, duration, thumbnail, url, youtubeId, source, requestedBy, requesterAvatar, isGiftRequest, addedAt)
+          VALUES (@id, @position, @title, @artist, @duration, @thumbnail, @url, @youtubeId, @source, @requestedBy, @requesterAvatar, @isGiftRequest, @addedAt)`
       );
       const persist = this.db.transaction((songs) => {
         this.db.prepare('DELETE FROM plugin_music_bot_queue').run();
@@ -392,6 +404,7 @@ class QueueManager {
             youtubeId: song.youtubeId || null,
             source: song.source || 'youtube',
             requestedBy: song.requestedBy || 'viewer',
+            requesterAvatar: song.requesterAvatar || null,
             isGiftRequest: song.isGiftRequest ? 1 : 0,
             addedAt: song.addedAt || Date.now()
           });
@@ -418,6 +431,7 @@ class QueueManager {
         youtubeId: row.youtubeId || null,
         source: row.source || 'youtube',
         requestedBy: row.requestedBy || 'viewer',
+        requesterAvatar: row.requesterAvatar || null,
         requesterKey: this._normalizeRequesterKey(row.requestedBy || 'viewer'),
         isGiftRequest: Boolean(row.isGiftRequest),
         addedAt: row.addedAt || Date.now()
@@ -492,6 +506,7 @@ class QueueManager {
             youtubeId TEXT,
             source TEXT,
             requestedBy TEXT,
+            requesterAvatar TEXT,
             isGiftRequest INTEGER DEFAULT 0,
             addedAt INTEGER
           )`
@@ -499,6 +514,16 @@ class QueueManager {
         .run();
     } catch (error) {
       this.api.log?.(`[music-bot] Failed to ensure queue table: ${error.message}`, 'error');
+    }
+
+    try {
+      this.db
+        .prepare('ALTER TABLE plugin_music_bot_queue ADD COLUMN requesterAvatar TEXT')
+        .run();
+    } catch (error) {
+      if (!/duplicate column name/i.test(error.message)) {
+        this.api.log?.(`[music-bot] Failed to ensure requesterAvatar column: ${error.message}`, 'debug');
+      }
     }
   }
 

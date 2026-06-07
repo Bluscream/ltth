@@ -142,6 +142,10 @@ const DEFAULT_CONFIG = {
     enabled: false,
     tracks: []
   },
+  onboarding: {
+    completed: false,
+    completedAt: null
+  },
   preCache: {
     enabled: true,
     lookahead: 2
@@ -245,6 +249,7 @@ class MusicBotPlugin extends EventEmitter {
     this.config.moderation = this._mergeDeep(DEFAULT_CONFIG.moderation, this.config.moderation || {});
     this.config.monetization = this._mergeDeep(DEFAULT_CONFIG.monetization, this.config.monetization || {});
     this.config.audio = this._mergeDeep(DEFAULT_CONFIG.audio, this.config.audio || {});
+    this.config.onboarding = this._normalizeOnboarding(this.config.onboarding);
     if (!Array.isArray(this.config.moderation.blockedKeywords)) {
       this.config.moderation.blockedKeywords = [];
     }
@@ -260,10 +265,10 @@ class MusicBotPlugin extends EventEmitter {
     this.config.audio.sourceVolume = Math.max(0, Math.min(100, Number(this.config.audio.sourceVolume) || DEFAULT_CONFIG.audio.sourceVolume));
     this.config.playback.defaultVolume = this._computeEffectiveVolume();
     if (!saved) {
-      this.api.setConfig('config', merged);
-    } else if (JSON.stringify(saved) !== JSON.stringify(merged)) {
+      this.api.setConfig('config', this.config);
+    } else if (JSON.stringify(saved) !== JSON.stringify(this.config)) {
       // Ensure new defaults are persisted
-      this.api.setConfig('config', merged);
+      this.api.setConfig('config', this.config);
     }
   }
 
@@ -449,6 +454,18 @@ class MusicBotPlugin extends EventEmitter {
 
   _normalizeGiftKey(value) {
     return String(value || '').trim().toLowerCase();
+  }
+
+  _normalizeOnboarding(value) {
+    const onboarding = value && typeof value === 'object' ? value : {};
+    const completed = Boolean(onboarding.completed);
+    const completedAt = completed
+      ? Number(onboarding.completedAt) || Date.now()
+      : null;
+    return {
+      completed,
+      completedAt
+    };
   }
 
   _getRequestCredits(username) {
@@ -676,8 +693,21 @@ class MusicBotPlugin extends EventEmitter {
       res.json({ success: true, config: this.config });
     });
 
+    this.api.registerRoute('post', '/api/plugins/music-bot/onboarding/complete', async (req, res) => {
+      this.config.onboarding = this._normalizeOnboarding({
+        ...this.config.onboarding,
+        completed: true,
+        completedAt: this.config.onboarding?.completedAt || Date.now()
+      });
+      await this.api.setConfig('config', this.config);
+      this.io?.emit?.('music-bot:onboarding-updated', this.config.onboarding);
+      res.json({ success: true, onboarding: this.config.onboarding });
+    });
+
     this.api.registerRoute('post', '/api/plugins/music-bot/config', async (req, res) => {
       const update = req.body || {};
+      const previousMpvPath = this.config?.playback?.mpvPath;
+      const previousYtDlpPath = this.config?.resolver?.ytdlpPath;
       const merged = this._mergeDeep(this.config, update);
       const aliasValidation = this._validateCommandAliases(merged);
       if (!aliasValidation.valid) {
@@ -697,13 +727,25 @@ class MusicBotPlugin extends EventEmitter {
       this.config.monetization.payToPlayMinCoins = Math.max(0, Number(this.config.monetization.payToPlayMinCoins) || 0);
       this.config.audio.masterVolume = Math.max(0, Math.min(100, Number(this.config.audio.masterVolume) || DEFAULT_CONFIG.audio.masterVolume));
       this.config.audio.sourceVolume = Math.max(0, Math.min(100, Number(this.config.audio.sourceVolume) || DEFAULT_CONFIG.audio.sourceVolume));
+      this.config.onboarding = this._normalizeOnboarding(this.config.onboarding);
       this.queueManager.config = this.config;
       this.queueManager.queueConfig = this.config.queue;
       this.playbackEngine.config = this.config.playback;
-      this.musicResolver.config = { ...this.config.resolver, moderation: this.config.moderation };
+      this.musicResolver.updateConfig({ ...this.config.resolver, moderation: this.config.moderation });
       this.autoDJ?.updateConfig(this.config.autoDJ);
+      const mpvPathChanged = previousMpvPath !== this.config?.playback?.mpvPath;
+      const ytDlpPathChanged = previousYtDlpPath !== this.config?.resolver?.ytdlpPath;
+      if (ytDlpPathChanged) {
+        await this._ensureYtDlp();
+      }
+      if (mpvPathChanged) {
+        await this._ensureMpv();
+      }
       await this._applyAudioVolume();
       await this.api.setConfig('config', this.config);
+      if (mpvPathChanged || ytDlpPathChanged) {
+        this._emitSetupStatus();
+      }
       res.json({ success: true, config: this.config });
     });
 
@@ -1239,37 +1281,74 @@ class MusicBotPlugin extends EventEmitter {
     return { success: true };
   }
 
+  _buildMpvUnavailableMessage(error) {
+    const configuredPath = this.config?.playback?.mpvPath || 'mpv';
+    const suffix = error?.message ? ` (${error.message})` : '';
+    return `mpv nicht gefunden ("${configuredPath}"). Installiere mpv oder setze den korrekten Pfad in den Music-Bot-Einstellungen.${suffix}`;
+  }
+
+  _isMpvUnavailableError(error) {
+    const message = String(error?.message || error || '').toLowerCase();
+    return (
+      error?.code === 'ENOENT' ||
+      message.includes('mpv nicht gefunden') ||
+      message.includes('spawn') && message.includes('enoent')
+    );
+  }
+
+  _handlePlaybackUnavailable(song, error) {
+    if (song && typeof this.queueManager.returnToFront === 'function') {
+      this.queueManager.returnToFront(song);
+    }
+    this._mpvAvailable = false;
+    const message = this._buildMpvUnavailableMessage(error);
+    this.api.log(`[music-bot] ${message}`, 'warn');
+    this._emitError(message);
+    this._emitSetupStatus();
+    this._emitQueue();
+    return { success: false, error: message };
+  }
+
   async _playNextFromQueue(retries = 0) {
+    if (this._mpvAvailable === false) {
+      return this._handlePlaybackUnavailable();
+    }
     if (retries > 5) {
       this.api.log('[music-bot] Too many consecutive playback failures, stopping', 'error');
       this.playbackEngine.clearNowPlaying();
       this._emitPlaybackStopped();
       this._emitQueue();
-      return;
+      return { success: false, error: 'Too many consecutive playback failures' };
     }
     const next = this.queueManager.shiftNext();
     if (!next) {
       const fallbackTrack = await this._playFallbackTrack();
       if (fallbackTrack) {
         this._schedulePreCache();
-        return;
+        return { success: true, song: fallbackTrack };
       }
       const autoDJTrack = await this._maybePlayAutoDJ();
       if (!autoDJTrack) {
         this.playbackEngine.clearNowPlaying();
         this._emitPlaybackStopped();
         this._emitQueue();
+        return { success: false, error: 'Queue empty' };
       }
-      return;
+      return { success: true, song: autoDJTrack };
     }
     try {
       await this.playbackEngine.play(next);
       this._emitQueue();
       this._schedulePreCache();
+      return { success: true, song: next };
     } catch (error) {
       this.api.log(`[music-bot] Playback failed: ${error.message}`, 'error');
+      if (this._isMpvUnavailableError(error)) {
+        return this._handlePlaybackUnavailable(next, error);
+      }
       this._emitError(error.message);
       setImmediate(() => this._playNextFromQueue(retries + 1));
+      return { success: false, error: error.message };
     }
   }
 
@@ -1700,6 +1779,7 @@ class MusicBotPlugin extends EventEmitter {
       volume: this._computeEffectiveVolume(),
       masterVolume: this.config.audio.masterVolume,
       sourceVolume: this.config.audio.sourceVolume,
+      onboarding: this.config.onboarding,
       playbackState: this.playbackEngine.getState(),
       autoDJ: this.autoDJ?.getStatus(),
       ytdlpAvailable: this._ytdlpAvailable || false,

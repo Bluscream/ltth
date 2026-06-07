@@ -34,11 +34,17 @@ coverage/
 
 # User data
 app/user_data/
+app/user_configs/
 app/data/
 
 # Logs and runtime files
 app/logs/
+app/jest-results.json
+app/jest-run.txt
+app/jest-stderr.txt
+app/npm-test-run.txt
 app/plugins/plugins_state.json
+app/plugins/*/data/
 .ltth_port
 obs-overlay-wrapper.html
 
@@ -61,3 +67,11 @@ build-src/installer/*.exe
 LTTH-Setup-*.exe
 test-quiz-timing.js
 test-new-voices.js
+
+# Root-level junk
+*.exe
+naked.zip
+tmp-*.png
+webgpu-*.png
+naked/
+runtime/

@@ -6,6 +6,18 @@
  */
 
 const TikTokConnector = require('../../../modules/tiktok');
+const {
+  VERSION,
+  DEFAULT_SETTINGS,
+  BUILTIN_PRESETS,
+  clone,
+  getDefaults,
+  mergeSettings,
+  normalizeCustomPresets,
+  normalizePreset,
+  createProfile,
+  validateProfile
+} = require('../lib/settings-schema');
 
 class ClarityHUDBackend {
   constructor(api) {
@@ -26,167 +38,33 @@ class ClarityHUDBackend {
     // Multi-stream specific: event queue and connectors
     this.multiStreamQueue = [];
     this.multiStreamConnectors = [];
-    this.multiStreamMaxMessages = 300;
+    this.multiStreamStatuses = [];
+    this.multiStreamReconnectTimers = new Map();
+    this.multiStreamMaxMessages = DEFAULT_SETTINGS.multi.maxMessages;
+    this.customPresets = [];
+    this.version = VERSION;
 
-    // P7: Like aggregation buffer (5-second window)
-    // Accumulates individual like events and emits a single batched event per window.
+    // Like aggregation buffer. The flush window is configurable through full settings.
     this._likeBuffer = {
       count: 0,
       userCount: 0,
       users: new Set(),
       flushTimer: null
     };
-    this._likeFlushInterval = 5000; // ms
+    this._likeFlushInterval = DEFAULT_SETTINGS.full.likeAggregationWindowMs;
 
-    // Default settings for Chat HUD
-    this.defaultChatSettings = {
-      fontSize: '48px',
-      fontFamily: 'Exo 2',
-      fontColor: '#FFFFFF',
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      lineHeight: '1.6',
-      letterSpacing: '0.5px',
-      align: 'left',
-      showTimestamps: false,
-      maxLines: 10,
-      outlineThickness: '2px',
-      outlineColor: '#000000',
-      wrapLongWords: true,
-      mode: 'day',
-      highContrastMode: false,
-      colorblindSafeMode: false,
-      reduceMotion: false,
-      dyslexiaFont: false,
-      accessibilityPreset: 'default',
-      opacity: 1,
-      keepOnTop: false,
-      // New settings for enhanced features
-      transparency: 100, // 0-100%
-      emojiRenderMode: 'image', // 'image' or 'unicode'
-      badgeSize: 'medium', // 'small', 'medium', 'large'
-      teamLevelStyle: 'icon-glow', // 'icon-color', 'icon-glow', 'number-only'
-      showTeamLevel: true,
-      showModerator: true,
-      showSubscriber: true,
-      showGifter: true,
-      showFanClub: true,
-      useVirtualScrolling: false,
-      usernameColorByTeamLevel: true
-    };
-
-    // Default settings for Full HUD (includes all chat settings plus activity settings)
-    this.defaultFullSettings = {
-      ...this.defaultChatSettings,
-      showChat: true,
-      showFollows: true,
-      showShares: true,
-      showLikes: true,
-      showGifts: true,
-      showSubs: true,
-      showTreasureChests: true,
-      showJoins: true,
-      layoutMode: 'singleStream',
-      feedDirection: 'newestTop',
-      animationIn: 'fadeSlideIn',
-      animationOut: 'fadeSlideOut',
-      animationSpeed: 'medium',
-      lineHeight: 1.2,
-      opacity: 1,
-      keepOnTop: false,
-      // Gift display settings
-      showGiftImages: false, // Show gift catalogue images instead of emoji
-      giftImageSize: 'medium' // 'small', 'medium', 'large'
-    };
-
-    // Default settings for Stream Overlay (viewer-facing broadcast overlay)
-    this.defaultStreamSettings = {
-      orientation: 'landscape',
-      showChat: false,
-      showFollows: true,
-      showShares: true,
-      showLikes: false,
-      showGifts: true,
-      showSubs: true,
-      showTreasureChests: true,
-      showJoins: false,
-      slotChat: 'slot-right-rail',
-      slotFollow: 'slot-bottom-right',
-      slotShare: 'slot-bottom-right',
-      slotLike: 'slot-bottom-right',
-      slotGift: 'slot-top-center',
-      slotSub: 'slot-top-center',
-      slotTreasure: 'slot-top-center',
-      slotJoin: 'slot-bottom-right',
-      highlightGiftThreshold: 100,
-      highlightAlwaysSub: true,
-      highlightAlwaysTreasure: true,
-      ttlChat: 8000,
-      ttlFollow: 7000,
-      ttlShare: 7000,
-      ttlLike: 5000,
-      ttlGift: 9000,
-      ttlSub: 10000,
-      ttlTreasure: 10000,
-      ttlJoin: 4000,
-      animIn: 'auto',
-      animOut: 'auto',
-      reduceMotion: false,
-      opacity: 1,
-      dyslexiaFont: false,
-      tickerEnabled: false,
-      tickerSpeed: 60,
-      tickerLabel: '🔴 LIVE',
-    };
-
-    // Default settings for Multi-Stream HUD
-    this.defaultMultiSettings = {
-      enabled: false,
-      streams: [
-        {
-          enabled: false,
-          username: '',
-          displayName: '',
-          textColor: '#00D4FF',
-          bgColor: '#1E3A8A',
-          accentColor: '#60A5FA'
-        },
-        {
-          enabled: false,
-          username: '',
-          displayName: '',
-          textColor: '#A78BFA',
-          bgColor: '#581C87',
-          accentColor: '#C084FC'
-        },
-        {
-          enabled: false,
-          username: '',
-          displayName: '',
-          textColor: '#FBBF24',
-          bgColor: '#78350F',
-          accentColor: '#FCD34D'
-        }
-      ],
-      layout: 'mixed',
-      columns: 'auto',
-      primarySpan2: false,
-      messageStyle: 'stripe',
-      density: 'compact',
-      showAvatars: false,
-      showTimestamps: false,
-      highlightPrimary: true,
-      primaryOpacity: 1.2,
-      maxMessages: 300,
-      autoContrast: true,
-      pulseOnNew: false
-    };
+    // Defaults are centralized in lib/settings-schema.js.
+    this.defaultChatSettings = clone(DEFAULT_SETTINGS.chat);
+    this.defaultFullSettings = clone(DEFAULT_SETTINGS.full);
+    this.defaultMultiSettings = clone(DEFAULT_SETTINGS.multi);
+    this.defaultStreamSettings = clone(DEFAULT_SETTINGS.stream);
 
     // Current settings
     this.settings = {
-      chat: { ...this.defaultChatSettings },
-      full: { ...this.defaultFullSettings },
-      multi: { ...this.defaultMultiSettings },
-      stream: { ...this.defaultStreamSettings }
+      chat: getDefaults('chat'),
+      full: getDefaults('full'),
+      multi: getDefaults('multi'),
+      stream: getDefaults('stream')
     };
   }
 
@@ -198,35 +76,39 @@ class ClarityHUDBackend {
       // Load chat settings
       const chatSettings = await this.api.getConfig('clarityhud.settings.chat');
       if (chatSettings) {
-        this.settings.chat = { ...this.defaultChatSettings, ...chatSettings };
+        this.settings.chat = { ...getDefaults('chat'), ...chatSettings };
       }
 
       // Load full settings
       const fullSettings = await this.api.getConfig('clarityhud.settings.full');
       if (fullSettings) {
-        this.settings.full = { ...this.defaultFullSettings, ...fullSettings };
+        this.settings.full = { ...getDefaults('full'), ...fullSettings };
       }
 
       // Load multi-stream settings
       const multiSettings = await this.api.getConfig('clarityhud.settings.multi');
       if (multiSettings) {
-        this.settings.multi = { ...this.defaultMultiSettings, ...multiSettings };
+        this.settings.multi = { ...getDefaults('multi'), ...multiSettings };
       }
 
       // Load stream overlay settings
       const streamSettings = await this.api.getConfig('clarityhud.settings.stream');
       if (streamSettings) {
-        this.settings.stream = { ...this.defaultStreamSettings, ...streamSettings };
+        this.settings.stream = { ...getDefaults('stream'), ...streamSettings };
       }
+
+      const customPresets = await this.api.getConfig('clarityhud.customPresets');
+      this.customPresets = normalizeCustomPresets(customPresets);
 
       this.api.log('ClarityHUD backend initialized with settings loaded', 'info');
     } catch (error) {
       this.api.log(`Error initializing ClarityHUD backend: ${error.message}`, 'error');
       // Use defaults if loading fails
-      this.settings.chat = { ...this.defaultChatSettings };
-      this.settings.full = { ...this.defaultFullSettings };
-      this.settings.multi = { ...this.defaultMultiSettings };
-      this.settings.stream = { ...this.defaultStreamSettings };
+      this.settings.chat = getDefaults('chat');
+      this.settings.full = getDefaults('full');
+      this.settings.multi = getDefaults('multi');
+      this.settings.stream = getDefaults('stream');
+      this.customPresets = [];
     }
   }
 
@@ -289,12 +171,16 @@ class ClarityHUDBackend {
           });
         }
 
-        // Merge with existing settings
-        const defaults = dock === 'chat' ? this.defaultChatSettings :
-                        dock === 'full' ? this.defaultFullSettings :
-                        dock === 'stream' ? this.defaultStreamSettings :
-                        this.defaultMultiSettings;
-        this.settings[dock] = { ...defaults, ...this.settings[dock], ...newSettings };
+        const merged = mergeSettings(dock, this.settings[dock], newSettings);
+        if (!merged.valid) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid ClarityHUD settings',
+            validationErrors: merged.errors
+          });
+        }
+
+        this.settings[dock] = merged.settings;
 
         // Persist to database
         await this.api.setConfig(`clarityhud.settings.${dock}`, this.settings[dock]);
@@ -393,11 +279,7 @@ class ClarityHUDBackend {
         }
 
         // Reset to defaults
-        const defaults = dock === 'chat' ? this.defaultChatSettings :
-                        dock === 'full' ? this.defaultFullSettings :
-                        dock === 'stream' ? this.defaultStreamSettings :
-                        this.defaultMultiSettings;
-        this.settings[dock] = { ...defaults };
+        this.settings[dock] = getDefaults(dock);
 
         // Persist to database
         await this.api.setConfig(`clarityhud.settings.${dock}`, this.settings[dock]);
@@ -418,6 +300,154 @@ class ClarityHUDBackend {
           success: false,
           error: error.message
         });
+      }
+    });
+
+    // Export a complete ClarityHUD profile.
+    this.api.registerRoute('get', '/api/clarityhud/profile/export', (req, res) => {
+      try {
+        res.json({
+          success: true,
+          profile: createProfile(this.settings, this.customPresets)
+        });
+      } catch (error) {
+        this.api.log(`Error exporting ClarityHUD profile: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Import a complete or partial ClarityHUD profile.
+    this.api.registerRoute('post', '/api/clarityhud/profile/import', async (req, res) => {
+      try {
+        const profile = req.body && req.body.profile ? req.body.profile : req.body;
+        const validation = validateProfile(profile);
+
+        if (!validation.valid) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid ClarityHUD profile',
+            validationErrors: validation.errors
+          });
+        }
+
+        for (const dock of Object.keys(validation.settings)) {
+          this.settings[dock] = validation.settings[dock];
+          await this.api.setConfig(`clarityhud.settings.${dock}`, this.settings[dock]);
+          this.api.emit(`clarityhud.settings.${dock}`, this.settings[dock]);
+        }
+
+        if (validation.customPresets.length > 0) {
+          this.customPresets = validation.customPresets;
+          await this.api.setConfig('clarityhud.customPresets', this.customPresets);
+        }
+
+        if (validation.settings.multi) {
+          await this.reconnectMultiStreams();
+        }
+
+        res.json({
+          success: true,
+          settings: this.settings,
+          customPresets: this.customPresets
+        });
+      } catch (error) {
+        this.api.log(`Error importing ClarityHUD profile: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // List built-in and custom presets.
+    this.api.registerRoute('get', '/api/clarityhud/presets', (req, res) => {
+      try {
+        res.json({
+          success: true,
+          presets: {
+            builtin: BUILTIN_PRESETS,
+            custom: this.customPresets
+          }
+        });
+      } catch (error) {
+        this.api.log(`Error listing ClarityHUD presets: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Save a custom preset.
+    this.api.registerRoute('post', '/api/clarityhud/presets', async (req, res) => {
+      try {
+        const existingIds = new Set([
+          ...BUILTIN_PRESETS.map(preset => preset.id),
+          ...this.customPresets.map(preset => preset.id)
+        ]);
+        const normalized = normalizePreset(req.body, existingIds);
+
+        if (!normalized.valid) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid ClarityHUD preset',
+            validationErrors: normalized.errors
+          });
+        }
+
+        this.customPresets.push(normalized.preset);
+        await this.api.setConfig('clarityhud.customPresets', this.customPresets);
+
+        res.json({
+          success: true,
+          preset: normalized.preset,
+          presets: this.customPresets
+        });
+      } catch (error) {
+        this.api.log(`Error saving ClarityHUD preset: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Apply a built-in or custom preset.
+    this.api.registerRoute('post', '/api/clarityhud/presets/:id/apply', async (req, res) => {
+      try {
+        const preset = [...BUILTIN_PRESETS, ...this.customPresets]
+          .find(candidate => candidate.id === req.params.id);
+
+        if (!preset) {
+          return res.status(404).json({ success: false, error: 'Preset not found' });
+        }
+
+        for (const [dock, dockSettings] of Object.entries(preset.settings)) {
+          const merged = mergeSettings(dock, this.settings[dock], dockSettings);
+          if (!merged.valid) {
+            return res.status(400).json({
+              success: false,
+              error: 'Preset contains invalid settings',
+              validationErrors: merged.errors
+            });
+          }
+          this.settings[dock] = merged.settings;
+          await this.api.setConfig(`clarityhud.settings.${dock}`, this.settings[dock]);
+          this.api.emit(`clarityhud.settings.${dock}`, this.settings[dock]);
+        }
+
+        if (preset.settings.multi) {
+          await this.reconnectMultiStreams();
+        }
+
+        res.json({ success: true, preset, settings: this.settings });
+      } catch (error) {
+        this.api.log(`Error applying ClarityHUD preset: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Return visible multi-stream connector health for the dashboard.
+    this.api.registerRoute('get', '/api/clarityhud/multi/status', (req, res) => {
+      try {
+        res.json({
+          success: true,
+          streams: this.getMultiStreamStatus()
+        });
+      } catch (error) {
+        this.api.log(`Error getting multi-stream status: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
       }
     });
 
@@ -552,6 +582,56 @@ class ClarityHUDBackend {
         res.json({ success: true, message: `Test stream event${type ? ` (${type})` : 's'} sent` });
       } catch (error) {
         this.api.log(`Error sending test stream event: ${error.message}`, 'error');
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Test event endpoint for multi-stream HUD
+    this.api.registerRoute('post', '/api/clarityhud/test/multi', async (req, res) => {
+      try {
+        const { type } = req.body || {};
+        const streamConfig = {
+          textColor: '#FFFFFF',
+          bgColor: '#111827',
+          accentColor: '#60A5FA'
+        };
+        const sourceId = 'test';
+        const sourceLabel = 'Test Stream';
+
+        const sendChat = () => this.handleMultiStreamChat({
+          uniqueId: 'multi_test_user',
+          nickname: 'MultiTestUser',
+          comment: 'This is a multi-stream test message',
+          profilePictureUrl: null,
+          badge: null
+        }, 0, sourceId, sourceLabel, streamConfig);
+
+        const sendGift = () => this.handleMultiStreamGift({
+          uniqueId: 'multi_test_gifter',
+          nickname: 'MultiTestGifter',
+          giftName: 'Rose',
+          repeatCount: 3,
+          diamondCount: 1,
+          coins: 3,
+          giftPictureUrl: null,
+          badge: null
+        }, 0, sourceId, sourceLabel, streamConfig);
+
+        if (type === 'gift') {
+          sendGift();
+        } else if (type === 'chat') {
+          sendChat();
+        } else {
+          sendChat();
+          sendGift();
+        }
+
+        res.json({
+          success: true,
+          message: `Test multi-stream event${type ? ` (${type})` : 's'} sent`
+        });
+      } catch (error) {
+        this.api.log(`Error sending test multi-stream event: ${error.message}`, 'error');
         res.status(500).json({ success: false, error: error.message });
       }
     });
@@ -725,9 +805,10 @@ class ClarityHUDBackend {
 
       // Schedule flush if not already pending
       if (!this._likeBuffer.flushTimer) {
+        const flushInterval = this.settings.full.likeAggregationWindowMs || this._likeFlushInterval;
         this._likeBuffer.flushTimer = setTimeout(() => {
           this._flushLikeBuffer();
-        }, this._likeFlushInterval);
+        }, flushInterval);
       }
 
       this.api.log(`Like event buffered from ${likeEvent.user.nickname} (count: ${likeCount}, buffer total: ${this._likeBuffer.count})`, 'debug');
@@ -743,7 +824,9 @@ class ClarityHUDBackend {
   _flushLikeBuffer() {
     const { count, userCount } = this._likeBuffer;
 
-    if (count > 0) {
+    const minCount = this.settings.full.likeAggregationMinCount || 1;
+
+    if (count >= minCount) {
       // Resolve the single-user display name once to avoid calling the iterator twice
       const singleUser = userCount === 1
         ? `${this._likeBuffer.users.values().next().value}`
@@ -784,6 +867,17 @@ class ClarityHUDBackend {
     try {
       // Check if full HUD has gifts enabled
       if (this.settings.full.showGifts === false) {
+        return;
+      }
+
+      const repeatEndKnown = Object.prototype.hasOwnProperty.call(data, 'repeatEnd') ||
+        Object.prototype.hasOwnProperty.call(data, 'streakEnded');
+      const streakStillRunning = repeatEndKnown &&
+        data.repeatEnd !== true &&
+        data.streakEnded !== true;
+
+      if (this.settings.full.giftStreakMode === 'finalOnly' && streakStillRunning) {
+        this.api.log('Gift streak still running, deferring ClarityHUD gift display until final repeat event', 'debug');
         return;
       }
 
@@ -990,22 +1084,27 @@ class ClarityHUDBackend {
     try {
       // Disconnect existing connectors
       await this.disconnectMultiStreams();
+      this.multiStreamStatuses = this.settings.multi.streams.map((streamConfig, index) => ({
+        index,
+        enabled: Boolean(streamConfig.enabled),
+        username: streamConfig.username || '',
+        displayName: streamConfig.displayName || streamConfig.username || '',
+        status: streamConfig.enabled && streamConfig.username ? 'pending' : 'disabled',
+        attempts: 0,
+        lastError: null,
+        nextRetryAt: null,
+        connectedAt: null
+      }));
 
       // Check if multi-stream is enabled
       if (!this.settings.multi.enabled) {
+        this.multiStreamStatuses = this.multiStreamStatuses.map(status => ({
+          ...status,
+          status: 'disabled'
+        }));
         this.api.log('Multi-stream HUD is disabled, skipping connector initialization', 'debug');
         return;
       }
-
-      // Create new connectors for enabled streams
-      const io = this.api.getSocketIO();
-      const db = this.api.getDatabase();
-      const logger = {
-        info: (msg) => this.api.log(msg, 'info'),
-        warn: (msg) => this.api.log(msg, 'warn'),
-        error: (msg) => this.api.log(msg, 'error'),
-        debug: (msg) => this.api.log(msg, 'debug')
-      };
 
       for (let i = 0; i < this.settings.multi.streams.length; i++) {
         const streamConfig = this.settings.multi.streams[i];
@@ -1014,29 +1113,7 @@ class ClarityHUDBackend {
           continue;
         }
 
-        try {
-          const connector = new TikTokConnector(io, db, logger);
-          const sourceId = `stream${i + 1}`;
-          const sourceLabel = streamConfig.displayName || streamConfig.username;
-
-          // Listen to chat events from this connector
-          connector.on('chat', (data) => {
-            this.handleMultiStreamChat(data, i, sourceId, sourceLabel, streamConfig);
-          });
-
-          // Listen to gift events from this connector
-          connector.on('gift', (data) => {
-            this.handleMultiStreamGift(data, i, sourceId, sourceLabel, streamConfig);
-          });
-
-          // Connect to the stream
-          await connector.connect(streamConfig.username);
-          this.multiStreamConnectors.push(connector);
-          
-          this.api.log(`Connected multi-stream connector ${i + 1} to @${streamConfig.username}`, 'info');
-        } catch (error) {
-          this.api.log(`Failed to connect multi-stream ${i + 1} (@${streamConfig.username}): ${error.message}`, 'error');
-        }
+        await this.connectMultiStream(i, 0);
       }
     } catch (error) {
       this.api.log(`Error reconnecting multi-streams: ${error.message}`, 'error');
@@ -1044,11 +1121,165 @@ class ClarityHUDBackend {
   }
 
   /**
+   * Connect one configured multi-stream source and schedule retries on failure.
+   */
+  async connectMultiStream(streamIndex, attempt) {
+    const streamConfig = this.settings.multi.streams[streamIndex];
+    if (!streamConfig || !streamConfig.enabled || !streamConfig.username) {
+      this.updateMultiStreamStatus(streamIndex, { status: 'disabled' });
+      return;
+    }
+
+    const io = this.api.getSocketIO();
+    const db = this.api.getDatabase();
+    const logger = {
+      info: (msg) => this.api.log(msg, 'info'),
+      warn: (msg) => this.api.log(msg, 'warn'),
+      error: (msg) => this.api.log(msg, 'error'),
+      debug: (msg) => this.api.log(msg, 'debug')
+    };
+
+    this.updateMultiStreamStatus(streamIndex, {
+      status: attempt > 0 ? 'reconnecting' : 'connecting',
+      attempts: attempt,
+      lastError: null,
+      nextRetryAt: null
+    });
+
+    try {
+      const connector = new TikTokConnector(io, db, logger);
+      const sourceId = `stream${streamIndex + 1}`;
+      const sourceLabel = streamConfig.displayName || streamConfig.username;
+
+      connector.on('chat', (data) => {
+        this.handleMultiStreamChat(data, streamIndex, sourceId, sourceLabel, streamConfig);
+      });
+
+      connector.on('gift', (data) => {
+        this.handleMultiStreamGift(data, streamIndex, sourceId, sourceLabel, streamConfig);
+      });
+
+      connector.on('disconnected', () => {
+        this.updateMultiStreamStatus(streamIndex, {
+          status: 'disconnected',
+          connectedAt: null
+        });
+      });
+
+      connector.on('error', (error) => {
+        this.updateMultiStreamStatus(streamIndex, {
+          lastError: error && error.message ? error.message : String(error)
+        });
+      });
+
+      await connector.connect(streamConfig.username);
+      this.multiStreamConnectors.push({ streamIndex, connector });
+      this.updateMultiStreamStatus(streamIndex, {
+        status: 'connected',
+        attempts: attempt,
+        lastError: null,
+        nextRetryAt: null,
+        connectedAt: Date.now()
+      });
+      
+      this.api.log(`Connected multi-stream connector ${streamIndex + 1} to @${streamConfig.username}`, 'info');
+    } catch (error) {
+      this.api.log(`Failed to connect multi-stream ${streamIndex + 1} (@${streamConfig.username}): ${error.message}`, 'error');
+      this.scheduleMultiStreamReconnect(streamIndex, attempt + 1, error);
+    }
+  }
+
+  scheduleMultiStreamReconnect(streamIndex, attempt, error) {
+    const maxAttempts = this.settings.multi.reconnectMaxAttempts || 0;
+    const baseDelay = this.settings.multi.reconnectBaseDelayMs || 2000;
+
+    if (attempt >= maxAttempts || maxAttempts === 0) {
+      this.updateMultiStreamStatus(streamIndex, {
+        status: 'failed',
+        attempts: attempt,
+        lastError: error.message,
+        nextRetryAt: null,
+        connectedAt: null
+      });
+      return;
+    }
+
+    const delay = Math.min(baseDelay * Math.pow(2, Math.max(attempt - 1, 0)), 60000);
+    const nextRetryAt = Date.now() + delay;
+    this.updateMultiStreamStatus(streamIndex, {
+      status: 'reconnecting',
+      attempts: attempt,
+      lastError: error.message,
+      nextRetryAt,
+      connectedAt: null
+    });
+
+    const timer = setTimeout(() => {
+      this.multiStreamReconnectTimers.delete(streamIndex);
+      this.connectMultiStream(streamIndex, attempt);
+    }, delay);
+
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
+    this.multiStreamReconnectTimers.set(streamIndex, timer);
+  }
+
+  updateMultiStreamStatus(streamIndex, patch) {
+    const current = this.multiStreamStatuses[streamIndex] || {
+      index: streamIndex,
+      enabled: false,
+      username: '',
+      displayName: '',
+      status: 'disabled',
+      attempts: 0,
+      lastError: null,
+      nextRetryAt: null,
+      connectedAt: null
+    };
+
+    const streamConfig = this.settings.multi.streams[streamIndex] || {};
+    this.multiStreamStatuses[streamIndex] = {
+      ...current,
+      enabled: Boolean(streamConfig.enabled),
+      username: streamConfig.username || current.username || '',
+      displayName: streamConfig.displayName || streamConfig.username || current.displayName || '',
+      ...patch
+    };
+
+    this.api.emit('clarityhud.multi.status', this.getMultiStreamStatus());
+  }
+
+  getMultiStreamStatus() {
+    return this.settings.multi.streams.map((streamConfig, index) => {
+      const status = this.multiStreamStatuses[index] || {};
+      return {
+        index,
+        enabled: Boolean(streamConfig.enabled),
+        username: streamConfig.username || '',
+        displayName: streamConfig.displayName || streamConfig.username || '',
+        status: status.status || (streamConfig.enabled && streamConfig.username ? 'pending' : 'disabled'),
+        attempts: status.attempts || 0,
+        lastError: status.lastError || null,
+        nextRetryAt: status.nextRetryAt || null,
+        connectedAt: status.connectedAt || null
+      };
+    });
+  }
+
+  /**
    * Disconnect all multi-stream connectors
    */
   async disconnectMultiStreams() {
-    for (const connector of this.multiStreamConnectors) {
+    for (const timer of this.multiStreamReconnectTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.multiStreamReconnectTimers.clear();
+
+    for (const entry of this.multiStreamConnectors) {
       try {
+        const connector = entry && entry.connector ? entry.connector : entry;
         await connector.disconnect();
       } catch (error) {
         this.api.log(`Error disconnecting multi-stream connector: ${error.message}`, 'error');

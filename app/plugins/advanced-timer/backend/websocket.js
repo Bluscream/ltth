@@ -13,7 +13,9 @@ class TimerWebSocket {
     constructor(plugin) {
         this.plugin = plugin;
         this.api = plugin.api;
-        this.io = plugin.api.getSocketIO();
+        this.io = typeof plugin.api.getSocketIO === 'function'
+            ? plugin.api.getSocketIO()
+            : { emit: () => {} };
     }
 
     registerHandlers() {

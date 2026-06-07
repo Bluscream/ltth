@@ -39,21 +39,36 @@ class PerformanceManager {
   /**
    * Process gift event with all optimizations
    */
-  async processGiftEvent(userId, giftData, socketId) {
+  async processGiftEvent(userId, giftData, socketId, context = {}) {
     try {
       // Optimization #1: Connection pooling
       const connection = this.connectionPool.getConnection(userId, socketId);
       
       // Optimization #5: Gift debouncing
       this.giftDebouncer.addGift(userId, giftData, async (aggregated) => {
+        this.metrics.eventsProcessed++;
+
+        // Only the game engine has the canonical match/player context and
+        // idempotency keys. Avoid writing incomplete performance batches.
+        if (!context.matchId || !context.playerId) {
+          return;
+        }
+
         // Optimization #3: Adaptive batching
         await this.batchProcessor.addEvent({
           userId,
           giftData: aggregated,
+          matchId: context.matchId,
+          playerId: context.playerId,
+          giftId: aggregated.giftId,
+          giftName: aggregated.giftName,
+          coins: aggregated.coins,
+          multiplier: context.multiplier || 1.0,
+          team: context.team || null,
+          eventId: context.eventId || null,
+          idempotencyKey: context.idempotencyKey || null,
           timestamp: Date.now()
         });
-        
-        this.metrics.eventsProcessed++;
       });
       
       return { success: true };

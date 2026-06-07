@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Snapshot documentation and setup metadata were refreshed for backend-first development.
+- Active docs now point future agents to `AGENTS.md`, `docs/SNAPSHOT_STATUS.md`, and `infos/`.
+- Removed active Electron setup guidance because the Electron main-process source is not present in this snapshot.
+
 ### Added
 
 #### 🎵 **Music Bot Overlay: Theme-Engine & Visualizer**
@@ -322,7 +328,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SQLite Performance Optimizations** (`app/modules/database.js`)
   - journal_mode = WAL, synchronous = NORMAL
   - cache_size = 64MB, temp_store = MEMORY, mmap_size = 256MB
-- **Electron Performance Flags** (`electron/main.js`)
+- **Desktop Performance Flags** (historical Electron build)
   - Disabled `CalculateNativeWinOcclusion` for reduced overhead
   - Enabled QUIC protocol for faster networking
   - Force sRGB color profile for consistent rendering

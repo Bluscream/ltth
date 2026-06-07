@@ -9,7 +9,6 @@
  * - USB und Netzwerk-Unterstützung
  */
 
-const escpos = require('escpos');
 // Adapter werden dynamisch geladen je nach Konfiguration
 const path = require('path');
 
@@ -22,6 +21,7 @@ class PrinterService {
         this.logger = logger;
         this.printer = null;
         this.device = null;
+        this.escpos = null;
         this.config = null;
         this.isConnected = false;
         this.isReconnecting = false;
@@ -105,6 +105,7 @@ class PrinterService {
      */
     async connectUSB() {
         try {
+            const escpos = this.loadEscposCore();
             const USB = require('escpos-usb');
             
             // Parse Vendor/Product IDs (können als Hex-String kommen)
@@ -140,6 +141,7 @@ class PrinterService {
      */
     async connectNetwork() {
         try {
+            const escpos = this.loadEscposCore();
             const Network = require('escpos-network');
             
             // Erstelle Netzwerk-Device
@@ -174,6 +176,19 @@ class PrinterService {
         } catch (error) {
             this.logger.error('[PrinterService] Network connection failed:', error);
             throw error;
+        }
+    }
+
+    loadEscposCore() {
+        if (this.escpos) {
+            return this.escpos;
+        }
+
+        try {
+            this.escpos = require('escpos');
+            return this.escpos;
+        } catch (error) {
+            throw new Error('Thermal printer driver package "escpos" is not installed. Install escpos plus the matching adapter package to use this early-version plugin.');
         }
     }
 

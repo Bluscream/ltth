@@ -8,7 +8,7 @@ const WebSocket = require('ws');
 const axios = require('axios');
 
 class OSCQueryClient {
-    constructor(host = '127.0.0.1', port = 9002, logger = console) {
+    constructor(host = '127.0.0.1', port = 9001, logger = console) {
         // Validate host
         if (!host || typeof host !== 'string' || host.trim().length === 0) {
             throw new Error('Invalid host: must be a non-empty string');
@@ -34,6 +34,10 @@ class OSCQueryClient {
         this.parameters = new Map();  // Map<path, parameterInfo>
         this.hostInfo = null;
         this.avatarInfo = null;
+        this.avatarWatcher = null;
+        this.reconnectTimer = null;
+        this.destroyed = false;
+        this.shouldReconnect = false;
         
         // Event listeners
         this.listeners = new Map(); // Map<event, Set<callback>>
@@ -142,12 +146,18 @@ class OSCQueryClient {
      */
     subscribe(callback) {
         try {
+            if (this.destroyed) {
+                this.logger.warn('OSCQuery subscribe ignored after destroy');
+                return false;
+            }
+
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.logger.warn('WebSocket already connected');
                 return true;
             }
 
             const wsUrl = `ws://${this.host}:${this.port}`;
+            this.shouldReconnect = true;
             this.ws = new WebSocket(wsUrl);
 
             this.ws.on('open', () => {
@@ -186,7 +196,9 @@ class OSCQueryClient {
                 this._emit('disconnected', { timestamp: Date.now() });
                 
                 // Auto-reconnect
-                this._attemptReconnect();
+                if (this.shouldReconnect) {
+                    this._attemptReconnect();
+                }
             });
 
             return true;
@@ -205,6 +217,11 @@ class OSCQueryClient {
      * Disconnect WebSocket
      */
     disconnect() {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        this.shouldReconnect = false;
         if (this.ws) {
             this.ws.close();
             this.ws = null;
@@ -386,6 +403,10 @@ class OSCQueryClient {
     }
 
     _attemptReconnect() {
+        if (this.destroyed) {
+            return;
+        }
+
         if (this.wsReconnectAttempts >= this.maxReconnectAttempts) {
             this.logger.warn('Max WebSocket reconnect attempts reached');
             return;
@@ -401,7 +422,11 @@ class OSCQueryClient {
         const jitter = exponentialDelay * 0.2 * (Math.random() * 2 - 1);
         const delayWithJitter = Math.max(baseDelay, exponentialDelay + jitter);
         
-        setTimeout(() => {
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            if (this.destroyed) {
+                return;
+            }
             this.logger.info(`Attempting WebSocket reconnect (${this.wsReconnectAttempts}/${this.maxReconnectAttempts})`);
             this.subscribe();
         }, delayWithJitter);
@@ -444,6 +469,11 @@ class OSCQueryClient {
     }
 
     destroy() {
+        this.destroyed = true;
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
         this.stopAvatarWatcher();
         this.disconnect();
         this.parameters.clear();
@@ -507,7 +537,7 @@ class OSCQueryClient {
             .map(r => r.value);
 
         if (found.length > 0) {
-            // Prefer lower port numbers (VRChat typically uses 9002)
+            // Prefer lower port numbers; VRChat OSCQuery commonly starts at 9001.
             found.sort((a, b) => a.port - b.port);
             const best = found[0];
             logger.info(`✅ VRChat OSCQuery found on port ${best.port} (NAME: ${best.hostInfo.NAME})`);

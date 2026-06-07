@@ -120,7 +120,7 @@ class VirtualScroller {
   clear() {
     this.items = [];
     this.visibleItems = [];
-    this.content.innerHTML = '';
+    this.content.replaceChildren();
     this.updateTotalHeight();
   }
 
@@ -224,7 +224,7 @@ class VirtualScroller {
    */
   render() {
     // Clear existing content
-    this.content.innerHTML = '';
+    this.content.replaceChildren();
 
     // Create fragment for better performance
     const fragment = document.createDocumentFragment();

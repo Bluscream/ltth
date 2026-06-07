@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TikTok Visual Effects Overlay - Einstellungen</title>
+    <link rel="stylesheet" href="/css/themes.css">
     <style>
         * {
             box-sizing: border-box;
@@ -445,6 +446,96 @@
             border-color: #ff6600;
         }
 
+        .gift-catalog-panel {
+            background: #181818;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+
+        .gift-catalog-toolbar {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .gift-catalog-toolbar input {
+            width: 100%;
+            padding: 8px 10px;
+            background: #111;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #e0e0e0;
+        }
+
+        .gift-catalog-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 8px;
+            max-height: 260px;
+            overflow: auto;
+        }
+
+        .gift-chip {
+            display: grid;
+            grid-template-columns: 34px 1fr;
+            gap: 8px;
+            align-items: center;
+            background: #242424;
+            border: 1px solid #3f3f3f;
+            border-radius: 6px;
+            padding: 7px;
+            color: #e0e0e0;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .gift-chip:hover {
+            border-color: #ff6600;
+            background: #2f2a24;
+        }
+
+        .gift-chip img,
+        .gift-chip-placeholder {
+            width: 34px;
+            height: 34px;
+            border-radius: 5px;
+            object-fit: cover;
+            background: #111;
+            display: grid;
+            place-items: center;
+            color: #ff9933;
+            font-size: 18px;
+        }
+
+        .gift-chip-name {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .gift-chip-coins {
+            display: block;
+            color: #ffbb66;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .gift-catalog-empty {
+            color: #888;
+            font-size: 13px;
+            padding: 12px;
+            text-align: center;
+            border: 1px dashed #444;
+            border-radius: 6px;
+        }
+
         .trigger-status-box {
             background: #1a1a1a;
             border: 1px solid #333;
@@ -552,6 +643,10 @@
             .test-buttons-grid {
                 grid-template-columns: repeat(2, 1fr);
             }
+
+            .gift-catalog-toolbar {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -560,7 +655,7 @@
         <h1>🎨 TikTok Visual Effects Overlay</h1>
         <p class="subtitle">Konfiguriere dein WebGL Effekt-Overlay mit 4 verschiedenen visuellen Modi für TikTok Livestreams</p>
         
-        <div id="status" class="status"></div>
+        <div id="status" class="status" role="status" aria-live="polite"></div>
         
         <!-- Resolution Settings -->
         <div class="section">
@@ -590,14 +685,14 @@
             </p>
             
             <div class="preview-controls">
-                <button onclick="togglePreview()" id="previewToggle">▶️ Vorschau starten</button>
-                <button onclick="refreshPreview()">🔄 Neu laden</button>
-                <button onclick="toggleFullscreen()">⛶ Vollbild</button>
+                <button id="previewToggle" type="button">▶️ Vorschau starten</button>
+                <button id="previewRefreshBtn" type="button">🔄 Neu laden</button>
+                <button id="previewFullscreenBtn" type="button">⛶ Vollbild</button>
             </div>
             
             <div class="preview-container" id="previewContainer" style="display: none;">
                 <div class="preview-wrapper" id="previewWrapper">
-                    <iframe id="previewIframe" class="preview-iframe" src="about:blank"></iframe>
+                    <iframe id="previewIframe" class="preview-iframe" src="about:blank" title="Flame overlay preview"></iframe>
                 </div>
             </div>
             
@@ -609,23 +704,23 @@
                 </p>
                 <div class="frame-position-grid">
                     <div class="frame-position-input">
-                        <label>X-Position (%)</label>
+                        <label for="frameX">X-Position (%)</label>
                         <input type="number" id="frameX" min="0" max="100" value="0" step="1">
                     </div>
                     <div class="frame-position-input">
-                        <label>Y-Position (%)</label>
+                        <label for="frameY">Y-Position (%)</label>
                         <input type="number" id="frameY" min="0" max="100" value="0" step="1">
                     </div>
                     <div class="frame-position-input">
-                        <label>Breite (%)</label>
+                        <label for="frameWidth">Breite (%)</label>
                         <input type="number" id="frameWidth" min="10" max="100" value="100" step="1">
                     </div>
                     <div class="frame-position-input">
-                        <label>Höhe (%)</label>
+                        <label for="frameHeight">Höhe (%)</label>
                         <input type="number" id="frameHeight" min="10" max="100" value="100" step="1">
                     </div>
                 </div>
-                <button class="btn" onclick="applyFramePosition()" style="margin-top: 10px;">Anwenden</button>
+                <button class="btn" id="applyFramePositionBtn" type="button" style="margin-top: 10px;">Anwenden</button>
             </div>
         </div>
         
@@ -952,10 +1047,10 @@
             <h2 class="section-title">💾 Presets</h2>
             
             <div class="form-group">
-                <label>Aktuelle Einstellungen als Preset speichern:</label>
+                <label for="presetName">Aktuelle Einstellungen als Preset speichern:</label>
                 <div style="display: flex; gap: 10px;">
                     <input type="text" id="presetName" placeholder="Preset-Name (z.B. Hype Mode)" style="flex: 1;">
-                    <button class="btn" onclick="savePreset()">💾 Speichern</button>
+                    <button class="btn" id="savePresetBtn" type="button">💾 Speichern</button>
                 </div>
             </div>
             
@@ -990,6 +1085,20 @@
                     <button class="preset-btn" data-preset="party">🎉 Party</button>
                 </div>
                 <small style="color: #888;">Wähle ein Preset oder passe die Regeln unten individuell an (→ Custom)</small>
+            </div>
+
+            <!-- Gift Catalog -->
+            <div class="form-group">
+                <label>Geschenkekatalog:</label>
+                <div class="gift-catalog-panel">
+                    <div class="gift-catalog-toolbar">
+                        <input type="search" id="giftCatalogSearch" placeholder="Geschenk suchen oder Coin-Bereich wie 99-499">
+                        <button class="btn btn-secondary" id="refreshGiftCatalogBtn" type="button">Aktualisieren</button>
+                        <button class="btn btn-secondary" id="addGiftRangeRuleBtn" type="button">Coin-Regel</button>
+                    </div>
+                    <div id="giftCatalogStatus" class="gift-catalog-empty">Geschenkekatalog wird geladen...</div>
+                    <div id="giftCatalogGrid" class="gift-catalog-grid"></div>
+                </div>
             </div>
 
             <!-- Trigger Rules Table -->
@@ -1053,7 +1162,7 @@
             </div>
 
             <!-- Save Trigger Rules -->
-            <button class="btn-save-triggers" id="saveTriggerRulesBtn">💾 Trigger-Regeln speichern</button>
+            <button class="btn-save-triggers" id="saveTriggerRulesBtn" type="button">💾 Trigger-Regeln speichern</button>
 
             <!-- Test Buttons -->
             <div class="form-group" style="margin-top: 20px;">
@@ -1070,6 +1179,8 @@
                 </div>
             </div>
 
+            <button class="btn-test" id="stopActiveTriggersBtn" type="button" style="margin-top: 8px;">Stop Effects</button>
+
             <!-- Live Status -->
             <div class="trigger-status-box" id="triggerStatusBox">
                 <div class="trigger-status-header">
@@ -1084,9 +1195,9 @@
 
         <!-- Action Buttons -->
         <div class="section">
-            <button class="btn" onclick="saveConfig()">💾 Einstellungen speichern</button>
-            <button class="btn btn-secondary" onclick="loadConfig()">🔄 Neu laden</button>
-            <button class="btn btn-secondary" onclick="openOverlay()">👁️ Overlay öffnen</button>
+            <button class="btn" id="saveConfigBtn" type="button">💾 Einstellungen speichern</button>
+            <button class="btn btn-secondary" id="reloadConfigBtn" type="button">🔄 Neu laden</button>
+            <button class="btn btn-secondary" id="openOverlayBtn" type="button">👁️ Overlay öffnen</button>
         </div>
         
         <!-- Installation Guide -->
@@ -1112,11 +1223,37 @@
     <script>
         // Configuration constants
         const LANDSCAPE_PRESETS = ['tiktok-landscape', 'hd-landscape', '2k-landscape', '4k-landscape'];
+        const RESOLUTION_PRESETS = {
+            'tiktok-portrait': { width: 720, height: 1280 },
+            'tiktok-landscape': { width: 1280, height: 720 },
+            'hd-portrait': { width: 1080, height: 1920 },
+            'hd-landscape': { width: 1920, height: 1080 },
+            '2k-portrait': { width: 1440, height: 2560 },
+            '2k-landscape': { width: 2560, height: 1440 },
+            '4k-portrait': { width: 2160, height: 3840 },
+            '4k-landscape': { width: 3840, height: 2160 }
+        };
         const REALTIME_UPDATE_ELEMENTS = ['effectType', 'frameMode', 'flameColor', 'backgroundTint', 
                                           'enableGlow', 'enableAdditiveBlend', 'maskOnlyEdges', 'highDPI',
                                           'useHighQualityTextures', 'detailScaleAuto', 'animationEasing',
                                           'pulseEnabled', 'bloomEnabled', 'layersEnabled', 'smokeEnabled', 'smokeColor'];
         const CUSTOM_RESOLUTION_INPUTS = ['customWidth', 'customHeight'];
+
+        function getNumberInputValue(id, fallback) {
+            const value = parseInt(document.getElementById(id).value, 10);
+            return Number.isFinite(value) ? value : fallback;
+        }
+
+        function getSelectedResolution() {
+            const preset = document.getElementById('resolutionPreset').value;
+            if (preset === 'custom') {
+                return {
+                    width: getNumberInputValue('customWidth', 720),
+                    height: getNumberInputValue('customHeight', 1280)
+                };
+            }
+            return RESOLUTION_PRESETS[preset] || RESOLUTION_PRESETS['tiktok-portrait'];
+        }
         
         // Initialize socket.io with error handling
         let socket = null;
@@ -1153,18 +1290,20 @@
         const EFFECT_OPTIONS = ['flames', 'particles', 'energy', 'lightning'];
         const ACTION_OPTIONS = ['flash', 'pulse', 'intensity-boost', 'color-change', 'color-flash', 'effect-switch', 'dramatic'];
         const EVENT_OPTIONS = ['gift', 'follow', 'like', 'share', 'chat', 'subscribe'];
+        let giftCatalog = [];
 
-        // Test trigger payloads
-        const TEST_TRIGGERS = {
-            'gift-small':  { type: 'flash', duration: 800, source: 'test' },
-            'gift-medium': { type: 'intensity-boost', amount: 0.5, duration: 5000, revert: true, source: 'test' },
-            'gift-big':    { type: 'dramatic', effect: 'lightning', duration: 10000, intensityBoost: 1.0, bloomOverride: { enabled: true, intensity: 1.5 }, revert: true, source: 'test' },
-            'follow':      { type: 'pulse', intensity: 0.3, duration: 1500, revert: true, source: 'test' },
-            'like-burst':  { type: 'intensity-boost', amount: 0.4, duration: 3000, revert: true, source: 'test' },
-            'share':       { type: 'effect-switch', effect: 'particles', duration: 3000, revert: true, source: 'test' },
-            'subscribe':   { type: 'color-flash', color: '#ffd700', duration: 5000, revert: true, source: 'test' },
-            'chat-red':    { type: 'color-change', color: '#ff0000', duration: 15000, revert: true, source: 'test' }
-        };
+        // App-internal feature tests. The backend simulates TikTok events so
+        // rules, fallbacks, cooldown bypass, and renderer dispatch are tested together.
+        const TEST_TRIGGER_TYPES = new Set([
+            'gift-small',
+            'gift-medium',
+            'gift-big',
+            'follow',
+            'like-burst',
+            'share',
+            'subscribe',
+            'chat-red'
+        ]);
 
         /**
          * Build a trigger rule table row element
@@ -1275,7 +1414,10 @@
             const tdRemove = document.createElement('td');
             const removeBtn = document.createElement('button');
             removeBtn.className = 'trigger-row-remove';
+            removeBtn.type = 'button';
             removeBtn.textContent = '✕';
+            removeBtn.setAttribute('aria-label', 'Trigger-Regel entfernen');
+            removeBtn.title = 'Trigger-Regel entfernen';
             removeBtn.addEventListener('click', () => tr.remove());
             tdRemove.appendChild(removeBtn);
             tr.appendChild(tdRemove);
@@ -1331,6 +1473,183 @@
             });
         }
 
+        function appendTriggerRule(rule) {
+            const tbody = document.getElementById('triggerRulesBody');
+            const tr = buildRuleRow(rule, tbody.rows.length);
+            tr.dataset.ruleId = rule.id || `rule-${Date.now()}`;
+            tbody.appendChild(tr);
+            document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+        }
+
+        function getGiftName(gift) {
+            return gift.name || gift.giftName || gift.gift_name || gift.title || 'Unbenannt';
+        }
+
+        function getGiftId(gift) {
+            return gift.id || gift.giftId || gift.gift_id || gift.uid || '';
+        }
+
+        function getGiftCoins(gift) {
+            const values = [
+                gift.coins,
+                gift.coinCount,
+                gift.giftCoins,
+                gift.gift_coins,
+                gift.diamondCount,
+                gift.diamond_count,
+                gift.diamonds,
+                gift.cost,
+                gift.value
+            ];
+            for (const value of values) {
+                const number = Number(value);
+                if (Number.isFinite(number) && number > 0) return number;
+            }
+            return 0;
+        }
+
+        function getGiftImage(gift) {
+            return gift.imageUrl || gift.image_url || gift.icon || gift.iconUrl || gift.url || gift.thumbnail || '';
+        }
+
+        function parseGiftRange(value) {
+            const match = String(value || '').trim().match(/^(\d+)(?:\s*[-.]{1,2}\s*(\d+))?$/);
+            if (!match) return null;
+            const min = Number(match[1]);
+            const max = match[2] ? Number(match[2]) : null;
+            if (!Number.isFinite(min) || (max !== null && !Number.isFinite(max))) return null;
+            return { min, max };
+        }
+
+        async function loadGiftCatalog() {
+            const status = document.getElementById('giftCatalogStatus');
+            const grid = document.getElementById('giftCatalogGrid');
+            if (!status || !grid) return;
+
+            status.style.display = 'block';
+            status.textContent = 'Geschenkekatalog wird geladen...';
+            grid.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/flame-overlay/gift-catalog');
+                const data = await response.json();
+                const gifts = Array.isArray(data.gifts) ? data.gifts : data.catalog;
+                giftCatalog = data.success && Array.isArray(gifts) ? gifts : [];
+                renderGiftCatalog();
+            } catch (error) {
+                giftCatalog = [];
+                status.textContent = 'Geschenkekatalog konnte nicht geladen werden.';
+                console.error('Failed to load gift catalog:', error);
+            }
+        }
+
+        async function refreshGiftCatalog() {
+            const status = document.getElementById('giftCatalogStatus');
+            if (status) {
+                status.style.display = 'block';
+                status.textContent = 'Geschenkekatalog wird aktualisiert...';
+            }
+
+            try {
+                await fetch('/api/gift-catalog/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } catch (error) {
+                console.warn('Gift catalog update endpoint failed, loading cached catalog:', error);
+            }
+
+            await loadGiftCatalog();
+        }
+
+        function renderGiftCatalog() {
+            const status = document.getElementById('giftCatalogStatus');
+            const grid = document.getElementById('giftCatalogGrid');
+            const search = document.getElementById('giftCatalogSearch')?.value.trim().toLowerCase() || '';
+            if (!status || !grid) return;
+
+            const range = parseGiftRange(search);
+            const filtered = giftCatalog
+                .filter(gift => {
+                    const name = getGiftName(gift).toLowerCase();
+                    const coins = getGiftCoins(gift);
+                    if (range) return coins >= range.min && (range.max === null || coins <= range.max);
+                    return !search || name.includes(search) || String(coins).includes(search);
+                })
+                .sort((a, b) => getGiftCoins(a) - getGiftCoins(b))
+                .slice(0, 80);
+
+            if (!giftCatalog.length) {
+                status.style.display = 'block';
+                status.textContent = 'Kein Geschenkekatalog verfuegbar. Verbinde zuerst einen TikTok Stream und aktualisiere dann.';
+                grid.innerHTML = '';
+                return;
+            }
+
+            if (!filtered.length) {
+                status.style.display = 'block';
+                status.textContent = 'Keine Geschenke fuer diese Suche gefunden.';
+                grid.innerHTML = '';
+                return;
+            }
+
+            status.style.display = 'none';
+            grid.innerHTML = filtered.map((gift, index) => {
+                const name = getGiftName(gift);
+                const coins = getGiftCoins(gift);
+                const image = getGiftImage(gift);
+                const imageHtml = image
+                    ? `<img src="${escapeHtml(image)}" alt="">`
+                    : '<span class="gift-chip-placeholder">G</span>';
+                return `<button class="gift-chip" type="button" data-gift-index="${index}">
+                    ${imageHtml}
+                    <span>
+                        <span class="gift-chip-name">${escapeHtml(name)}</span>
+                        <span class="gift-chip-coins">${coins || '?'} Coins</span>
+                    </span>
+                </button>`;
+            }).join('');
+
+            grid.querySelectorAll('.gift-chip').forEach((button, index) => {
+                button.addEventListener('click', () => addGiftRule(filtered[index]));
+            });
+        }
+
+        function addGiftRule(gift) {
+            const name = getGiftName(gift);
+            const id = getGiftId(gift);
+            const coins = getGiftCoins(gift);
+            const condition = id ? `giftId == "${String(id).replace(/"/g, '\\"')}"` : `giftName == "${name.replace(/"/g, '\\"')}"`;
+            const action = coins >= 500 ? 'dramatic' : (coins >= 100 ? 'intensity-boost' : 'flash');
+            appendTriggerRule({
+                id: `gift-${id || name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
+                event: 'gift',
+                condition,
+                action,
+                effect: coins >= 500 ? 'lightning' : '',
+                amount: coins >= 100 && coins < 500 ? 0.5 : undefined,
+                duration: coins >= 500 ? 8000 : (coins >= 100 ? 5000 : 1200),
+                enabled: true
+            });
+            showStatus(`Geschenk-Regel fuer ${name} hinzugefuegt`, 'success');
+        }
+
+        function addGiftRangeRule() {
+            const value = document.getElementById('giftCatalogSearch')?.value || '99-499';
+            const range = parseGiftRange(value) || { min: 99, max: 499 };
+            const label = range.max === null ? `${range.min}+` : `${range.min}-${range.max}`;
+            appendTriggerRule({
+                id: `gift-coins-${label}-${Date.now()}`,
+                event: 'gift',
+                condition: range.max === null ? `coins >= ${range.min}` : `coins >= ${range.min} && coins <= ${range.max}`,
+                action: 'dramatic',
+                effect: 'particles',
+                duration: 5000,
+                enabled: true
+            });
+            showStatus(`Coin-Regel ${label} hinzugefuegt`, 'success');
+        }
+
         /**
          * Load trigger rules from backend
          */
@@ -1351,11 +1670,18 @@
          */
         async function saveTriggerRules() {
             try {
-                const rules = collectTriggerRules();
-                const response = await fetch('/api/flame-overlay/triggers', {
+                const triggerConfig = {
+                    triggerRules: collectTriggerRules(),
+                    triggersEnabled: document.getElementById('triggersEnabled').checked,
+                    chatColorCommands: document.getElementById('chatColorCommands').checked,
+                    triggerCooldown: parseInt(document.getElementById('triggerCooldown').value),
+                    triggerMaxStack: parseInt(document.getElementById('triggerMaxStack').value),
+                    triggerPreset: 'custom'
+                };
+                const response = await fetch('/api/flame-overlay/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ rules })
+                    body: JSON.stringify(triggerConfig)
                 });
                 const data = await response.json();
                 if (data.success) {
@@ -1407,18 +1733,21 @@
 
         /**
          * Send a test trigger to the backend
-         * @param {string} triggerType - Key from TEST_TRIGGERS
+         * @param {string} triggerType - Key from TEST_TRIGGER_TYPES
          */
         async function sendTestTrigger(triggerType) {
-            const payload = TEST_TRIGGERS[triggerType];
-            if (!payload) return;
+            if (!TEST_TRIGGER_TYPES.has(triggerType)) return;
             try {
-                const response = await fetch('/api/flame-overlay/trigger', {
+                const response = await fetch('/api/flame-overlay/test-event', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify({ type: triggerType })
                 });
                 const data = await response.json();
+                if (data.success && data.accepted === false) {
+                    showStatus(`Test '${triggerType}' ohne Effekt: ${data.reason || 'keine passende Regel'}`, 'error');
+                    return;
+                }
                 if (!data.success) {
                     showStatus('❌ Test-Fehler: ' + data.error, 'error');
                 } else {
@@ -1429,11 +1758,29 @@
             }
         }
 
+        async function clearActiveTriggers() {
+            try {
+                const response = await fetch('/api/flame-overlay/clear-triggers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    showStatus('Stop-Fehler: ' + data.error, 'error');
+                } else {
+                    showStatus('Aktive Overlay-Effekte gestoppt', 'success');
+                }
+            } catch (error) {
+                showStatus('Stop-Fehler: ' + error.message, 'error');
+            }
+        }
+
         /**
          * Update the live trigger status display
          * @param {object} data - Status object with activeTriggers and recentTriggers
          */
         function updateTriggerStatus(data) {
+            data = data || {};
             const countEl = document.getElementById('activeTriggerCount');
             const logContainer = document.getElementById('triggerLogContainer');
 
@@ -1441,16 +1788,41 @@
                 countEl.textContent = `${data.activeTriggers || 0} aktiv`;
             }
 
-            if (logContainer && data.recentTriggers && data.recentTriggers.length > 0) {
-                logContainer.innerHTML = data.recentTriggers.map(t => {
-                    const timeStr = new Date(t.time).toLocaleTimeString('de-DE', { hour12: false });
-                    return `<div class="trigger-log-item">
-                        <span class="trigger-log-type">${t.type}</span>
-                        <span style="color:#888;">${t.source || ''}</span>
-                        <span style="color:#666;">${timeStr}</span>
-                    </div>`;
-                }).join('');
+            if (!logContainer) return;
+
+            logContainer.textContent = '';
+            const recentTriggers = Array.isArray(data.recentTriggers) ? data.recentTriggers : [];
+
+            if (recentTriggers.length === 0) {
+                const empty = document.createElement('p');
+                empty.style.color = '#666';
+                empty.style.fontSize = '12px';
+                empty.style.textAlign = 'center';
+                empty.style.padding = '8px 0';
+                empty.textContent = 'Noch keine Trigger ausgelöst';
+                logContainer.appendChild(empty);
+                return;
             }
+
+            recentTriggers.forEach(t => {
+                const item = document.createElement('div');
+                item.className = 'trigger-log-item';
+
+                const type = document.createElement('span');
+                type.className = 'trigger-log-type';
+                type.textContent = t.type || '';
+
+                const source = document.createElement('span');
+                source.style.color = '#888';
+                source.textContent = t.source || '';
+
+                const time = document.createElement('span');
+                time.style.color = '#666';
+                time.textContent = new Date(t.time).toLocaleTimeString('de-DE', { hour12: false });
+
+                item.append(type, source, time);
+                logContainer.appendChild(item);
+            });
         }
 
         // Preset button click handlers
@@ -1462,11 +1834,8 @@
 
         // Add Rule button
         document.getElementById('addRuleBtn').addEventListener('click', () => {
-            const tbody = document.getElementById('triggerRulesBody');
             const newRule = { id: `rule-new-${Date.now()}`, event: 'gift', condition: 'any', action: 'flash', duration: 1000, enabled: true };
-            const tr = buildRuleRow(newRule, tbody.rows.length);
-            tr.dataset.ruleId = newRule.id;
-            tbody.appendChild(tr);
+            appendTriggerRule(newRule);
         });
 
         // Save trigger rules button
@@ -1474,8 +1843,23 @@
 
         // Test trigger buttons
         document.querySelectorAll('.btn-test').forEach(btn => {
-            btn.addEventListener('click', () => sendTestTrigger(btn.dataset.triggerType));
+            btn.addEventListener('click', () => {
+                if (btn.dataset.triggerType) sendTestTrigger(btn.dataset.triggerType);
+            });
         });
+
+        document.getElementById('stopActiveTriggersBtn')?.addEventListener('click', clearActiveTriggers);
+        document.getElementById('refreshGiftCatalogBtn')?.addEventListener('click', refreshGiftCatalog);
+        document.getElementById('addGiftRangeRuleBtn')?.addEventListener('click', addGiftRangeRule);
+        document.getElementById('giftCatalogSearch')?.addEventListener('input', renderGiftCatalog);
+        document.getElementById('previewToggle').addEventListener('click', togglePreview);
+        document.getElementById('previewRefreshBtn').addEventListener('click', refreshPreview);
+        document.getElementById('previewFullscreenBtn').addEventListener('click', toggleFullscreen);
+        document.getElementById('applyFramePositionBtn').addEventListener('click', applyFramePosition);
+        document.getElementById('savePresetBtn').addEventListener('click', savePreset);
+        document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
+        document.getElementById('reloadConfigBtn').addEventListener('click', loadConfig);
+        document.getElementById('openOverlayBtn').addEventListener('click', openOverlay);
 
         // Cooldown/MaxStack sliders
         document.getElementById('triggerCooldown').addEventListener('input', (e) => {
@@ -1545,16 +1929,14 @@
         
         // Update preview aspect ratio based on resolution
         function updatePreviewAspectRatio() {
-            const preset = document.getElementById('resolutionPreset').value;
             const wrapper = document.getElementById('previewWrapper');
-            
-            const isLandscape = LANDSCAPE_PRESETS.includes(preset);
-            
-            if (isLandscape) {
-                wrapper.classList.add('landscape');
-            } else {
-                wrapper.classList.remove('landscape');
-            }
+            const resolution = getSelectedResolution();
+            const width = Math.max(1, resolution.width);
+            const height = Math.max(1, resolution.height);
+            const aspectPercent = (height / width) * 100;
+
+            wrapper.classList.toggle('landscape', width > height);
+            wrapper.style.paddingBottom = `${aspectPercent}%`;
         }
         
         // Apply frame position
@@ -1737,6 +2119,7 @@
             const element = document.getElementById(id);
             if (element) {
                 element.addEventListener('input', () => {
+                    updatePreviewAspectRatio();
                     if (previewActive) {
                         debouncedSaveConfig();
                     }
@@ -1866,6 +2249,7 @@
 
                     // Load trigger rules into table
                     loadTriggerRules();
+                    loadGiftCatalog();
                     
                     // Trigger custom resolution visibility
                     document.getElementById('resolutionPreset').dispatchEvent(new Event('change'));
@@ -1907,7 +2291,12 @@
         
         // Open overlay in new window
         function openOverlay() {
-            window.open('/flame-overlay/overlay', 'FlameOverlay', 'width=720,height=1280');
+            const resolution = getSelectedResolution();
+            window.open(
+                '/flame-overlay/overlay',
+                'FlameOverlay',
+                `width=${resolution.width},height=${resolution.height}`
+            );
         }
         
         // Show status message
@@ -1968,7 +2357,7 @@
                         </div>
                         <div style="display: flex; gap: 8px;">
                             <button class="btn preset-load-btn" data-preset-name="${escapedName}" style="padding: 6px 12px; font-size: 12px;">📂 Laden</button>
-                            <button class="btn btn-secondary preset-delete-btn" data-preset-name="${escapedName}" style="padding: 6px 12px; font-size: 12px;">🗑️</button>
+                            <button class="btn btn-secondary preset-delete-btn" data-preset-name="${escapedName}" aria-label="Preset ${escapedName} löschen" title="Preset löschen" style="padding: 6px 12px; font-size: 12px;">🗑️</button>
                         </div>
                     </div>
                 `;

@@ -3,7 +3,7 @@
  * Manages match state, game logic, timers, teams, and multipliers
  */
 
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 
 // Post-match display constants
 const DEFAULT_WINNER_CREDITS_DURATION = 10; // seconds
@@ -19,6 +19,7 @@ class CoinBattleEngine {
     // Current match state
     this.currentMatch = null;
     this.matchTimer = null;
+    this.autoResetTimeout = null;
     this.matchStartTime = null;
     this.matchDuration = 0; // seconds
     this.isPaused = false;
@@ -62,6 +63,10 @@ class CoinBattleEngine {
     this.matchEndLock = false;
     this.matchStartLock = false;
 
+    // Internal server-side subscribers. Socket.IO broadcasts do not loop back
+    // into io.on(...) handlers, so plugin integrations must use callbacks.
+    this.matchEndedHandlers = new Set();
+
     // Event cache cleanup interval (every 5 minutes)
     this.cacheCleanupInterval = setInterval(() => {
       try {
@@ -81,6 +86,18 @@ class CoinBattleEngine {
   }
 
   /**
+   * Subscribe to server-side match-ended events.
+   */
+  onMatchEnded(handler) {
+    if (typeof handler !== 'function') {
+      throw new Error('Match ended handler must be a function');
+    }
+
+    this.matchEndedHandlers.add(handler);
+    return () => this.matchEndedHandlers.delete(handler);
+  }
+
+  /**
    * Start a new match with atomic locking
    */
   startMatch(mode = null, duration = null) {
@@ -96,11 +113,16 @@ class CoinBattleEngine {
 
     this.matchStartLock = true;
     try {
+      if (this.autoResetTimeout) {
+        clearTimeout(this.autoResetTimeout);
+        this.autoResetTimeout = null;
+      }
+
       const matchMode = mode || this.config.mode;
       const matchDuration = duration || this.config.matchDuration;
 
       // Create match in database
-      const matchUuid = uuidv4();
+      const matchUuid = randomUUID();
       const matchId = this.db.createMatch({ match_uuid: matchUuid, mode: matchMode });
 
       this.currentMatch = {
@@ -155,6 +177,7 @@ class CoinBattleEngine {
     this.matchEndLock = true;
     try {
       this.stopTimer();
+      this.clearMultiplierTimer();
 
       // Calculate winner
       const leaderboard = this.db.getMatchLeaderboard(this.currentMatch.id, 100);
@@ -207,14 +230,18 @@ class CoinBattleEngine {
       // Calculate XP rewards for winners
       const winnersWithXP = this.calculateMatchXPRewards(leaderboard, this.currentMatch.mode, winnerData);
 
-      // Emit match end event
-      this.io.emit('coinbattle:match-ended', {
+      const matchEndedPayload = {
         matchId: this.currentMatch.id,
+        mode: this.currentMatch.mode,
         winner: winnerData,
         leaderboard: leaderboard.slice(0, 10),
         teamScores,
         winnersWithXP  // Include XP data for post-match display
-      });
+      };
+
+      // Emit match end event
+      this.io.emit('coinbattle:match-ended', matchEndedPayload);
+      this.notifyMatchEnded(matchEndedPayload);
 
       // Emit post-match event for overlay display
       if (this.config.postMatch?.showLeaderboard || this.config.postMatch?.showWinnerCredits) {
@@ -244,7 +271,8 @@ class CoinBattleEngine {
         
         this.logger.info(`Auto-reset scheduled in ${resetDelay / 1000}s (post-match duration: ${postMatchDuration}s)`);
         
-        setTimeout(() => {
+        this.autoResetTimeout = setTimeout(() => {
+          this.autoResetTimeout = null;
           this.logger.info('Auto-reset triggered, starting new match');
           try {
             this.startMatch();
@@ -389,6 +417,74 @@ class CoinBattleEngine {
   }
 
   /**
+   * Clear the active multiplier timeout and reset multiplier state.
+   */
+  clearMultiplierTimer() {
+    if (this.multiplierTimer) {
+      clearTimeout(this.multiplierTimer);
+      this.multiplierTimer = null;
+    }
+
+    this.activeMultiplier = 1.0;
+    this.multiplierEndTime = null;
+  }
+
+  /**
+   * Notify internal match-ended subscribers.
+   */
+  notifyMatchEnded(payload) {
+    for (const handler of this.matchEndedHandlers) {
+      try {
+        const result = handler(payload);
+        if (result && typeof result.catch === 'function') {
+          result.catch((error) => {
+            this.logger.error(`Match-ended handler failed: ${error.message}`);
+          });
+        }
+      } catch (error) {
+        this.logger.error(`Match-ended handler failed: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Add a player to the active match without requiring an immediate gift.
+   */
+  addPlayerToMatch(userId, nickname, uniqueId = null, profilePictureUrl = null) {
+    if (!this.currentMatch) {
+      throw new Error('No active match');
+    }
+
+    const player = this.db.getOrCreatePlayer({
+      userId,
+      uniqueId: uniqueId || nickname,
+      nickname,
+      profilePictureUrl
+    });
+
+    let team = null;
+    if (this.currentMatch.mode === 'team') {
+      team = this.assignTeam(userId, player.id);
+    }
+
+    this.db.addMatchParticipant(this.currentMatch.id, player.id, userId, team);
+
+    if (!this.players.has(userId)) {
+      this.players.set(userId, {
+        userId,
+        uniqueId: uniqueId || nickname,
+        nickname,
+        profilePictureUrl,
+        coins: 0,
+        gifts: 0,
+        team
+      });
+    }
+
+    return player;
+  }
+
+  /**
    * Process gift event with idempotency
    */
   processGift(giftData, userData, eventId = null) {
@@ -408,7 +504,10 @@ class CoinBattleEngine {
 
     // Generate event identifiers for idempotency
     const generatedEventId = eventId || `evt_${this.currentMatch.id}_${userData.userId}_${giftData.giftId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const idempotencyKey = `gift_${this.currentMatch.id}_${userData.userId}_${giftData.giftId}_${giftData.diamondCount || giftData.coins}_${Date.now()}`;
+    const repeatCount = giftData.repeatCount || 1;
+    const idempotencyKey = eventId
+      ? `gift_${this.currentMatch.id}_${eventId}`
+      : `gift_${this.currentMatch.id}_${userData.userId}_${giftData.giftId}_${repeatCount}_${giftData.diamondCount || giftData.coins}_${Date.now()}`;
 
     // Check if event already processed (deduplication)
     if (this.db.isEventProcessed(generatedEventId, idempotencyKey)) {
@@ -552,11 +651,13 @@ class CoinBattleEngine {
     }
 
     // Set timer to reset multiplier
+    const matchId = this.currentMatch.id;
     this.multiplierTimer = setTimeout(() => {
       this.activeMultiplier = 1.0;
       this.multiplierEndTime = null;
+      this.multiplierTimer = null;
       this.io.emit('coinbattle:multiplier-ended', {
-        matchId: this.currentMatch.id
+        matchId
       });
     }, duration * 1000);
 
@@ -590,6 +691,17 @@ class CoinBattleEngine {
       teamScores,
       mode: this.currentMatch.mode
     });
+  }
+
+  /**
+   * Return current match leaderboard for integrations.
+   */
+  getLeaderboard(limit = 10) {
+    if (!this.currentMatch) {
+      return [];
+    }
+
+    return this.db.getMatchLeaderboard(this.currentMatch.id, limit);
   }
 
   /**
@@ -803,10 +915,17 @@ class CoinBattleEngine {
     this.stopSimulation();
     if (this.multiplierTimer) {
       clearTimeout(this.multiplierTimer);
+      this.multiplierTimer = null;
+    }
+    if (this.autoResetTimeout) {
+      clearTimeout(this.autoResetTimeout);
+      this.autoResetTimeout = null;
     }
     if (this.cacheCleanupInterval) {
       clearInterval(this.cacheCleanupInterval);
+      this.cacheCleanupInterval = null;
     }
+    this.matchEndedHandlers.clear();
   }
 }
 

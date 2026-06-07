@@ -26,6 +26,8 @@ class MemoryCleanupScheduler {
       bytesFreed: 0,
       lastCleanup: null
     };
+
+    this.cleanupRunning = false;
     
     // Cleanup interval
     this.cleanupInterval = setInterval(
@@ -46,6 +48,12 @@ class MemoryCleanupScheduler {
    * Perform full cleanup cycle
    */
   async performCleanup() {
+    if (this.cleanupRunning) {
+      this.logger.warn('🧹 Cleanup skipped because a previous cleanup is still running');
+      return;
+    }
+
+    this.cleanupRunning = true;
     const startTime = Date.now();
     this.logger.info('🧹 Starting cleanup cycle...');
     
@@ -79,6 +87,8 @@ class MemoryCleanupScheduler {
       
     } catch (error) {
       this.logger.error(`🧹 Cleanup failed: ${error.message}`);
+    } finally {
+      this.cleanupRunning = false;
     }
   }
 
@@ -185,18 +195,15 @@ class MemoryCleanupScheduler {
    */
   async optimizeDatabase() {
     try {
-      // Only optimize if significant changes have been made
-      if (this.stats.totalCleanups % 10 === 0) {
+      const nextCleanupNumber = this.stats.totalCleanups + 1;
+
+      // Skip startup and run only occasionally. Heavy ANALYZE/VACUUM here blocks
+      // the Node event loop and can make the launcher think the server is dead.
+      if (nextCleanupNumber > 1 && nextCleanupNumber % 10 === 0) {
         this.logger.info('🧹 Running database optimization...');
-        
-        // ANALYZE updates statistics for query optimizer
-        this.db.prepare('ANALYZE').run();
-        
-        // VACUUM reclaims space (only every 10 cleanups to reduce I/O)
-        if (this.stats.totalCleanups % 50 === 0) {
-          this.db.prepare('VACUUM').run();
-          this.logger.info('🧹 Database VACUUM completed');
-        }
+
+        this.db.pragma('optimize');
+        this.logger.info('🧹 Database optimization completed');
       }
     } catch (error) {
       this.logger.error(`Database optimization failed: ${error.message}`);

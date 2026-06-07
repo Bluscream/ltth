@@ -593,7 +593,7 @@
         <!-- Stats -->
         <div class="stats-grid fade-in">
             <div class="stat-card">
-                <div class="stat-value">12</div>
+                <div class="stat-value">13</div>
                 <div class="stat-label" data-i18n-key="stats.effects">Weather Effects</div>
             </div>
             <div class="stat-card">
@@ -725,6 +725,17 @@
                             <option value="high">High – 500</option>
                             <option value="ultra">Ultra – 800</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <span style="display: flex; justify-content: space-between; align-items: center;">
+                                <span data-i18n-key="settings.adaptive_quality">Adaptive Quality</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="adaptiveQuality" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -937,6 +948,135 @@
                             <input type="number" class="form-control" id="minPoints" min="0" value="0">
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gamification Settings -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <span>🎮</span>
+                <h3>Weather Gamification</h3>
+            </div>
+            <div class="card-body">
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">
+                            <span style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Enable Gamification</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="gamificationEnabled" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <span style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Show Overlay Meter</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="gamificationOverlayMeter" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <span style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Show Overlay Quest</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="gamificationOverlayQuest" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <span style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Show Overlay Streak</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="gamificationOverlayStreak" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <span style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Show Reward Feed</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="gamificationOverlayRewardFeed" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <span style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Community Meter Carry Over</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="gamificationMeterCarryOver" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Community Meter Max</label>
+                        <input type="number" class="form-control" id="gamificationMeterMax" min="10" max="1000" value="100">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Streak Window (ms)</label>
+                        <input type="number" class="form-control" id="gamificationStreakWindowMs" min="1000" max="600000" value="60000">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Streak Bonus Threshold</label>
+                        <input type="number" class="form-control" id="gamificationStreakBonusThreshold" min="1" max="20" value="5">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Reward Cooldown (ms)</label>
+                        <input type="number" class="form-control" id="gamificationRewardCooldownMs" min="0" max="600000" value="30000">
+                    </div>
+                </div>
+
+                <div class="grid grid-2" style="margin-top: 1rem;">
+                    <div class="form-group">
+                        <label class="form-label">Quest Pool JSON</label>
+                        <textarea class="form-control" id="gamificationQuestPool" rows="10" spellcheck="false"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Reward Thresholds JSON</label>
+                        <textarea class="form-control" id="gamificationRewardThresholds" rows="10" spellcheck="false"></textarea>
+                    </div>
+                </div>
+
+                <div class="preview-stats" style="margin-top: 1rem;">
+                    <div class="preview-stat">
+                        <div class="preview-stat-value" id="gamificationMeterCurrent">0</div>
+                        <div class="preview-stat-label">Meter</div>
+                    </div>
+                    <div class="preview-stat">
+                        <div class="preview-stat-value" id="gamificationQuestProgress">-</div>
+                        <div class="preview-stat-label">Quest</div>
+                    </div>
+                    <div class="preview-stat">
+                        <div class="preview-stat-value" id="gamificationStreakCurrent">0</div>
+                        <div class="preview-stat-label">Streak</div>
+                    </div>
+                    <div class="preview-stat">
+                        <div class="preview-stat-value" id="gamificationRewardNext">-</div>
+                        <div class="preview-stat-label">Next Reward</div>
+                    </div>
+                </div>
+
+                <div class="preview-controls" style="margin-top: 1rem;">
+                    <button class="btn btn-secondary" id="refreshGamificationBtn" type="button">Refresh State</button>
+                    <button class="btn btn-danger" id="resetGamificationBtn" type="button">Reset Progress</button>
                 </div>
             </div>
         </div>
@@ -1463,6 +1603,104 @@
             </div>
         </div>
 
+        <!-- Stream Control Tools -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <span>*</span>
+                <h3 data-i18n-key="cards.tools.title">Weather Control Tools</h3>
+            </div>
+            <div class="card-body">
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label" data-i18n-key="cards.tools.search">Search Effects</label>
+                        <input type="search" class="form-control" id="effectSearch" placeholder="rain, storm, heatwave">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" data-i18n-key="cards.tools.category">Effect Category</label>
+                        <select class="form-select" id="effectCategoryFilter">
+                            <option value="all">All categories</option>
+                            <option value="precipitation">Precipitation</option>
+                            <option value="atmosphere">Atmosphere</option>
+                            <option value="light">Light</option>
+                            <option value="ambient">Ambient</option>
+                            <option value="impact">Impact</option>
+                            <option value="digital">Digital</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" data-i18n-key="cards.tools.preset">Effect Preset</label>
+                        <select class="form-select" id="presetSelect"></select>
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: end; gap: 0.75rem;">
+                        <button class="btn btn-secondary" id="applyPresetBtn" type="button">Apply Preset</button>
+                        <button class="btn btn-secondary" id="exportConfigBtn" type="button">Export Config</button>
+                        <label class="btn btn-secondary" for="importConfigInput">Import Config</label>
+                        <input type="file" id="importConfigInput" accept="application/json" style="display: none;">
+                    </div>
+                </div>
+
+                <div class="grid grid-2" style="margin-top: 1rem;">
+                    <div class="form-group">
+                        <label class="form-label" data-i18n-key="cards.tools.sequence_name">Sequence Name</label>
+                        <input type="text" class="form-control" id="sequenceName" value="Storm Build">
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: end; gap: 0.75rem;">
+                        <button class="btn btn-primary" id="triggerSequenceBtn" type="button">Trigger Sequence</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" data-i18n-key="cards.tools.sequence_steps">Sequence Steps JSON</label>
+                    <textarea class="form-control" id="sequenceSteps" rows="5">[
+  {"action":"fog","delay":0,"intensity":0.35,"duration":8000},
+  {"action":"rain","delay":2000,"intensity":0.55,"duration":10000},
+  {"action":"thunder","delay":5500,"intensity":0.8,"duration":5000}
+]</textarea>
+                </div>
+
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">
+                            <span style="display: flex; justify-content: space-between; align-items: center;">
+                                <span data-i18n-key="cards.audio.enable">Enable Weather Audio</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="audioEnabled">
+                                    <span class="slider"></span>
+                                </label>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Audio Volume <span class="range-value" id="audioVolumeValue">0.45</span></label>
+                        <input type="range" class="range-slider" id="audioVolume" min="0" max="1" step="0.05" value="0.45">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Weather Effects -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <span>#</span>
+                <h3 data-i18n-key="cards.active.title">Active Weather Effects</h3>
+            </div>
+            <div class="card-body">
+                <div id="activeEffectsList" class="grid grid-2">
+                    <p class="help-text">No active effects reported by the overlay yet.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Event Trigger Settings -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <span>!</span>
+                <h3 data-i18n-key="cards.triggers.title">Event Triggers</h3>
+            </div>
+            <div class="card-body">
+                <div class="grid grid-2" id="eventTriggerGrid"></div>
+            </div>
+        </div>
+
         <!-- Gift-to-Weather Mappings -->
         <div class="card fade-in">
             <div class="card-header">
@@ -1514,7 +1752,7 @@
     
     <!-- Main Script -->
     <script>
-        const effects = ['rain', 'snow', 'storm', 'fog', 'thunder', 'sunbeam', 'glitchclouds', 'aurora', 'fireflies', 'meteors', 'sakura', 'embers'];
+        const effects = ['rain', 'snow', 'storm', 'fog', 'thunder', 'sunbeam', 'glitchclouds', 'aurora', 'fireflies', 'meteors', 'sakura', 'embers', 'heatwave'];
         let socket;
         let eventsTriggered = 0;
         
@@ -1525,6 +1763,82 @@
         
         // Global config (loaded from server)
         let weatherConfig = null;
+
+        const effectMeta = {
+            rain: { category: 'precipitation', layer: 50 },
+            snow: { category: 'precipitation', layer: 60 },
+            storm: { category: 'precipitation', layer: 70 },
+            fog: { category: 'atmosphere', layer: 10 },
+            thunder: { category: 'impact', layer: 95 },
+            sunbeam: { category: 'light', layer: 20 },
+            glitchclouds: { category: 'digital', layer: 100 },
+            aurora: { category: 'light', layer: 15 },
+            fireflies: { category: 'ambient', layer: 65 },
+            meteors: { category: 'impact', layer: 90 },
+            sakura: { category: 'ambient', layer: 55 },
+            embers: { category: 'ambient', layer: 75 },
+            heatwave: { category: 'atmosphere', layer: 25 }
+        };
+
+        const builtInPresets = [
+            {
+                name: 'Cozy Rain',
+                effects: {
+                    rain: { defaultIntensity: 0.45, defaultDuration: 12000, opacity: 0.85, wind: 0.1 },
+                    fog: { defaultIntensity: 0.2, defaultDuration: 10000, opacity: 0.55 }
+                }
+            },
+            {
+                name: 'Boss Storm',
+                effects: {
+                    storm: { defaultIntensity: 0.9, defaultDuration: 10000, opacity: 1, wind: 0.45 },
+                    thunder: { defaultIntensity: 0.85, defaultDuration: 6000 }
+                }
+            },
+            {
+                name: 'Winter Chill',
+                effects: {
+                    snow: { defaultIntensity: 0.65, defaultDuration: 16000, opacity: 0.95, wind: -0.1 },
+                    fog: { defaultIntensity: 0.35, defaultDuration: 12000, fogColor: 'ice' }
+                }
+            },
+            {
+                name: 'Cyber Glitch',
+                effects: {
+                    glitchclouds: { defaultIntensity: 0.85, defaultDuration: 8000, opacity: 1 },
+                    meteors: { defaultIntensity: 0.45, defaultDuration: 7000 }
+                }
+            }
+        ];
+
+        const triggerControls = {
+            follow: {
+                enabled: 'trigger-follow-enabled',
+                action: 'trigger-follow-action',
+                intensity: 'trigger-follow-intensity',
+                duration: 'trigger-follow-duration'
+            },
+            share: {
+                enabled: 'trigger-share-enabled',
+                action: 'trigger-share-action',
+                intensity: 'trigger-share-intensity',
+                duration: 'trigger-share-duration'
+            },
+            subscribe: {
+                enabled: 'trigger-subscribe-enabled',
+                action: 'trigger-subscribe-action',
+                intensity: 'trigger-subscribe-intensity',
+                duration: 'trigger-subscribe-duration'
+            },
+            likeMilestone: {
+                enabled: 'trigger-likeMilestone-enabled',
+                action: 'trigger-likeMilestone-action',
+                intensity: 'trigger-likeMilestone-intensity',
+                duration: 'trigger-likeMilestone-duration',
+                interval: 'trigger-likeMilestone-interval'
+            }
+        };
+        const triggerNames = Object.keys(triggerControls);
 
         const translations = {
             en: {
@@ -1598,6 +1912,7 @@
                 'effects.names.meteors': 'Meteor Shower',
                 'effects.names.sakura': 'Sakura Petals',
                 'effects.names.embers': 'Rising Embers',
+                'effects.names.heatwave': 'Heatwave',
                 'effects.fog_color': 'Fog Color Preset',
                 'effects.sunbeam_colortemp': 'Color Temperature',
                 'settings.quality_preset': 'Quality Preset',
@@ -1710,6 +2025,7 @@
                 'effects.names.meteors': 'Sternschnuppen',
                 'effects.names.sakura': 'Kirschblüten',
                 'effects.names.embers': 'Glutfunken',
+                'effects.names.heatwave': 'Hitzeflimmern',
                 'effects.fog_color': 'Nebel-Farbvorlage',
                 'effects.sunbeam_colortemp': 'Farbtemperatur',
                 'settings.quality_preset': 'Qualitätsstufe',
@@ -1825,6 +2141,441 @@
             }
         }
 
+        function ensureHeatwaveCard() {
+            if (document.getElementById('effect-heatwave-enabled')) return;
+            const effectsGrid = document.querySelector('[data-i18n-key="cards.effects.title"]')?.closest('.card')?.querySelector('.grid');
+            if (!effectsGrid) return;
+
+            const card = document.createElement('div');
+            card.className = 'effect-card';
+            card.innerHTML = `
+                <div class="effect-header">
+                    <div class="effect-title">
+                        <span style="color: #f97316; font-size: 1.5rem;">~</span>
+                        <span data-i18n-key="effects.names.heatwave">Heatwave</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="effect-heatwave-enabled" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">
+                        <span data-i18n-key="effects.intensity">Intensity</span>
+                        <span class="range-value" id="effect-heatwave-intensity-val">0.4</span>
+                    </label>
+                    <input type="range" class="range-slider" id="effect-heatwave-intensity" min="0" max="1" step="0.1" value="0.4">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" data-i18n-key="effects.duration_ms">Duration (ms)</label>
+                    <input type="number" class="form-control" id="effect-heatwave-duration" value="8000" min="1000" max="60000">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">
+                        <span style="display: flex; justify-content: space-between; align-items: center;">
+                            <span data-i18n-key="effects.permanent_label">Permanent</span>
+                            <label class="switch">
+                                <input type="checkbox" id="effect-heatwave-permanent">
+                                <span class="slider"></span>
+                            </label>
+                        </span>
+                    </label>
+                    <small class="form-text" data-i18n-key="effects.permanent_help">Keep this effect running until manually stopped.</small>
+                </div>
+                <button class="btn btn-primary btn-sm w-100" data-test-effect="heatwave" type="button">
+                    <span>Play</span>
+                    <span data-i18n-key="effects.test_button">Test Effect</span>
+                </button>
+            `;
+            effectsGrid.appendChild(card);
+        }
+
+        function annotateEffectCards() {
+            effects.forEach(effect => {
+                const enabled = document.getElementById(`effect-${effect}-enabled`);
+                const card = enabled?.closest('.effect-card');
+                if (!card) return;
+                card.dataset.effect = effect;
+                card.dataset.category = effectMeta[effect]?.category || 'ambient';
+            });
+        }
+
+        function ensureAdvancedControls() {
+            effects.forEach(effect => {
+                const enabled = document.getElementById(`effect-${effect}-enabled`);
+                const card = enabled?.closest('.effect-card');
+                if (!card || card.querySelector(`[data-advanced-for="${effect}"]`)) return;
+                const meta = effectMeta[effect] || {};
+                const wrapper = document.createElement('div');
+                wrapper.dataset.advancedFor = effect;
+                wrapper.innerHTML = `
+                    <details style="margin-top: 1rem;">
+                        <summary class="form-label">Advanced</summary>
+                        <div class="grid grid-2" style="margin-top: 0.75rem;">
+                            <div class="form-group">
+                                <label class="form-label">Opacity <span class="range-value" id="effect-${effect}-opacity-val">1.00</span></label>
+                                <input type="range" class="range-slider" id="effect-${effect}-opacity" min="0.05" max="1" step="0.05" value="1">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Particle Scale <span class="range-value" id="effect-${effect}-particleScale-val">1.00</span></label>
+                                <input type="range" class="range-slider" id="effect-${effect}-particleScale" min="0.25" max="2" step="0.05" value="1">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Wind <span class="range-value" id="effect-${effect}-wind-val">0.00</span></label>
+                                <input type="range" class="range-slider" id="effect-${effect}-wind" min="-1" max="1" step="0.05" value="0">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Direction</label>
+                                <input type="number" class="form-control" id="effect-${effect}-directionDeg" min="-180" max="180" value="0">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Layer</label>
+                                <input type="number" class="form-control" id="effect-${effect}-layer" min="0" max="100" value="${meta.layer || 50}">
+                            </div>
+                            <div class="form-group">
+                                <button class="btn btn-secondary btn-sm w-100" data-stop-effect="${effect}" type="button">Stop Effect</button>
+                            </div>
+                        </div>
+                    </details>
+                `;
+                const testButton = card.querySelector('[data-test-effect]');
+                if (testButton) {
+                    card.insertBefore(wrapper, testButton);
+                } else {
+                    card.appendChild(wrapper);
+                }
+            });
+        }
+
+        function renderTriggerControls(config = {}) {
+            const grid = document.getElementById('eventTriggerGrid');
+            if (!grid) return;
+            grid.innerHTML = triggerNames.map(triggerName => {
+                const trigger = config.triggerEvents?.[triggerName] || {};
+                const controls = triggerControls[triggerName];
+                const effectOptions = effects.map(effect => `<option value="${effect}" ${trigger.action === effect ? 'selected' : ''}>${translate(`effects.names.${effect}`) || effect}</option>`).join('');
+                return `
+                    <div class="effect-card">
+                        <div class="effect-header">
+                            <div class="effect-title">${triggerName}</div>
+                            <label class="switch">
+                                <input type="checkbox" id="${controls.enabled}" ${trigger.enabled ? 'checked' : ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Effect</label>
+                            <select class="form-select" id="${controls.action}">${effectOptions}</select>
+                        </div>
+                        <div class="grid grid-2">
+                            <div class="form-group">
+                                <label class="form-label">Intensity</label>
+                                <input class="form-control" type="number" step="0.1" min="0" max="1" id="${controls.intensity}" value="${trigger.intensity ?? 0.5}">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Duration</label>
+                                <input class="form-control" type="number" min="1000" max="60000" id="${controls.duration}" value="${trigger.duration ?? 8000}">
+                            </div>
+                        </div>
+                        ${triggerName === 'likeMilestone' ? `<div class="form-group"><label class="form-label">Like Interval</label><input class="form-control" type="number" min="1" id="${controls.interval}" value="${trigger.interval ?? 1000}"></div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function populatePresetSelect(config = {}) {
+            const presetSelect = document.getElementById('presetSelect');
+            if (!presetSelect) return;
+            const presets = [...builtInPresets, ...((config.presets || []).filter(p => p && p.name))];
+            presetSelect.innerHTML = '';
+            presets.forEach((preset, index) => {
+                const option = document.createElement('option');
+                option.value = String(index);
+                option.textContent = preset.name || '';
+                presetSelect.appendChild(option);
+            });
+            presetSelect._weatherPresets = presets;
+        }
+
+        function setEffectField(effect, field, value) {
+            const idMap = {
+                defaultIntensity: `effect-${effect}-intensity`,
+                defaultDuration: `effect-${effect}-duration`,
+                opacity: `effect-${effect}-opacity`,
+                particleScale: `effect-${effect}-particleScale`,
+                wind: `effect-${effect}-wind`,
+                directionDeg: `effect-${effect}-directionDeg`,
+                layer: `effect-${effect}-layer`
+            };
+            const el = document.getElementById(idMap[field]);
+            if (!el || typeof value === 'undefined') return;
+            el.value = value;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function applySelectedPreset() {
+            const presetSelect = document.getElementById('presetSelect');
+            const preset = presetSelect?._weatherPresets?.[parseInt(presetSelect.value, 10)];
+            if (!preset?.effects) return;
+            Object.entries(preset.effects).forEach(([effect, settings]) => {
+                Object.entries(settings).forEach(([field, value]) => setEffectField(effect, field, value));
+            });
+            showStatus('status.config_loaded', 'success');
+        }
+
+        function filterEffectCards() {
+            const term = (document.getElementById('effectSearch')?.value || '').toLowerCase();
+            const category = document.getElementById('effectCategoryFilter')?.value || 'all';
+            document.querySelectorAll('.effect-card[data-effect]').forEach(card => {
+                const name = card.dataset.effect || '';
+                const matchesText = !term || name.includes(term) || card.textContent.toLowerCase().includes(term);
+                const matchesCategory = category === 'all' || card.dataset.category === category;
+                card.style.display = matchesText && matchesCategory ? '' : 'none';
+            });
+        }
+
+        function renderActiveEffects(activeEffects = []) {
+            const list = document.getElementById('activeEffectsList');
+            if (!list) return;
+            document.getElementById('activeEffectsCount').textContent = activeEffects.length;
+            if (activeEffects.length === 0) {
+                list.innerHTML = '<p class="help-text">No active effects reported by the overlay.</p>';
+                return;
+            }
+            list.innerHTML = activeEffects.map(effect => `
+                <div class="effect-card">
+                    <div class="effect-header">
+                        <div class="effect-title">${translate(`effects.names.${effect.type}`) || effect.type}</div>
+                        <span class="help-text">${effect.permanent ? 'Permanent' : `${effect.duration || 0} ms`}</span>
+                    </div>
+                    <div class="help-text">Intensity ${Number(effect.intensity || 0).toFixed(2)} | Layer ${effect.layer ?? '-'}</div>
+                    <button class="btn btn-danger btn-sm w-100" type="button" data-stop-effect="${effect.type}">Stop</button>
+                </div>
+            `).join('');
+        }
+
+        function collectEffectConfig(effect) {
+            return {
+                enabled: document.getElementById(`effect-${effect}-enabled`)?.checked !== false,
+                defaultIntensity: parseFloat(document.getElementById(`effect-${effect}-intensity`)?.value || 0.5),
+                defaultDuration: parseInt(document.getElementById(`effect-${effect}-duration`)?.value || 10000),
+                permanent: document.getElementById(`effect-${effect}-permanent`)?.checked === true,
+                opacity: parseFloat(document.getElementById(`effect-${effect}-opacity`)?.value || 1),
+                particleScale: parseFloat(document.getElementById(`effect-${effect}-particleScale`)?.value || 1),
+                wind: parseFloat(document.getElementById(`effect-${effect}-wind`)?.value || 0),
+                directionDeg: parseInt(document.getElementById(`effect-${effect}-directionDeg`)?.value || 0),
+                layer: parseInt(document.getElementById(`effect-${effect}-layer`)?.value || effectMeta[effect]?.layer || 50),
+                category: effectMeta[effect]?.category || 'ambient'
+            };
+        }
+
+        function collectTriggerConfig() {
+            return triggerNames.reduce((acc, triggerName) => {
+                const controls = triggerControls[triggerName];
+                acc[triggerName] = {
+                    enabled: document.getElementById(controls.enabled)?.checked === true,
+                    action: document.getElementById(controls.action)?.value || 'rain',
+                    intensity: parseFloat(document.getElementById(controls.intensity)?.value || 0.5),
+                    duration: parseInt(document.getElementById(controls.duration)?.value || 8000)
+                };
+                if (triggerName === 'likeMilestone') {
+                    acc[triggerName].interval = parseInt(document.getElementById(controls.interval)?.value || 1000);
+                }
+                return acc;
+            }, {});
+        }
+
+        function collectSequenceConfig() {
+            let steps = [];
+            try {
+                steps = JSON.parse(document.getElementById('sequenceSteps')?.value || '[]');
+            } catch (error) {
+                showStatus('status.error_saving_config', 'danger', { error: `Invalid sequence JSON: ${error.message}` });
+            }
+            return [{
+                name: document.getElementById('sequenceName')?.value || 'Sequence',
+                steps: Array.isArray(steps) ? steps : []
+            }];
+        }
+
+        function parseJsonField(id, fallback) {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            const raw = el.value.trim();
+            if (!raw) return fallback;
+            try {
+                return JSON.parse(raw);
+            } catch (error) {
+                throw new Error(`${id} contains invalid JSON: ${error.message}`);
+            }
+        }
+
+        function collectGamificationConfig() {
+            return {
+                enabled: document.getElementById('gamificationEnabled')?.checked === true,
+                communityMeter: {
+                    enabled: true,
+                    max: parseInt(document.getElementById('gamificationMeterMax')?.value || 100),
+                    carryOver: document.getElementById('gamificationMeterCarryOver')?.checked !== false,
+                    showOnOverlay: document.getElementById('gamificationOverlayMeter')?.checked !== false
+                },
+                quests: {
+                    enabled: true,
+                    oneActivePerStream: true,
+                    rotateOnCompletion: true,
+                    rotationIntervalMs: 900000,
+                    streakWindowMs: parseInt(document.getElementById('gamificationStreakWindowMs')?.value || 60000),
+                    showOnOverlay: document.getElementById('gamificationOverlayQuest')?.checked !== false,
+                    pool: parseJsonField('gamificationQuestPool', [])
+                },
+                streaks: {
+                    enabled: true,
+                    windowMs: parseInt(document.getElementById('gamificationStreakWindowMs')?.value || 60000),
+                    resetAfterMs: 180000,
+                    bonusThreshold: parseInt(document.getElementById('gamificationStreakBonusThreshold')?.value || 5),
+                    bonusMultiplier: 1.1,
+                    showOnOverlay: document.getElementById('gamificationOverlayStreak')?.checked !== false
+                },
+                rewards: {
+                    enabled: true,
+                    cooldownMs: parseInt(document.getElementById('gamificationRewardCooldownMs')?.value || 30000),
+                    carryOver: document.getElementById('gamificationMeterCarryOver')?.checked !== false,
+                    historyLimit: 10,
+                    thresholds: parseJsonField('gamificationRewardThresholds', [])
+                },
+                overlay: {
+                    enabled: document.getElementById('gamificationEnabled')?.checked === true,
+                    showMeter: document.getElementById('gamificationOverlayMeter')?.checked !== false,
+                    showQuest: document.getElementById('gamificationOverlayQuest')?.checked !== false,
+                    showStreak: document.getElementById('gamificationOverlayStreak')?.checked !== false,
+                    showRewardFeed: document.getElementById('gamificationOverlayRewardFeed')?.checked !== false
+                }
+            };
+        }
+
+        function renderGamificationState(snapshot = {}) {
+            const meter = snapshot.communityMeter || {};
+            const streaks = snapshot.streaks || {};
+            const quest = snapshot.quest || null;
+            const rewards = snapshot.rewards || {};
+
+            const meterCurrent = document.getElementById('gamificationMeterCurrent');
+            const questProgress = document.getElementById('gamificationQuestProgress');
+            const streakCurrent = document.getElementById('gamificationStreakCurrent');
+            const rewardNext = document.getElementById('gamificationRewardNext');
+
+            if (meterCurrent) {
+                meterCurrent.textContent = `${meter.current ?? 0}/${meter.max ?? 100}`;
+            }
+            if (questProgress) {
+                if (quest) {
+                    questProgress.textContent = `${quest.progress ?? 0}/${quest.target ?? 0}`;
+                } else {
+                    questProgress.textContent = '-';
+                }
+            }
+            if (streakCurrent) {
+                streakCurrent.textContent = String(streaks.current ?? 0);
+            }
+            if (rewardNext) {
+                rewardNext.textContent = rewards.nextThreshold ? String(rewards.nextThreshold.meter) : '-';
+            }
+        }
+
+        async function loadGamificationState() {
+            try {
+                const response = await fetch('/api/weather/gamification', { cache: 'no-store' });
+                const data = await response.json();
+                if (data.success && data.gamification) {
+                    renderGamificationState(data.gamification);
+                }
+            } catch (error) {
+                console.warn('[Weather Control] Failed to load gamification state:', error);
+            }
+        }
+
+        async function resetGamificationProgress(scope = 'all') {
+            const response = await fetch('/api/weather/gamification/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scope })
+            });
+            const data = await response.json();
+            if (data.success && data.gamification) {
+                renderGamificationState(data.gamification);
+                showStatus('status.config_saved', 'success');
+            } else {
+                showStatus('status.error_saving_config', 'danger', { error: data.error || 'Unable to reset gamification' });
+            }
+        }
+
+        function applyAdvancedValues(config) {
+            effects.forEach(effect => {
+                const effectConfig = config.effects?.[effect] || {};
+                setEffectField(effect, 'opacity', effectConfig.opacity ?? 1);
+                setEffectField(effect, 'particleScale', effectConfig.particleScale ?? 1);
+                setEffectField(effect, 'wind', effectConfig.wind ?? 0);
+                setEffectField(effect, 'directionDeg', effectConfig.directionDeg ?? 0);
+                setEffectField(effect, 'layer', effectConfig.layer ?? effectMeta[effect]?.layer ?? 50);
+            });
+        }
+
+        async function triggerSequence() {
+            const sequence = collectSequenceConfig()[0];
+            const response = await fetch('/api/weather/sequence/trigger', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sequence)
+            });
+            const data = await response.json();
+            if (data.success) {
+                showStatus('status.effect_triggered', 'success', { effect: sequence.name });
+            } else {
+                showStatus('status.effect_trigger_error', 'danger', { error: data.error });
+            }
+        }
+
+        function exportConfig() {
+            const blob = new Blob([JSON.stringify(weatherConfig || {}, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'weather-control-config.json';
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        async function importConfig(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const importedConfig = JSON.parse(await file.text());
+            const response = await fetch('/api/weather/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(importedConfig)
+            });
+            const data = await response.json();
+            if (data.success) {
+                weatherConfig = data.config;
+                await loadConfig();
+                showStatus('status.config_saved', 'success');
+            } else {
+                showStatus('status.error_saving_config', 'danger', { error: data.error });
+            }
+        }
+
+        async function stopEffect(action) {
+            const response = await fetch('/api/weather/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                showStatus('status.effect_trigger_error', 'danger', { error: data.error });
+            }
+        }
+
         // Initialize Socket.IO
         function initSocket() {
             socket = io();
@@ -1839,6 +2590,12 @@
             socket.on('weather:trigger', () => {
                 eventsTriggered++;
                 document.getElementById('eventsTriggered').textContent = eventsTriggered;
+            });
+            socket.on('weather:gamification-state', (payload) => {
+                renderGamificationState(payload?.gamification || payload || {});
+            });
+            socket.on('weather:active-state', (payload) => {
+                renderActiveEffects(payload?.activeEffects || []);
             });
         }
 
@@ -1899,6 +2656,20 @@
                     document.getElementById('topGifterValue').textContent = config.permissions.topGifterThreshold;
                     document.getElementById('minPoints').value = config.permissions.minPoints;
 
+                    const gamification = config.gamification || {};
+                    document.getElementById('gamificationEnabled').checked = gamification.enabled !== false;
+                    document.getElementById('gamificationOverlayMeter').checked = gamification.overlay?.showMeter !== false;
+                    document.getElementById('gamificationOverlayQuest').checked = gamification.overlay?.showQuest !== false;
+                    document.getElementById('gamificationOverlayStreak').checked = gamification.overlay?.showStreak !== false;
+                    document.getElementById('gamificationOverlayRewardFeed').checked = gamification.overlay?.showRewardFeed !== false;
+                    document.getElementById('gamificationMeterCarryOver').checked = gamification.communityMeter?.carryOver !== false;
+                    document.getElementById('gamificationMeterMax').value = gamification.communityMeter?.max ?? 100;
+                    document.getElementById('gamificationStreakWindowMs').value = gamification.streaks?.windowMs ?? 60000;
+                    document.getElementById('gamificationStreakBonusThreshold').value = gamification.streaks?.bonusThreshold ?? 5;
+                    document.getElementById('gamificationRewardCooldownMs').value = gamification.rewards?.cooldownMs ?? 30000;
+                    document.getElementById('gamificationQuestPool').value = JSON.stringify(gamification.quests?.pool || [], null, 2);
+                    document.getElementById('gamificationRewardThresholds').value = JSON.stringify(gamification.rewards?.thresholds || [], null, 2);
+
                     // Effects
                     effects.forEach(effect => {
                         const effectConfig = config.effects[effect];
@@ -1929,6 +2700,20 @@
                     // Quality preset
                     if (config.qualityPreset) {
                         document.getElementById('qualityPreset').value = config.qualityPreset;
+                    }
+                    document.getElementById('adaptiveQuality').checked = config.adaptiveQuality !== false;
+                    document.getElementById('audioEnabled').checked = config.audio?.enabled === true;
+                    document.getElementById('audioVolume').value = config.audio?.volume ?? 0.45;
+                    document.getElementById('audioVolumeValue').textContent = config.audio?.volume ?? 0.45;
+
+                    populatePresetSelect(config);
+                    renderTriggerControls(config);
+                    applyAdvancedValues(config);
+
+                    const firstSequence = config.sequences?.[0];
+                    if (firstSequence) {
+                        document.getElementById('sequenceName').value = firstSequence.name || 'Sequence';
+                        document.getElementById('sequenceSteps').value = JSON.stringify(firstSequence.steps || [], null, 2);
                     }
 
                     showStatus('status.config_loaded', 'success');
@@ -1978,12 +2763,7 @@
                 };
 
                 effects.forEach(effect => {
-                    config.effects[effect] = {
-                        enabled: document.getElementById(`effect-${effect}-enabled`).checked,
-                        defaultIntensity: parseFloat(document.getElementById(`effect-${effect}-intensity`).value),
-                        defaultDuration: parseInt(document.getElementById(`effect-${effect}-duration`).value),
-                        permanent: document.getElementById(`effect-${effect}-permanent`).checked
-                    };
+                    config.effects[effect] = collectEffectConfig(effect);
                 });
 
                 // Fog color preset
@@ -1998,6 +2778,25 @@
 
                 // Quality preset
                 config.qualityPreset = document.getElementById('qualityPreset').value;
+                config.adaptiveQuality = document.getElementById('adaptiveQuality').checked;
+                config.effectLayerOrder = effects
+                    .slice()
+                    .sort((a, b) => (config.effects[a].layer || 50) - (config.effects[b].layer || 50));
+                config.audio = {
+                    enabled: document.getElementById('audioEnabled').checked,
+                    volume: parseFloat(document.getElementById('audioVolume').value),
+                    effects: {
+                        rain: { enabled: true, volume: 0.35 },
+                        storm: { enabled: true, volume: 0.5 },
+                        thunder: { enabled: true, volume: 0.7 },
+                        embers: { enabled: true, volume: 0.35 },
+                        heatwave: { enabled: true, volume: 0.25 }
+                    }
+                };
+                config.triggerEvents = collectTriggerConfig();
+                config.presets = builtInPresets;
+                config.sequences = collectSequenceConfig();
+                config.gamification = collectGamificationConfig();
 
                 const response = await fetch('/api/weather/config', {
                     method: 'POST',
@@ -2062,7 +2861,18 @@
                     method: 'POST',
                     headers,
                     // Don't send username for test requests to bypass permission checks
-                    body: JSON.stringify({ action, intensity, duration })
+                    body: JSON.stringify({
+                        action,
+                        intensity,
+                        duration,
+                        options: {
+                            opacity: parseFloat(document.getElementById(`effect-${action}-opacity`)?.value || 1),
+                            particleScale: parseFloat(document.getElementById(`effect-${action}-particleScale`)?.value || 1),
+                            wind: parseFloat(document.getElementById(`effect-${action}-wind`)?.value || 0),
+                            directionDeg: parseInt(document.getElementById(`effect-${action}-directionDeg`)?.value || 0),
+                            layer: parseInt(document.getElementById(`effect-${action}-layer`)?.value || effectMeta[action]?.layer || 50)
+                        }
+                    })
                 });
 
                 const data = await response.json();
@@ -2103,6 +2913,13 @@
             showStatus('status.overlay_copied', 'success');
         }
 
+        ensureHeatwaveCard();
+        annotateEffectCards();
+        ensureAdvancedControls();
+        populatePresetSelect();
+        renderTriggerControls();
+        filterEffectCards();
+
         // Range input updates
         document.getElementById('rateLimitPerMinute').addEventListener('input', (e) => {
             document.getElementById('rateLimitValue').textContent = e.target.value;
@@ -2117,16 +2934,49 @@
         });
 
         effects.forEach(effect => {
-            document.getElementById(`effect-${effect}-intensity`).addEventListener('input', (e) => {
-                document.getElementById(`effect-${effect}-intensity-val`).textContent = parseFloat(e.target.value).toFixed(1);
+            const intensityInput = document.getElementById(`effect-${effect}-intensity`);
+            if (intensityInput) {
+                intensityInput.addEventListener('input', (e) => {
+                    document.getElementById(`effect-${effect}-intensity-val`).textContent = parseFloat(e.target.value).toFixed(1);
+                });
+            }
+        });
+
+        document.addEventListener('input', (event) => {
+            const target = event.target;
+            if (!target || !target.id) return;
+            ['opacity', 'particleScale', 'wind'].forEach(field => {
+                if (target.id.endsWith(`-${field}`)) {
+                    const valueEl = document.getElementById(`${target.id}-val`);
+                    if (valueEl) valueEl.textContent = parseFloat(target.value).toFixed(2);
+                }
             });
         });
 
         // Save button
         document.getElementById('saveConfig').addEventListener('click', saveConfig);
+        document.getElementById('refreshGamificationBtn')?.addEventListener('click', loadGamificationState);
+        document.getElementById('resetGamificationBtn')?.addEventListener('click', () => resetGamificationProgress('all'));
 
         // Copy overlay URL button
         document.getElementById('copyOverlayUrlBtn').addEventListener('click', copyOverlayUrl);
+
+        document.getElementById('applyPresetBtn')?.addEventListener('click', applySelectedPreset);
+        document.getElementById('exportConfigBtn')?.addEventListener('click', exportConfig);
+        document.getElementById('importConfigInput')?.addEventListener('change', importConfig);
+        document.getElementById('triggerSequenceBtn')?.addEventListener('click', triggerSequence);
+        document.getElementById('effectSearch')?.addEventListener('input', filterEffectCards);
+        document.getElementById('effectCategoryFilter')?.addEventListener('change', filterEffectCards);
+        document.getElementById('audioVolume')?.addEventListener('input', (event) => {
+            document.getElementById('audioVolumeValue').textContent = parseFloat(event.target.value).toFixed(2);
+        });
+
+        document.addEventListener('click', (event) => {
+            const stopButton = event.target.closest('[data-stop-effect]');
+            if (stopButton) {
+                stopEffect(stopButton.getAttribute('data-stop-effect'));
+            }
+        });
         
         // Update command displays when user types
         document.getElementById('cmdNameWeather').addEventListener('input', (e) => {
@@ -2580,6 +3430,7 @@
         window.addEventListener('load', async () => {
             await initI18n();
             await loadConfig();
+            await loadGamificationState();
             initSocket();
 
             // Set overlay URL

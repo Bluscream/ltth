@@ -485,6 +485,13 @@
                             <input type="checkbox" id="oscQueryAutoSubscribe" name="oscQueryAutoSubscribe">
                             <label for="oscQueryAutoSubscribe">Auto-Subscribe (WebSocket Updates empfangen)</label>
                         </div>
+                        <div class="form-group" style="margin-top: 16px;">
+                            <button type="button" class="btn btn-secondary" id="btn-oscquery-scan">OSCQuery suchen</button>
+                            <small style="color: var(--color-text-muted); font-size: 0.85em; display: block; margin-top: 8px;">
+                                Scans localhost TCP ports 9001-9020 and saves the detected VRChat OSCQuery port.
+                            </small>
+                            <div id="oscquery-scan-result" class="info-box" style="display:none; margin-top: 12px;"></div>
+                        </div>
                         <small style="color: var(--color-text-muted); font-size: 0.85em; margin-left: 28px; display: block;">
                             Aktiviert Live-Updates über WebSocket für Echtzeit-Parameter-Änderungen
                         </small>

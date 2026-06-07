@@ -121,7 +121,7 @@ class ToastNotificationSystem {
       <div class="toast-content">
         <span class="toast-icon">${icon}</span>
         <div class="toast-message">${this.escapeHTML(message)}</div>
-        ${options.action ? `<button class="toast-action">${options.action.text}</button>` : ''}
+        ${options.action ? `<button class="toast-action">${this.escapeHTML(options.action.text)}</button>` : ''}
       </div>
       <button class="toast-close" aria-label="Close">×</button>
     `;

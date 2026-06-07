@@ -26,11 +26,26 @@ class EffectsEngine {
         this.particles = [];
         this.lightningSegments = [];
         this.postProcessor = null;
+        this.textureImages = {};
+        this.animationFrameId = null;
+        this.socket = null;
+        this.socketListeners = [];
+        this.resizeHandler = () => this.handleResize();
+        this.beforeUnloadHandler = () => this.destroy();
+        this.contextLostHandler = (event) => this.handleContextLost(event);
+        this.contextRestoredHandler = () => this.handleContextRestored();
+        this.destroyed = false;
+        this.contextLost = false;
         
         // Trigger system (v3.0.0)
         this.activeTriggers = [];
         this.baseConfig = null;
         this.triggerQueue = [];
+        this.triggerTimers = new Map();
+        this.revertAnimationId = null;
+        this.revertTimeouts = [];
+        this.defaultTriggerDuration = 5000;
+        this.maxTriggerDuration = 30000;
         
         this.init();
     }
@@ -41,12 +56,8 @@ class EffectsEngine {
             return;
         }
         
-        this.gl = this.canvas.getContext('webgl', {
-            alpha: true,
-            premultipliedAlpha: true,
-            antialias: true,
-            preserveDrawingBuffer: false
-        });
+        this.setupLifecycleListeners();
+        this.gl = this.createWebGLContext();
         
         if (!this.gl) {
             console.error('WebGL not supported');
@@ -55,16 +66,82 @@ class EffectsEngine {
         
         await this.loadConfig();
         this.setupAllShaders();
+        if (!this.switchEffect(this.config.effectType ?? 'flames')) {
+            this.switchEffect('flames');
+        }
         this.setupGeometry();
         this.loadTextures();
         this.initPostProcessor();
         this.initParticles();
         this.handleResize();
         
-        window.addEventListener('resize', () => this.handleResize());
+        window.addEventListener('resize', this.resizeHandler);
+        window.addEventListener('beforeunload', this.beforeUnloadHandler);
         
-        this.render();
         this.setupSocketListener();
+        this.scheduleRender();
+    }
+
+    createWebGLContext() {
+        return this.canvas.getContext('webgl', {
+            alpha: true,
+            premultipliedAlpha: true,
+            antialias: true,
+            preserveDrawingBuffer: false,
+            powerPreference: 'high-performance',
+            desynchronized: true
+        });
+    }
+
+    setupLifecycleListeners() {
+        this.canvas.addEventListener('webglcontextlost', this.contextLostHandler);
+        this.canvas.addEventListener('webglcontextrestored', this.contextRestoredHandler);
+    }
+
+    handleContextLost(event) {
+        if (event && typeof event.preventDefault === 'function') {
+            event.preventDefault();
+        }
+
+        this.contextLost = true;
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+    }
+
+    handleContextRestored() {
+        if (this.destroyed) return;
+
+        this.contextLost = false;
+        this.gl = this.createWebGLContext();
+        if (!this.gl) {
+            console.error('WebGL context restore failed');
+            return;
+        }
+
+        this.programs = {};
+        this.currentProgram = null;
+        this.textures = {};
+        this.textureImages = {};
+        this.uniforms = {};
+        this.buffers = {};
+        this.smokeUniforms = null;
+
+        if (this.postProcessor) {
+            this.postProcessor.destroy();
+            this.postProcessor = null;
+        }
+
+        this.setupAllShaders();
+        if (!this.switchEffect(this.config.effectType ?? 'flames')) {
+            this.switchEffect('flames');
+        }
+        this.setupGeometry();
+        this.loadTextures();
+        this.initPostProcessor();
+        this.handleResize();
+        this.scheduleRender();
     }
     
     async loadConfig() {
@@ -73,7 +150,6 @@ class EffectsEngine {
             const data = await response.json();
             if (data.success) {
                 this.config = data.config;
-                this.switchEffect(this.config.effectType || 'flames');
             }
         } catch (error) {
             console.error('Failed to load config:', error);
@@ -87,71 +163,62 @@ class EffectsEngine {
                 flameColor: '#ff6600',
                 flameSpeed: 0.5,
                 flameIntensity: 1.3,
-                flameBrightness: 0.25,
+                flameBrightness: 0.38,
                 enableGlow: true,
                 enableAdditiveBlend: true,
                 maskOnlyEdges: true,
                 noiseOctaves: 8,
-                useHighQualityTextures: false,
+                useHighQualityTextures: true,
                 detailScaleAuto: true,
-                edgeFeather: 0.3,
-                frameCurve: 0.0,
-                frameNoiseAmount: 0.0,
+                edgeFeather: 0.42,
+                frameCurve: 0.08,
+                frameNoiseAmount: 0.12,
                 animationEasing: 'linear',
                 pulseEnabled: false,
                 pulseAmount: 0.2,
                 pulseSpeed: 1.0,
-                bloomEnabled: false,
+                bloomEnabled: true,
                 bloomIntensity: 0.8,
                 bloomThreshold: 0.6,
                 bloomRadius: 4,
-                layersEnabled: false,
+                layersEnabled: true,
                 layerCount: 3,
                 layerParallax: 0.3,
                 chromaticAberration: 0.005,
                 filmGrain: 0.03,
-                depthIntensity: 0.5,
-                smokeEnabled: false,
+                depthIntensity: 0.65,
+                smokeEnabled: true,
                 smokeIntensity: 0.4,
                 smokeSpeed: 0.3,
                 smokeColor: '#333333'
             };
-            this.switchEffect('flames');
         }
     }
     
     setupSocketListener() {
         if (typeof io !== 'undefined') {
             try {
-                const socket = io();
-                
-                socket.on('connect', () => {
+                this.socket = io();
+
+                this.registerSocketListener('connect', () => {
                     console.log('Socket.io connected for config updates');
                 });
-                
-                socket.on('connect_error', (error) => {
+
+                this.registerSocketListener('connect_error', (error) => {
                     console.warn('Socket.io connection error:', error);
                 });
-                
-                socket.on('flame-overlay:config-update', (data) => {
+
+                this.registerSocketListener('flame-overlay:config-update', (data) => {
                     console.log('Config update received:', data);
-                    const oldEffect = this.config.effectType;
-                    this.config = data.config;
-                    
-                    if (oldEffect !== this.config.effectType) {
-                        this.switchEffect(this.config.effectType);
-                    }
-                    
-                    this.updateUniforms();
-                    
-                    // Resize post-processor if bloom settings changed
-                    if (this.postProcessor && this.config.bloomEnabled) {
-                        this.postProcessor.resize(this.canvas.width, this.canvas.height);
-                    }
+                    this.applyConfigUpdate(data);
                 });
 
-                socket.on('flame-overlay:trigger', (data) => {
+                this.registerSocketListener('flame-overlay:trigger', (data) => {
                     this.handleTrigger(data);
+                });
+
+                this.registerSocketListener('flame-overlay:clear-triggers', () => {
+                    this.clearTriggers();
                 });
             } catch (error) {
                 console.error('Failed to setup socket listener:', error);
@@ -161,6 +228,79 @@ class EffectsEngine {
         }
     }
 
+    registerSocketListener(eventName, handler) {
+        if (!this.socket || typeof this.socket.on !== 'function') return;
+        this.socket.on(eventName, handler);
+        this.socketListeners.push([eventName, handler]);
+    }
+
+    applyConfigUpdate(data) {
+        const nextConfig = this.cloneConfig((data && data.config) ?? data ?? {});
+        const hasActiveTriggers = this.activeTriggers.length > 0;
+
+        if (hasActiveTriggers) {
+            this.baseConfig = nextConfig;
+            this.recomputeConfigFromTriggers();
+        } else {
+            this.config = nextConfig;
+            if (!this.switchEffect(this.config.effectType ?? 'flames')) {
+                this.switchEffect('flames');
+            }
+        }
+
+        this.handleResize();
+    }
+
+    cloneConfig(config) {
+        return JSON.parse(JSON.stringify(config ?? {}));
+    }
+
+    hasUniform(location) {
+        return location !== null && location !== undefined;
+    }
+
+    valueOr(value, fallback) {
+        return value ?? fallback;
+    }
+
+    numberOr(value, fallback) {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : fallback;
+    }
+
+    getResolutionPresetDimensions() {
+        return {
+            'tiktok-portrait': { width: 720, height: 1280 },
+            'tiktok-landscape': { width: 1280, height: 720 },
+            'hd-portrait': { width: 1080, height: 1920 },
+            'hd-landscape': { width: 1920, height: 1080 },
+            '2k-portrait': { width: 1440, height: 2560 },
+            '2k-landscape': { width: 2560, height: 1440 },
+            '4k-portrait': { width: 2160, height: 3840 },
+            '4k-landscape': { width: 3840, height: 2160 }
+        };
+    }
+
+    getConfiguredCanvasDimensions() {
+        const presets = this.getResolutionPresetDimensions();
+        const preset = this.config.resolutionPreset || 'tiktok-portrait';
+        const dimensions = preset === 'custom'
+            ? {
+                width: this.numberOr(this.config.customWidth, 720),
+                height: this.numberOr(this.config.customHeight, 1280)
+            }
+            : (presets[preset] || presets['tiktok-portrait']);
+
+        return {
+            width: Math.max(1, Math.round(this.numberOr(dimensions.width, window.innerWidth || 720))),
+            height: Math.max(1, Math.round(this.numberOr(dimensions.height, window.innerHeight || 1280)))
+        };
+    }
+
+    clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
     /**
      * Handle an incoming trigger from the backend
      * @param {object} trigger - Trigger object with type, duration, etc.
@@ -168,41 +308,85 @@ class EffectsEngine {
     handleTrigger(trigger) {
         if (!trigger || !trigger.type) return;
 
+        if (trigger.type === 'clear') {
+            this.clearTriggers();
+            return;
+        }
+
+        const duration = this.normalizeTriggerDuration(trigger.duration);
+        const isPermanent = trigger.revert === false && trigger.permanent === true;
+        const now = Date.now();
+
         // Snapshot base config on first trigger
         if (!this.baseConfig) {
-            this.baseConfig = JSON.parse(JSON.stringify(this.config));
+            this.baseConfig = this.cloneConfig(this.config);
         }
 
         const triggerEntry = {
-            id: trigger.id || (Date.now() + Math.random()),
+            id: trigger.id ?? (Date.now() + Math.random()),
             ...trigger,
-            startTime: Date.now(),
-            endTime: trigger.duration ? Date.now() + trigger.duration : null,
+            duration,
+            permanent: isPermanent,
+            startTime: now,
+            endTime: isPermanent ? null : now + duration,
             prevEffect: this.config.effectType
         };
 
         this.activeTriggers.push(triggerEntry);
-        this.applyTrigger(triggerEntry);
+        this.recomputeConfigFromTriggers();
 
-        // Auto-revert after duration
-        if (trigger.duration && trigger.revert !== false) {
-            setTimeout(() => {
-                this.removeTrigger(triggerEntry.id);
-            }, trigger.duration);
+        if (!isPermanent) {
+            this.setTriggerTimer(triggerEntry.id, duration);
         }
+    }
+
+    normalizeTriggerDuration(duration) {
+        const number = Number(duration);
+        if (!Number.isFinite(number) || number <= 0) return this.defaultTriggerDuration;
+        return Math.max(100, Math.min(number, this.maxTriggerDuration));
+    }
+
+    setTriggerTimer(triggerId, duration) {
+        const existingTimer = this.triggerTimers.get(triggerId);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        const timer = setTimeout(() => {
+            this.triggerTimers.delete(triggerId);
+            const trigger = this.activeTriggers.find(activeTrigger => activeTrigger.id === triggerId);
+            this.removeTrigger(triggerId, trigger ? trigger.revert !== false : true);
+        }, this.normalizeTriggerDuration(duration));
+        this.triggerTimers.set(triggerId, timer);
+    }
+
+    recomputeConfigFromTriggers() {
+        if (!this.baseConfig) return;
+        this.cancelRevertAnimation();
+        this.config = this.cloneConfig(this.baseConfig);
+
+        if (!this.switchEffect(this.config.effectType ?? 'flames')) {
+            this.switchEffect('flames');
+        }
+
+        for (const activeTrigger of this.activeTriggers) {
+            this.applyTrigger(activeTrigger, { update: false });
+        }
+
+        this.updateUniforms();
     }
 
     /**
      * Apply a trigger's visual effect to the current config
      * @param {object} trigger - Trigger entry
      */
-    applyTrigger(trigger) {
-        const base = this.baseConfig || this.config;
+    applyTrigger(trigger, options = {}) {
+        const update = options.update !== false;
+        const base = this.baseConfig ?? this.config;
 
         switch (trigger.type) {
             case 'intensity-boost':
                 this.config.flameIntensity = Math.min(
-                    (base.flameIntensity || 1.3) + (trigger.amount || 0.5),
+                    this.numberOr(this.config.flameIntensity, this.numberOr(base.flameIntensity, 1.3)) +
+                        this.numberOr(trigger.amount, 0.5),
                     3.0
                 );
                 break;
@@ -212,7 +396,7 @@ class EffectsEngine {
                 if (trigger.color) this.config.flameColor = trigger.color;
                 if (trigger.bloom) {
                     this.config.bloomEnabled = true;
-                    this.config.bloomIntensity = Math.max(this.config.bloomIntensity || 0, 1.2);
+                    this.config.bloomIntensity = Math.max(this.numberOr(this.config.bloomIntensity, 0), 1.2);
                 }
                 break;
 
@@ -223,23 +407,24 @@ class EffectsEngine {
             case 'dramatic':
                 if (trigger.effect) this.switchEffect(trigger.effect);
                 this.config.flameIntensity = Math.min(
-                    (base.flameIntensity || 1.3) + (trigger.intensityBoost || 0.5),
+                    this.numberOr(this.config.flameIntensity, this.numberOr(base.flameIntensity, 1.3)) +
+                        this.numberOr(trigger.intensityBoost, 0.5),
                     3.0
                 );
                 if (trigger.bloomOverride) {
                     this.config.bloomEnabled = trigger.bloomOverride.enabled;
-                    this.config.bloomIntensity = trigger.bloomOverride.intensity || 1.0;
+                    this.config.bloomIntensity = this.numberOr(trigger.bloomOverride.intensity, 1.0);
                 }
                 break;
 
             case 'pulse':
                 this.config.pulseEnabled = true;
-                this.config.pulseAmount = trigger.intensity || 0.5;
+                this.config.pulseAmount = this.numberOr(trigger.intensity, 0.5);
                 break;
 
             case 'flash':
                 this.config.flameBrightness = Math.min(
-                    (base.flameBrightness || 0.25) + 0.8,
+                    this.numberOr(this.config.flameBrightness, this.numberOr(base.flameBrightness, 0.25)) + 0.8,
                     2.0
                 );
                 break;
@@ -248,28 +433,80 @@ class EffectsEngine {
                 break;
         }
 
-        this.updateUniforms();
+        if (update) {
+            this.updateUniforms();
+        }
     }
 
     /**
      * Remove an active trigger and revert config if no triggers remain
      * @param {string|number} triggerId - ID of the trigger to remove
      */
-    removeTrigger(triggerId) {
+    removeTrigger(triggerId, animated = true) {
+        const timer = this.triggerTimers.get(triggerId);
+        if (timer) {
+            clearTimeout(timer);
+            this.triggerTimers.delete(triggerId);
+        }
+
         this.activeTriggers = this.activeTriggers.filter(t => t.id !== triggerId);
 
         if (this.activeTriggers.length === 0 && this.baseConfig) {
-            const oldEffect = this.config.effectType;
-            const targetEffect = this.baseConfig.effectType;
-
-            this.smoothRevert(500);
-
-            if (oldEffect !== targetEffect) {
-                setTimeout(() => {
-                    this.switchEffect(targetEffect);
-                }, 250);
-            }
+            this.restoreBaseConfig(animated);
+        } else if (this.activeTriggers.length > 0) {
+            this.recomputeConfigFromTriggers();
         }
+    }
+
+    clearTriggers() {
+        for (const timer of this.triggerTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.triggerTimers.clear();
+        this.activeTriggers = [];
+        this.restoreBaseConfig(false);
+    }
+
+    cleanupExpiredTriggers(now = Date.now()) {
+        const expired = this.activeTriggers
+            .filter(trigger => trigger.endTime !== null && trigger.endTime !== undefined && now >= trigger.endTime)
+            .map(trigger => trigger.id);
+
+        for (const triggerId of expired) {
+            this.removeTrigger(triggerId);
+        }
+    }
+
+    restoreBaseConfig(animated) {
+        if (!this.baseConfig) return;
+
+        const targetEffect = this.baseConfig.effectType;
+
+        if (animated) {
+            this.smoothRevert(500);
+            return;
+        }
+
+        this.config = this.cloneConfig(this.baseConfig);
+        this.baseConfig = null;
+        this.switchEffect(targetEffect);
+        this.updateUniforms();
+    }
+
+    cancelRevertAnimation() {
+        if (this.revertAnimationId) {
+            cancelAnimationFrame(this.revertAnimationId);
+            this.revertAnimationId = null;
+        }
+
+        if (!Array.isArray(this.revertTimeouts)) {
+            this.revertTimeouts = [];
+        }
+
+        for (const timeoutId of this.revertTimeouts) {
+            clearTimeout(timeoutId);
+        }
+        this.revertTimeouts = [];
     }
 
     /**
@@ -278,15 +515,14 @@ class EffectsEngine {
      */
     smoothRevert(duration) {
         if (!this.baseConfig) return;
+        this.cancelRevertAnimation();
 
-        const startConfig = JSON.parse(JSON.stringify(this.config));
-        const targetConfig = this.baseConfig;
+        const startConfig = this.cloneConfig(this.config);
+        const targetConfig = this.cloneConfig(this.baseConfig);
         const startTime = Date.now();
 
-        const numericFields = [
-            'flameIntensity', 'flameBrightness', 'flameSpeed',
-            'bloomIntensity', 'bloomThreshold', 'pulseAmount'
-        ];
+        const numericFields = Object.keys(targetConfig)
+            .filter(field => Number.isFinite(Number(startConfig[field])) && Number.isFinite(Number(targetConfig[field])));
 
         const interpolate = () => {
             const elapsed = Date.now() - startTime;
@@ -300,22 +536,21 @@ class EffectsEngine {
                 }
             }
 
-            // Restore boolean / string fields immediately at end
             if (t >= 1.0) {
-                this.config.flameColor = targetConfig.flameColor;
-                this.config.bloomEnabled = targetConfig.bloomEnabled;
-                this.config.pulseEnabled = targetConfig.pulseEnabled;
+                this.config = this.cloneConfig(targetConfig);
                 this.baseConfig = null;
+                this.revertAnimationId = null;
+                this.switchEffect(targetConfig.effectType);
             }
 
             this.updateUniforms();
 
             if (t < 1.0) {
-                requestAnimationFrame(interpolate);
+                this.revertAnimationId = requestAnimationFrame(interpolate);
             }
         };
 
-        requestAnimationFrame(interpolate);
+        this.revertAnimationId = requestAnimationFrame(interpolate);
     }
     
     initPostProcessor() {
@@ -328,8 +563,8 @@ class EffectsEngine {
         
         try {
             this.postProcessor = new PostProcessor(this.gl);
-            const width = this.gl.canvas.width || 720;
-            const height = this.gl.canvas.height || 1280;
+            const width = this.gl.canvas.width ?? 720;
+            const height = this.gl.canvas.height ?? 1280;
             if (width > 0 && height > 0) {
                 this.postProcessor.resize(width, height);
             }
@@ -379,6 +614,7 @@ uniform float uFlameSpeed;
 uniform float uFlameIntensity;
 uniform float uFlameBrightness;
 uniform vec2 uResolution;
+uniform vec4 uFrameRect;
 uniform float uFrameThickness;
 uniform int uFrameMode; // 0=bottom, 1=top, 2=sides, 3=all
 uniform bool uMaskEdges;
@@ -582,8 +818,9 @@ vec4 sampleFireLayer(vec3 loc, vec4 scale, float layerOffset, float speedMult, f
     loc *= scale.xyz;
     loc.y += layerOffset;
     
-    // Use configurable octave fBm instead of simple turbulence
-    float offset = sqrt(st.y) * uFlameIntensity * fbm(loc.xy * uDetailScale, uNoiseOctaves);
+    // Lower octave count when high quality textures are disabled.
+    int effectiveOctaves = uUseHighQualityTextures ? uNoiseOctaves : min(uNoiseOctaves, 4);
+    float offset = sqrt(st.y) * uFlameIntensity * fbm(loc.xy * uDetailScale, effectiveOctaves);
     st.y += offset;
     
     if (st.y > 1.0) {
@@ -616,7 +853,13 @@ vec4 sampleFireLayer(vec3 loc, vec4 scale, float layerOffset, float speedMult, f
 
 void main() {
     vec2 uv = vTexCoord;
-    vec2 pixelPos = gl_FragCoord.xy;
+    vec2 pixelPos = gl_FragCoord.xy - uFrameRect.xy;
+    vec2 frameResolution = uFrameRect.zw;
+    
+    if (pixelPos.x < 0.0 || pixelPos.y < 0.0 || pixelPos.x > frameResolution.x || pixelPos.y > frameResolution.y) {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
     
     // Determine if we're in a frame area
     bool inFrame = false;
@@ -625,7 +868,7 @@ void main() {
     if (uFrameMode == 0) {
         // Bottom only
         if (uFrameCurve > 0.0 || uFrameNoiseAmount > 0.0) {
-            float dist = getCurvedFrameDistance(pixelPos, uResolution, uFrameThickness, uFrameCurve, uFrameNoiseAmount);
+            float dist = getCurvedFrameDistance(pixelPos, frameResolution, uFrameThickness, uFrameCurve, uFrameNoiseAmount);
             if (pixelPos.y < uFrameThickness && dist < uFrameThickness) {
                 inFrame = true;
                 edgeDist = pixelPos.y / uFrameThickness;
@@ -638,30 +881,30 @@ void main() {
         }
     } else if (uFrameMode == 1) {
         // Top only
-        if (pixelPos.y > uResolution.y - uFrameThickness) {
+        if (pixelPos.y > frameResolution.y - uFrameThickness) {
             inFrame = true;
-            edgeDist = (uResolution.y - pixelPos.y) / uFrameThickness;
+            edgeDist = (frameResolution.y - pixelPos.y) / uFrameThickness;
         }
     } else if (uFrameMode == 2) {
         // Sides only
-        if (pixelPos.x < uFrameThickness || pixelPos.x > uResolution.x - uFrameThickness) {
+        if (pixelPos.x < uFrameThickness || pixelPos.x > frameResolution.x - uFrameThickness) {
             inFrame = true;
             if (pixelPos.x < uFrameThickness) {
                 edgeDist = pixelPos.x / uFrameThickness;
             } else {
-                edgeDist = (uResolution.x - pixelPos.x) / uFrameThickness;
+                edgeDist = (frameResolution.x - pixelPos.x) / uFrameThickness;
             }
         }
     } else {
         // All edges with curve support
         float minDist;
         if (uFrameCurve > 0.0 || uFrameNoiseAmount > 0.0) {
-            minDist = getCurvedFrameDistance(pixelPos, uResolution, uFrameThickness, uFrameCurve, uFrameNoiseAmount);
+            minDist = getCurvedFrameDistance(pixelPos, frameResolution, uFrameThickness, uFrameCurve, uFrameNoiseAmount);
         } else {
             float distFromLeft = pixelPos.x;
-            float distFromRight = uResolution.x - pixelPos.x;
+            float distFromRight = frameResolution.x - pixelPos.x;
             float distFromBottom = pixelPos.y;
-            float distFromTop = uResolution.y - pixelPos.y;
+            float distFromTop = frameResolution.y - pixelPos.y;
             minDist = min(min(distFromLeft, distFromRight), min(distFromBottom, distFromTop));
         }
         
@@ -714,6 +957,13 @@ void main() {
     } else if (uMaskEdges) {
         finalColor.a *= smoothstep(0.0, 0.3, edgeDist);
     }
+
+    float rim = pow(1.0 - clamp(edgeDist, 0.0, 1.0), 2.4);
+    float hotCore = rim * finalColor.a;
+    float filament = pow(max(0.0, sin(pixelPos.x * 0.045 + uTime * 8.0)), 12.0) * rim;
+    finalColor.rgb += vec3(1.0, 0.82, 0.42) * hotCore * 0.22 * uFlameBrightness;
+    finalColor.rgb += mix(uFlameColor, vec3(1.0, 0.9, 0.55), 0.45) * filament * 0.18;
+    finalColor.a = clamp(finalColor.a + hotCore * 0.08 + filament * 0.05, 0.0, 1.0);
     
     gl_FragColor = finalColor;
 }
@@ -743,6 +993,7 @@ void main() {
 
 uniform float uTime;
 uniform vec2 uResolution;
+uniform vec4 uFrameRect;
 uniform float uFrameThickness;
 uniform int uFrameMode;
 uniform float uSmokeIntensity;
@@ -804,8 +1055,14 @@ float smokeFbm(vec2 p) {
 }
 
 void main() {
-    vec2 pixelPos = gl_FragCoord.xy;
+    vec2 pixelPos = gl_FragCoord.xy - uFrameRect.xy;
+    vec2 frameResolution = uFrameRect.zw;
     vec2 uv = vTexCoord;
+    
+    if (pixelPos.x < 0.0 || pixelPos.y < 0.0 || pixelPos.x > frameResolution.x || pixelPos.y > frameResolution.y) {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
     
     // Determine if we're in frame area (reuse same logic as flame)
     bool inFrame = false;
@@ -819,26 +1076,26 @@ void main() {
         }
     } else if (uFrameMode == 1) {
         // Top only
-        if (pixelPos.y > uResolution.y - uFrameThickness) {
+        if (pixelPos.y > frameResolution.y - uFrameThickness) {
             inFrame = true;
-            edgeDist = (uResolution.y - pixelPos.y) / uFrameThickness;
+            edgeDist = (frameResolution.y - pixelPos.y) / uFrameThickness;
         }
     } else if (uFrameMode == 2) {
         // Sides only
-        if (pixelPos.x < uFrameThickness || pixelPos.x > uResolution.x - uFrameThickness) {
+        if (pixelPos.x < uFrameThickness || pixelPos.x > frameResolution.x - uFrameThickness) {
             inFrame = true;
             if (pixelPos.x < uFrameThickness) {
                 edgeDist = pixelPos.x / uFrameThickness;
             } else {
-                edgeDist = (uResolution.x - pixelPos.x) / uFrameThickness;
+                edgeDist = (frameResolution.x - pixelPos.x) / uFrameThickness;
             }
         }
     } else {
         // All edges
         float distFromLeft = pixelPos.x;
-        float distFromRight = uResolution.x - pixelPos.x;
+        float distFromRight = frameResolution.x - pixelPos.x;
         float distFromBottom = pixelPos.y;
-        float distFromTop = uResolution.y - pixelPos.y;
+        float distFromTop = frameResolution.y - pixelPos.y;
         float minDist = min(min(distFromLeft, distFromRight), min(distFromBottom, distFromTop));
         
         if (minDist < uFrameThickness) {
@@ -904,6 +1161,7 @@ void main() {
             uniform float uFlameIntensity;
             uniform float uFlameBrightness;
             uniform vec2 uResolution;
+            uniform vec4 uFrameRect;
             uniform float uFrameThickness;
             uniform int uFrameMode;
             
@@ -913,7 +1171,7 @@ void main() {
                 return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
             }
             
-            vec4 renderParticles(vec2 uv, vec2 pixelPos, float edgeDist) {
+            vec4 renderParticles(vec2 uv, vec2 pixelPos, vec2 frameResolution, float edgeDist) {
                 vec4 color = vec4(0.0);
                 
                 for (int layer = 0; layer < 3; layer++) {
@@ -936,7 +1194,7 @@ void main() {
                         float life = fract(particleTime * 0.35);
                         float y = life * uFrameThickness;
                         
-                        vec2 particlePos = vec2(x * uResolution.x, y);
+                        vec2 particlePos = vec2(x * frameResolution.x, y);
                         
                         // Velocity direction (upward with slight random horizontal drift)
                         float vx = (random(seed + vec2(0.5, 0.0)) - 0.5) * 18.0;
@@ -954,9 +1212,11 @@ void main() {
                         vec2 clampedProj = clamp(velProj, -blurLen * 0.5, blurLen * 0.5) * vel;
                         float closestDist = length(toParticle - clampedProj);
                         
-                        // Soft Gaussian glow falloff
+                        // Soft Gaussian glow falloff plus a compact hot core.
                         float alpha = exp(-closestDist * closestDist / (size * size));
+                        float spark = exp(-closestDist * closestDist / (size * size * 0.08));
                         alpha *= (1.0 - life * 0.8);
+                        spark *= smoothstep(1.0, 0.15, life);
                         
                         if (alpha > 0.001) {
                             // Temperature-based color: hot near base, cooler at top
@@ -964,17 +1224,29 @@ void main() {
                             vec3 hotColor = vec3(1.0, 0.95, 0.65);
                             vec3 pColor = mix(uFlameColor, hotColor, temp * 0.55);
                             
-                            color.rgb += pColor * alpha * 0.55;
-                            color.a += alpha * 0.55;
+                            color.rgb += pColor * alpha * 0.62;
+                            color.rgb += hotColor * spark * 1.35;
+                            color.a += alpha * 0.55 + spark * 0.35;
                         }
                     }
                 }
+
+                float rim = pow(1.0 - clamp(edgeDist, 0.0, 1.0), 3.0);
+                float shimmer = pow(max(0.0, sin(pixelPos.x * 0.035 + uTime * 7.0)), 18.0) * rim;
+                color.rgb += mix(uFlameColor, vec3(1.0, 0.85, 0.45), 0.55) * shimmer * 0.35;
+                color.a += shimmer * 0.18;
                 
-                return color * uFlameBrightness * 1.6;
+                return color * uFlameBrightness * 1.8;
             }
             
             void main() {
-                vec2 pixelPos = gl_FragCoord.xy;
+                vec2 pixelPos = gl_FragCoord.xy - uFrameRect.xy;
+                vec2 frameResolution = uFrameRect.zw;
+                
+                if (pixelPos.x < 0.0 || pixelPos.y < 0.0 || pixelPos.x > frameResolution.x || pixelPos.y > frameResolution.y) {
+                    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+                    return;
+                }
                 
                 bool inFrame = false;
                 float edgeDist = 0.0;
@@ -985,10 +1257,10 @@ void main() {
                         edgeDist = pixelPos.y / uFrameThickness;
                     }
                 } else if (uFrameMode == 1) {
-                    if (pixelPos.y > uResolution.y - uFrameThickness) {
+                    if (pixelPos.y > frameResolution.y - uFrameThickness) {
                         inFrame = true;
-                        edgeDist = (uResolution.y - pixelPos.y) / uFrameThickness;
-                        pixelPos.y = uResolution.y - pixelPos.y;
+                        edgeDist = (frameResolution.y - pixelPos.y) / uFrameThickness;
+                        pixelPos.y = frameResolution.y - pixelPos.y;
                     }
                 } else if (uFrameMode == 2) {
                     if (pixelPos.x < uFrameThickness) {
@@ -997,18 +1269,18 @@ void main() {
                         vec2 originalPos = pixelPos;
                         pixelPos.x = originalPos.y;
                         pixelPos.y = originalPos.x;
-                    } else if (pixelPos.x > uResolution.x - uFrameThickness) {
+                    } else if (pixelPos.x > frameResolution.x - uFrameThickness) {
                         inFrame = true;
-                        edgeDist = (uResolution.x - pixelPos.x) / uFrameThickness;
+                        edgeDist = (frameResolution.x - pixelPos.x) / uFrameThickness;
                         vec2 originalPos = pixelPos;
                         pixelPos.x = originalPos.y;
-                        pixelPos.y = uResolution.x - originalPos.x;
+                        pixelPos.y = frameResolution.x - originalPos.x;
                     }
                 } else {
                     float distFromLeft = pixelPos.x;
-                    float distFromRight = uResolution.x - pixelPos.x;
+                    float distFromRight = frameResolution.x - pixelPos.x;
                     float distFromBottom = pixelPos.y;
-                    float distFromTop = uResolution.y - pixelPos.y;
+                    float distFromTop = frameResolution.y - pixelPos.y;
                     float minDist = min(min(distFromLeft, distFromRight), min(distFromBottom, distFromTop));
                     if (minDist < uFrameThickness) {
                         inFrame = true;
@@ -1021,7 +1293,7 @@ void main() {
                     return;
                 }
                 
-                gl_FragColor = renderParticles(vTexCoord, pixelPos, edgeDist);
+                gl_FragColor = renderParticles(vTexCoord, pixelPos, frameResolution, edgeDist);
                 gl_FragColor.a = clamp(gl_FragColor.a, 0.0, 1.0);
             }
         `;
@@ -1057,6 +1329,7 @@ void main() {
             uniform float uFlameIntensity;
             uniform float uFlameBrightness;
             uniform vec2 uResolution;
+            uniform vec4 uFrameRect;
             uniform float uFrameThickness;
             uniform int uFrameMode;
             
@@ -1132,7 +1405,13 @@ void main() {
             }
             
             void main() {
-                vec2 pixelPos = gl_FragCoord.xy;
+                vec2 pixelPos = gl_FragCoord.xy - uFrameRect.xy;
+                vec2 frameResolution = uFrameRect.zw;
+                
+                if (pixelPos.x < 0.0 || pixelPos.y < 0.0 || pixelPos.x > frameResolution.x || pixelPos.y > frameResolution.y) {
+                    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+                    return;
+                }
                 
                 bool inFrame = false;
                 float edgeDist = 0.0;
@@ -1143,24 +1422,24 @@ void main() {
                         edgeDist = pixelPos.y / uFrameThickness;
                     }
                 } else if (uFrameMode == 1) {
-                    if (pixelPos.y > uResolution.y - uFrameThickness) {
+                    if (pixelPos.y > frameResolution.y - uFrameThickness) {
                         inFrame = true;
-                        edgeDist = (uResolution.y - pixelPos.y) / uFrameThickness;
+                        edgeDist = (frameResolution.y - pixelPos.y) / uFrameThickness;
                     }
                 } else if (uFrameMode == 2) {
-                    if (pixelPos.x < uFrameThickness || pixelPos.x > uResolution.x - uFrameThickness) {
+                    if (pixelPos.x < uFrameThickness || pixelPos.x > frameResolution.x - uFrameThickness) {
                         inFrame = true;
                         if (pixelPos.x < uFrameThickness) {
                             edgeDist = pixelPos.x / uFrameThickness;
                         } else {
-                            edgeDist = (uResolution.x - pixelPos.x) / uFrameThickness;
+                            edgeDist = (frameResolution.x - pixelPos.x) / uFrameThickness;
                         }
                     }
                 } else {
                     float distFromLeft   = pixelPos.x;
-                    float distFromRight  = uResolution.x - pixelPos.x;
+                    float distFromRight  = frameResolution.x - pixelPos.x;
                     float distFromBottom = pixelPos.y;
-                    float distFromTop    = uResolution.y - pixelPos.y;
+                    float distFromTop    = frameResolution.y - pixelPos.y;
                     float minDist = min(min(distFromLeft, distFromRight), min(distFromBottom, distFromTop));
                     if (minDist < uFrameThickness) {
                         inFrame = true;
@@ -1209,6 +1488,7 @@ void main() {
             uniform float uFlameIntensity;
             uniform float uFlameBrightness;
             uniform vec2 uResolution;
+            uniform vec4 uFrameRect;
             uniform float uFrameThickness;
             uniform int uFrameMode;
             
@@ -1302,7 +1582,13 @@ void main() {
             }
             
             void main() {
-                vec2 pixelPos = gl_FragCoord.xy;
+                vec2 pixelPos = gl_FragCoord.xy - uFrameRect.xy;
+                vec2 frameResolution = uFrameRect.zw;
+                
+                if (pixelPos.x < 0.0 || pixelPos.y < 0.0 || pixelPos.x > frameResolution.x || pixelPos.y > frameResolution.y) {
+                    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+                    return;
+                }
                 
                 bool inFrame = false;
                 float edgeDist = 0.0;
@@ -1313,24 +1599,24 @@ void main() {
                         edgeDist = pixelPos.y / uFrameThickness;
                     }
                 } else if (uFrameMode == 1) {
-                    if (pixelPos.y > uResolution.y - uFrameThickness) {
+                    if (pixelPos.y > frameResolution.y - uFrameThickness) {
                         inFrame = true;
-                        edgeDist = (uResolution.y - pixelPos.y) / uFrameThickness;
+                        edgeDist = (frameResolution.y - pixelPos.y) / uFrameThickness;
                     }
                 } else if (uFrameMode == 2) {
-                    if (pixelPos.x < uFrameThickness || pixelPos.x > uResolution.x - uFrameThickness) {
+                    if (pixelPos.x < uFrameThickness || pixelPos.x > frameResolution.x - uFrameThickness) {
                         inFrame = true;
                         if (pixelPos.x < uFrameThickness) {
                             edgeDist = pixelPos.x / uFrameThickness;
                         } else {
-                            edgeDist = (uResolution.x - pixelPos.x) / uFrameThickness;
+                            edgeDist = (frameResolution.x - pixelPos.x) / uFrameThickness;
                         }
                     }
                 } else {
                     float distFromLeft   = pixelPos.x;
-                    float distFromRight  = uResolution.x - pixelPos.x;
+                    float distFromRight  = frameResolution.x - pixelPos.x;
                     float distFromBottom = pixelPos.y;
-                    float distFromTop    = uResolution.y - pixelPos.y;
+                    float distFromTop    = frameResolution.y - pixelPos.y;
                     float minDist = min(min(distFromLeft, distFromRight), min(distFromBottom, distFromTop));
                     if (minDist < uFrameThickness) {
                         inFrame = true;
@@ -1395,24 +1681,36 @@ void main() {
             'energy': 'energy',
             'lightning': 'lightning'
         };
-        
-        const programKey = effectMap[effectType] || 'flames';
-        let program = this.programs[programKey];
-        
-        // Fall back to any available program if the requested one failed to compile
-        if (!program) {
-            console.warn(`Program '${programKey}' not available, falling back`);
-            program = this.programs.flames || this.programs.particles ||
-                      this.programs.energy || this.programs.lightning || null;
+
+        if (!Object.prototype.hasOwnProperty.call(effectMap, effectType)) {
+            console.warn(`Unknown effect '${effectType}' rejected`);
+            return false;
         }
-        
+
+        let programKey = effectMap[effectType];
+        let program = this.programs[programKey];
+
+        if (!program) {
+            const fallbackKey = Object.keys(effectMap).find(key => this.programs[effectMap[key]]);
+            if (!fallbackKey) {
+                console.warn(`Program '${programKey}' not available and no fallback program exists`);
+                return false;
+            }
+            console.warn(`Program '${programKey}' not available, falling back to '${fallbackKey}'`);
+            programKey = effectMap[fallbackKey];
+            program = this.programs[programKey];
+        }
+
         this.currentProgram = program;
+        this.config.effectType = programKey;
         
         if (this.currentProgram) {
             this.gl.useProgram(this.currentProgram);
             this.setupUniformsForProgram(this.currentProgram);
             this.updateUniforms();
         }
+
+        return true;
     }
     
     setupUniformsForProgram(program) {
@@ -1426,6 +1724,7 @@ void main() {
             flameIntensity: this.gl.getUniformLocation(program, 'uFlameIntensity'),
             flameBrightness: this.gl.getUniformLocation(program, 'uFlameBrightness'),
             resolution: this.gl.getUniformLocation(program, 'uResolution'),
+            frameRect: this.gl.getUniformLocation(program, 'uFrameRect'),
             frameThickness: this.gl.getUniformLocation(program, 'uFrameThickness'),
             frameMode: this.gl.getUniformLocation(program, 'uFrameMode'),
             maskEdges: this.gl.getUniformLocation(program, 'uMaskEdges'),
@@ -1485,6 +1784,10 @@ void main() {
     }
     
     loadTexture(url, name, filter, wrap) {
+        if (!this.textureImages) {
+            this.textureImages = {};
+        }
+
         const texture = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
         
@@ -1493,9 +1796,14 @@ void main() {
             1, 1, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE,
             new Uint8Array([255, 255, 255, 255])
         );
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, filter);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, filter);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, wrap);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, wrap);
         
         const image = new Image();
         image.onload = () => {
+            if (this.destroyed || this.contextLost) return;
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
             this.gl.texImage2D(
                 this.gl.TEXTURE_2D, 0, this.gl.RGBA,
@@ -1507,9 +1815,13 @@ void main() {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, wrap);
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, wrap);
         };
+        image.onerror = (error) => {
+            console.warn(`Texture '${name}' failed to load, using placeholder`, error);
+        };
         image.src = url;
         
         this.textures[name] = texture;
+        this.textureImages[name] = image;
     }
     
     initParticles() {
@@ -1532,7 +1844,7 @@ void main() {
             'sides': 2,
             'all': 3
         };
-        return modes[this.config.frameMode] || 0;
+        return modes[this.config.frameMode] ?? 0;
     }
     
     getAnimationEasing() {
@@ -1542,7 +1854,7 @@ void main() {
             'quad': 2,
             'elastic': 3
         };
-        return easings[this.config.animationEasing] || 0;
+        return easings[this.config.animationEasing] ?? 0;
     }
     
     calculateDetailScale() {
@@ -1553,112 +1865,169 @@ void main() {
         const avgRes = (this.canvas.width + this.canvas.height) / 2;
         return Math.max(0.5, avgRes / 1000.0);
     }
+
+    getDevicePixelRatio() {
+        if (!this.config.highDPI) return 1;
+        return this.numberOr(window.devicePixelRatio, 1);
+    }
+
+    getScaledFrameThickness() {
+        return this.numberOr(this.config.frameThickness, 150) * this.getDevicePixelRatio();
+    }
+
+    isGlowEnabled() {
+        return this.config.enableGlow !== false && this.config.bloomEnabled === true;
+    }
+
+    getActiveFrameRectPixels() {
+        const defaultRect = {
+            x: 0,
+            y: 0,
+            width: this.canvas.width,
+            height: this.canvas.height
+        };
+        const framePositions = this.config.framePositions;
+        if (!Array.isArray(framePositions) || framePositions.length === 0) {
+            return defaultRect;
+        }
+
+        const frame = framePositions[0] ?? {};
+        const xPercent = this.clamp(this.numberOr(frame.x, 0), 0, 100);
+        const yPercent = this.clamp(this.numberOr(frame.y, 0), 0, 100);
+        const widthPercent = this.clamp(this.numberOr(frame.width, 100), 0, 100);
+        const heightPercent = this.clamp(this.numberOr(frame.height, 100), 0, 100);
+        const rightPercent = this.clamp(xPercent + widthPercent, 0, 100);
+        const bottomPercent = this.clamp(yPercent + heightPercent, 0, 100);
+        const resolvedWidthPercent = Math.max(0, rightPercent - xPercent);
+        const resolvedHeightPercent = Math.max(0, bottomPercent - yPercent);
+
+        if (resolvedWidthPercent <= 0 || resolvedHeightPercent <= 0) {
+            return defaultRect;
+        }
+
+        const width = this.canvas.width * resolvedWidthPercent / 100;
+        const height = this.canvas.height * resolvedHeightPercent / 100;
+
+        return {
+            x: this.canvas.width * xPercent / 100,
+            y: this.canvas.height * (100 - yPercent - resolvedHeightPercent) / 100,
+            width,
+            height
+        };
+    }
     
     updateUniforms() {
         if (!this.gl || !this.currentProgram) return;
         
         this.gl.useProgram(this.currentProgram);
         
-        const color = this.hexToRgb(this.config.flameColor || '#ff6600');
-        if (this.uniforms.flameColor) {
+        const color = this.hexToRgb(this.valueOr(this.config.flameColor, '#ff6600'));
+        if (this.hasUniform(this.uniforms.flameColor)) {
             this.gl.uniform3f(this.uniforms.flameColor, color.r, color.g, color.b);
         }
         
-        if (this.uniforms.flameSpeed) {
-            this.gl.uniform1f(this.uniforms.flameSpeed, this.config.flameSpeed || 0.5);
+        if (this.hasUniform(this.uniforms.flameSpeed)) {
+            this.gl.uniform1f(this.uniforms.flameSpeed, this.numberOr(this.config.flameSpeed, 0.5));
         }
-        if (this.uniforms.flameIntensity) {
-            this.gl.uniform1f(this.uniforms.flameIntensity, this.config.flameIntensity || 1.3);
+        if (this.hasUniform(this.uniforms.flameIntensity)) {
+            this.gl.uniform1f(this.uniforms.flameIntensity, this.numberOr(this.config.flameIntensity, 1.3));
         }
-        if (this.uniforms.flameBrightness) {
-            this.gl.uniform1f(this.uniforms.flameBrightness, this.config.flameBrightness || 0.25);
+        if (this.hasUniform(this.uniforms.flameBrightness)) {
+            this.gl.uniform1f(this.uniforms.flameBrightness, this.numberOr(this.config.flameBrightness, 0.25));
         }
         
-        if (this.uniforms.frameThickness) {
-            this.gl.uniform1f(this.uniforms.frameThickness, this.config.frameThickness || 150);
+        if (this.hasUniform(this.uniforms.frameThickness)) {
+            this.gl.uniform1f(this.uniforms.frameThickness, this.getScaledFrameThickness());
         }
-        if (this.uniforms.frameMode) {
+        if (this.hasUniform(this.uniforms.frameMode)) {
             this.gl.uniform1i(this.uniforms.frameMode, this.getFrameMode());
         }
-        if (this.uniforms.maskEdges) {
+        if (this.hasUniform(this.uniforms.maskEdges)) {
             this.gl.uniform1i(this.uniforms.maskEdges, this.config.maskOnlyEdges ? 1 : 0);
         }
         
-        if (this.uniforms.resolution) {
+        if (this.hasUniform(this.uniforms.resolution)) {
             this.gl.uniform2f(this.uniforms.resolution, this.canvas.width, this.canvas.height);
+        }
+        if (this.hasUniform(this.uniforms.frameRect)) {
+            const frameRect = this.getActiveFrameRectPixels();
+            this.gl.uniform4f(this.uniforms.frameRect, frameRect.x, frameRect.y, frameRect.width, frameRect.height);
         }
         
         // New v2.2.0 uniforms
-        if (this.uniforms.noiseOctaves) {
-            this.gl.uniform1i(this.uniforms.noiseOctaves, this.config.noiseOctaves || 8);
+        if (this.hasUniform(this.uniforms.noiseOctaves)) {
+            this.gl.uniform1i(this.uniforms.noiseOctaves, this.numberOr(this.config.noiseOctaves, 8));
         }
-        if (this.uniforms.useHighQualityTextures) {
+        if (this.hasUniform(this.uniforms.useHighQualityTextures)) {
             this.gl.uniform1i(this.uniforms.useHighQualityTextures, this.config.useHighQualityTextures ? 1 : 0);
         }
-        if (this.uniforms.detailScale) {
+        if (this.hasUniform(this.uniforms.detailScale)) {
             this.gl.uniform1f(this.uniforms.detailScale, this.calculateDetailScale());
         }
-        if (this.uniforms.edgeFeather) {
-            this.gl.uniform1f(this.uniforms.edgeFeather, this.config.edgeFeather || 0.0);
+        if (this.hasUniform(this.uniforms.edgeFeather)) {
+            this.gl.uniform1f(this.uniforms.edgeFeather, this.numberOr(this.config.edgeFeather, 0.0));
         }
-        if (this.uniforms.frameCurve) {
-            this.gl.uniform1f(this.uniforms.frameCurve, this.config.frameCurve || 0.0);
+        if (this.hasUniform(this.uniforms.frameCurve)) {
+            this.gl.uniform1f(this.uniforms.frameCurve, this.numberOr(this.config.frameCurve, 0.0));
         }
-        if (this.uniforms.frameNoiseAmount) {
-            this.gl.uniform1f(this.uniforms.frameNoiseAmount, this.config.frameNoiseAmount || 0.0);
+        if (this.hasUniform(this.uniforms.frameNoiseAmount)) {
+            this.gl.uniform1f(this.uniforms.frameNoiseAmount, this.numberOr(this.config.frameNoiseAmount, 0.0));
         }
-        if (this.uniforms.animationEasing) {
+        if (this.hasUniform(this.uniforms.animationEasing)) {
             this.gl.uniform1i(this.uniforms.animationEasing, this.getAnimationEasing());
         }
-        if (this.uniforms.pulseEnabled) {
+        if (this.hasUniform(this.uniforms.pulseEnabled)) {
             this.gl.uniform1i(this.uniforms.pulseEnabled, this.config.pulseEnabled ? 1 : 0);
         }
-        if (this.uniforms.pulseAmount) {
-            this.gl.uniform1f(this.uniforms.pulseAmount, this.config.pulseAmount || 0.0);
+        if (this.hasUniform(this.uniforms.pulseAmount)) {
+            this.gl.uniform1f(this.uniforms.pulseAmount, this.numberOr(this.config.pulseAmount, 0.0));
         }
-        if (this.uniforms.pulseSpeed) {
-            this.gl.uniform1f(this.uniforms.pulseSpeed, this.config.pulseSpeed || 1.0);
+        if (this.hasUniform(this.uniforms.pulseSpeed)) {
+            this.gl.uniform1f(this.uniforms.pulseSpeed, this.numberOr(this.config.pulseSpeed, 1.0));
         }
-        if (this.uniforms.depthIntensity) {
-            this.gl.uniform1f(this.uniforms.depthIntensity, this.config.depthIntensity || 0.0);
+        if (this.hasUniform(this.uniforms.depthIntensity)) {
+            this.gl.uniform1f(this.uniforms.depthIntensity, this.numberOr(this.config.depthIntensity, 0.0));
         }
-        if (this.uniforms.layersEnabled) {
+        if (this.hasUniform(this.uniforms.layersEnabled)) {
             this.gl.uniform1i(this.uniforms.layersEnabled, this.config.layersEnabled ? 1 : 0);
         }
-        if (this.uniforms.layerCount) {
-            this.gl.uniform1i(this.uniforms.layerCount, this.config.layerCount || 1);
+        if (this.hasUniform(this.uniforms.layerCount)) {
+            this.gl.uniform1i(this.uniforms.layerCount, this.numberOr(this.config.layerCount, 1));
         }
-        if (this.uniforms.layerParallax) {
-            this.gl.uniform1f(this.uniforms.layerParallax, this.config.layerParallax || 0.0);
+        if (this.hasUniform(this.uniforms.layerParallax)) {
+            this.gl.uniform1f(this.uniforms.layerParallax, this.numberOr(this.config.layerParallax, 0.0));
         }
         
         // Smoke uniforms
-        if (this.uniforms.smokeIntensity) {
-            this.gl.uniform1f(this.uniforms.smokeIntensity, this.config.smokeIntensity || 0.0);
+        if (this.hasUniform(this.uniforms.smokeIntensity)) {
+            this.gl.uniform1f(this.uniforms.smokeIntensity, this.numberOr(this.config.smokeIntensity, 0.0));
         }
-        if (this.uniforms.smokeSpeed) {
-            this.gl.uniform1f(this.uniforms.smokeSpeed, this.config.smokeSpeed || 0.3);
+        if (this.hasUniform(this.uniforms.smokeSpeed)) {
+            this.gl.uniform1f(this.uniforms.smokeSpeed, this.numberOr(this.config.smokeSpeed, 0.3));
         }
-        if (this.uniforms.smokeColor) {
-            const smokeRgb = this.hexToRgb(this.config.smokeColor || '#333333');
+        if (this.hasUniform(this.uniforms.smokeColor)) {
+            const smokeRgb = this.hexToRgb(this.valueOr(this.config.smokeColor, '#333333'));
             this.gl.uniform3f(this.uniforms.smokeColor, smokeRgb.r, smokeRgb.g, smokeRgb.b);
         }
         
-        if (this.uniforms.noiseTexture && this.textures.noise) {
+        if (this.hasUniform(this.uniforms.noiseTexture) && this.textures.noise) {
             this.gl.uniform1i(this.uniforms.noiseTexture, 0);
         }
-        if (this.uniforms.fireProfile && this.textures.fireProfile) {
+        if (this.hasUniform(this.uniforms.fireProfile) && this.textures.fireProfile) {
             this.gl.uniform1i(this.uniforms.fireProfile, 1);
         }
     }
     
     handleResize() {
-        const dpr = this.config.highDPI ? (window.devicePixelRatio || 1) : 1;
+        if (!this.canvas || !this.gl) return;
+
+        const dpr = this.getDevicePixelRatio();
+        const dimensions = this.getConfiguredCanvasDimensions();
         
-        this.canvas.width = window.innerWidth * dpr;
-        this.canvas.height = window.innerHeight * dpr;
-        this.canvas.style.width = window.innerWidth + 'px';
-        this.canvas.style.height = window.innerHeight + 'px';
+        this.canvas.width = dimensions.width * dpr;
+        this.canvas.height = dimensions.height * dpr;
+        this.canvas.style.width = dimensions.width + 'px';
+        this.canvas.style.height = dimensions.height + 'px';
         
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         
@@ -1672,12 +2041,14 @@ void main() {
     renderScene() {
         const gl = this.gl;
         const time = (Date.now() - this.startTime) / 1000.0;
-        
-        gl.clearColor(0, 0, 0, 0);
+
+        const backgroundTint = this.hexToRgb(this.valueOr(this.config.backgroundTint, '#000000'));
+        const backgroundTintOpacity = this.clamp(this.numberOr(this.config.backgroundTintOpacity, 0), 0, 1);
+        gl.clearColor(backgroundTint.r, backgroundTint.g, backgroundTint.b, backgroundTintOpacity);
         gl.clear(gl.COLOR_BUFFER_BIT);
         
         gl.enable(gl.BLEND);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.blendFunc(gl.SRC_ALPHA, this.config.enableAdditiveBlend ? gl.ONE : gl.ONE_MINUS_SRC_ALPHA);
         
         gl.useProgram(this.currentProgram);
         
@@ -1751,6 +2122,7 @@ void main() {
             this.smokeUniforms = {
                 time: gl.getUniformLocation(this.programs.smoke, 'uTime'),
                 resolution: gl.getUniformLocation(this.programs.smoke, 'uResolution'),
+                frameRect: gl.getUniformLocation(this.programs.smoke, 'uFrameRect'),
                 frameThickness: gl.getUniformLocation(this.programs.smoke, 'uFrameThickness'),
                 frameMode: gl.getUniformLocation(this.programs.smoke, 'uFrameMode'),
                 smokeIntensity: gl.getUniformLocation(this.programs.smoke, 'uSmokeIntensity'),
@@ -1764,23 +2136,27 @@ void main() {
         
         // Set smoke-specific uniforms
         const smokeUniforms = this.smokeUniforms;
-        if (smokeUniforms.time) gl.uniform1f(smokeUniforms.time, time);
-        if (smokeUniforms.resolution) gl.uniform2f(smokeUniforms.resolution, this.canvas.width, this.canvas.height);
-        if (smokeUniforms.frameThickness) gl.uniform1f(smokeUniforms.frameThickness, this.config.frameThickness || 150);
-        if (smokeUniforms.frameMode) gl.uniform1i(smokeUniforms.frameMode, this.getFrameMode());
-        if (smokeUniforms.smokeIntensity) gl.uniform1f(smokeUniforms.smokeIntensity, this.config.smokeIntensity || 0.4);
-        if (smokeUniforms.smokeSpeed) gl.uniform1f(smokeUniforms.smokeSpeed, this.config.smokeSpeed || 0.3);
-        if (smokeUniforms.detailScale) gl.uniform1f(smokeUniforms.detailScale, this.calculateDetailScale());
+        if (this.hasUniform(smokeUniforms.time)) gl.uniform1f(smokeUniforms.time, time);
+        if (this.hasUniform(smokeUniforms.resolution)) gl.uniform2f(smokeUniforms.resolution, this.canvas.width, this.canvas.height);
+        if (this.hasUniform(smokeUniforms.frameRect)) {
+            const frameRect = this.getActiveFrameRectPixels();
+            gl.uniform4f(smokeUniforms.frameRect, frameRect.x, frameRect.y, frameRect.width, frameRect.height);
+        }
+        if (this.hasUniform(smokeUniforms.frameThickness)) gl.uniform1f(smokeUniforms.frameThickness, this.getScaledFrameThickness());
+        if (this.hasUniform(smokeUniforms.frameMode)) gl.uniform1i(smokeUniforms.frameMode, this.getFrameMode());
+        if (this.hasUniform(smokeUniforms.smokeIntensity)) gl.uniform1f(smokeUniforms.smokeIntensity, this.numberOr(this.config.smokeIntensity, 0.4));
+        if (this.hasUniform(smokeUniforms.smokeSpeed)) gl.uniform1f(smokeUniforms.smokeSpeed, this.numberOr(this.config.smokeSpeed, 0.3));
+        if (this.hasUniform(smokeUniforms.detailScale)) gl.uniform1f(smokeUniforms.detailScale, this.calculateDetailScale());
         
-        if (smokeUniforms.smokeColor) {
-            const smokeRgb = this.hexToRgb(this.config.smokeColor || '#333333');
+        if (this.hasUniform(smokeUniforms.smokeColor)) {
+            const smokeRgb = this.hexToRgb(this.valueOr(this.config.smokeColor, '#333333'));
             gl.uniform3f(smokeUniforms.smokeColor, smokeRgb.r, smokeRgb.g, smokeRgb.b);
         }
         
         const projectionMatrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
         const modelViewMatrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-        if (smokeUniforms.projectionMatrix) gl.uniformMatrix4fv(smokeUniforms.projectionMatrix, false, projectionMatrix);
-        if (smokeUniforms.modelViewMatrix) gl.uniformMatrix4fv(smokeUniforms.modelViewMatrix, false, modelViewMatrix);
+        if (this.hasUniform(smokeUniforms.projectionMatrix)) gl.uniformMatrix4fv(smokeUniforms.projectionMatrix, false, projectionMatrix);
+        if (this.hasUniform(smokeUniforms.modelViewMatrix)) gl.uniformMatrix4fv(smokeUniforms.modelViewMatrix, false, modelViewMatrix);
         
         // Re-bind geometry for smoke
         const aSmokePosition = gl.getAttribLocation(this.programs.smoke, 'aPosition');
@@ -1808,16 +2184,21 @@ void main() {
     }
     
     render() {
+        if (this.destroyed || this.contextLost) {
+            return;
+        }
+
         if (!this.gl || !this.currentProgram) {
-            requestAnimationFrame(() => this.render());
+            this.scheduleRender();
             return;
         }
         
         const gl = this.gl;
         const time = (Date.now() - this.startTime) / 1000.0;
+        this.cleanupExpiredTriggers();
         
         // Multi-pass rendering with bloom
-        if (this.config.bloomEnabled && this.postProcessor && this.postProcessor.isReady()) {
+        if (this.isGlowEnabled() && this.postProcessor && this.postProcessor.isReady()) {
             // Render to framebuffer
             this.postProcessor.renderToFramebuffer('scene', () => {
                 this.renderScene();
@@ -1827,8 +2208,8 @@ void main() {
             const bloomTexture = this.postProcessor.applyBloom(
                 this.postProcessor.textures.scene,
                 {
-                    bloomThreshold: this.config.bloomThreshold || 0.6,
-                    bloomRadius: this.config.bloomRadius || 4
+                    bloomThreshold: this.numberOr(this.config.bloomThreshold, 0.6),
+                    bloomRadius: this.numberOr(this.config.bloomRadius, 4)
                 }
             );
             
@@ -1842,9 +2223,9 @@ void main() {
                 this.postProcessor.textures.scene,
                 bloomTexture,
                 {
-                    bloomIntensity: this.config.bloomIntensity || 0.8,
-                    chromaticAberration: this.config.chromaticAberration || 0.005,
-                    filmGrain: this.config.filmGrain || 0.03
+                    bloomIntensity: this.numberOr(this.config.bloomIntensity, 0.8),
+                    chromaticAberration: this.numberOr(this.config.chromaticAberration, 0.005),
+                    filmGrain: this.numberOr(this.config.filmGrain, 0.03)
                 },
                 time
             );
@@ -1855,7 +2236,80 @@ void main() {
             this.renderScene();
         }
         
-        requestAnimationFrame(() => this.render());
+        this.scheduleRender();
+    }
+
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+        this.cancelRevertAnimation();
+
+        for (const timer of this.triggerTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.triggerTimers.clear();
+        this.activeTriggers = [];
+
+        if (this.socket) {
+            for (const [eventName, handler] of this.socketListeners) {
+                if (typeof this.socket.off === 'function') {
+                    this.socket.off(eventName, handler);
+                }
+            }
+            if (typeof this.socket.disconnect === 'function') {
+                this.socket.disconnect();
+            }
+            this.socket = null;
+            this.socketListeners = [];
+        }
+
+        window.removeEventListener('resize', this.resizeHandler);
+        window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+        this.canvas.removeEventListener('webglcontextlost', this.contextLostHandler);
+        this.canvas.removeEventListener('webglcontextrestored', this.contextRestoredHandler);
+
+        Object.values(this.textureImages || {}).forEach(image => {
+            image.onload = null;
+            image.onerror = null;
+        });
+        this.textureImages = {};
+
+        if (this.postProcessor) {
+            this.postProcessor.destroy();
+            this.postProcessor = null;
+        }
+
+        if (this.gl) {
+            Object.values(this.buffers).forEach(buffer => {
+                if (buffer) this.gl.deleteBuffer(buffer);
+            });
+            Object.values(this.textures).forEach(texture => {
+                if (texture) this.gl.deleteTexture(texture);
+            });
+            Object.values(this.programs).forEach(program => {
+                if (program) this.gl.deleteProgram(program);
+            });
+        }
+
+        this.buffers = {};
+        this.textures = {};
+        this.programs = {};
+        this.uniforms = {};
+        this.currentProgram = null;
+    }
+
+    scheduleRender() {
+        if (this.destroyed || this.contextLost || this.animationFrameId) return;
+
+        this.animationFrameId = requestAnimationFrame(() => {
+            this.animationFrameId = null;
+            this.render();
+        });
     }
 }
 

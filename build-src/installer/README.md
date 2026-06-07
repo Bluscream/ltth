@@ -2,6 +2,8 @@
 
 This directory contains everything needed to build a professional Windows installer for PupCid's Little TikTool Helper (LTTH).
 
+> Status: legacy fallback path. The preferred end-user install flow is now the thin bootstrapper (`ltth-bootstrapper.exe`) plus release payload manifest. Keep this NSIS path for support, offline scenarios, or explicit fallback packaging.
+
 ## 📋 Overview
 
 The NSIS installer creates a complete setup package that installs:

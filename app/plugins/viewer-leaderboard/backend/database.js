@@ -673,6 +673,16 @@ class ViewerXPDatabase {
       anti_spam: {
         dedupe_window: 5000, // 5 seconds
         min_event_interval: 100 // 100ms min between any events
+      },
+
+      // Detail log retention. Aggregated viewer profile totals are never pruned.
+      detail_log_retention: {
+        enabled: true,
+        detail_log_days: 90,
+        cleanup_interval_hours: 24,
+        cleanup_batch_size: 10000,
+        cleanup_max_duration_ms: 5000,
+        vacuum_after_cleanup: false
       }
     };
     
@@ -1381,6 +1391,141 @@ class ViewerXPDatabase {
       INSERT OR REPLACE INTO settings (key, value)
       VALUES (?, ?)
     `).run(key, valueStr);
+  }
+
+  /**
+   * Get normalized detail-log retention configuration.
+   * These settings affect only analytics/detail tables, never viewer_profiles.
+   */
+  getDetailLogRetentionConfig(overrides = {}) {
+    const defaults = {
+      enabled: true,
+      detail_log_days: 90,
+      cleanup_interval_hours: 24,
+      cleanup_batch_size: 10000,
+      cleanup_max_duration_ms: 5000,
+      vacuum_after_cleanup: false
+    };
+
+    const stored = this.getExtendedConfig('detail_log_retention', {});
+    const config = {
+      ...defaults,
+      ...(stored && typeof stored === 'object' ? stored : {}),
+      ...overrides
+    };
+
+    if (overrides.retentionDays !== undefined) {
+      config.detail_log_days = overrides.retentionDays;
+    }
+    if (overrides.batchSize !== undefined) {
+      config.cleanup_batch_size = overrides.batchSize;
+    }
+
+    return {
+      enabled: config.enabled !== false,
+      detail_log_days: this.normalizeRetentionInteger(config.detail_log_days, defaults.detail_log_days, 1, 3650),
+      cleanup_interval_hours: this.normalizeRetentionInteger(config.cleanup_interval_hours, defaults.cleanup_interval_hours, 1, 24 * 30),
+      cleanup_batch_size: this.normalizeRetentionInteger(config.cleanup_batch_size, defaults.cleanup_batch_size, 100, 100000),
+      cleanup_max_duration_ms: this.normalizeRetentionInteger(config.cleanup_max_duration_ms, defaults.cleanup_max_duration_ms, 1000, 60000),
+      vacuum_after_cleanup: config.vacuum_after_cleanup === true
+    };
+  }
+
+  normalizeRetentionInteger(value, fallback, min, max) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, Math.floor(parsed)));
+  }
+
+  formatSqliteDateTime(timestampMs) {
+    return new Date(timestampMs).toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  /**
+   * Prune old XP/coin detail logs while preserving aggregate viewer state.
+   * @param {Object} options
+   * @param {number} [options.now] - Millisecond timestamp, mainly for tests
+   * @param {number} [options.retentionDays] - Override configured detail_log_days
+   * @param {number} [options.batchSize] - Override configured cleanup_batch_size
+   * @returns {{skipped?: boolean, deleted: Object, totalDeleted: number, hasMore: boolean}}
+   */
+  cleanupDetailLogs(options = {}) {
+    const config = this.getDetailLogRetentionConfig(options);
+    const deleted = {
+      xp_transactions: 0,
+      viewer_xp_events: 0,
+      coin_transactions: 0
+    };
+
+    if (!config.enabled) {
+      return {
+        skipped: true,
+        reason: 'disabled',
+        deleted,
+        totalDeleted: 0,
+        hasMore: false
+      };
+    }
+
+    const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
+    const cutoffMs = now - (config.detail_log_days * 24 * 60 * 60 * 1000);
+    const cutoffSqlTime = this.formatSqliteDateTime(cutoffMs);
+    const batchSize = config.cleanup_batch_size;
+
+    const pruneBatch = this.db.transaction(() => {
+      deleted.xp_transactions = this.db.prepare(`
+        DELETE FROM xp_transactions
+        WHERE id IN (
+          SELECT id FROM xp_transactions
+          WHERE timestamp < ?
+          ORDER BY timestamp ASC
+          LIMIT ?
+        )
+      `).run(cutoffSqlTime, batchSize).changes;
+
+      deleted.viewer_xp_events = this.db.prepare(`
+        DELETE FROM viewer_xp_events
+        WHERE id IN (
+          SELECT id FROM viewer_xp_events
+          WHERE created_at < ?
+          ORDER BY created_at ASC
+          LIMIT ?
+        )
+      `).run(cutoffMs, batchSize).changes;
+
+      deleted.coin_transactions = this.db.prepare(`
+        DELETE FROM coin_transactions
+        WHERE id IN (
+          SELECT id FROM coin_transactions
+          WHERE created_at < ?
+          ORDER BY created_at ASC
+          LIMIT ?
+        )
+      `).run(cutoffMs, batchSize).changes;
+    });
+
+    pruneBatch();
+
+    const totalDeleted = Object.values(deleted).reduce((sum, value) => sum + value, 0);
+    const hasMore = Object.values(deleted).some((value) => value >= batchSize);
+
+    if (config.vacuum_after_cleanup && totalDeleted > 0) {
+      try {
+        this.db.exec('VACUUM');
+      } catch (error) {
+        this.api.log(`Detail log VACUUM failed: ${error.message}`, 'warn');
+      }
+    }
+
+    return {
+      skipped: false,
+      retentionDays: config.detail_log_days,
+      cutoffMs,
+      cutoffSqlTime,
+      deleted,
+      totalDeleted,
+      hasMore
+    };
   }
 
   /**

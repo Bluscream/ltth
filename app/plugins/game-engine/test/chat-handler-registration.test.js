@@ -86,7 +86,7 @@ describe('Chat Handler Registration Fix', () => {
   });
 
   describe('When GCCE is Available', () => {
-    test('should NOT register chat handler (GCCE handles it)', () => {
+    test('should leave prefixed chat commands to GCCE', () => {
       // Setup GCCE as available
       mockApi.pluginLoader = {
         loadedPlugins: new Map([
@@ -112,6 +112,8 @@ describe('Chat Handler Registration Fix', () => {
       plugin.registerGCCECommands();
       expect(plugin.gcceCommandsRegistered).toBe(true);
 
+      plugin.handleChatCommand = jest.fn();
+
       // Register TikTok events
       plugin.registerTikTokEvents();
 
@@ -119,13 +121,56 @@ describe('Chat Handler Registration Fix', () => {
       expect(registeredTikTokEvents.gift).toBeDefined();
       expect(registeredTikTokEvents.gift.length).toBeGreaterThan(0);
 
-      // Verify chat handler is NOT registered (GCCE handles it)
-      expect(registeredTikTokEvents.chat).toBeUndefined();
+      // Verify chat handler is registered for arena/non-prefixed commands,
+      // but prefixed commands are still owned by GCCE.
+      expect(registeredTikTokEvents.chat).toBeDefined();
+      registeredTikTokEvents.chat[0]({
+        uniqueId: 'user123',
+        nickname: 'TestUser',
+        comment: '/c4start'
+      });
+      expect(plugin.handleChatCommand).not.toHaveBeenCalled();
 
       // Verify correct log message
       expect(mockApi.log).toHaveBeenCalledWith(
         expect.stringContaining('Chat commands handled by GCCE'),
         'info'
+      );
+    });
+
+    test('should route bare Game Engine chat commands through fallback handler', () => {
+      mockApi.pluginLoader = {
+        loadedPlugins: new Map([
+          ['gcce', {
+            instance: {
+              registerCommandsForPlugin: jest.fn((pluginId, commands) => ({
+                registered: commands.map(cmd => cmd.name),
+                failed: []
+              })),
+              unregisterCommandsForPlugin: jest.fn()
+            }
+          }]
+        ])
+      };
+
+      plugin.db = {
+        getGameConfig: jest.fn(() => plugin.defaultConfigs.connect4),
+        getTriggers: jest.fn(() => [])
+      };
+
+      plugin.registerGCCECommands();
+      expect(plugin.gcceCommandsRegistered).toBe(true);
+      plugin.handleChatCommand = jest.fn();
+
+      plugin.registerTikTokEvents();
+      registeredTikTokEvents.chat[0]({
+        uniqueId: 'user123',
+        nickname: 'TestUser',
+        comment: 'c4start'
+      });
+
+      expect(plugin.handleChatCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ comment: 'c4start' })
       );
     });
   });

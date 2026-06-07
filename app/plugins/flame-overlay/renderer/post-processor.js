@@ -8,9 +8,12 @@ class PostProcessor {
         this.gl = gl;
         this.framebuffers = {};
         this.textures = {};
+        this.framebufferComplete = {};
+        this.framebufferStatus = {};
         this.programs = {};
         this.quadBuffer = null;
         this.quadTexCoordBuffer = null;
+        this.maxBloomPasses = 8;
         
         this.init();
     }
@@ -220,8 +223,12 @@ class PostProcessor {
         
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
         
-        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-            console.error('Framebuffer is not complete');
+        const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+        const complete = status === gl.FRAMEBUFFER_COMPLETE;
+        this.framebufferStatus[name] = status;
+        this.framebufferComplete[name] = complete;
+        if (!complete) {
+            console.error(`Framebuffer '${name}' is not complete: ${status}`);
         }
         
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -229,7 +236,7 @@ class PostProcessor {
         this.framebuffers[name] = framebuffer;
         this.textures[name] = texture;
         
-        return { framebuffer, texture };
+        return { framebuffer, texture, complete };
     }
     
     resize(width, height) {
@@ -254,18 +261,24 @@ class PostProcessor {
         if (this.framebuffers[name]) {
             this.gl.deleteFramebuffer(this.framebuffers[name]);
             this.gl.deleteTexture(this.textures[name]);
+            delete this.framebuffers[name];
+            delete this.textures[name];
+            delete this.framebufferComplete[name];
+            delete this.framebufferStatus[name];
         }
         this.createFramebuffer(width, height, name);
     }
     
     isReady() {
-        return this.framebuffers.scene && 
-               this.framebuffers.bright && 
-               this.framebuffers.blur1 && 
-               this.framebuffers.blur2 &&
+        const requiredFramebuffers = ['scene', 'bright', 'blur1', 'blur2'];
+        const framebuffersReady = requiredFramebuffers.every(name =>
+            Boolean(this.framebuffers[name]) && this.framebufferComplete[name] === true
+        );
+
+        return Boolean(framebuffersReady &&
                this.programs.extractBright &&
                this.programs.kawaseBlur &&
-               this.programs.composite;
+               this.programs.composite);
     }
     
     renderToFramebuffer(framebufferName, renderCallback) {
@@ -290,15 +303,31 @@ class PostProcessor {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     }
+
+    getBloomPassCount(radius) {
+        const number = Number(radius ?? 4);
+        const passCount = Number.isFinite(number) ? Math.floor(number) : 4;
+        return Math.max(1, Math.min(passCount, this.maxBloomPasses ?? 8));
+    }
+
+    preparePostProcessingState() {
+        const gl = this.gl;
+        gl.disable(gl.BLEND);
+        if (typeof gl.blendFunc === 'function') {
+            gl.blendFunc(gl.ONE, gl.ZERO);
+        }
+    }
     
     applyBloom(sceneTexture, config) {
         const gl = this.gl;
-        const bloomWidth = this.bloomWidth || Math.max(1, Math.floor(gl.canvas.width / 2));
-        const bloomHeight = this.bloomHeight || Math.max(1, Math.floor(gl.canvas.height / 2));
-        const passCount = Math.max(1, config.bloomRadius || 4);
+        const bloomWidth = this.bloomWidth ?? Math.max(1, Math.floor(gl.canvas.width / 2));
+        const bloomHeight = this.bloomHeight ?? Math.max(1, Math.floor(gl.canvas.height / 2));
+        const passCount = this.getBloomPassCount(config.bloomRadius);
+        this.preparePostProcessingState();
         
         // Extract bright areas into 'bright' FB (at bloom resolution)
         this.renderToFramebuffer('bright', () => {
+            this.preparePostProcessingState();
             gl.useProgram(this.programs.extractBright);
             gl.activeTexture(gl.TEXTURE0);
             gl.bindTexture(gl.TEXTURE_2D, sceneTexture);
@@ -306,7 +335,7 @@ class PostProcessor {
             const uTexture = gl.getUniformLocation(this.programs.extractBright, 'uTexture');
             const uThreshold = gl.getUniformLocation(this.programs.extractBright, 'uThreshold');
             gl.uniform1i(uTexture, 0);
-            gl.uniform1f(uThreshold, config.bloomThreshold || 0.6);
+            gl.uniform1f(uThreshold, config.bloomThreshold ?? 0.6);
             
             this.drawQuad(this.programs.extractBright);
         });
@@ -322,6 +351,7 @@ class PostProcessor {
             const finalSrcName = srcName;
             
             this.renderToFramebuffer(finalDstName, () => {
+                this.preparePostProcessingState();
                 gl.useProgram(this.programs.kawaseBlur);
                 gl.activeTexture(gl.TEXTURE0);
                 gl.bindTexture(gl.TEXTURE_2D, this.textures[finalSrcName]);
@@ -346,7 +376,8 @@ class PostProcessor {
     
     composite(originalTexture, bloomTexture, config, time) {
         const gl = this.gl;
-        
+
+        this.preparePostProcessingState();
         gl.useProgram(this.programs.composite);
         
         gl.activeTexture(gl.TEXTURE0);
@@ -364,9 +395,9 @@ class PostProcessor {
         
         gl.uniform1i(uOriginalTexture, 0);
         gl.uniform1i(uBloomTexture, 1);
-        gl.uniform1f(uBloomIntensity, config.bloomIntensity || 0.8);
-        gl.uniform1f(uChromaticAberration, config.chromaticAberration || 0.005);
-        gl.uniform1f(uFilmGrain, config.filmGrain || 0.03);
+        gl.uniform1f(uBloomIntensity, config.bloomIntensity ?? 0.8);
+        gl.uniform1f(uChromaticAberration, config.chromaticAberration ?? 0.005);
+        gl.uniform1f(uFilmGrain, config.filmGrain ?? 0.03);
         gl.uniform1f(uTime, time);
         gl.uniform2f(uResolution, gl.canvas.width, gl.canvas.height);
         
@@ -392,13 +423,28 @@ class PostProcessor {
     
     destroy() {
         const gl = this.gl;
+        if (!gl) return;
         
         // Delete framebuffers and textures
-        Object.values(this.framebuffers).forEach(fb => gl.deleteFramebuffer(fb));
-        Object.values(this.textures).forEach(tex => gl.deleteTexture(tex));
-        Object.values(this.programs).forEach(prog => gl.deleteProgram(prog));
+        Object.values(this.framebuffers || {}).forEach(fb => {
+            if (fb) gl.deleteFramebuffer(fb);
+        });
+        Object.values(this.textures || {}).forEach(tex => {
+            if (tex) gl.deleteTexture(tex);
+        });
+        Object.values(this.programs || {}).forEach(prog => {
+            if (prog) gl.deleteProgram(prog);
+        });
         
         if (this.quadBuffer) gl.deleteBuffer(this.quadBuffer);
         if (this.quadTexCoordBuffer) gl.deleteBuffer(this.quadTexCoordBuffer);
+
+        this.framebuffers = {};
+        this.textures = {};
+        this.framebufferComplete = {};
+        this.framebufferStatus = {};
+        this.programs = {};
+        this.quadBuffer = null;
+        this.quadTexCoordBuffer = null;
     }
 }

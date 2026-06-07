@@ -1,13 +1,64 @@
 # Launcher Build Instructions
 
-This directory contains the source code for the Windows launchers.
+This directory contains the source code for the Windows launchers and the thin-install bootstrapper.
+
+## Preferred Distribution Path
+
+The primary end-user download path is now:
+
+1. `ltth-bootstrapper.exe` from `ltth.app`
+2. bootstrapper downloads `stable.json` or `beta.json`
+3. bootstrapper downloads a ready-to-run platform payload
+4. payload is installed per-user under `%LOCALAPPDATA%\LTTH`
+
+The old `ltthgit.exe` flow remains in the snapshot as legacy reference code. The heavy NSIS installer in `build-src/installer/` is now a fallback path, not the preferred default.
 
 ## Launchers
 
-1. **launcher.exe** - Local launcher for existing installations
-2. **ltthgit.exe** - Cloud launcher that downloads files from GitHub
+1. **launcher.exe** - Local launcher for installed LTTH payloads
+2. **ltth-bootstrapper.exe** - Thin installer/bootstrapper for first-time install
+3. **ltthgit.exe** - Legacy cloud launcher that downloads files from GitHub
+
+## Release Packaging
+
+The Windows payload and manifest are assembled by:
+
+- `build-src/scripts/package-windows-bootstrap-release.ps1`
+
+That script is the checked-in source of truth used by the release workflow for:
+
+- `ltth-bootstrapper.exe`
+- `ltth-payload-windows-amd64-<version>.zip`
+- `stable.json`
 
 ## Launcher Features
+
+### Port-Fallback und Startdiagnose
+
+Der GUI-Launcher (`launcher.exe`) startet den Node.js-Server nicht mehr starr auf Port 3000.
+Beim Start setzt er `LTTH_PORT` und `LTTH_MAX_PORT`; der Server versucht zuerst den Wunschport
+und weicht dann automatisch auf den naechsten freien Port im Bereich `Wunschport..Wunschport+50`
+aus. Der tatsaechlich genutzte Port wird in `.ltth_port` geschrieben und vom Launcher fuer
+Health-Checks, Redirects und den "Zur App"-Link verwendet.
+
+Fuer Supportfaelle schreibt der Launcher detaillierte Diagnoseinformationen nach
+`app/logs/launcher_*.log`, darunter:
+- der bevorzugte Port und der Fallback-Bereich
+- ob der bevorzugte Port frei oder belegt ist
+- unter Windows die `netstat -ano`-Zeile des blockierenden LISTENING-Prozesses
+- Node.js stdout/stderr waehrend des Starts
+- der letzte Startfehler und die erkannte Runtime-Port-Datei
+
+Im Launcher-UI gibt es unter "Server-Start" manuelle Controls:
+- Port setzen
+- Server starten
+- App oeffnen
+- Server stoppen
+- Status pruefen
+
+Wenn der automatische Start fehlschlaegt, bleibt der Launcher geoeffnet und stellt diese
+manuellen Controls sowie den Log-Tab bereit, statt nach einem kurzen Browser-Refresh zu
+schliessen.
 
 ### GitHub API Auto-Update
 

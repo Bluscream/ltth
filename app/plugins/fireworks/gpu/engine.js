@@ -1636,6 +1636,7 @@ class FireworksEngine {
             minFps: CONFIG.minFps,
             giftPopupPosition: CONFIG.giftPopupPosition
         };
+        this.workerModeRequested = typeof window !== 'undefined' && Boolean(window.FIREWORKS_USE_WORKER);
         
         // Performance limits from config (set via fireworks:config-update)
         this.MAX_FIREWORKS = 5; // Will be updated from config
@@ -1650,6 +1651,7 @@ class FireworksEngine {
         }
         if (typeof window !== 'undefined') {
             window.fireworksEngineInstance = this;
+            window.FIREWORKS_CONFIG = this.config;
         }
         
         this.running = false;
@@ -1662,6 +1664,10 @@ class FireworksEngine {
     }
 
     async init() {
+        if (this.workerModeRequested) {
+            console.warn('[Fireworks Engine] Worker mode requested; using main-thread renderer fallback.');
+        }
+
         // Setup canvas
         this.resize();
         
@@ -1709,10 +1715,9 @@ class FireworksEngine {
                     return;
                 }
                 
-                this.webglEngine = new WebGLParticleEngine(this.canvas, {
-                    preserveDrawingBuffer: this.config.preserveDrawingBuffer ?? true,
-                    desynchronized: this.config.desynchronized ?? true
-                });
+                this.webglEngine = new WebGLParticleEngine(this.canvas);
+                this.webglEngine.preserveDrawingBuffer = this.config.preserveDrawingBuffer ?? true;
+                this.webglEngine.desynchronized = this.config.desynchronized ?? true;
                 const success = this.webglEngine.init();
                 
                 if (success) {
@@ -1835,6 +1840,9 @@ class FireworksEngine {
                     const oldToasterMode = this.config.toasterMode;
                     
                     Object.assign(this.config, data.config);
+                    if (typeof window !== 'undefined') {
+                        window.FIREWORKS_CONFIG = this.config;
+                    }
                     this.audioManager.setEnabled(this.config.audioEnabled);
                     this.audioManager.setVolume(this.config.audioVolume);
                     

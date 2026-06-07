@@ -535,6 +535,12 @@
     let currentRotation = 0;
     let isSpinning = false;
     let currentSpinId = null;
+    let spinStartTimer = null;
+    let hideWinAnnouncementTimer = null;
+    let showInfoScreenTimer = null;
+    let hideInfoScreenTimer = null;
+    let hidePlayerAndWheelTimer = null;
+    let idleMessageRevealTimer = null;
     const TYPE_ICONS = {
       plinko: '🎰',
       wheel: '🎡',
@@ -558,6 +564,38 @@
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
       return audioContext;
+    }
+
+    function clearWheelTimers() {
+      if (spinStartTimer) {
+        clearTimeout(spinStartTimer);
+        spinStartTimer = null;
+      }
+
+      if (hideWinAnnouncementTimer) {
+        clearTimeout(hideWinAnnouncementTimer);
+        hideWinAnnouncementTimer = null;
+      }
+
+      if (showInfoScreenTimer) {
+        clearTimeout(showInfoScreenTimer);
+        showInfoScreenTimer = null;
+      }
+
+      if (hideInfoScreenTimer) {
+        clearTimeout(hideInfoScreenTimer);
+        hideInfoScreenTimer = null;
+      }
+
+      if (hidePlayerAndWheelTimer) {
+        clearTimeout(hidePlayerAndWheelTimer);
+        hidePlayerAndWheelTimer = null;
+      }
+
+      if (idleMessageRevealTimer) {
+        clearTimeout(idleMessageRevealTimer);
+        idleMessageRevealTimer = null;
+      }
     }
     
     // Play tick sound using Web Audio API (wheel-specific, not Connect4)
@@ -902,8 +940,10 @@
     function spinWheel(totalRotation, duration, winningSegment, spinId, nickname) {
       isSpinning = true;
       currentSpinId = spinId;
-      wheelWrapper.classList.add('spinning');
+      wheelWrapper.classList.add('visible');
+      playerInfo.classList.add('visible');
       idleMessage.classList.add('hidden');
+      wheelWrapper.classList.add('spinning');
 
       // Use the spin duration provided by the server (MUST NOT change dynamically)
       // The server calculated totalRotation based on this exact duration
@@ -1086,7 +1126,11 @@
 
       // Hide after delay (use configurable duration, default 5 seconds)
       const displayDuration = (config.settings.winnerDisplayDuration || 5) * 1000;
-      setTimeout(() => {
+      if (hideWinAnnouncementTimer) {
+        clearTimeout(hideWinAnnouncementTimer);
+      }
+      hideWinAnnouncementTimer = setTimeout(() => {
+        hideWinAnnouncementTimer = null;
         hideWinAnnouncement(isNiete, isShock);
       }, displayDuration);
     }
@@ -1099,16 +1143,27 @@
       winAnnouncement.classList.remove('niete');
       winAnnouncement.classList.remove('shock');
       winAnnouncement.style.animation = ''; // Clear shock animation
+
+      if (showInfoScreenTimer) {
+        clearTimeout(showInfoScreenTimer);
+        showInfoScreenTimer = null;
+      }
+      if (hidePlayerAndWheelTimer) {
+        clearTimeout(hidePlayerAndWheelTimer);
+        hidePlayerAndWheelTimer = null;
+      }
       
       // Show info screen after win (not for Niete or Shock)
       const settings = config.settings || {};
       if (!isNiete && !isShock && settings.infoScreenEnabled && settings.infoScreenText) {
-        setTimeout(() => {
+        showInfoScreenTimer = setTimeout(() => {
+          showInfoScreenTimer = null;
           showInfoScreen();
         }, 300);
       } else {
         // Hide player info after a short delay
-        setTimeout(() => {
+        hidePlayerAndWheelTimer = setTimeout(() => {
+          hidePlayerAndWheelTimer = null;
           hidePlayerAndWheel();
         }, 500);
       }
@@ -1124,7 +1179,11 @@
       
       // Hide after delay
       const infoDuration = (settings.infoScreenDuration || 5) * 1000;
-      setTimeout(() => {
+      if (hideInfoScreenTimer) {
+        clearTimeout(hideInfoScreenTimer);
+      }
+      hideInfoScreenTimer = setTimeout(() => {
+        hideInfoScreenTimer = null;
         hideInfoScreen();
       }, infoDuration);
     }
@@ -1136,7 +1195,11 @@
       infoScreen.classList.remove('visible');
       
       // Hide player info after info screen
-      setTimeout(() => {
+      if (hidePlayerAndWheelTimer) {
+        clearTimeout(hidePlayerAndWheelTimer);
+      }
+      hidePlayerAndWheelTimer = setTimeout(() => {
+        hidePlayerAndWheelTimer = null;
         hidePlayerAndWheel();
       }, 300);
     }
@@ -1145,12 +1208,20 @@
      * Hide player info and wheel, show idle message
      */
     function hidePlayerAndWheel() {
+      if (isSpinning || currentSpinId) {
+        return;
+      }
+
       playerInfo.classList.remove('visible');
       wheelWrapper.classList.remove('visible');
       
       // Show idle message if no queue
       if (queue.length === 0) {
-        setTimeout(() => {
+        if (idleMessageRevealTimer) {
+          clearTimeout(idleMessageRevealTimer);
+        }
+        idleMessageRevealTimer = setTimeout(() => {
+          idleMessageRevealTimer = null;
           idleMessage.classList.remove('hidden');
         }, 500);
       }
@@ -1388,6 +1459,8 @@
 
     socket.on('wheel:spin-start', async (data) => {
       console.log('🎡 Spin start', data);
+
+      clearWheelTimers();
       
       // Validate spin data
       if (!data) {
@@ -1448,7 +1521,12 @@
       // Do NOT remove here, otherwise queue display disappears before spin finishes
       
       // Start spin animation
-      setTimeout(() => {
+      spinStartTimer = setTimeout(() => {
+        spinStartTimer = null;
+        if (currentSpinId !== data.spinId) {
+          console.warn(`Ignoring stale spin start timer for ${data.spinId}`);
+          return;
+        }
         spinWheel(
           data.totalRotation,
           data.spinDuration,
@@ -1573,6 +1651,7 @@
     // Handle spin errors (e.g., segment count changed)
     socket.on('wheel:spin-error', (data) => {
       console.error('❌ Spin error', data);
+      clearWheelTimers();
       
       // Validate required data (spinId is required, others have fallbacks)
       if (!data || !data.spinId) {
@@ -1604,6 +1683,7 @@
 
     socket.on('wheel:spin-timeout', (data) => {
       console.warn('⚠️ Spin timeout (overlay did not respond)', data);
+      clearWheelTimers();
       
       // Validate required data
       if (!data || !data.spinId) {

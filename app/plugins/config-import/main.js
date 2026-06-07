@@ -16,6 +16,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
+const { MAX_BACKUP_SIZE_BYTES } = require('../../modules/backup/validators');
 
 const TOKEN_TTL_MS = 60000;          // One-time download tokens expire after 60 s
 const TOKEN_CLEANUP_TTL_MS = 120000; // Remove stale tokens after 120 s
@@ -149,18 +150,34 @@ class ConfigImportPlugin {
         const upload = multer({
             dest: os.tmpdir(),
             limits: {
-                fileSize: 500 * 1024 * 1024 // 500 MB
+                fileSize: MAX_BACKUP_SIZE_BYTES
             },
             fileFilter: (req, file, cb) => {
+                const originalName = String(file.originalname || '').toLowerCase();
                 if (file.mimetype === 'application/zip' ||
                     file.mimetype === 'application/x-zip-compressed' ||
-                    file.originalname.endsWith('.zip')) {
+                    originalName.endsWith('.zip')) {
                     cb(null, true);
                 } else {
                     cb(new Error('Only ZIP files are accepted'));
                 }
             }
         });
+
+        const parseBooleanOption = (value, defaultValue) => {
+            if (value === undefined || value === null || value === '') {
+                return defaultValue;
+            }
+            if (typeof value === 'boolean') {
+                return value;
+            }
+            if (typeof value === 'string') {
+                const normalised = value.trim().toLowerCase();
+                if (['false', '0', 'no', 'off'].includes(normalised)) return false;
+                if (['true', '1', 'yes', 'on'].includes(normalised)) return true;
+            }
+            return Boolean(value);
+        };
 
         // GET /api/config-backup/capabilities
         this.api.registerRoute('GET', '/api/config-backup/capabilities', (req, res) => {
@@ -188,17 +205,19 @@ class ConfigImportPlugin {
                     includeGlobalSettings = true,
                     includePluginSettings = true,
                     includePluginData = true,
-                    includeUploads = false,
-                    includeUserData = false,
+                    includeUserConfigs = true,
+                    includeUploads = true,
+                    includeUserData = true,
                     pluginFilter = null
                 } = req.body || {};
 
                 const opts = {
-                    includeGlobalSettings: Boolean(includeGlobalSettings),
-                    includePluginSettings: Boolean(includePluginSettings),
-                    includePluginData: Boolean(includePluginData),
-                    includeUploads: Boolean(includeUploads),
-                    includeUserData: Boolean(includeUserData),
+                    includeGlobalSettings: parseBooleanOption(includeGlobalSettings, true),
+                    includePluginSettings: parseBooleanOption(includePluginSettings, true),
+                    includePluginData: parseBooleanOption(includePluginData, true),
+                    includeUserConfigs: parseBooleanOption(includeUserConfigs, true),
+                    includeUploads: parseBooleanOption(includeUploads, true),
+                    includeUserData: parseBooleanOption(includeUserData, true),
                     pluginFilter: Array.isArray(pluginFilter) && pluginFilter.length > 0 ? pluginFilter : null
                 };
 
@@ -243,17 +262,19 @@ class ConfigImportPlugin {
                     includeGlobalSettings = true,
                     includePluginSettings = true,
                     includePluginData = true,
-                    includeUploads = false,
-                    includeUserData = false,
+                    includeUserConfigs = true,
+                    includeUploads = true,
+                    includeUserData = true,
                     pluginFilter = null
                 } = req.body || {};
 
                 const opts = {
-                    includeGlobalSettings: Boolean(includeGlobalSettings),
-                    includePluginSettings: Boolean(includePluginSettings),
-                    includePluginData: Boolean(includePluginData),
-                    includeUploads: Boolean(includeUploads),
-                    includeUserData: Boolean(includeUserData),
+                    includeGlobalSettings: parseBooleanOption(includeGlobalSettings, true),
+                    includePluginSettings: parseBooleanOption(includePluginSettings, true),
+                    includePluginData: parseBooleanOption(includePluginData, true),
+                    includeUserConfigs: parseBooleanOption(includeUserConfigs, true),
+                    includeUploads: parseBooleanOption(includeUploads, true),
+                    includeUserData: parseBooleanOption(includeUserData, true),
                     pluginFilter: Array.isArray(pluginFilter) && pluginFilter.length > 0 ? pluginFilter : null
                 };
 
@@ -359,6 +380,7 @@ class ConfigImportPlugin {
                     pluginCount: Object.keys(parsed.pluginSettings || {}).length,
                     dataFileCount: Object.values(parsed.dataFiles || {}).reduce((s, f) => s + f.length, 0),
                     hasGlobalSettings: Boolean(parsed.globalSettings),
+                    userConfigFiles: (parsed.userConfigsFiles || []).length,
                     uploadFiles: (parsed.uploadFiles || []).length,
                     userDataFiles: (parsed.userDataFiles || []).length,
                     warnings: parsed.warnings
@@ -446,12 +468,13 @@ class ConfigImportPlugin {
                 const body = req.body || {};
 
                 const opts = {
-                    mode: body.mode === 'replace' ? 'replace' : 'merge',
-                    includeGlobalSettings: body.includeGlobalSettings !== 'false',
-                    includePluginSettings: body.includePluginSettings !== 'false',
-                    includePluginData: body.includePluginData !== 'false',
-                    includeUploads: body.includeUploads === 'true',
-                    includeUserData: body.includeUserData === 'true',
+                    mode: body.mode === 'merge' ? 'merge' : 'replace',
+                    includeGlobalSettings: parseBooleanOption(body.includeGlobalSettings, true),
+                    includePluginSettings: parseBooleanOption(body.includePluginSettings, true),
+                    includePluginData: parseBooleanOption(body.includePluginData, true),
+                    includeUserConfigs: parseBooleanOption(body.includeUserConfigs, true),
+                    includeUploads: parseBooleanOption(body.includeUploads, true),
+                    includeUserData: parseBooleanOption(body.includeUserData, true),
                     pluginFilter: body.pluginFilter ? JSON.parse(body.pluginFilter) : null
                 };
 

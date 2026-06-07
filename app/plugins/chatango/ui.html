@@ -613,13 +613,32 @@
             const theme = config.theme;
             
             // Create iframe preview (Chatango needs to be loaded fresh)
-            previewContainer.innerHTML = `
-                <div style="text-align: center; color: var(--color-text-muted);">
-                    <p>⚠️ Live preview requires the Chatango embed script to load.</p>
-                    <p>Save your configuration and refresh the dashboard to see changes.</p>
-                    <p style="margin-top: 12px;">Room: <strong>${config.roomHandle}</strong> | Theme: <strong>${theme}</strong></p>
-                </div>
-            `;
+            previewContainer.innerHTML = '';
+            const wrapper = document.createElement('div');
+            wrapper.style.textAlign = 'center';
+            wrapper.style.color = 'var(--color-text-muted)';
+
+            const warning = document.createElement('p');
+            warning.textContent = '⚠️ Live preview requires the Chatango embed script to load.';
+            wrapper.appendChild(warning);
+
+            const instructions = document.createElement('p');
+            instructions.textContent = 'Save your configuration and refresh the dashboard to see changes.';
+            wrapper.appendChild(instructions);
+
+            const details = document.createElement('p');
+            details.style.marginTop = '12px';
+            const roomLabel = document.createElement('strong');
+            roomLabel.textContent = config.roomHandle || '';
+            const themeLabel = document.createElement('strong');
+            themeLabel.textContent = theme || '';
+            details.append('Room: ');
+            details.appendChild(roomLabel);
+            details.append(' | Theme: ');
+            details.appendChild(themeLabel);
+            wrapper.appendChild(details);
+
+            previewContainer.appendChild(wrapper);
 
             // Scroll to preview
             previewCard.scrollIntoView({ behavior: 'smooth' });

@@ -17,11 +17,61 @@
     let selectedProfile = null;
     let profileSwitchPending = false;
     let restartCountdown = null;
+    let restartInProgress = false;
 
     function profilesMatch(a, b) {
         return typeof a === 'string'
             && typeof b === 'string'
             && a.toLowerCase() === b.toLowerCase();
+    }
+
+    function getKnownLocalPorts() {
+        const ports = new Set();
+        const currentPort = Number(window.location.port || 80);
+        if (Number.isInteger(currentPort) && currentPort > 0) {
+            ports.add(currentPort);
+        }
+        for (let port = 3000; port <= 3050; port++) {
+            ports.add(port);
+        }
+        return [...ports];
+    }
+
+    async function fetchProfileStatusFromPort(port, timeoutMs = 700) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(`http://localhost:${port}/api/profiles/active?restartPoll=${Date.now()}`, {
+                cache: 'no-store',
+                signal: controller.signal
+            });
+            if (!response.ok) return null;
+            const data = await response.json();
+            return { port, data };
+        } catch (_) {
+            return null;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async function findActiveProfileOnKnownPorts(targetProfile) {
+        if (!targetProfile) return null;
+
+        const currentPort = Number(window.location.port || 80);
+        for (const port of getKnownLocalPorts()) {
+            if (port === currentPort) continue;
+
+            const result = await fetchProfileStatusFromPort(port);
+            if (!result) continue;
+
+            const { data } = result;
+            if (profilesMatch(data.activeProfile, targetProfile) && !data.requiresRestart) {
+                return result;
+            }
+        }
+
+        return null;
     }
 
     // Initialize on DOMContentLoaded
@@ -62,16 +112,28 @@
             const data = await response.json();
 
             activeProfile = data.activeProfile;
-            selectedProfile = localStorage.getItem('selectedProfile') || activeProfile;
+            const storedSelected = localStorage.getItem('selectedProfile');
+            const serverPendingProfile = data.pendingProfile && !profilesMatch(data.pendingProfile, activeProfile)
+                ? data.pendingProfile
+                : null;
 
-            // Check if profiles differ (pending restart)
-            if (selectedProfile && !profilesMatch(selectedProfile, activeProfile)) {
+            if (serverPendingProfile) {
+                selectedProfile = serverPendingProfile;
+                localStorage.setItem('selectedProfile', selectedProfile);
                 profileSwitchPending = true;
                 showProfileSwitchWarning();
-            } else if (profilesMatch(selectedProfile, activeProfile)) {
-                // Profiles match - clear localStorage to prevent false warnings after restart
+            } else if (storedSelected) {
+                selectedProfile = activeProfile;
+                profileSwitchPending = false;
                 localStorage.removeItem('selectedProfile');
-                console.log('✅ Profile switch completed successfully - localStorage cleared');
+                if (profilesMatch(storedSelected, activeProfile)) {
+                    console.log('✅ Profile switch completed successfully - localStorage cleared');
+                } else {
+                    console.warn('Ignored stale stored profile switch target:', storedSelected);
+                }
+            } else {
+                selectedProfile = activeProfile;
+                profileSwitchPending = false;
             }
 
             return data;
@@ -222,53 +284,22 @@
             showProfileSwitchWarning();
             updateProfileDisplay();
 
-            // Show restart confirmation with countdown
+            // Profile changes need a real backend restart; a page reload is not enough.
             showRestartConfirmation(data);
         }
     }
 
     /**
-     * Show restart confirmation with auto-restart option
+     * Start the mandatory restart flow after a profile switch.
      */
     function showRestartConfirmation(data) {
-        const autoRestartEnabled = localStorage.getItem('profile_autoRestart') === 'true';
-        const countdownSeconds = 5;
+        const targetProfile = data?.to || data?.newProfile || selectedProfile;
+        const message = window.i18n?.t('profile.switched_notification', {
+            profile: targetProfile
+        }) || `Profile switched to "${targetProfile}".\n\nThe application will restart to activate the new profile...`;
 
-        if (autoRestartEnabled) {
-            // Auto-restart after countdown
-            let remaining = countdownSeconds;
-            
-            const message = window.i18n?.t('profile.auto_restart_countdown', {
-                profile: data.to,
-                seconds: remaining
-            }) || `Profile switched to "${data.to}".\n\nAuto-restart in ${remaining} seconds...`;
-
-            const notification = showNotification(message, 'info', countdownSeconds * 1000);
-
-            restartCountdown = setInterval(() => {
-                remaining--;
-                if (remaining > 0) {
-                    const updatedMessage = window.i18n?.t('profile.auto_restart_countdown', {
-                        profile: data.to,
-                        seconds: remaining
-                    }) || `Profile switched to "${data.to}".\n\nAuto-restart in ${remaining} seconds...`;
-                    
-                    if (notification && notification.textContent) {
-                        notification.querySelector('p').textContent = updatedMessage.split('\n\n')[1];
-                    }
-                } else {
-                    clearInterval(restartCountdown);
-                    restartNow();
-                }
-            }, 1000);
-        } else {
-            // Manual restart prompt
-            const message = window.i18n?.t('profile.manual_restart_prompt', {
-                profile: data.to
-            }) || `Profile switched to "${data.to}".\n\nPlease restart the application to activate the new profile.`;
-
-            showNotification(message, 'warning', 0);
-        }
+        showNotification(message, 'info', 3000);
+        beginProfileRestart(data);
     }
 
     /**
@@ -276,12 +307,39 @@
      * Falls back to location.reload() if the API is unavailable (e.g. direct node server.js without launcher).
      */
     async function restartNow() {
-        console.log('♻️ Requesting server restart to activate new profile...');
+        await beginProfileRestart({
+            to: selectedProfile || localStorage.getItem('selectedProfile'),
+            requiresRestart: true
+        });
+    }
+
+    async function beginProfileRestart(data = {}) {
+        const targetProfile = data.to || data.newProfile || selectedProfile || localStorage.getItem('selectedProfile');
+
+        if (targetProfile) {
+            selectedProfile = targetProfile;
+            localStorage.setItem('selectedProfile', targetProfile);
+        }
+
+        if (restartInProgress) {
+            return;
+        }
+
+        restartInProgress = true;
+        console.log('♻️ Starting profile restart flow...', data);
 
         // Clear pending countdown
         if (restartCountdown) {
             clearInterval(restartCountdown);
             restartCountdown = null;
+        }
+
+        showRestartWaitingOverlay(targetProfile);
+
+        if (data.restartScheduled) {
+            await waitForServerRestart(targetProfile);
+            window.location.reload();
+            return;
         }
 
         try {
@@ -294,27 +352,45 @@
                 // Server acknowledged restart request.
                 // Poll until server is back online, then reload the page.
                 console.log('✅ Server restart initiated. Waiting for server to come back online...');
-                showRestartWaitingOverlay();
-                await waitForServerRestart();
+                await waitForServerRestart(targetProfile);
                 window.location.reload();
             } else {
                 // API returned an error – fall back to page reload
                 console.warn('⚠️ Server restart API returned error, falling back to page reload');
-                window.location.reload();
+                const errorText = await readRestartError(response);
+                console.error('Server restart API returned error:', errorText);
+                showRestartError(errorText);
+                restartInProgress = false;
             }
         } catch (error) {
             // Network error (server already restarting) – wait and reload
             console.log('♻️ Server appears to be restarting (network error expected). Waiting...');
-            showRestartWaitingOverlay();
-            await waitForServerRestart();
+            await waitForServerRestart(targetProfile);
             window.location.reload();
         }
+    }
+
+    async function readRestartError(response) {
+        try {
+            const data = await response.json();
+            return data.error || data.message || `${response.status} ${response.statusText}`;
+        } catch (_) {
+            return `${response.status} ${response.statusText}`;
+        }
+    }
+
+    function showRestartError(message) {
+        showNotification(
+            `${window.i18n?.t('profile.restart_failed') || 'Server restart failed'}: ${message}`,
+            'error',
+            10000
+        );
     }
 
     /**
      * Shows a full-screen overlay while the server restarts.
      */
-    function showRestartWaitingOverlay() {
+    function showRestartWaitingOverlay(targetProfile) {
         // Remove existing overlay if any
         const existing = document.getElementById('server-restart-overlay');
         if (existing) existing.remove();
@@ -332,6 +408,7 @@
             <div style="font-size:1.25rem;font-weight:600">
                 ${window.i18n?.t('profile.restarting') || 'Server wird neu gestartet...'}
             </div>
+            ${targetProfile ? `<div style="font-size:0.95rem;color:#d1d5db">Profil: ${targetProfile}</div>` : ''}
             <div style="font-size:0.9rem;color:#aaa">
                 ${window.i18n?.t('profile.restart_wait') || 'Bitte warten \u2013 die Seite l\u00e4dt automatisch neu.'}
             </div>
@@ -340,29 +417,49 @@
     }
 
     /**
-     * Polls /api/status until the server responds again (max 30 seconds).
-     * Resolves when the server is back online or on timeout.
+     * Polls until the target profile is active. This also handles very fast restarts
+     * where the browser could miss the short offline window.
      */
-    function waitForServerRestart(maxWaitMs = 30000, intervalMs = 500) {
+    function waitForServerRestart(targetProfile = selectedProfile, maxWaitMs = 180000, intervalMs = 500) {
         return new Promise((resolve) => {
             const deadline = Date.now() + maxWaitMs;
+            let sawServerOffline = false;
+            let lastPortScan = 0;
 
             const poll = async () => {
                 try {
-                    const r = await fetch('/api/status', { cache: 'no-store' });
+                    const r = await fetch('/api/profiles/active?restartPoll=' + Date.now(), { cache: 'no-store' });
                     if (r.ok) {
+                        const data = await r.json().catch(() => null);
+                        if (targetProfile && data && profilesMatch(data.activeProfile, targetProfile) && !data.requiresRestart) {
+                            resolve();
+                            return;
+                        }
+                    }
+
+                    if (r.ok && !targetProfile && sawServerOffline) {
                         resolve();
                         return;
                     }
                 } catch (_) {
+                    sawServerOffline = true;
                     // Server not yet up – expected during restart
+                }
+
+                if (targetProfile && Date.now() - lastPortScan > 2000) {
+                    lastPortScan = Date.now();
+                    const alternate = await findActiveProfileOnKnownPorts(targetProfile);
+                    if (alternate) {
+                        window.location.href = `http://localhost:${alternate.port}/dashboard.html`;
+                        return;
+                    }
                 }
 
                 if (Date.now() < deadline) {
                     setTimeout(poll, intervalMs);
                 } else {
-                    // Timeout – reload anyway
-                    resolve();
+                    showRestartError(`Timeout waiting for profile "${targetProfile || 'unknown'}" to become active`);
+                    restartInProgress = false;
                 }
             };
 
@@ -394,12 +491,27 @@
      */
     function checkPendingProfileSwitch() {
         const storedSelected = localStorage.getItem('selectedProfile');
+
+        if (!activeProfile) {
+            return;
+        }
         
         if (storedSelected && !profilesMatch(storedSelected, activeProfile)) {
+            if (!profileSwitchPending) {
+                console.warn('Cleared stale stored profile switch target:', storedSelected);
+                localStorage.removeItem('selectedProfile');
+                selectedProfile = activeProfile;
+                return;
+            }
+
             profileSwitchPending = true;
             selectedProfile = storedSelected;
             showProfileSwitchWarning();
             updateProfileDisplay();
+            beginProfileRestart({
+                to: storedSelected,
+                requiresRestart: true
+            });
         } else if (storedSelected && profilesMatch(storedSelected, activeProfile)) {
             // Profiles match - clear localStorage to prevent false warnings
             localStorage.removeItem('selectedProfile');
@@ -494,6 +606,7 @@
     // Expose public API
     window.profileManager = {
         restartNow,
+        beginProfileRestart,
         dismissWarning,
         loadProfileStatus,
         getProfileIntegrityStatus,

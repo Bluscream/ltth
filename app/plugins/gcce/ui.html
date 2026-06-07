@@ -1449,9 +1449,13 @@
 
         // Update stats display
         function updateStats() {
-            document.getElementById('stat-total-commands').textContent = stats.totalCommands || 0;
-            document.getElementById('stat-enabled-commands').textContent = stats.enabledCommands || 0;
-            document.getElementById('stat-plugins').textContent = stats.plugins || 0;
+            const totalCommands = stats.registeredCommands ?? stats.totalCommands ?? 0;
+            const enabledCommands = stats.enabledCommands ?? commands.filter(cmd => cmd.enabled).length;
+            const plugins = stats.pluginsWithCommands ?? stats.plugins ?? 0;
+
+            document.getElementById('stat-total-commands').textContent = totalCommands;
+            document.getElementById('stat-enabled-commands').textContent = enabledCommands;
+            document.getElementById('stat-plugins').textContent = plugins;
         }
 
         // Display commands
@@ -1476,20 +1480,25 @@
                     </tr>
                 </thead>
                 <tbody>
-                    ${commandsList.map(cmd => `
+                    ${commandsList.map(cmd => {
+                        const commandName = cmd.name || '';
+                        const permission = cmd.permission || 'viewer';
+                        const pluginName = cmd.plugin || cmd.pluginId || 'built-in';
+                        return `
                         <tr>
-                            <td><span class="command-name">${cmd.name}</span></td>
-                            <td>${cmd.description || '-'}</td>
-                            <td><span class="command-plugin">${cmd.plugin || 'built-in'}</span></td>
-                            <td><span class="permission-badge permission-${cmd.permission || 'viewer'}">${cmd.permission || 'viewer'}</span></td>
+                            <td><span class="command-name">${escapeHtml(commandName)}</span></td>
+                            <td>${escapeHtml(cmd.description || '-')}</td>
+                            <td><span class="command-plugin">${escapeHtml(pluginName)}</span></td>
+                            <td><span class="permission-badge permission-${safeCssToken(permission)}">${escapeHtml(permission)}</span></td>
                             <td>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" ${cmd.enabled ? 'checked' : ''} data-command-name="${cmd.name}">
+                                    <input type="checkbox" ${cmd.enabled ? 'checked' : ''} data-command-name="${escapeHtml(commandName)}">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </td>
                         </tr>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </tbody>
             `;
             
@@ -1683,16 +1692,21 @@
                 return;
             }
 
-            const rows = hudMediaLibrary.map(item => `
+            const rows = hudMediaLibrary.map(item => {
+                const label = item.label || '';
+                const command = item.command || '/hudmedia ' + label;
+                const duration = item.duration || hudConfig.defaults?.mediaDuration || 10;
+                return `
                 <tr>
-                    <td class="command-name">${item.label}</td>
-                    <td><code>${item.command || '/hudmedia ' + item.label}</code></td>
-                    <td>${detectMediaType(item.url)}</td>
-                    <td>${item.duration || hudConfig.defaults?.mediaDuration || 10}s</td>
-                    <td><span class="config-description" style="font-size:0.85em;">${item.url}</span></td>
-                    <td><button class="btn btn-sm" data-remove-media="${item.id}">Remove</button></td>
+                    <td class="command-name">${escapeHtml(label)}</td>
+                    <td><code>${escapeHtml(command)}</code></td>
+                    <td>${escapeHtml(detectMediaType(item.url || ''))}</td>
+                    <td>${escapeHtml(duration)}s</td>
+                    <td><span class="config-description" style="font-size:0.85em;">${escapeHtml(item.url || '')}</span></td>
+                    <td><button class="btn btn-sm" data-remove-media="${escapeHtml(item.id || '')}">Remove</button></td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
 
             container.innerHTML = `
                 <table class="commands-table">
@@ -1906,10 +1920,12 @@
             let html = '<div class="active-elements-list">';
             elements.forEach(el => {
                 const remaining = Math.max(0, Math.ceil((el.expiresAt - Date.now()) / 1000));
+                const type = String(el.type || '').toUpperCase();
+                const content = String(el.content || '').substring(0, 50);
                 html += `
                     <div class="element-item">
-                        <strong>${el.type.toUpperCase()}</strong>: ${el.content.substring(0, 50)}...
-                        <br><small>User: ${el.username} | Remaining: ${remaining}s</small>
+                        <strong>${escapeHtml(type)}</strong>: ${escapeHtml(content)}...
+                        <br><small>User: ${escapeHtml(el.username || '')} | Remaining: ${remaining}s</small>
                     </div>
                 `;
             });
@@ -2009,8 +2025,12 @@
 
         function escapeHtml(text) {
             const div = document.createElement('div');
-            div.textContent = text;
+            div.textContent = text === null || text === undefined ? '' : String(text);
             return div.innerHTML;
+        }
+
+        function safeCssToken(text) {
+            return String(text || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
         }
 
         function renderGiftCatalogGrid(filterText = '') {
@@ -2605,10 +2625,10 @@
                             <tbody id="history-table-body">
                                 ${history.map(entry => `
                                     <tr>
-                                        <td>${new Date(entry.timestamp).toLocaleString()}</td>
-                                        <td>${entry.context?.username || 'Unknown'}</td>
-                                        <td><span class="command-name">/${entry.command?.name || 'Unknown'}</span></td>
-                                        <td>${(entry.command?.args || []).join(' ')}</td>
+                                        <td>${escapeHtml(new Date(entry.timestamp).toLocaleString())}</td>
+                                        <td>${escapeHtml(entry.context?.username || 'Unknown')}</td>
+                                        <td><span class="command-name">/${escapeHtml(entry.command?.name || 'Unknown')}</span></td>
+                                        <td>${escapeHtml((entry.command?.args || []).join(' '))}</td>
                                         <td>
                                             ${entry.result?.success 
                                                 ? '<span class="permission-badge permission-viewer" style="background: #10b981;">Success</span>' 
@@ -2680,7 +2700,8 @@
             const filterStatus = document.getElementById('log-filter-status')?.value || '';
 
             const filteredLogs = logs.filter(log => {
-                const matchUser = !filterUser || log.username.toLowerCase().includes(filterUser);
+                const username = String(log.username || '');
+                const matchUser = !filterUser || username.toLowerCase().includes(filterUser);
                 const matchStatus = !filterStatus || 
                     (filterStatus === 'success' && log.success) || 
                     (filterStatus === 'failed' && !log.success);
@@ -2690,12 +2711,13 @@
             container.innerHTML = filteredLogs.map(log => {
                 const time = new Date(log.timestamp).toLocaleTimeString();
                 const statusClass = log.success ? 'success' : 'error';
+                const executionTime = Number(log.executionTime || 0);
                 return `
                     <div class="log-entry ${statusClass}">
-                        <span class="log-timestamp">${time}</span>
-                        <span class="log-user">${log.username}</span>
-                        <span class="log-command">/${log.command}</span>
-                        <span>${log.success ? '✓' : '✗'} ${log.executionTime}ms</span>
+                        <span class="log-timestamp">${escapeHtml(time)}</span>
+                        <span class="log-user">${escapeHtml(log.username || '')}</span>
+                        <span class="log-command">/${escapeHtml(log.command || '')}</span>
+                        <span>${log.success ? '✓' : '✗'} ${executionTime}ms</span>
                     </div>
                 `;
             }).join('');
@@ -2802,10 +2824,10 @@
                 tbody.innerHTML = topCommands.map((cmd, index) => `
                     <tr>
                         <td>#${index + 1}</td>
-                        <td><span class="command-name">/${cmd.command}</span></td>
-                        <td>${cmd.count}</td>
-                        <td>${cmd.successRate}%</td>
-                        <td>${cmd.avgTime}ms</td>
+                        <td><span class="command-name">/${escapeHtml(cmd.command || '')}</span></td>
+                        <td>${Number(cmd.count || 0)}</td>
+                        <td>${Number(cmd.successRate || 0)}%</td>
+                        <td>${Number(cmd.avgTime || 0)}ms</td>
                     </tr>
                 `).join('');
             } catch (error) {
@@ -2955,7 +2977,7 @@
                 const data = await response.json();
                 if (data.success) {
                     const invalid = data.commands.filter(cmd => 
-                        !cmd.name || !cmd.handler || !cmd.pluginId
+                        !cmd.name || !(cmd.plugin || cmd.pluginId) || !cmd.syntax
                     );
                     if (invalid.length === 0) {
                         showMessage(`All ${data.commands.length} commands are valid`, 'success');
@@ -2994,7 +3016,7 @@
                         <div id="info-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;">
                             <div style="background: var(--color-bg-card); border-radius: 12px; padding: 24px; max-width: 90%; max-height: 90%; overflow: auto;">
                                 <h2>System Information</h2>
-                                <pre style="background: var(--color-bg-secondary); padding: 16px; border-radius: 8px; overflow: auto;">${info}</pre>
+                                <pre style="background: var(--color-bg-secondary); padding: 16px; border-radius: 8px; overflow: auto;">${escapeHtml(info)}</pre>
                                 <button class="btn btn-primary" onclick="document.getElementById('info-modal').remove()">Close</button>
                             </div>
                         </div>
@@ -3043,7 +3065,10 @@
                             });
                             const data = await response.json();
                             if (data.success) {
-                                showMessage(`Imported ${data.result.imported} commands`, 'success');
+                                const imported = Array.isArray(data.result?.success)
+                                    ? data.result.success.length
+                                    : (data.result?.imported || 0);
+                                showMessage(`Imported ${imported} commands`, 'success');
                                 loadCommands();
                                 loadAllCommands();
                             }
@@ -3255,9 +3280,9 @@
                 const statusClass = data.success ? 'success' : 'error';
                 const logEntry = `
                     <div class="log-entry ${statusClass}">
-                        <span class="log-timestamp">${time}</span>
-                        <span class="log-user">${data.username || 'Unknown'}</span>
-                        <span class="log-command">${data.message || ''}</span>
+                        <span class="log-timestamp">${escapeHtml(time)}</span>
+                        <span class="log-user">${escapeHtml(data.username || 'Unknown')}</span>
+                        <span class="log-command">${escapeHtml(data.message || '')}</span>
                         <span>${data.success ? '✓' : '✗'}</span>
                     </div>
                 `;

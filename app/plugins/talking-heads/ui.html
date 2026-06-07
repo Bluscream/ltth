@@ -1296,7 +1296,19 @@
                 if (!data.success) return;
                 const select = document.getElementById('manualAssignUserSelect');
                 if (select) {
-                    select.innerHTML = '<option value="">-- User wählen --</option>' + data.users.map(u => `<option value="${u.userId}" data-username="${u.username}">${u.username} (${u.uniqueId || u.userId})</option>`).join('');
+                    select.innerHTML = '';
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = '-- User wählen --';
+                    select.appendChild(defaultOption);
+
+                    data.users.forEach(u => {
+                        const option = document.createElement('option');
+                        option.value = u.userId;
+                        option.dataset.username = u.username || '';
+                        option.textContent = `${u.username || ''} (${u.uniqueId || u.userId})`;
+                        select.appendChild(option);
+                    });
                 }
             } catch (_) {}
         }

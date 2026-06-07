@@ -28,6 +28,7 @@ class UnifiedQueueManager {
     
     // Processing timeout (for safety)
     this.processingTimeout = null;
+    this.processNextTimer = null;
     this.MAX_PROCESSING_TIME = 180000; // 3 minutes max per item (fallback)
     
     // Game-specific timeouts (in milliseconds)
@@ -157,7 +158,7 @@ class UnifiedQueueManager {
     });
     
     // Try to process if not already processing
-    this.processNext();
+    this.scheduleProcessNext();
     
     return { queued: true, position };
   }
@@ -208,7 +209,7 @@ class UnifiedQueueManager {
     });
     
     // Try to process if not already processing
-    this.processNext();
+    this.scheduleProcessNext();
     
     return { queued: true, position };
   }
@@ -258,7 +259,7 @@ class UnifiedQueueManager {
     });
     
     // Try to process if not already processing
-    this.processNext();
+    this.scheduleProcessNext();
     
     return { queued: true, position };
   }
@@ -308,7 +309,7 @@ class UnifiedQueueManager {
     });
     
     // Try to process if not already processing
-    this.processNext();
+    this.scheduleProcessNext();
     
     return { queued: true, position };
   }
@@ -358,7 +359,7 @@ class UnifiedQueueManager {
     });
 
     // Try to process if not already processing
-    this.processNext();
+    this.scheduleProcessNext();
 
     return { queued: true, position };
   }
@@ -369,6 +370,24 @@ class UnifiedQueueManager {
    */
   shouldQueue() {
     return this.isProcessing || this.queue.length > 0;
+  }
+
+  /**
+   * Connect4 and Chess share the main game session map. Do not dequeue a new
+   * interactive game while another session or challenge is still active.
+   */
+  hasBlockingInteractiveGame(item) {
+    if (!item || (item.type !== 'connect4' && item.type !== 'chess')) {
+      return false;
+    }
+
+    return !!(
+      this.gameEnginePlugin &&
+      (
+        this.gameEnginePlugin.activeSessions?.size > 0 ||
+        this.gameEnginePlugin.pendingChallenges?.size > 0
+      )
+    );
   }
 
   /**
@@ -464,6 +483,12 @@ class UnifiedQueueManager {
       return;
     }
 
+    const nextItem = this.queue[0];
+    if (this.hasBlockingInteractiveGame(nextItem)) {
+      this.logger.debug(`[UNIFIED QUEUE] Deferring ${nextItem.type}; another interactive game is active`);
+      return;
+    }
+
     // Get next item (FIFO)
     const item = this.queue.shift();
     if (!item) {
@@ -481,6 +506,9 @@ class UnifiedQueueManager {
       this.logger.warn(`⚠️ [UNIFIED QUEUE] Processing timeout for ${item.type} after ${timeoutDuration}ms, forcing completion`);
       this.forceCompleteProcessing(item);
     }, timeoutDuration);
+    if (typeof this.processingTimeout.unref === 'function') {
+      this.processingTimeout.unref();
+    }
 
     try {
       if (item.type === 'plinko') {
@@ -500,6 +528,20 @@ class UnifiedQueueManager {
     }
   }
 
+  scheduleProcessNext(delayMs = 0) {
+    if (this.processNextTimer) {
+      return;
+    }
+
+    this.processNextTimer = setTimeout(() => {
+      this.processNextTimer = null;
+      this.processNext();
+    }, delayMs);
+    if (typeof this.processNextTimer.unref === 'function') {
+      this.processNextTimer.unref();
+    }
+  }
+
   /**
    * Process Plinko item
    */
@@ -511,6 +553,11 @@ class UnifiedQueueManager {
     }
 
     try {
+      const config = typeof this.plinkoGame.getConfig === 'function'
+        ? this.plinkoGame.getConfig(dropData.boardId || null)
+        : undefined;
+      this.switchGame('plinko', dropData.batchId || `plinko_${dropData.username}_${Date.now()}`, config);
+
       const result = await this.plinkoGame.spawnBalls(
         dropData.username,
         dropData.nickname,
@@ -520,6 +567,7 @@ class UnifiedQueueManager {
         { 
           batchId: dropData.batchId, 
           preferredColor: dropData.preferredColor,
+          boardId: dropData.boardId || null,
           forceStart: true // Skip queue check since we're already in unified queue
         }
       );
@@ -550,6 +598,11 @@ class UnifiedQueueManager {
     }
 
     try {
+      const config = typeof this.wheelGame.getConfig === 'function'
+        ? this.wheelGame.getConfig(spinData.wheelId || null)
+        : undefined;
+      this.switchGame('wheel', spinData.spinId, config);
+
       const result = await this.wheelGame.startSpin(spinData);
       
       // Check if startSpin returned a failure response (not an exception)
@@ -589,6 +642,10 @@ class UnifiedQueueManager {
       );
       
       // Check if startGameFromQueue returned a failure response (not an exception)
+      if (result?.completed) {
+        return;
+      }
+
       if (!result || result.success === false) {
         this.logger.warn(`⚠️ [UNIFIED QUEUE] Connect4 startGameFromQueue returned failure: ${result?.error || 'unknown'}`);
         this.completeProcessing();
@@ -624,6 +681,10 @@ class UnifiedQueueManager {
       );
       
       // Check if startGameFromQueue returned a failure response (not an exception)
+      if (result?.completed) {
+        return;
+      }
+
       if (!result || result.success === false) {
         this.logger.warn(`⚠️ [UNIFIED QUEUE] Chess startGameFromQueue returned failure: ${result?.error || 'unknown'}`);
         this.completeProcessing();
@@ -653,6 +714,11 @@ class UnifiedQueueManager {
     this.logger.info(`🎰 [UNIFIED QUEUE] Dequeued slot spin for ${spinData.username} (spinId: ${spinData.spinId})`);
 
     try {
+      const config = typeof this.slotGame.getConfig === 'function'
+        ? this.slotGame.getConfig(spinData.machineId || null)
+        : undefined;
+      this.switchGame('slot', spinData.spinId, config);
+
       const result = await this.slotGame.startSpinFromQueue(spinData);
 
       if (!result || !result.success) {
@@ -752,7 +818,7 @@ class UnifiedQueueManager {
     // Process next item if queue has items
     if (this.queue.length > 0) {
       // Small delay to prevent rapid-fire processing
-      setTimeout(() => this.processNext(), 250);
+      this.scheduleProcessNext(250);
     }
   }
 
@@ -776,6 +842,10 @@ class UnifiedQueueManager {
     if (this.processingTimeout) {
       clearTimeout(this.processingTimeout);
       this.processingTimeout = null;
+    }
+    if (this.processNextTimer) {
+      clearTimeout(this.processNextTimer);
+      this.processNextTimer = null;
     }
     
     this.clearQueue();

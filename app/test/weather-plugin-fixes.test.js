@@ -33,16 +33,18 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(weatherEngineContent).toContain('drawDustMotes(beam, effect)');
         });
 
-        test('drawDustMotes function exists in overlay.html', () => {
-            expect(overlayContent).toContain('drawDustMotes(beam, effect)');
+        test('overlay.html loads the shared weather engine that contains drawDustMotes', () => {
+            expect(overlayContent).toContain('/plugins/weather-control/weather-engine.js');
+            expect(overlayContent).toContain('new window.WeatherEngine');
         });
 
         test('drawDustMotes is called from drawSunbeams in weather-engine.js', () => {
             expect(weatherEngineContent).toMatch(/this\.drawDustMotes\(beam,\s*effect\)/);
         });
 
-        test('drawDustMotes is called from drawSunbeams in overlay.html', () => {
-            expect(overlayContent).toMatch(/drawDustMotes\(beam,\s*effect\)/);
+        test('overlay.html delegates sunbeam rendering to the shared engine', () => {
+            expect(overlayContent).not.toContain('function drawSunbeams');
+            expect(weatherEngineContent).toMatch(/this\.drawDustMotes\(beam,\s*effect\)/);
         });
     });
 
@@ -53,26 +55,27 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(weatherEngineContent).toContain('putImageData');
         });
 
-        test('overlay.html contains RGB channel shift code', () => {
-            expect(overlayContent).toContain('RGB Channel Shift');
-            expect(overlayContent).toContain('getImageData');
-            expect(overlayContent).toContain('putImageData');
+        test('overlay.html delegates RGB channel shift code to weather-engine.js', () => {
+            expect(overlayContent).toContain('/plugins/weather-control/weather-engine.js');
+            expect(weatherEngineContent).toContain('RGB Channel Shift');
+            expect(weatherEngineContent).toContain('getImageData');
+            expect(weatherEngineContent).toContain('putImageData');
         });
 
         test('weather-engine.js has vertical displacement bars', () => {
             expect(weatherEngineContent).toContain('Vertical Displacement Bars');
         });
 
-        test('overlay.html has vertical displacement bars', () => {
-            expect(overlayContent).toContain('Vertical Displacement Bars');
+        test('overlay.html delegates vertical displacement bars to weather-engine.js', () => {
+            expect(weatherEngineContent).toContain('Vertical Displacement Bars');
         });
 
         test('weather-engine.js has scanline/VHS effect', () => {
             expect(weatherEngineContent).toContain('Scanline/VHS Effect');
         });
 
-        test('overlay.html has scanline/VHS effect', () => {
-            expect(overlayContent).toContain('Scanline/VHS Effect');
+        test('overlay.html delegates scanline/VHS effect to weather-engine.js', () => {
+            expect(weatherEngineContent).toContain('Scanline/VHS Effect');
         });
 
         test('weather-engine.js has 6 glitch colors (not just magenta/cyan)', () => {
@@ -85,8 +88,8 @@ describe('Weather Plugin Critical Fixes', () => {
             }
         });
 
-        test('overlay.html has 6 glitch colors (not just magenta/cyan)', () => {
-            const glitchSection = overlayContent.match(/glitchColors\s*=\s*\[([\s\S]*?)\]/);
+        test('shared engine has 6 glitch colors (not just magenta/cyan)', () => {
+            const glitchSection = weatherEngineContent.match(/glitchColors\s*=\s*\[([\s\S]*?)\]/);
             expect(glitchSection).toBeTruthy();
             if (glitchSection) {
                 const colors = glitchSection[1].match(/#[0-9a-fA-F]{6}/g);
@@ -99,8 +102,8 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(weatherEngineContent).toContain('effect.intensity * 0.15');
         });
 
-        test('overlay.html has increased noise intensity (0.15 vs 0.05)', () => {
-            expect(overlayContent).toContain('effect.intensity * 0.15');
+        test('overlay.html delegates increased noise intensity to weather-engine.js', () => {
+            expect(weatherEngineContent).toContain('effect.intensity * 0.15');
         });
 
         test('weather-engine.js has increased noise particles (150 vs 50)', () => {
@@ -108,8 +111,8 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(noiseSection).toBeTruthy();
         });
 
-        test('overlay.html has increased noise particles (150 vs 50)', () => {
-            const noiseSection = overlayContent.match(/for\s*\(\s*let\s+i\s*=\s*0;\s*i\s*<\s*150/);
+        test('overlay.html delegates increased noise particles to weather-engine.js', () => {
+            const noiseSection = weatherEngineContent.match(/for\s*\(\s*let\s+i\s*=\s*0;\s*i\s*<\s*150/);
             expect(noiseSection).toBeTruthy();
         });
 
@@ -117,16 +120,16 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(weatherEngineContent).toContain('Chromatic Aberration');
         });
 
-        test('overlay.html has chromatic aberration', () => {
-            expect(overlayContent).toContain('Chromatic Aberration');
+        test('overlay.html delegates chromatic aberration to weather-engine.js', () => {
+            expect(weatherEngineContent).toContain('Chromatic Aberration');
         });
 
         test('weather-engine.js has digital artifacts/blocks', () => {
             expect(weatherEngineContent).toContain('Digital Artifacts');
         });
 
-        test('overlay.html has digital artifacts/blocks', () => {
-            expect(overlayContent).toContain('Digital Artifacts');
+        test('overlay.html delegates digital artifacts/blocks to weather-engine.js', () => {
+            expect(weatherEngineContent).toContain('Digital Artifacts');
         });
     });
 
@@ -136,9 +139,10 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(weatherEngineContent).toContain('6 main branches with side branches');
         });
 
-        test('overlay.html has generateStellarDendrite function', () => {
-            expect(overlayContent).toContain('generateStellarDendrite');
-            expect(overlayContent).toContain('6 main branches with side branches');
+        test('overlay.html delegates generateStellarDendrite to weather-engine.js', () => {
+            expect(overlayContent).not.toContain('function generateStellarDendrite');
+            expect(weatherEngineContent).toContain('generateStellarDendrite');
+            expect(weatherEngineContent).toContain('6 main branches with side branches');
         });
 
         test('weather-engine.js has generatePlateSnowflake function', () => {
@@ -146,9 +150,10 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(weatherEngineContent).toContain('hexagon');
         });
 
-        test('overlay.html has generatePlateSnowflake function', () => {
-            expect(overlayContent).toContain('generatePlateSnowflake');
-            expect(overlayContent).toContain('hexagon');
+        test('overlay.html delegates generatePlateSnowflake to weather-engine.js', () => {
+            expect(overlayContent).not.toContain('function generatePlateSnowflake');
+            expect(weatherEngineContent).toContain('generatePlateSnowflake');
+            expect(weatherEngineContent).toContain('hexagon');
         });
 
         test('weather-engine.js has generateNeedleCrystal function', () => {
@@ -156,9 +161,10 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(weatherEngineContent).toContain('Elongated needle');
         });
 
-        test('overlay.html has generateNeedleCrystal function', () => {
-            expect(overlayContent).toContain('generateNeedleCrystal');
-            expect(overlayContent).toContain('Elongated needle');
+        test('overlay.html delegates generateNeedleCrystal to weather-engine.js', () => {
+            expect(overlayContent).not.toContain('function generateNeedleCrystal');
+            expect(weatherEngineContent).toContain('generateNeedleCrystal');
+            expect(weatherEngineContent).toContain('Elongated needle');
         });
 
         test('weather-engine.js has addImperfections function', () => {
@@ -166,9 +172,10 @@ describe('Weather Plugin Critical Fixes', () => {
             expect(weatherEngineContent).toContain('broken arms');
         });
 
-        test('overlay.html has addImperfections function', () => {
-            expect(overlayContent).toContain('addImperfections');
-            expect(overlayContent).toContain('broken arms');
+        test('overlay.html delegates addImperfections to weather-engine.js', () => {
+            expect(overlayContent).not.toContain('function addImperfections');
+            expect(weatherEngineContent).toContain('addImperfections');
+            expect(weatherEngineContent).toContain('broken arms');
         });
 
         test('weather-engine.js generates 20+ snowflake variants', () => {
@@ -189,8 +196,8 @@ describe('Weather Plugin Critical Fixes', () => {
             }
         });
 
-        test('overlay.html generates 20+ snowflake variants', () => {
-            const variantSection = overlayContent.match(/function generateSnowflakeVariants[\s\S]{0,2000}return variants/);
+        test('overlay.html delegates 20+ snowflake variants to weather-engine.js', () => {
+            const variantSection = weatherEngineContent.match(/function generateSnowflakeVariants[\s\S]{0,2000}return variants/);
             expect(variantSection).toBeTruthy();
             if (variantSection) {
                 const stellarLoop = variantSection[0].match(/for\s*\(\s*let\s+i\s*=\s*0;\s*i\s*<\s*5;\s*i\+\+\)\s*\{[\s\S]*?generateStellarDendrite/);
@@ -250,7 +257,7 @@ describe('Weather Plugin Critical Fixes', () => {
         test('all files maintain existing structure', () => {
             // Ensure no major structural changes
             expect(weatherEngineContent).toContain('class WeatherEngine');
-            expect(overlayContent).toContain('window.innerWidth');
+            expect(overlayContent).toContain('window.WeatherEngine');
             expect(mainContent).toContain('class WeatherControl');
             expect(uiContent).toContain('async function saveConfig');
         });

@@ -12,6 +12,111 @@ class ViewerProfilesAPI {
   }
 
   /**
+   * Parse a positive integer with bounds.
+   */
+  parseIntParam(value, fallback, min = 1, max = 1000) {
+    const parsed = parseInt(value, 10);
+    if (Number.isNaN(parsed)) {
+      return fallback;
+    }
+    return Math.max(min, Math.min(max, parsed));
+  }
+
+  /**
+   * Parse a boolean-like value from request payloads.
+   */
+  parseBooleanLike(value) {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'number') {
+      return value !== 0;
+    }
+    if (typeof value === 'string') {
+      return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+    }
+    return false;
+  }
+
+  /**
+   * Build a normalized update payload with validation.
+   */
+  sanitizeUpdates(payload = {}) {
+    const validators = {
+      tts_voice: (v) => typeof v === 'string' || v === null || v === '',
+      discord_username: (v) => typeof v === 'string' || v === null || v === '',
+      birthday: (v) => {
+        if (v === null || v === '') return true;
+        return /^\d{4}-\d{2}-\d{2}$/.test(v);
+      },
+      notes: (v) => typeof v === 'string' || v === null || v === '',
+      tags: (v) => Array.isArray(v) || typeof v === 'string' || v === null,
+      is_favorite: (v) => typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string',
+      is_blocked: (v) => typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string',
+      is_moderator: (v) => typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string',
+      is_vip: (v) => typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string',
+      vip_tier: (v) => typeof v === 'string' || v === null || v === ''
+    };
+
+    const allowedFields = Object.keys(validators);
+    const updates = {};
+    const errors = [];
+
+    for (const field of allowedFields) {
+      if (payload[field] === undefined) {
+        continue;
+      }
+
+      const value = payload[field];
+      if (!validators[field](value)) {
+        errors.push(`Invalid value for field '${field}'`);
+        continue;
+      }
+
+      if (field === 'tags') {
+        if (Array.isArray(value)) {
+          updates[field] = value;
+        } else if (typeof value === 'string') {
+          updates[field] = value
+            .split(',')
+            .map(tag => tag.trim())
+            .filter(Boolean);
+        } else {
+          updates[field] = [];
+        }
+        continue;
+      }
+
+      if (['is_favorite', 'is_blocked', 'is_moderator', 'is_vip'].includes(field)) {
+        updates[field] = this.parseBooleanLike(value) ? 1 : 0;
+        continue;
+      }
+
+      updates[field] = value;
+    }
+
+    return { updates, errors };
+  }
+
+  /**
+   * Emit an updated viewer payload to connected clients.
+   */
+  emitViewerUpdate(username, reason = 'updated') {
+    try {
+      const viewer = this.db.getViewerInsights(username) || this.db.getViewerByUsername(username);
+      this.api.emit('viewer:updated', {
+        username,
+        reason,
+        viewer
+      });
+      return viewer;
+    } catch (error) {
+      this.api.log(`Error emitting viewer update for ${username}: ${error.message}`, 'warn');
+      return null;
+    }
+  }
+
+  /**
    * Register all API routes
    */
   registerRoutes() {
@@ -22,6 +127,18 @@ class ViewerProfilesAPI {
 
     // Register specific routes BEFORE parameterized routes
     // This ensures Express matches them correctly
+
+    this.api.registerRoute('GET', '/api/viewer-profiles/insights/overview', (req, res) => {
+      this.getOverviewInsights(req, res);
+    });
+
+    this.api.registerRoute('GET', '/api/viewer-profiles/insights/segments', (req, res) => {
+      this.getSegments(req, res);
+    });
+
+    this.api.registerRoute('GET', '/api/viewer-profiles/insights/segments/:segment', (req, res) => {
+      this.getSegmentViewers(req, res);
+    });
 
     // Get statistics summary
     this.api.registerRoute('GET', '/api/viewer-profiles/stats/summary', (req, res) => {
@@ -63,6 +180,11 @@ class ViewerProfilesAPI {
       this.getActiveSessions(req, res);
     });
 
+    // Bulk update endpoint
+    this.api.registerRoute('POST', '/api/viewer-profiles/bulk/update', (req, res) => {
+      this.bulkUpdateViewers(req, res);
+    });
+
     // Get available TTS voices
     this.api.registerRoute('GET', '/api/viewer-profiles/tts/voices', (req, res) => {
       this.getTTSVoices(req, res);
@@ -73,6 +195,11 @@ class ViewerProfilesAPI {
     // Get viewer heatmap
     this.api.registerRoute('GET', '/api/viewer-profiles/:username/heatmap', (req, res) => {
       this.getViewerHeatmap(req, res);
+    });
+
+    // Get viewer insights
+    this.api.registerRoute('GET', '/api/viewer-profiles/:username/insights', (req, res) => {
+      this.getViewerInsights(req, res);
     });
 
     // Set VIP status
@@ -98,12 +225,13 @@ class ViewerProfilesAPI {
    */
   getViewerList(req, res) {
     try {
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 50;
+      const page = this.parseIntParam(req.query.page, 1, 1, 100000);
+      const limit = this.parseIntParam(req.query.limit, 50, 1, 200);
       const sortBy = req.query.sortBy || 'total_coins_spent';
       const order = req.query.order || 'DESC';
       const search = req.query.search || '';
       const filter = req.query.filter || 'all';
+      const segment = req.query.segment || 'all';
 
       const result = this.db.getViewers({
         page,
@@ -111,12 +239,17 @@ class ViewerProfilesAPI {
         sortBy,
         order,
         search,
-        filter
+        filter,
+        segment
       });
+
+      const enrichedViewers = result.viewers.map(viewer => (
+        this.db.getViewerInsights(viewer.tiktok_username) || viewer
+      ));
 
       res.json({
         success: true,
-        data: result.viewers,
+        data: enrichedViewers,
         pagination: result.pagination
       });
     } catch (error) {
@@ -134,7 +267,7 @@ class ViewerProfilesAPI {
   getViewerProfile(req, res) {
     try {
       const username = req.params.username;
-      const viewer = this.db.getViewerByUsername(username);
+      const viewer = this.db.getViewerInsights(username);
 
       if (!viewer) {
         return res.status(404).json({
@@ -143,18 +276,9 @@ class ViewerProfilesAPI {
         });
       }
 
-      // Get additional details
-      const topGifts = this.db.getTopGifts(viewer.id, 5);
-      const heatmap = this.db.getViewerHeatmap(viewer.id);
-
       res.json({
         success: true,
-        data: {
-          ...viewer,
-          topGifts,
-          heatmap,
-          tags: viewer.tags ? JSON.parse(viewer.tags) : []
-        }
+        data: viewer
       });
     } catch (error) {
       this.api.log(`Error getting viewer profile: ${error.message}`, 'error');
@@ -171,43 +295,7 @@ class ViewerProfilesAPI {
   updateViewerProfile(req, res) {
     try {
       const username = req.params.username;
-      const updates = {};
-
-      // Field validators
-      const validators = {
-        tts_voice: (v) => typeof v === 'string' || v === null || v === '',
-        discord_username: (v) => typeof v === 'string' || v === null || v === '',
-        birthday: (v) => {
-          if (v === null || v === '') return true;
-          // YYYY-MM-DD format
-          return /^\d{4}-\d{2}-\d{2}$/.test(v);
-        },
-        notes: (v) => typeof v === 'string' || v === null || v === '',
-        tags: (v) => Array.isArray(v),
-        is_favorite: (v) => (typeof v === 'number' && (v === 0 || v === 1)) || typeof v === 'boolean',
-        is_blocked: (v) => (typeof v === 'number' && (v === 0 || v === 1)) || typeof v === 'boolean',
-        is_moderator: (v) => (typeof v === 'number' && (v === 0 || v === 1)) || typeof v === 'boolean'
-      };
-
-      const allowedFields = Object.keys(validators);
-      const errors = [];
-
-      for (const field of allowedFields) {
-        if (req.body[field] !== undefined) {
-          const value = req.body[field];
-          if (!validators[field](value)) {
-            errors.push(`Invalid value for field '${field}'`);
-            continue;
-          }
-          if (field === 'tags') {
-            updates[field] = JSON.stringify(value);
-          } else if (['is_favorite', 'is_blocked', 'is_moderator'].includes(field)) {
-            updates[field] = value ? 1 : 0;
-          } else {
-            updates[field] = value;
-          }
-        }
-      }
+      const { updates, errors } = this.sanitizeUpdates(req.body);
 
       if (errors.length > 0) {
         return res.status(400).json({
@@ -215,6 +303,17 @@ class ViewerProfilesAPI {
           error: 'Validation failed',
           details: errors
         });
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'No valid fields provided'
+        });
+      }
+
+      if (updates.tags) {
+        updates.tags = JSON.stringify(updates.tags);
       }
 
       const viewer = this.db.updateViewer(username, updates);
@@ -232,10 +331,7 @@ class ViewerProfilesAPI {
       });
 
       // Emit update event
-      this.api.emit('viewer:updated', {
-        username,
-        updates
-      });
+      this.emitViewerUpdate(username, 'profile-updated');
 
     } catch (error) {
       this.api.log(`Error updating viewer profile: ${error.message}`, 'error');
@@ -260,6 +356,8 @@ class ViewerProfilesAPI {
         success: true,
         data: viewer
       });
+
+      this.emitViewerUpdate(username, remove ? 'vip-removed' : 'vip-updated');
     } catch (error) {
       this.api.log(`Error setting VIP status: ${error.message}`, 'error');
       res.status(500).json({
@@ -328,7 +426,7 @@ class ViewerProfilesAPI {
   getLeaderboard(req, res) {
     try {
       const type = req.query.type || 'coins';
-      const limit = parseInt(req.query.limit) || 10;
+      const limit = this.parseIntParam(req.query.limit, 10, 1, 100);
 
       const leaderboard = this.db.getLeaderboard(type, limit);
 
@@ -371,7 +469,7 @@ class ViewerProfilesAPI {
    */
   getUpcomingBirthdays(req, res) {
     try {
-      const days = parseInt(req.query.days) || 7;
+      const days = this.parseIntParam(req.query.days, 7, 1, 365);
       const birthdays = this.plugin.birthdayManager.getUpcomingBirthdays(days);
 
       res.json({
@@ -537,6 +635,161 @@ class ViewerProfilesAPI {
       });
     } catch (error) {
       this.api.log(`Error getting TTS voices: ${error.message}`, 'error');
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get overview insights for the dashboard.
+   */
+  getOverviewInsights(req, res) {
+    try {
+      const limit = this.parseIntParam(req.query.limit, 5, 1, 20);
+      const overview = this.db.getOverviewInsights({ limit });
+
+      res.json({
+        success: true,
+        data: overview
+      });
+    } catch (error) {
+      this.api.log(`Error getting overview insights: ${error.message}`, 'error');
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get segment overview list.
+   */
+  getSegments(req, res) {
+    try {
+      const limit = this.parseIntParam(req.query.limit, 5, 1, 20);
+      const segments = this.db.getSegments({ limit });
+
+      res.json({
+        success: true,
+        data: segments
+      });
+    } catch (error) {
+      this.api.log(`Error getting segments: ${error.message}`, 'error');
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get one segment with its viewers.
+   */
+  getSegmentViewers(req, res) {
+    try {
+      const segment = req.params.segment;
+      const limit = this.parseIntParam(req.query.limit, 20, 1, 100);
+      const data = this.db.getSegmentViewers(segment, { limit });
+
+      if (!data) {
+        return res.status(404).json({
+          success: false,
+          error: 'Segment not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      this.api.log(`Error getting segment viewers: ${error.message}`, 'error');
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get dashboard insights for a single viewer.
+   */
+  getViewerInsights(req, res) {
+    try {
+      const username = req.params.username;
+      const viewer = this.db.getViewerInsights(username);
+
+      if (!viewer) {
+        return res.status(404).json({
+          success: false,
+          error: 'Viewer not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: viewer
+      });
+    } catch (error) {
+      this.api.log(`Error getting viewer insights: ${error.message}`, 'error');
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Bulk update multiple viewers.
+   */
+  bulkUpdateViewers(req, res) {
+    try {
+      const usernames = Array.isArray(req.body.usernames) ? req.body.usernames : [];
+      const { updates, errors } = this.sanitizeUpdates(req.body.updates || {});
+
+      if (errors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Validation failed',
+          details: errors
+        });
+      }
+
+      if (usernames.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'At least one username is required'
+        });
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'No valid bulk update fields provided'
+        });
+      }
+
+      if (updates.tags) {
+        updates.tags = JSON.stringify(updates.tags);
+      }
+
+      const updated = this.db.bulkUpdateViewers(usernames, updates);
+
+      for (const username of usernames) {
+        this.emitViewerUpdate(username, 'bulk-updated');
+      }
+
+      res.json({
+        success: true,
+        data: {
+          updatedCount: updated.length,
+          viewers: updated
+        }
+      });
+    } catch (error) {
+      this.api.log(`Error bulk updating viewers: ${error.message}`, 'error');
       res.status(500).json({
         success: false,
         error: error.message

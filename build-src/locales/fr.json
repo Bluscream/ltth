@@ -56,7 +56,11 @@
     "env_creating": "🔧 Auto-Fix : création du fichier .env...",
     "env_created": "✅ Fichier .env créé !",
     "port_in_use": "⚠️ Le port 3000 est occupé - le serveur utilisera un port alternatif",
-    "server_already_running": "ℹ️ Le serveur fonctionne déjà sur le port 3000"
+    "server_already_running": "ℹ️ Le serveur fonctionne déjà sur le port 3000",
+    "port_delegated": "🔌 La gestion des ports est déléguée à Node.js (.ltth_port)...",
+    "port_selected": "Port %d sélectionné",
+    "manual_starting": "Démarrage manuel du serveur sur le port %d...",
+    "manual_start_available": "Le démarrage manuel est disponible dans le launcher. Vérifiez les logs et choisissez un port."
   },
   "api_keys": {
     "title": "Informations sur les clés API",

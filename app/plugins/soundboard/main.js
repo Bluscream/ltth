@@ -1,12 +1,15 @@
 const EventEmitter = require('events');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 const SoundboardFetcher = require('./fetcher');
 const SoundboardWebSocketTransport = require('./transport-ws');
 const SoundboardApiRoutes = require('./api-routes');
 const MyInstantsAPI = require('./myinstants-api');
 const AudioCacheManager = require('./audio-cache');
 const CacheCleanupJob = require('./cache-cleanup');
+
+const DEFAULT_GIPHY_API_KEY = 'HFGAjZBhpxeQkITNlLQTbAI91qPmWVZp';
 
 /**
  * Soundboard Manager Class
@@ -20,8 +23,6 @@ class SoundboardManager extends EventEmitter {
         this.logger = logger;
         this.likeHistory = []; // Deque for like threshold tracking
         this.MAX_LIKE_HISTORY_SIZE = 100;
-        this.MAX_REPEAT_TRIGGERS = 50; // Cap for gift repeat count to prevent abuse
-        this._repeatTimers = []; // Tracks staggered repeat timers so they can be cancelled on destroy
 
         console.log('✅ Soundboard Manager initialized (Queue managed in frontend)');
     }
@@ -90,53 +91,142 @@ class SoundboardManager extends EventEmitter {
         stmt.run(giftId);
     }
 
+    _firstValue(...values) {
+        return values.find(value => value !== undefined && value !== null && value !== '');
+    }
+
+    _positiveInt(value, fallback = null) {
+        const parsed = parseInt(value, 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    }
+
+    _repeatCountFromAmount(amountValue, diamondCount) {
+        const amount = this._positiveInt(amountValue, null);
+        if (!amount) return null;
+
+        const diamonds = this._positiveInt(diamondCount, null);
+        if (diamonds && diamonds > 1 && amount >= diamonds && amount % diamonds === 0) {
+            return Math.max(amount / diamonds, 1);
+        }
+
+        return amount;
+    }
+
+    _normalizeGiftRepeatCount(giftData, gift, diamondCount) {
+        const explicitRepeat = this._positiveInt(this._firstValue(
+            giftData.repeatCount,
+            giftData.repeat_count,
+            giftData.comboCount,
+            giftData.combo_count,
+            gift.repeatCount,
+            gift.repeat_count,
+            gift.comboCount,
+            gift.combo_count
+        ), null);
+        if (explicitRepeat) return explicitRepeat;
+
+        const giftCount = this._positiveInt(this._firstValue(
+            giftData.giftCount,
+            giftData.gift_count,
+            gift.giftCount,
+            gift.gift_count,
+            giftData.count,
+            gift.count
+        ), null);
+        if (giftCount) return giftCount;
+
+        return this._repeatCountFromAmount(this._firstValue(giftData.amount, gift.amount), diamondCount) || 1;
+    }
+
+    normalizeGiftEvent(giftData = {}) {
+        const gift = giftData.giftDetails || giftData.gift || giftData.giftInfo || {};
+        const giftId = this._positiveInt(this._firstValue(
+            giftData.giftId,
+            giftData.gift_id,
+            gift.giftId,
+            gift.gift_id,
+            gift.id,
+            giftData.id
+        ));
+
+        const diamondCount = this._positiveInt(this._firstValue(
+            giftData.diamondCount,
+            giftData.diamond_count,
+            gift.diamondCount,
+            gift.diamond_count,
+            gift.diamonds,
+            giftData.diamonds
+        ), null);
+        const repeatCount = this._normalizeGiftRepeatCount(giftData, gift, diamondCount);
+
+        return {
+            ...giftData,
+            giftId,
+            giftName: this._firstValue(
+                giftData.giftName,
+                giftData.gift_name,
+                gift.giftName,
+                gift.gift_name,
+                gift.name,
+                giftData.name
+            ),
+            giftPictureUrl: this._firstValue(
+                giftData.giftPictureUrl,
+                giftData.gift_image,
+                gift.giftPictureUrl,
+                gift.imageUrl,
+                gift.image,
+                gift.icon
+            ),
+            repeatCount,
+            username: this._firstValue(
+                giftData.username,
+                giftData.uniqueId,
+                giftData.user?.uniqueId,
+                giftData.user?.nickname,
+                giftData.nickname,
+                'unknown'
+            )
+        };
+    }
+
     /**
      * Play sound for gift event
-     * Respects repeatCount: plays once immediately, queues remaining plays staggered by 500ms.
-     * Capped at MAX_REPEAT_TRIGGERS to prevent abuse.
+     * repeatCount is forwarded once; the dashboard/OBS frontend expands gift
+     * streak playback according to the active queue/overlap mode.
      */
-    async playGiftSound(giftData) {
-        const repeatCount = Math.min(Math.max(giftData.repeatCount || 1, 1), this.MAX_REPEAT_TRIGGERS);
+    async playGiftSound(giftData = {}) {
+        const normalizedGift = this.normalizeGiftEvent(giftData);
+        const repeatCount = normalizedGift.repeatCount;
 
-        this.logger.info(`[Soundboard] Gift event: ${giftData.giftName} (ID: ${giftData.giftId}) from ${giftData.username || 'unknown'}, repeatCount: ${repeatCount}`);
+        this.logger.info(`[Soundboard] Gift event: ${normalizedGift.giftName} (ID: ${normalizedGift.giftId}) from ${normalizedGift.username}, repeatCount: ${repeatCount}`);
 
-        // Resolve sound config once (avoids repeated DB lookups in the repeat loop)
-        const giftSound = this.getGiftSound(giftData.giftId);
+        const giftSound = this.getGiftSound(normalizedGift.giftId);
 
-        const playOnce = async () => {
-            if (giftSound) {
-                await this.playSound(giftSound.mp3Url, giftSound.volume, giftSound.label, {
-                    giftId: giftData.giftId,
-                    eventType: 'gift'
+        if (giftSound) {
+            await this.playSound(giftSound.mp3Url, giftSound.volume, giftSound.label, {
+                giftId: normalizedGift.giftId,
+                eventType: 'gift',
+                repeatCount
+            });
+            if (giftSound.animationType && giftSound.animationType !== 'none') {
+                this.playGiftAnimation(normalizedGift, giftSound);
+            }
+        } else {
+            // Only fetch default sound settings when no specific gift sound is configured
+            const defaultUrl = this.db.getSetting('soundboard_default_gift_sound');
+            if (defaultUrl) {
+                const defaultVolume = parseFloat(this.db.getSetting('soundboard_gift_volume')) || 1.0;
+                await this.playSound(defaultUrl, defaultVolume, 'Default Gift', {
+                    giftId: normalizedGift.giftId,
+                    eventType: 'gift',
+                    repeatCount
                 });
-                if (giftSound.animationType && giftSound.animationType !== 'none') {
-                    this.playGiftAnimation(giftData, giftSound);
-                }
             } else {
-                // Only fetch default sound settings when no specific gift sound is configured
-                const defaultUrl = this.db.getSetting('soundboard_default_gift_sound');
-                if (defaultUrl) {
-                    const defaultVolume = parseFloat(this.db.getSetting('soundboard_gift_volume')) || 1.0;
-                    await this.playSound(defaultUrl, defaultVolume, 'Default Gift', {
-                        giftId: giftData.giftId,
-                        eventType: 'gift'
-                    });
-                } else {
-                    this.logger.debug(`[Soundboard] No sound configured for gift: ${giftData.giftName} (ID: ${giftData.giftId})`);
-                }
+                this.logger.debug(`[Soundboard] No sound configured for gift: ${normalizedGift.giftName} (ID: ${normalizedGift.giftId})`);
             }
-        };
 
-        // Play first occurrence immediately
-        await playOnce();
-
-        // Queue remaining occurrences with staggered timing to prevent overlap
-        if (repeatCount > 1) {
-            const STAGGER_INTERVAL_MS = 500;
-            for (let i = 1; i < repeatCount; i++) {
-                const timerId = setTimeout(() => playOnce(), i * STAGGER_INTERVAL_MS);
-                this._repeatTimers.push(timerId);
-            }
+            this.playDefaultGiftAnimation(normalizedGift);
         }
     }
 
@@ -175,6 +265,82 @@ class SoundboardManager extends EventEmitter {
     }
 
     /**
+     * Read global OBS animation placement settings.
+     * Values are percentages so one setup works across OBS source sizes.
+     */
+    getAnimationLayout(overrides = {}) {
+        const clampNumber = (value, fallback, min, max) => {
+            const parsed = parseFloat(value);
+            if (!Number.isFinite(parsed)) return fallback;
+            return Math.max(min, Math.min(max, parsed));
+        };
+
+        const readNumber = (key, fallback, min, max) => {
+            const overrideValue = overrides[key];
+            if (overrideValue !== undefined && overrideValue !== null && overrideValue !== '') {
+                return clampNumber(overrideValue, fallback, min, max);
+            }
+            return clampNumber(this.db.getSetting(`soundboard_animation_${key}`), fallback, min, max);
+        };
+
+        const allowedAnchors = ['center', 'top-left', 'top', 'top-right', 'left', 'right', 'bottom-left', 'bottom', 'bottom-right'];
+        const allowedFits = ['contain', 'cover', 'fill'];
+        const settingAnchor = this.db.getSetting('soundboard_animation_anchor');
+        const settingFit = this.db.getSetting('soundboard_animation_fit');
+        const anchor = allowedAnchors.includes(overrides.anchor)
+            ? overrides.anchor
+            : (allowedAnchors.includes(settingAnchor) ? settingAnchor : 'center');
+        const fit = allowedFits.includes(overrides.fit)
+            ? overrides.fit
+            : (allowedFits.includes(settingFit) ? settingFit : 'contain');
+
+        return {
+            x: readNumber('x', 50, 0, 100),
+            y: readNumber('y', 50, 0, 100),
+            width: readNumber('width', 45, 5, 100),
+            height: readNumber('height', 45, 5, 100),
+            duration: readNumber('duration', 5, 1, 30),
+            anchor,
+            fit
+        };
+    }
+
+    /**
+     * Emit a configured animation to OBS, or route audio animations to the app.
+     */
+    emitAnimation(channel, animationData, audioLabel = 'Animation') {
+        if (!animationData || !animationData.url || !animationData.type || animationData.type === 'none') {
+            return false;
+        }
+
+        const isAudioFile = this._isAudioFile(animationData.url);
+        const isAudioType = animationData.type === 'audio';
+
+        if (isAudioFile || isAudioType) {
+            if (isAudioFile) {
+                this._playAudioInMainApp(
+                    animationData.url,
+                    animationData.volume || 1.0,
+                    audioLabel
+                );
+                return true;
+            }
+
+            console.warn(`[Soundboard] Animation type is 'audio' but URL does not match an audio extension: ${animationData.url}`);
+            return false;
+        }
+
+        const payload = {
+            ...animationData,
+            layout: this.getAnimationLayout(animationData.layout),
+            timestamp: animationData.timestamp || Date.now()
+        };
+
+        this.io.emit(channel, payload);
+        return true;
+    }
+
+    /**
      * Play animation for gift event
      */
     playGiftAnimation(giftData, giftSound) {
@@ -188,8 +354,14 @@ class SoundboardManager extends EventEmitter {
             timestamp: Date.now()
         };
 
+        this.emitAnimation('gift:animation', animationData, `Gift Animation: ${animationData.giftName}`);
+        return;
+
         console.log(`🎬 Playing gift animation: ${animationData.type} for ${animationData.giftName} (volume: ${animationData.volume})`);
         
+        this.emitAnimation('gift:animation', animationData, `Gift Animation: ${animationData.giftName}`);
+        return;
+
         // Distinguish between audio and visual animations
         // Prioritize URL-based detection (more reliable than type declaration)
         const isAudioFile = this._isAudioFile(giftSound.animationUrl);
@@ -211,6 +383,26 @@ class SoundboardManager extends EventEmitter {
             // Visual animations (video, gif, image) to OBS overlay
             this.io.emit('gift:animation', animationData);
         }
+    }
+
+    /**
+     * Play the fallback animation for gifts without a gift-specific mapping.
+     */
+    playDefaultGiftAnimation(giftData) {
+        const animationType = this.db.getSetting('soundboard_gift_animation_type');
+        const animationUrl = this.db.getSetting('soundboard_gift_animation_url');
+        const animationVolume = parseFloat(this.db.getSetting('soundboard_gift_animation_volume')) || 1.0;
+
+        if (!animationType || animationType === 'none' || !animationUrl) {
+            return;
+        }
+
+        this.playGiftAnimation(giftData, {
+            label: 'Default Gift',
+            animationType,
+            animationUrl,
+            animationVolume
+        });
     }
 
     /**
@@ -262,7 +454,11 @@ class SoundboardManager extends EventEmitter {
             }
         } else {
             // Visual animations (video, gif, image) to OBS overlay
-            this.io.emit('event:animation', animationData);
+            this.emitAnimation(
+                'event:animation',
+                animationData,
+                `${eventType.charAt(0).toUpperCase() + eventType.slice(1)} Animation`
+            );
         }
     }
 
@@ -329,7 +525,7 @@ class SoundboardManager extends EventEmitter {
     /**
      * Handle like event with threshold logic
      */
-    async handleLikeEvent(likeCount) {
+    async handleLikeEvent(likeCount, data = {}) {
         const now = Date.now();
         const threshold = parseInt(this.db.getSetting('soundboard_like_threshold')) || 0;
         const windowSeconds = parseInt(this.db.getSetting('soundboard_like_window_seconds')) || 10;
@@ -373,6 +569,8 @@ class SoundboardManager extends EventEmitter {
             } else {
                 console.log(`ℹ️ [Soundboard] Like threshold reached but no sound configured`);
             }
+
+            this.playEventAnimation('like', this.getUsernameFromData(data));
 
             // Clear history after triggering
             this.likeHistory = [];
@@ -429,7 +627,8 @@ class SoundboardManager extends EventEmitter {
             label: label,
             timestamp: Date.now(),
             giftId: validGiftId,
-            eventType: validEventType
+            eventType: validEventType,
+            repeatCount: Math.max(parseInt(metadata.repeatCount || 1, 10) || 1, 1)
         };
 
         console.log(`🎵 [Soundboard] Emitting sound to frontend:`, {
@@ -460,6 +659,7 @@ class SoundboardManager extends EventEmitter {
             label: soundData.label,
             giftId: soundData.giftId,
             eventType: soundData.eventType,
+            repeatCount: soundData.repeatCount,
             timestamp: soundData.timestamp,
             audioTarget: audioTarget
         };
@@ -502,14 +702,8 @@ class SoundboardManager extends EventEmitter {
         };
     }
 
-    /**
-     * Cancel all pending staggered repeat timers (called on plugin destroy)
-     */
     destroy() {
-        for (const timerId of this._repeatTimers) {
-            clearTimeout(timerId);
-        }
-        this._repeatTimers = [];
+        // No backend playback timers are owned here; the frontend manages audio queues.
     }
 }
 
@@ -697,6 +891,34 @@ class SoundboardPlugin {
             }
         });
 
+        // Test visual animation in the OBS overlay
+        this.api.registerRoute('post', '/api/soundboard/test-animation', (req, res) => {
+            const { url, type, volume, eventType, label, layout } = req.body || {};
+
+            if (!url) {
+                return res.status(400).json({ success: false, error: 'url is required' });
+            }
+
+            try {
+                const animationType = type && type !== 'none' ? type : 'auto';
+                this.soundboard.emitAnimation('event:animation', {
+                    type: animationType,
+                    url,
+                    volume: Math.max(0, Math.min(1, parseFloat(volume) || 1.0)),
+                    eventType: eventType || 'test',
+                    username: 'TestUser',
+                    giftName: label || 'Test Animation',
+                    layout,
+                    timestamp: Date.now()
+                }, label || 'Test Animation');
+
+                res.json({ success: true });
+            } catch (error) {
+                this.api.log(`Error testing animation: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
         // Get queue status
         this.api.registerRoute('get', '/api/soundboard/queue', (req, res) => {
             try {
@@ -733,6 +955,60 @@ class SoundboardPlugin {
                 res.json({ success: true, results });
             } catch (error) {
                 this.api.log(`Error searching MyInstants: ${error.message}`, 'error');
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // GIF search for animation URLs. Uses the app-wide GIPHY key by default.
+        this.api.registerRoute('get', '/api/soundboard/gif-search', async (req, res) => {
+            const query = String(req.query.query || '').trim();
+            const limit = Math.max(1, Math.min(30, parseInt(req.query.limit, 10) || 16));
+
+            if (!query) {
+                return res.status(400).json({ success: false, error: 'query is required' });
+            }
+
+            const apiKey = process.env.GIPHY_API_KEY || DEFAULT_GIPHY_API_KEY;
+
+            if (!apiKey) {
+                return res.status(400).json({
+                    success: false,
+                    needsApiKey: true,
+                    provider: 'giphy',
+                    error: 'GIPHY API key is required for GIF search'
+                });
+            }
+
+            try {
+                const response = await axios.get('https://api.giphy.com/v1/gifs/search', {
+                    timeout: 15000,
+                    params: {
+                        api_key: apiKey,
+                        q: query,
+                        limit,
+                        rating: 'pg-13',
+                        lang: 'de'
+                    }
+                });
+
+                const results = (response.data?.data || []).map(item => {
+                    const images = item.images || {};
+                    const original = images.original || images.downsized_medium || images.fixed_height;
+                    const preview = images.fixed_width_small || images.fixed_height_small || images.downsized_still || original;
+                    return {
+                        id: item.id,
+                        title: item.title || 'GIPHY GIF',
+                        url: original?.url,
+                        previewUrl: preview?.url || preview?.webp || original?.url,
+                        width: parseInt(original?.width, 10) || null,
+                        height: parseInt(original?.height, 10) || null,
+                        source: 'giphy'
+                    };
+                }).filter(item => item.url);
+
+                res.json({ success: true, provider: 'giphy', results });
+            } catch (error) {
+                this.api.log(`Error searching GIPHY GIFs: ${error.message}`, 'error');
                 res.status(500).json({ success: false, error: error.message });
             }
         });
@@ -1087,7 +1363,7 @@ class SoundboardPlugin {
             if (!soundboardEnabled) {
                 return;
             }
-            await this.soundboard.handleLikeEvent(data.likeCount || 1);
+            await this.soundboard.handleLikeEvent(data.likeCount || 1, data);
         });
 
         this.api.log('✅ Soundboard TikTok event handlers registered', 'info');
@@ -1109,3 +1385,4 @@ class SoundboardPlugin {
 }
 
 module.exports = SoundboardPlugin;
+module.exports.SoundboardManager = SoundboardManager;

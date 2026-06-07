@@ -6,59 +6,65 @@
       "title": "Konfiguration",
       "enabled": "Wettereffekte aktivieren",
       "default_weather": "Standard-Wetter",
-      "transition_duration": "Übergangsdauer (Sekunden)",
+      "transition_duration": "Uebergangsdauer (Sekunden)",
       "save": "Einstellungen speichern"
     },
     "chat_commands": {
       "title": "Chat-Befehle",
       "enabled": "Chat-Befehle aktivieren",
       "require_permission": "Berechtigungen erfordern",
-      "allow_intensity": "Intensitätskontrolle erlauben",
+      "allow_intensity": "Intensitaetskontrolle erlauben",
       "allow_duration": "Dauerkontrolle erlauben",
-      "description": "Erlaube Zuschauern, Wettereffekte über Chat-Befehle auszulösen"
+      "description": "Erlaube Zuschauern, Wettereffekte ueber Chat-Befehle auszuloesen"
     },
     "weather_types": {
-      "clear": "☀️ Klar",
-      "rain": "🌧️ Regen",
-      "snow": "❄️ Schnee",
-      "storm": "⛈️ Sturm",
-      "fog": "🌫️ Nebel",
-      "wind": "💨 Wind",
-      "thunder": "⚡ Donner",
-      "sunbeam": "☀️ Sonnenstrahl",
-      "glitchclouds": "☁️ Glitch-Wolken"
+      "clear": "Klar",
+      "rain": "Regen",
+      "snow": "Schnee",
+      "storm": "Sturm",
+      "fog": "Nebel",
+      "wind": "Wind",
+      "thunder": "Donner",
+      "sunbeam": "Sonnenstrahl",
+      "glitchclouds": "Glitch-Wolken",
+      "aurora": "Nordlichter",
+      "fireflies": "Gluehwuermchen",
+      "meteors": "Sternschnuppen",
+      "sakura": "Kirschblueten",
+      "embers": "Glutfunken",
+      "heatwave": "Hitzeflimmern"
     },
     "commands": {
       "weather": {
-        "description": "Wettereffekte im Stream auslösen",
-        "syntax": "/weather <effekt> [intensität] [dauer]",
+        "description": "Wettereffekte im Stream ausloesen",
+        "syntax": "/weather <effekt> [intensitaet] [dauer]",
         "examples": "/weather rain, /weather storm 0.8"
       },
       "weatherlist": {
-        "description": "Alle verfügbaren Wettereffekte auflisten",
+        "description": "Alle verfuegbaren Wettereffekte auflisten",
         "syntax": "/weatherlist"
       },
       "weatherstop": {
-        "description": "Alle aktiven Wettereffekte stoppen",
-        "syntax": "/weatherstop"
+        "description": "Alle aktiven Wettereffekte oder einen einzelnen Effekt stoppen",
+        "syntax": "/weatherstop [effekt]"
       }
     },
     "triggers": {
       "title": "Event-Trigger",
-      "gift_trigger": "Bei Geschenk auslösen",
-      "follow_trigger": "Bei Follow auslösen",
-      "weather_map": "Geschenk → Wetter-Zuordnung"
+      "gift_trigger": "Bei Geschenk ausloesen",
+      "follow_trigger": "Bei Follow ausloesen",
+      "weather_map": "Geschenk zu Wetter-Zuordnung"
     },
     "overlay": {
       "title": "Overlay",
       "url": "Overlay-URL",
       "copy": "URL kopieren",
-      "open": "Overlay öffnen",
+      "open": "Overlay oeffnen",
       "test": "Wettereffekt testen"
     },
     "controls": {
       "set_weather": "Wetter einstellen",
-      "clear_weather": "Alle Effekte löschen"
+      "clear_weather": "Alle Effekte loeschen"
     }
   }
 }

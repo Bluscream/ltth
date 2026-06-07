@@ -148,49 +148,7 @@ class InteractiveStoryPlugin {
       const imageProvider = config.imageProvider || 'openai';
       const ttsProvider = config.ttsProvider || 'system';
 
-      // Initialize LLM service
-      if (llmProvider === 'openai') {
-        const openaiApiKey = this._getOpenAIApiKey();
-        if (openaiApiKey) {
-          this.llmService = new OpenAILLMService(openaiApiKey, this.logger, debugCallback, llmOptions);
-          this.storyEngine = new StoryEngine(this.llmService, this.logger, {
-            language: config.storyLanguage || 'German',
-            platform: 'tiktok'
-          });
-          this._debugLog('info', '✅ OpenAI LLM service initialized', { 
-            apiKeyLength: openaiApiKey.length,
-            apiKeyPrefix: openaiApiKey.substring(0, 6) + '...',
-            timeout: config.llmTimeout,
-            maxRetries: config.llmMaxRetries
-          });
-          this.api.log('✅ OpenAI LLM service initialized', 'info');
-        } else {
-          this._debugLog('error', '⚠️ OpenAI API key not configured in global settings', null);
-          this.api.log('⚠️ OpenAI API key not configured in global settings', 'warn');
-          this.api.log('Please configure API key in Settings → OpenAI API Configuration', 'warn');
-        }
-      } else {
-        // SiliconFlow provider
-        const siliconFlowApiKey = this._getSiliconFlowApiKey();
-        if (siliconFlowApiKey) {
-          this.llmService = new LLMService(siliconFlowApiKey, this.logger, debugCallback, llmOptions);
-          this.storyEngine = new StoryEngine(this.llmService, this.logger, {
-            language: config.storyLanguage || 'German',
-            platform: 'tiktok'
-          });
-          this._debugLog('info', '✅ SiliconFlow LLM service initialized', { 
-            apiKeyLength: siliconFlowApiKey.length,
-            apiKeyPrefix: siliconFlowApiKey.substring(0, 6) + '...',
-            timeout: config.llmTimeout,
-            maxRetries: config.llmMaxRetries
-          });
-          this.api.log('✅ SiliconFlow LLM service initialized', 'info');
-        } else {
-          this._debugLog('error', '⚠️ SiliconFlow API key not configured in global settings', null);
-          this.api.log('⚠️ SiliconFlow API key not configured in global settings', 'warn');
-          this.api.log('Please configure API key in Settings → TTS API Keys → Fish Speech 1.5 API Key (SiliconFlow)', 'warn');
-        }
-      }
+      this._initializeLLMService(config, debugCallback, llmOptions);
 
       // Initialize Image service
       if (imageProvider === 'openai') {
@@ -313,6 +271,161 @@ class InteractiveStoryPlugin {
       this.logger.error('Error retrieving OpenAI API key from settings:', error);
       return null;
     }
+  }
+
+  /**
+   * Normalize the configured LLM provider name into a friendly label.
+   * @param {string} provider - Provider key from config
+   * @returns {string} Provider label
+   */
+  _getLLMProviderLabel(provider) {
+    switch (provider) {
+      case 'openai':
+        return 'OpenAI';
+      case 'openrouter':
+        return 'OpenRouter';
+      case 'ollama':
+        return 'Ollama';
+      case 'siliconflow':
+        return 'SiliconFlow';
+      default:
+        return 'OpenAI';
+    }
+  }
+
+  /**
+   * Get the default model for the active provider.
+   * @param {Object} config - Current plugin config
+   * @param {string} provider - Provider key
+   * @returns {string} Default model name
+   */
+  _getDefaultStoryModel(config, provider) {
+    switch (provider) {
+      case 'openai':
+        return config.openaiModel || 'gpt-5.2';
+      case 'openrouter':
+        return config.openRouterModel || 'openrouter/free';
+      case 'ollama':
+        return config.ollamaModel || 'qwen3.5:cloud';
+      case 'siliconflow':
+        return config.defaultModel || 'deepseek';
+      default:
+        return config.openaiModel || 'gpt-5.2';
+    }
+  }
+
+  /**
+   * Initialize the active LLM service based on the current plugin config.
+   * Returns a short status object for logging and validation.
+   * @param {Object} config - Current plugin config
+   * @param {Function} debugCallback - Debug logger callback
+   * @param {Object} llmOptions - Retry/timeout options
+   * @returns {Object} Initialization result
+   */
+  _initializeLLMService(config, debugCallback, llmOptions) {
+    const provider = config.llmProvider || 'openai';
+    const language = config.storyLanguage || 'German';
+    const platform = 'tiktok';
+
+    this.llmService = null;
+    this.storyEngine = null;
+
+    if (provider === 'openai') {
+      const openaiApiKey = this._getOpenAIApiKey();
+      if (!openaiApiKey) {
+        this._debugLog('error', '⚠️ OpenAI API key not configured in global settings', null);
+        this.api.log('⚠️ OpenAI API key not configured in global settings', 'warn');
+        this.api.log('Please configure API key in Settings → OpenAI API Configuration', 'warn');
+        return { ok: false, provider: 'openai', providerName: 'OpenAI', missingKey: true };
+      }
+
+      this.llmService = new OpenAILLMService(openaiApiKey, this.logger, debugCallback, {
+        ...llmOptions,
+        baseURL: 'https://api.openai.com/v1',
+        defaultModel: config.openaiModel || 'gpt-5.2',
+        allowCustomModels: false
+      });
+      this.storyEngine = new StoryEngine(this.llmService, this.logger, { language, platform });
+
+      this._debugLog('info', '✅ OpenAI LLM service initialized', {
+        apiKeyLength: openaiApiKey.length,
+        apiKeyPrefix: openaiApiKey.substring(0, 6) + '...',
+        timeout: config.llmTimeout,
+        maxRetries: config.llmMaxRetries
+      });
+      this.api.log('✅ OpenAI LLM service initialized', 'info');
+      return { ok: true, provider: 'openai', providerName: 'OpenAI', model: config.openaiModel || 'gpt-5.2' };
+    }
+
+    if (provider === 'openrouter') {
+      const openRouterApiKey = (config.openRouterApiKey || '').trim();
+      if (!openRouterApiKey) {
+        this._debugLog('error', '⚠️ OpenRouter API key not configured in plugin settings', null);
+        this.api.log('⚠️ OpenRouter API key not configured in plugin settings', 'warn');
+        this.api.log('Please add your OpenRouter API key in the Interactive Story configuration', 'warn');
+        return { ok: false, provider: 'openrouter', providerName: 'OpenRouter', missingKey: true };
+      }
+
+      this.llmService = new OpenAILLMService(openRouterApiKey, this.logger, debugCallback, {
+        ...llmOptions,
+        baseURL: (config.openRouterBaseUrl || 'https://openrouter.ai/api/v1').trim(),
+        defaultModel: config.openRouterModel || 'openrouter/free',
+        allowCustomModels: true
+      });
+      this.storyEngine = new StoryEngine(this.llmService, this.logger, { language, platform });
+
+      this._debugLog('info', '✅ OpenRouter LLM service initialized', {
+        apiKeyLength: openRouterApiKey.length,
+        apiKeyPrefix: openRouterApiKey.substring(0, 6) + '...',
+        baseURL: config.openRouterBaseUrl || 'https://openrouter.ai/api/v1',
+        model: config.openRouterModel || 'openrouter/free'
+      });
+      this.api.log('✅ OpenRouter LLM service initialized', 'info');
+      return { ok: true, provider: 'openrouter', providerName: 'OpenRouter', model: config.openRouterModel || 'openrouter/free' };
+    }
+
+    if (provider === 'ollama') {
+      const ollamaBaseUrl = (config.ollamaBaseUrl || 'https://ollama.com/api/v1').trim();
+      const ollamaApiKey = (config.ollamaApiKey || 'ollama').trim() || 'ollama';
+      const ollamaModel = config.ollamaModel || 'qwen3.5:cloud';
+
+      this.llmService = new OpenAILLMService(ollamaApiKey, this.logger, debugCallback, {
+        ...llmOptions,
+        baseURL: ollamaBaseUrl,
+        defaultModel: ollamaModel,
+        allowCustomModels: true,
+        fallbackApiKey: 'ollama'
+      });
+      this.storyEngine = new StoryEngine(this.llmService, this.logger, { language, platform });
+
+      this._debugLog('info', '✅ Ollama LLM service initialized', {
+        baseURL: ollamaBaseUrl,
+        model: ollamaModel,
+        apiKeyConfigured: !!(config.ollamaApiKey && config.ollamaApiKey.trim())
+      });
+      this.api.log('✅ Ollama LLM service initialized', 'info');
+      return { ok: true, provider: 'ollama', providerName: 'Ollama', model: ollamaModel };
+    }
+
+    // SiliconFlow provider (legacy)
+    const siliconFlowApiKey = this._getSiliconFlowApiKey();
+    if (siliconFlowApiKey) {
+      this.llmService = new LLMService(siliconFlowApiKey, this.logger, debugCallback, llmOptions);
+      this.storyEngine = new StoryEngine(this.llmService, this.logger, { language, platform });
+      this._debugLog('info', '✅ SiliconFlow LLM service initialized', {
+        apiKeyLength: siliconFlowApiKey.length,
+        apiKeyPrefix: siliconFlowApiKey.substring(0, 6) + '...',
+        timeout: config.llmTimeout,
+        maxRetries: config.llmMaxRetries
+      });
+      this.api.log('✅ SiliconFlow LLM service initialized', 'info');
+      return { ok: true, provider: 'siliconflow', providerName: 'SiliconFlow', model: config.defaultModel || 'deepseek' };
+    }
+
+    this._debugLog('error', '⚠️ SiliconFlow API key not configured in global settings', null);
+    this.api.log('⚠️ SiliconFlow API key not configured in global settings', 'warn');
+    this.api.log('Please configure API key in Settings → TTS API Keys → Fish Speech 1.5 API Key (SiliconFlow)', 'warn');
+    return { ok: false, provider: 'siliconflow', providerName: 'SiliconFlow', missingKey: true };
   }
 
   /**
@@ -964,13 +1077,23 @@ class InteractiveStoryPlugin {
   _loadConfig() {
     const defaultConfig = {
       // Provider selection
-      llmProvider: 'openai', // 'openai' or 'siliconflow'
+      llmProvider: 'openai', // 'openai', 'openrouter', 'ollama', or 'siliconflow'
       imageProvider: 'openai', // 'openai' or 'siliconflow'
       ttsProvider: 'system', // Always 'system' (uses LTTH TTS plugin with all engines)
       
       // OpenAI models
       openaiModel: 'gpt-5.2',
       openaiImageModel: 'gpt-image-1',
+
+      // OpenRouter settings
+      openRouterApiKey: '',
+      openRouterBaseUrl: 'https://openrouter.ai/api/v1',
+      openRouterModel: 'openrouter/free',
+
+      // Ollama settings
+      ollamaBaseUrl: 'https://ollama.com/api/v1',
+      ollamaApiKey: '',
+      ollamaModel: 'qwen3.5:cloud',
       
       // SiliconFlow models (legacy)
       defaultModel: 'deepseek',
@@ -1122,6 +1245,12 @@ class InteractiveStoryPlugin {
       if (safeConfig.siliconFlowApiKey) {
         safeConfig.siliconFlowApiKey = '***configured***';
       }
+      if (safeConfig.openRouterApiKey) {
+        safeConfig.openRouterApiKey = '***configured***';
+      }
+      if (safeConfig.ollamaApiKey) {
+        safeConfig.ollamaApiKey = '***configured***';
+      }
       res.json(safeConfig);
     });
 
@@ -1130,64 +1259,31 @@ class InteractiveStoryPlugin {
       try {
         const config = req.body;
         this._saveConfig(config);
-        
-        // Reinitialize services if API key changed or if timeout settings changed
+
+        // Reinitialize the LLM service so provider changes take effect immediately.
+        const debugCallback = (level, message, data) => this._debugLog(level, message, data);
+        const llmOptions = {
+          timeout: config.llmTimeout || 120000,
+          maxRetries: config.llmMaxRetries || 3,
+          retryDelay: config.llmRetryDelay || 2000
+        };
+        const llmInit = this._initializeLLMService(config, debugCallback, llmOptions);
+
+        // Keep image service behavior unchanged for now.
         if (config.siliconFlowApiKey && config.siliconFlowApiKey !== '***configured***') {
-          const debugCallback = (level, message, data) => this._debugLog(level, message, data);
-          const llmOptions = {
-            timeout: config.llmTimeout || 120000,
-            maxRetries: config.llmMaxRetries || 3,
-            retryDelay: config.llmRetryDelay || 2000
-          };
-          this.llmService = new LLMService(config.siliconFlowApiKey, this.logger, debugCallback, llmOptions);
           this.imageService = new ImageService(config.siliconFlowApiKey, this.logger, this.imageCacheDir);
-          // Note: TTS service removed - now using LTTH TTS plugin for all TTS operations
-          this.storyEngine = new StoryEngine(this.llmService, this.logger, {
-            language: config.storyLanguage || 'German',
-            platform: 'tiktok'
-          });
-        } else if (!this.storyEngine) {
-          // If services not initialized, check for API key in database
+        } else if (!this.imageService) {
           const apiKey = this._getSiliconFlowApiKey();
           if (apiKey) {
-            const debugCallback = (level, message, data) => this._debugLog(level, message, data);
-            const llmOptions = {
-              timeout: config.llmTimeout || 120000,
-              maxRetries: config.llmMaxRetries || 3,
-              retryDelay: config.llmRetryDelay || 2000
-            };
-            this.llmService = new LLMService(apiKey, this.logger, debugCallback, llmOptions);
             this.imageService = new ImageService(apiKey, this.logger, this.imageCacheDir);
-            // Note: TTS service removed - now using LTTH TTS plugin for all TTS operations
-            this.storyEngine = new StoryEngine(this.llmService, this.logger, {
-              language: config.storyLanguage || 'German',
-              platform: 'tiktok'
-            });
-            this._debugLog('info', '✅ SiliconFlow services initialized from database API key', { 
-              apiKeyConfigured: true
-            });
           }
-        } else {
-          // Update existing services when only settings change (not API key)
-          // Update timeout settings in existing LLM service
-          if (this.llmService) {
-            if (config.llmTimeout) this.llmService.timeout = config.llmTimeout;
-            if (config.llmMaxRetries) this.llmService.maxRetries = config.llmMaxRetries;
-            if (config.llmRetryDelay) this.llmService.retryDelay = config.llmRetryDelay;
-            this._debugLog('info', '✅ LLM service settings updated', {
-              timeout: this.llmService.timeout,
-              maxRetries: this.llmService.maxRetries,
-              retryDelay: this.llmService.retryDelay
-            });
-          }
-          
-          // Update story engine language if it changed
-          if (this.storyEngine && config.storyLanguage) {
-            this.storyEngine.updateConfig({ language: config.storyLanguage });
-            this._debugLog('info', '✅ Story language updated', {
-              language: config.storyLanguage
-            });
-          }
+        }
+
+        if (llmInit.ok && this.storyEngine && config.storyLanguage) {
+          this.storyEngine.updateConfig({ language: config.storyLanguage });
+          this._debugLog('info', '✅ Story language updated', {
+            language: config.storyLanguage
+          });
         }
         
         // Emit configuration update to overlay for real-time styling updates
@@ -1243,45 +1339,49 @@ class InteractiveStoryPlugin {
     // Start new story
     this.api.registerRoute('post', '/api/interactive-story/start', async (req, res) => {
       try {
-        if (!this.storyEngine) {
-          this._debugLog('error', 'Services not configured - missing API key', null);
-          return res.status(400).json({ error: 'Services not configured. Please add SiliconFlow API key in Settings → TTS API Keys' });
-        }
         const config = this._loadConfig();
-        if (!this.llmService) {
-          const llmProvider = config.llmProvider || 'openai';
-          const providerName = llmProvider === 'openai' ? 'OpenAI' : 'SiliconFlow';
-          this._debugLog('error', `${providerName} LLM service not configured - missing API key`, null);
-          return res.status(400).json({ error: `${providerName} API key not configured. Please add it in Settings.` });
+
+        if (!this.llmService || !this.storyEngine) {
+          const debugCallback = (level, message, data) => this._debugLog(level, message, data);
+          const llmOptions = {
+            timeout: config.llmTimeout || 120000,
+            maxRetries: config.llmMaxRetries || 3,
+            retryDelay: config.llmRetryDelay || 2000
+          };
+          const llmInit = this._initializeLLMService(config, debugCallback, llmOptions);
+          if (!llmInit.ok || !this.llmService || !this.storyEngine) {
+            this._debugLog('error', `${llmInit.providerName || 'LLM'} service not configured`, null);
+            return res.status(400).json({
+              error: `${llmInit.providerName || 'LLM'} service not configured. Please add the required credentials in the Interactive Story settings.`
+            });
+          }
         }
 
         const { theme, outline, model } = req.body;
-        
-        this._debugLog('info', `🚀 Starting new story`, { 
-          theme, 
-          model, 
+        const llmProvider = config.llmProvider || 'openai';
+        const sessionModel = model || this._getDefaultStoryModel(config, llmProvider);
+
+        this._debugLog('info', 'Starting new story', {
+          theme,
+          model: sessionModel,
           hasOutline: !!outline,
-          apiKeyConfigured: !!this._getSiliconFlowApiKey()
+          provider: this._getLLMProviderLabel(llmProvider)
         });
-        
+
         this.isGenerating = true;
         this.io.emit('story:generation-started', { theme });
 
         // Initialize story
-        this._debugLog('info', `📡 Calling LLM API to generate first chapter...`, { theme, model });
-        const firstChapter = await this.storyEngine.initializeStory(theme, outline, model);
-        
-        this._debugLog('info', `✅ First chapter generated successfully`, { 
-          title: firstChapter.title, 
+        this._debugLog('info', 'Calling LLM API to generate first chapter...', { theme, model: sessionModel });
+        const firstChapter = await this.storyEngine.initializeStory(theme, outline, sessionModel);
+
+        this._debugLog('info', 'First chapter generated successfully', {
+          title: firstChapter.title,
           choiceCount: firstChapter.choices.length,
           contentLength: firstChapter.content.length
         });
 
         // Create session in database
-        // Use provider-appropriate default model if not specified
-        const defaultModel = config.llmProvider === 'openai' ? config.openaiModel : config.defaultModel;
-        const sessionModel = model || defaultModel;
-        
         const sessionId = this.db.createSession({
           theme,
           outline: this.storyEngine.getMemory().memory.outline,
@@ -1290,51 +1390,47 @@ class InteractiveStoryPlugin {
         });
 
         this.currentSession = { id: sessionId, theme, model: sessionModel };
-        
-        this._debugLog('info', `Session created`, { sessionId, theme });
+
+        this._debugLog('info', 'Session created', { sessionId, theme });
 
         // Generate image if enabled
         if (config.autoGenerateImages && this.imageService) {
           try {
             const imageModel = config.imageProvider === 'openai' ? config.openaiImageModel : config.defaultImageModel;
             const style = this.imageService.getStyleForTheme ? this.imageService.getStyleForTheme(theme) : '';
-            
+
             // For first chapter, create enhanced prompt showing protagonist(s) and theme
             const memory = this.storyEngine.getMemory().memory;
             let imagePrompt = '';
-            
-            // Safely extract protagonist information from memory
-            // memory.characters is a Map (from story-memory.js)
+
             if (memory.characters instanceof Map && memory.characters.size > 0) {
-              // Extract protagonist information from memory (Map structure)
               const protagonists = Array.from(memory.characters.values())
                 .filter(char => char.status === 'active')
-                .slice(0, 2) // Max 2 protagonists in first image
+                .slice(0, 2)
                 .map(char => char.description || char.name)
                 .join(' and ');
-              
+
               imagePrompt = `${protagonists} in ${firstChapter.title}, ${firstChapter.content.substring(0, 150)}`;
             } else {
-              // Fallback if no characters extracted yet
               imagePrompt = `Protagonist in ${firstChapter.title}, ${firstChapter.content.substring(0, 200)}`;
             }
-            
-            this._debugLog('info', `🖼️ Starting FIRST CHAPTER image generation (showing protagonists and theme)`, { 
+
+            this._debugLog('info', 'Starting FIRST CHAPTER image generation', {
               provider: config.imageProvider,
               model: imageModel,
               promptLength: imagePrompt.length,
               theme,
               characterCount: (memory.characters instanceof Map) ? memory.characters.size : 0
             });
-            
+
             firstChapter.imagePath = await this.imageService.generateImage(imagePrompt, imageModel, style);
-            
-            this._debugLog('info', `✅ Image generated successfully`, { 
+
+            this._debugLog('info', 'Image generated successfully', {
               imagePath: firstChapter.imagePath,
               model: imageModel
             });
           } catch (imageError) {
-            this._debugLog('error', `❌ Image generation failed`, { 
+            this._debugLog('error', 'Image generation failed', {
               error: imageError.message,
               stack: imageError.stack,
               statusCode: imageError.response?.status,
@@ -1343,9 +1439,9 @@ class InteractiveStoryPlugin {
               model: config.imageProvider === 'openai' ? config.openaiImageModel : config.defaultImageModel
             });
             firstChapter.imagePath = null;
-            this.io.emit('story:image-generation-failed', { 
+            this.io.emit('story:image-generation-failed', {
               message: 'Image generation failed, but story continues',
-              error: imageError.message 
+              error: imageError.message
             });
           }
         }
@@ -1356,22 +1452,17 @@ class InteractiveStoryPlugin {
 
         this.isGenerating = false;
 
-        // IMPROVED FLOW: Progressive sentence-by-sentence display synchronized with TTS
-        // 1. Emit chapter data to clients (overlay prepares but doesn't show yet)
+        // Progressive sentence-by-sentence display synchronized with TTS
         this.io.emit('story:chapter-ready', this._prepareChapterForEmit(firstChapter));
-        
-        // 2. Start TTS which will progressively send sentences to overlay (WAIT for completion)
+
         await this._generateChapterTTS(firstChapter);
-        
-        // 3. Read the voting choices (WAIT for it to complete)
+
         try {
           await this._generateChoicesTTS(firstChapter.choices);
         } catch (error) {
           this.logger.error(`Choices TTS error (chapter ${firstChapter.chapterNumber}): ${error.message}`);
-          // Continue anyway - voting can start even if choices TTS fails
         }
-        
-        // 4. NOW start voting (after chapter narration is complete)
+
         this.votingSystem.start(firstChapter.choices, {
           votingDuration: config.votingDuration,
           minVotes: config.minVotes,
@@ -1385,7 +1476,7 @@ class InteractiveStoryPlugin {
         res.json({ success: true, chapter: firstChapter, sessionId });
       } catch (error) {
         this.isGenerating = false;
-        this._debugLog('error', `❌ Error starting story: ${error.message}`, { 
+        this._debugLog('error', `Error starting story: ${error.message}`, {
           error: error.message,
           stack: error.stack,
           statusCode: error.response?.status,
@@ -1634,31 +1725,60 @@ class InteractiveStoryPlugin {
     this.api.registerRoute('post', '/api/interactive-story/validate-api-key', async (req, res) => {
       try {
         const config = this._loadConfig();
-        const provider = req.body?.provider || config.llmProvider || 'openai';
-        
-        let apiKey;
-        let providerName;
-        let testModel;
-        let apiUrl;
-        
-        // Determine which provider to test
+        const requestConfig = req.body || {};
+        const provider = requestConfig.provider || config.llmProvider || 'openai';
+
+        let apiKey = null;
+        let providerName = this._getLLMProviderLabel(provider);
+        let testModel = this._getDefaultStoryModel(config, provider);
+        let apiUrl = null;
+        let useOpenAICompatibleService = false;
+        let serviceOptions = {};
+
         if (provider === 'openai') {
           apiKey = this._getOpenAIApiKey();
-          providerName = 'OpenAI';
-          testModel = 'gpt-3.5-turbo';
           apiUrl = 'https://api.openai.com/v1/chat/completions';
+          useOpenAICompatibleService = true;
+          serviceOptions = {
+            baseURL: 'https://api.openai.com/v1',
+            defaultModel: testModel,
+            allowCustomModels: false
+          };
+        } else if (provider === 'openrouter') {
+          apiKey = (requestConfig.openRouterApiKey || config.openRouterApiKey || '').trim();
+          apiUrl = `${(requestConfig.openRouterBaseUrl || config.openRouterBaseUrl || 'https://openrouter.ai/api/v1').replace(/\/$/, '')}/chat/completions`;
+          useOpenAICompatibleService = true;
+          serviceOptions = {
+            baseURL: (requestConfig.openRouterBaseUrl || config.openRouterBaseUrl || 'https://openrouter.ai/api/v1').trim(),
+            defaultModel: requestConfig.openRouterModel || config.openRouterModel || 'openrouter/free',
+            allowCustomModels: true
+          };
+          testModel = serviceOptions.defaultModel;
+        } else if (provider === 'ollama') {
+          apiKey = (requestConfig.ollamaApiKey || config.ollamaApiKey || 'ollama').trim() || 'ollama';
+          apiUrl = `${(requestConfig.ollamaBaseUrl || config.ollamaBaseUrl || 'https://ollama.com/api/v1').replace(/\/$/, '')}/chat/completions`;
+          useOpenAICompatibleService = true;
+          serviceOptions = {
+            baseURL: (requestConfig.ollamaBaseUrl || config.ollamaBaseUrl || 'https://ollama.com/api/v1').trim(),
+            defaultModel: requestConfig.ollamaModel || config.ollamaModel || 'qwen3.5:cloud',
+            allowCustomModels: true,
+            fallbackApiKey: 'ollama'
+          };
+          testModel = serviceOptions.defaultModel;
         } else {
           apiKey = this._getSiliconFlowApiKey();
           providerName = 'SiliconFlow';
-          testModel = 'meta-llama/Meta-Llama-3.1-8B-Instruct';
+          testModel = requestConfig.defaultModel || config.defaultModel || 'deepseek';
           apiUrl = 'https://api.siliconflow.com/v1/chat/completions';
         }
-        
-        if (!apiKey) {
-          const settingsPath = provider === 'openai' 
-            ? 'Settings → OpenAI API Configuration'
-            : 'Settings → TTS API Keys → SiliconFlow API Key';
-          
+
+        if (!apiKey && provider !== 'ollama') {
+          const settingsPath = provider === 'openai'
+            ? 'Settings ? OpenAI API Configuration'
+            : provider === 'openrouter'
+              ? 'Interactive Story settings ? OpenRouter API key'
+              : 'Settings ? TTS API Keys ? SiliconFlow API Key';
+
           return res.json({
             valid: false,
             error: `No ${providerName} API key configured`,
@@ -1667,16 +1787,48 @@ class InteractiveStoryPlugin {
             provider: providerName
           });
         }
-        
-        // Log validation attempt
-        this._debugLog('info', `🔍 Validating ${providerName} API key...`, {
+
+        this._debugLog('info', `Validating ${providerName} API connection...`, {
           provider: providerName,
-          keyLength: apiKey.length,
-          keyPrefix: apiKey.substring(0, 6) + '...'
+          keyLength: apiKey ? apiKey.length : 0,
+          keyPrefix: apiKey ? apiKey.substring(0, 6) + '...' : 'N/A',
+          apiUrl,
+          model: testModel
         });
-        
-        // Test API key with a minimal request
+
         try {
+          if (useOpenAICompatibleService) {
+            const validationService = new OpenAILLMService(apiKey || 'ollama', this.logger, (level, message, data) => this._debugLog(level, message, data), {
+              ...serviceOptions,
+              timeout: 10000,
+              maxRetries: 1,
+              retryDelay: 0
+            });
+            const result = await validationService.testConnection();
+            if (!result.success) {
+              throw new Error(result.message || 'Validation failed');
+            }
+
+            this._debugLog('info', `${providerName} API connection successful`, {
+              provider: providerName,
+              model: result.model,
+              usage: result.usage || null
+            });
+
+            return res.json({
+              valid: true,
+              configured: true,
+              provider: providerName,
+              message: `${providerName} API is valid and working!`,
+              details: {
+                keyLength: apiKey ? apiKey.length : 0,
+                keyPrefix: apiKey ? apiKey.substring(0, 6) + '...' : 'N/A',
+                testedModel: result.model,
+                baseURL: serviceOptions.baseURL
+              }
+            });
+          }
+
           const response = await axios.post(
             apiUrl,
             {
@@ -1693,11 +1845,11 @@ class InteractiveStoryPlugin {
               timeout: 10000
             }
           );
-          
-          this._debugLog('info', `✅ ${providerName} API key validation successful`, {
+
+          this._debugLog('info', `${providerName} API key validation successful`, {
             statusCode: response.status
           });
-          
+
           res.json({
             valid: true,
             configured: true,
@@ -1712,29 +1864,31 @@ class InteractiveStoryPlugin {
         } catch (error) {
           const statusCode = error.response?.status || 0;
           const responseData = error.response?.data || error.message;
-          
-          this._debugLog('error', `❌ ${providerName} API key validation failed`, {
+
+          this._debugLog('error', `${providerName} API key validation failed`, {
             statusCode,
             error: responseData,
-            keyLength: apiKey.length,
-            keyPrefix: apiKey.substring(0, 6) + '...'
+            keyLength: apiKey ? apiKey.length : 0,
+            keyPrefix: apiKey ? apiKey.substring(0, 6) + '...' : 'N/A'
           });
-          
+
           let message = 'API key validation failed';
           let troubleshooting = [];
-          
+
           if (statusCode === 401) {
             message = 'API key is invalid or not authorized';
-            const dashboardUrl = provider === 'openai' 
+            const dashboardUrl = provider === 'openai'
               ? 'https://platform.openai.com/api-keys'
-              : 'https://cloud.siliconflow.com/';
-            
+              : provider === 'openrouter'
+                ? 'https://openrouter.ai/settings/keys'
+                : 'https://cloud.siliconflow.com/';
+
             troubleshooting = [
               `Check that the API key is correct and active on ${dashboardUrl}`,
               'Make sure you copied the entire API key without extra spaces',
-              'Verify the API key hasn\'t expired',
-              `Check that you have credits/quota available on ${providerName}`,
-              `Try generating a new API key on ${providerName} dashboard`
+              'Verify the API key has not expired',
+              `Check that you have credits or quota available on ${providerName}`,
+              `Try generating a new API key on the ${providerName} dashboard`
             ];
           } else if (statusCode === 429) {
             message = 'Rate limit exceeded or quota exhausted';
@@ -1745,14 +1899,20 @@ class InteractiveStoryPlugin {
             ];
           } else if (statusCode === 0) {
             message = `Network error - cannot reach ${providerName} API`;
-            const apiDomain = provider === 'openai' ? 'api.openai.com' : 'api.siliconflow.com';
+            const apiDomain = provider === 'openai'
+              ? 'api.openai.com'
+              : provider === 'openrouter'
+                ? 'openrouter.ai'
+                : provider === 'ollama'
+                  ? 'ollama.com'
+                  : 'api.siliconflow.com';
             troubleshooting = [
               'Check your internet connection',
               `Verify that ${apiDomain} is accessible`,
-              'Check firewall/proxy settings'
+              'Check firewall or proxy settings'
             ];
           }
-          
+
           res.json({
             valid: false,
             configured: true,
@@ -1762,9 +1922,10 @@ class InteractiveStoryPlugin {
             troubleshooting,
             details: {
               statusCode,
-              keyLength: apiKey.length,
-              keyPrefix: apiKey.substring(0, 6) + '...',
-              hasWhitespace: apiKey !== apiKey.trim()
+              keyLength: apiKey ? apiKey.length : 0,
+              keyPrefix: apiKey ? apiKey.substring(0, 6) + '...' : 'N/A',
+              hasWhitespace: apiKey ? apiKey !== apiKey.trim() : false,
+              baseURL: serviceOptions.baseURL || null
             }
           });
         }
@@ -1776,7 +1937,7 @@ class InteractiveStoryPlugin {
         });
       }
     });
-    
+
     // Admin manual choice selection (offline mode)
     this.api.registerRoute('post', '/api/interactive-story/admin-choice', async (req, res) => {
       try {

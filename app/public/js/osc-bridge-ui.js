@@ -1,4 +1,4 @@
-const socket = io();
+﻿const socket = io();
 let currentConfig = {};
 
 function escapeHtml(text) {
@@ -15,13 +15,13 @@ socket.on('osc:status', (status) => {
 // OSC-Nachrichten loggen (wenn verbose)
 socket.on('osc:sent', (data) => {
     if (currentConfig.verboseMode) {
-        addLog('send', `${data.address} → ${JSON.stringify(data.args)}`);
+        addLog('send', `${data.address} â†’ ${JSON.stringify(data.args)}`);
     }
 });
 
 socket.on('osc:received', (data) => {
     if (currentConfig.verboseMode) {
-        addLog('recv', `${data.address} ← ${JSON.stringify(data.args)} from ${data.source}`);
+        addLog('recv', `${data.address} â† ${JSON.stringify(data.args)} from ${data.source}`);
     }
 });
 
@@ -43,20 +43,28 @@ socket.on('gift-catalog:updated', (data) => {
             giftCatalog.push(data.gift);
             // Refresh the selector dropdown
             populateGiftCatalogSelector();
-            console.log(`🎁 New gift auto-added to catalog: ${data.gift.name} (ID: ${data.gift.id})`);
+            console.log(`ðŸŽ New gift auto-added to catalog: ${data.gift.name} (ID: ${data.gift.id})`);
         }
     }
 });
 
 // Config laden
 async function loadConfig() {
-    const response = await fetch('/api/osc/config');
-    const data = await response.json();
+    let data;
+    try {
+        const response = await fetch('/api/osc/config');
+        data = await response.json();
+    } catch (error) {
+        addLog('error', `OSC config unavailable: ${error.message}`);
+        return;
+    }
 
     if (data.success) {
         currentConfig = data.config;
         populateForm(currentConfig);
         toggleLogViewer(currentConfig.verboseMode);
+    } else {
+        addLog('error', `OSC config failed: ${data.error || 'unknown error'}`);
     }
 }
 
@@ -146,14 +154,28 @@ function toggleLogViewer(show) {
 function updateStatus(status) {
     const indicator = document.getElementById('status-indicator');
     const statusText = document.getElementById('status-text');
+    const btnStart = document.getElementById('btn-start');
+    const btnStop = document.getElementById('btn-stop');
+    const btnTest = document.getElementById('btn-test');
+    const state = status.state || (status.isRunning ? 'running' : 'stopped');
 
-    if (status.isRunning) {
+    if (state === 'running' || status.isRunning) {
         indicator.className = 'status-indicator running';
         statusText.textContent = 'Aktiv';
+    } else if (state === 'starting') {
+        indicator.className = 'status-indicator running';
+        statusText.textContent = 'Startet...';
+    } else if (state === 'error') {
+        indicator.className = 'status-indicator stopped';
+        statusText.textContent = 'Fehler';
     } else {
         indicator.className = 'status-indicator stopped';
         statusText.textContent = 'Gestoppt';
     }
+
+    if (btnStart) btnStart.disabled = state === 'starting' || state === 'running';
+    if (btnStop) btnStop.disabled = state === 'stopping' || state === 'stopped';
+    if (btnTest) btnTest.disabled = state !== 'running';
 
     // Statistiken
     document.getElementById('stat-sent').textContent = status.stats.messagesSent || 0;
@@ -337,7 +359,7 @@ if (advancedFeaturesForm) {
         const data = await response.json();
 
         if (data.success) {
-            alert('Erweiterte Einstellungen gespeichert! Bitte starten Sie die Bridge neu, damit die Änderungen wirksam werden.');
+            alert('Erweiterte Einstellungen gespeichert! Bitte starten Sie die Bridge neu, damit die Ã„nderungen wirksam werden.');
             currentConfig = data.config;
         } else {
             alert('Fehler beim Speichern der erweiterten Einstellungen: ' + data.error);
@@ -404,24 +426,30 @@ if (avatarSwitchForm) {
 const btnStart = document.getElementById('btn-start');
 if (btnStart) {
     btnStart.addEventListener('click', async () => {
+        btnStart.disabled = true;
         const response = await fetch('/api/osc/start', { method: 'POST' });
         const data = await response.json();
 
         if (!data.success) {
             alert('Fehler beim Starten: ' + data.error);
+            addLog('error', `Start failed: ${data.error}`);
         }
+        socket.emit('osc:get-status');
     });
 }
 
 const btnStop = document.getElementById('btn-stop');
 if (btnStop) {
     btnStop.addEventListener('click', async () => {
+        btnStop.disabled = true;
         const response = await fetch('/api/osc/stop', { method: 'POST' });
         const data = await response.json();
 
         if (!data.success) {
             alert('Fehler beim Stoppen: ' + data.error);
+            addLog('error', `Stop failed: ${data.error}`);
         }
+        socket.emit('osc:get-status');
     });
 }
 
@@ -476,15 +504,19 @@ document.querySelectorAll('.param-btn').forEach(button => {
     });
 });
 
-// Log-Einträge hinzufügen
+// Log-EintrÃ¤ge hinzufÃ¼gen
 function addLog(type, message) {
     const logViewer = document.getElementById('log-viewer');
+    if (!logViewer) {
+        console.warn(`[OSC ${type}] ${message}`);
+        return;
+    }
     const entry = document.createElement('div');
     entry.className = `log-entry ${type}`;
     entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
     logViewer.insertBefore(entry, logViewer.firstChild);
 
-    // Limit: 100 Einträge
+    // Limit: 100 EintrÃ¤ge
     while (logViewer.children.length > 100) {
         logViewer.removeChild(logViewer.lastChild);
     }
@@ -623,7 +655,7 @@ function loadCustomPresets() {
 
     container.innerHTML = presets.map(preset => `
         <button class="param-btn" data-preset-id="${preset.id}">
-            🎯 ${preset.name}
+            ðŸŽ¯ ${preset.name}
             <small style="display: block; font-size: 0.8em; opacity: 0.7;">${preset.address}</small>
         </button>
     `).join('');
@@ -643,7 +675,7 @@ function loadCustomPresets() {
         btn.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const presetId = parseInt(btn.dataset.presetId);
-            if (confirm('Preset löschen?')) {
+            if (confirm('Preset lÃ¶schen?')) {
                 deleteCustomPreset(presetId);
             }
         });
@@ -695,10 +727,10 @@ function populateGiftCatalogSelector() {
     // Update hint based on catalog state
     if (hintEl) {
         if (giftCatalog.length === 0) {
-            hintEl.textContent = '💡 Gifts are auto-detected when viewers send them during a stream. Connect to a TikTok stream to populate the catalogue.';
+            hintEl.textContent = 'ðŸ’¡ Gifts are auto-detected when viewers send them during a stream. Connect to a TikTok stream to populate the catalogue.';
             hintEl.style.color = 'var(--color-text-muted)';
         } else {
-            hintEl.textContent = `✅ ${giftCatalog.length} gifts available. New gifts are auto-added when received from stream.`;
+            hintEl.textContent = `âœ… ${giftCatalog.length} gifts available. New gifts are auto-added when received from stream.`;
             hintEl.style.color = 'var(--color-accent-success)';
         }
     }
@@ -719,9 +751,9 @@ function populateGiftCatalogSelector() {
             const option = document.createElement('option');
             option.value = JSON.stringify({ id: gift.id, name: gift.name });
             
-            // Format: "Rose (💎 1) - ID: 5655"
+            // Format: "Rose (ðŸ’Ž 1) - ID: 5655"
             const diamondCount = gift.diamond_count || 0;
-            option.textContent = `${gift.name} (💎 ${diamondCount}) - ID: ${gift.id}`;
+            option.textContent = `${gift.name} (ðŸ’Ž ${diamondCount}) - ID: ${gift.id}`;
             
             selector.appendChild(option);
         });
@@ -1236,8 +1268,8 @@ if (typeof window !== 'undefined') {
         const refreshBtn = document.getElementById('refresh-gift-catalog');
         if (refreshBtn) {
             refreshBtn.addEventListener('click', async () => {
-                const originalText = '🔄 Refresh Catalogue';
-                refreshBtn.textContent = '⏳ Loading...';
+                const originalText = 'ðŸ”„ Refresh Catalogue';
+                refreshBtn.textContent = 'â³ Loading...';
                 refreshBtn.disabled = true;
                 
                 await loadGiftCatalog();
@@ -1300,6 +1332,11 @@ if (typeof window !== 'undefined') {
         if (btnRefreshActions) {
             btnRefreshActions.addEventListener('click', refreshAvailableActions);
         }
+
+        const btnOscQueryScan = document.getElementById('btn-oscquery-scan');
+        if (btnOscQueryScan) {
+            btnOscQueryScan.addEventListener('click', scanOSCQuery);
+        }
         
         // Single delegated listener for available actions (std-action, emote-slot, custom-param, physbone)
         const actionsRoot = document.getElementById('available-actions-container');
@@ -1322,13 +1359,109 @@ if (typeof window !== 'undefined') {
 let currentAvatarData = null;
 let availableActions = null;
 
+function formatDiagnostics(data) {
+    if (!data || !data.diagnostics) {
+        return data?.error || 'Unknown OSCQuery error';
+    }
+
+    const diagnostics = data.diagnostics;
+    const actions = Array.isArray(diagnostics.actions) ? diagnostics.actions : [];
+    const actionText = actions.length
+        ? '\n\nNext steps:\n' + actions.map((action, index) => `${index + 1}. ${action}`).join('\n')
+        : '';
+
+    return `${data.error || diagnostics.summary || 'OSCQuery failed'}\n\nHost: ${diagnostics.host}\nPort: ${diagnostics.port}\nScanned: ${diagnostics.scannedRange}${actionText}`;
+}
+
+function renderOSCQueryResult(data) {
+    const resultEl = document.getElementById('oscquery-scan-result');
+    if (!resultEl) return;
+
+    resultEl.style.display = 'block';
+    resultEl.style.whiteSpace = 'pre-wrap';
+
+    if (data.success) {
+        resultEl.style.borderLeftColor = '#10b981';
+        resultEl.style.background = 'rgba(16, 185, 129, 0.1)';
+        resultEl.textContent = `OSCQuery found on ${data.port}. The port was ${data.autoSaved ? 'saved' : 'not saved'}.`;
+        return;
+    }
+
+    resultEl.style.borderLeftColor = '#f59e0b';
+    resultEl.style.background = 'rgba(245, 158, 11, 0.1)';
+    resultEl.textContent = formatDiagnostics(data);
+}
+
+async function scanOSCQuery() {
+    const btn = document.getElementById('btn-oscquery-scan');
+    const hostInput = document.getElementById('oscQueryHost');
+    const portInput = document.getElementById('oscQueryPort');
+    const enabledInput = document.getElementById('oscQueryEnabled');
+    const originalText = btn ? btn.textContent : '';
+
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Scanning OSCQuery...';
+        }
+
+        const response = await fetch('/api/osc/oscquery/scan-port', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                startPort: 9001,
+                endPort: 9020,
+                timeout: 500,
+                autoSave: true
+            })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            if (portInput) portInput.value = data.port;
+            if (enabledInput) enabledInput.checked = true;
+            currentConfig = {
+                ...currentConfig,
+                oscQuery: {
+                    ...(currentConfig.oscQuery || {}),
+                    enabled: true,
+                    host: hostInput ? hostInput.value : '127.0.0.1',
+                    port: data.port
+                }
+            };
+        }
+
+        renderOSCQueryResult(data);
+    } catch (error) {
+        renderOSCQueryResult({
+            success: false,
+            error: `OSCQuery scan request failed: ${error.message}`,
+            diagnostics: {
+                host: hostInput ? hostInput.value : '127.0.0.1',
+                port: portInput ? parseInt(portInput.value, 10) || 9001 : 9001,
+                scannedRange: '9001-9020',
+                actions: [
+                    'Check that the local server is running.',
+                    'Start VRChat and enable OSC via Action Menu > OSC > Enabled.',
+                    'Retry the scan after VRChat has loaded into a world.'
+                ]
+            }
+        });
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+}
+
 async function autoDetectAvatar() {
     const btn = document.getElementById('btn-auto-detect-avatar');
     const originalText = btn.textContent;
     
     try {
         btn.disabled = true;
-        btn.textContent = '🔍 Erkenne Avatar...';
+        btn.textContent = 'ðŸ” Erkenne Avatar...';
         
         const response = await fetch('/api/osc/avatar/auto-detect', {
             method: 'POST'
@@ -1348,19 +1481,20 @@ async function autoDetectAvatar() {
             displayAvailableActions(availableActions);
             
             if (data.isNew) {
-                alert(`✅ Neuer Avatar erkannt und zur Liste hinzugefügt!\n\nAvatar ID: ${data.avatarId}\nParameter: ${data.parameterCount}\n\nSie können den Avatar-Namen in der Avatar-Verwaltung anpassen.`);
+                alert(`âœ… Neuer Avatar erkannt und zur Liste hinzugefÃ¼gt!\n\nAvatar ID: ${data.avatarId}\nParameter: ${data.parameterCount}\n\nSie kÃ¶nnen den Avatar-Namen in der Avatar-Verwaltung anpassen.`);
                 // Reload avatars list
                 await loadAvatars();
             } else {
-                alert(`✅ Avatar erkannt!\n\nAvatar ID: ${data.avatarId}\nParameter: ${data.parameterCount}`);
+                alert(`âœ… Avatar erkannt!\n\nAvatar ID: ${data.avatarId}\nParameter: ${data.parameterCount}`);
             }
         } else {
-            alert('❌ Fehler: ' + data.error);
+            alert(formatDiagnostics(data));
+            renderOSCQueryResult(data);
             hideCurrentAvatar();
         }
     } catch (error) {
         console.error('Error auto-detecting avatar:', error);
-        alert('❌ Fehler beim Erkennen des Avatars: ' + error.message);
+        alert('Fehler beim Erkennen des Avatars: ' + error.message);
         hideCurrentAvatar();
     } finally {
         btn.disabled = false;
@@ -1374,7 +1508,7 @@ async function refreshAvailableActions() {
     
     try {
         btn.disabled = true;
-        btn.textContent = '🔄 Aktualisiere...';
+        btn.textContent = 'ðŸ”„ Aktualisiere...';
         
         // Get current avatar
         const avatarResponse = await fetch('/api/osc/avatar/current');
@@ -1397,14 +1531,14 @@ async function refreshAvailableActions() {
             displayAvailableActions(availableActions);
             
             if (currentAvatarData) {
-                alert('✅ Aktionen aktualisiert!');
+                alert('âœ… Aktionen aktualisiert!');
             }
         } else {
-            alert('⚠️ ' + actionsData.error);
+            alert('âš ï¸ ' + actionsData.error);
         }
     } catch (error) {
         console.error('Error refreshing actions:', error);
-        alert('❌ Fehler beim Aktualisieren: ' + error.message);
+        alert('âŒ Fehler beim Aktualisieren: ' + error.message);
     } finally {
         btn.disabled = false;
         btn.textContent = originalText;
@@ -1456,17 +1590,17 @@ function displayStandardActions(standardActions) {
     if (!container) return;
     
     const actionEmojis = {
-        Wave: '👋',
-        Celebrate: '🎉',
-        Dance: '💃',
-        Hearts: '❤️',
-        Confetti: '🎊'
+        Wave: 'ðŸ‘‹',
+        Celebrate: 'ðŸŽ‰',
+        Dance: 'ðŸ’ƒ',
+        Hearts: 'â¤ï¸',
+        Confetti: 'ðŸŽŠ'
     };
     
     container.innerHTML = Object.entries(standardActions).map(([name, available]) => {
-        const emoji = actionEmojis[name] || '✨';
+        const emoji = actionEmojis[name] || 'âœ¨';
         const statusClass = available ? 'available' : 'unavailable';
-        const statusText = available ? '' : ' (nicht verfügbar)';
+        const statusText = available ? '' : ' (nicht verfÃ¼gbar)';
         
         return `
             <button class="param-btn ${statusClass}" 
@@ -1486,14 +1620,14 @@ function displayEmoteSlots(emoteSlots) {
     container.innerHTML = Object.entries(emoteSlots).map(([name, available]) => {
         const slotNum = name.replace('Emote', '');
         const statusClass = available ? 'available' : 'unavailable';
-        const statusText = available ? '' : ' (nicht verfügbar)';
+        const statusText = available ? '' : ' (nicht verfÃ¼gbar)';
         
         return `
             <button class="param-btn ${statusClass}" 
                     ${available ? '' : 'disabled'}
                     data-action="emote-slot"
                     data-slot="${slotNum}">
-                😀 Emote ${slotNum}${statusText}
+                ðŸ˜€ Emote ${slotNum}${statusText}
             </button>
         `;
     }).join('');
@@ -1522,7 +1656,7 @@ function displayCustomParameters(customParams) {
                     data-action="custom-param"
                     data-path="${escapeHtml(paramPath)}"
                     title="${escapeHtml(paramPath)} (${escapeHtml(paramType)})">
-                🎯 ${paramName}
+                ðŸŽ¯ ${paramName}
                 <small style="display: block; font-size: 0.8em; opacity: 0.7;">${paramType}</small>
             </button>
         `;
@@ -1550,7 +1684,7 @@ function displayPhysBones(physbones) {
                     data-action="physbone"
                     data-bone="${escapeHtml(boneName)}"
                     title="${escapeHtml(bone.basePath || '')}">
-                🦴 ${boneName}
+                ðŸ¦´ ${boneName}
             </button>
         `;
     }).join('');

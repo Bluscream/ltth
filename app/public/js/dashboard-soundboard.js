@@ -60,6 +60,9 @@ let globalSoundQueue = [];           // Global queue for 'queue-all' mode
 let perGiftSoundQueues = {};         // Per-gift queues for 'queue-per-gift' mode { giftId: { queue: [], isProcessing: false } }
 let isProcessingGlobalQueue = false;
 let currentPlayMode = 'overlap';     // Default to overlap mode ('overlap', 'queue-all', 'queue-per-gift')
+let currentMaxQueueLength = 10;
+let activeAnimationInput = null;
+const MAX_GIFT_REPEAT_PLAYS = 50;
 
 // ========== SOCKET EVENTS ==========
 socket.on('soundboard:play', (data) => {
@@ -138,11 +141,19 @@ socket.on('soundboard:preview', (payload) => {
 function playDashboardSoundboard(data) {
     log.info('Received sound', { label: data.label, mode: currentPlayMode, giftId: data.giftId || null });
     logAudioEvent('info', `Received sound: ${data.label} (mode: ${currentPlayMode}, giftId: ${data.giftId || 'none'})`, { url: data.url, volume: data.volume }, true);
-    
+
+    expandGiftRepeats(data).forEach(soundData => queueOrPlaySound(soundData));
+}
+
+function queueOrPlaySound(data) {
+    const enforceQueueLimit = !data.repeatIndex || data.repeatIndex === 1;
+
     // Check play mode
     if (currentPlayMode === 'queue-all') {
         // Global queue - all sounds are queued sequentially
-        globalSoundQueue.push(data);
+        if (!enqueueSound(globalSoundQueue, data, 'global queue', { enforceLimit: enforceQueueLimit })) {
+            return;
+        }
         logAudioEvent('info', `Added to global queue: ${data.label} (queue length: ${globalSoundQueue.length})`, null, true);
         
         // Start processing if not already processing
@@ -162,7 +173,9 @@ function playDashboardSoundboard(data) {
         }
         
         // Add to this gift's queue
-        perGiftSoundQueues[queueKey].queue.push(data);
+        if (!enqueueSound(perGiftSoundQueues[queueKey].queue, data, queueKey, { enforceLimit: enforceQueueLimit })) {
+            return;
+        }
         logAudioEvent('info', `Added to queue "${queueKey}": ${data.label} (queue length: ${perGiftSoundQueues[queueKey].queue.length})`, null, true);
         
         // Start processing this queue if not already processing
@@ -173,6 +186,64 @@ function playDashboardSoundboard(data) {
         // Overlap mode - play immediately (original behavior)
         playSound(data);
     }
+}
+
+function normalizeGiftRepeatCount(data) {
+    if (!data || data.eventType !== 'gift') {
+        return 1;
+    }
+
+    const parsed = parseInt(data.repeatCount, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 1;
+    }
+
+    return Math.min(parsed, MAX_GIFT_REPEAT_PLAYS);
+}
+
+function expandGiftRepeats(data) {
+    const repeatCount = normalizeGiftRepeatCount(data);
+    if (repeatCount === 1) {
+        return [data];
+    }
+
+    logAudioEvent('info', `Expanding gift repeatCount ${repeatCount} for ${data.label}`, null, true);
+    return Array.from({ length: repeatCount }, (_, index) => ({
+        ...data,
+        repeatCount,
+        repeatIndex: index + 1
+    }));
+}
+
+function normalizeMaxQueueLength(value) {
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 10;
+    }
+    return Math.min(parsed, 50);
+}
+
+function updateCurrentMaxQueueLength(value) {
+    currentMaxQueueLength = normalizeMaxQueueLength(value);
+    log.info('Max queue length set', { maxQueueLength: currentMaxQueueLength });
+    logAudioEvent('info', `Max queue length: ${currentMaxQueueLength}`, null);
+}
+
+function enqueueSound(queue, data, queueLabel, options = {}) {
+    const enforceLimit = options.enforceLimit !== false;
+
+    if (enforceLimit && queue.length >= currentMaxQueueLength) {
+        log.warn('Sound queue full, dropping sound', {
+            queue: queueLabel,
+            label: data.label,
+            maxQueueLength: currentMaxQueueLength
+        });
+        logAudioEvent('warning', `Queue "${queueLabel}" full (${currentMaxQueueLength}), dropped: ${data.label}`, { url: data.url }, true);
+        return false;
+    }
+
+    queue.push(data);
+    return true;
 }
 
 /**
@@ -417,7 +488,8 @@ async function loadSoundboardSettings() {
         logAudioEvent('info', `Play mode: ${currentPlayMode}`, null);
         
         const maxQueue = document.getElementById('soundboard-max-queue');
-        if (maxQueue) maxQueue.value = settings.soundboard_max_queue_length || '10';
+        updateCurrentMaxQueueLength(settings.soundboard_max_queue_length || '10');
+        if (maxQueue) maxQueue.value = String(currentMaxQueueLength);
         
         // Event sounds - Follow
         loadEventSoundSettings(settings, 'follow');
@@ -427,6 +499,9 @@ async function loadSoundboardSettings() {
         
         // Event sounds - Share
         loadEventSoundSettings(settings, 'share');
+        loadAnimationSettings(settings, 'gift');
+        loadAnimationSettings(settings, 'like');
+        loadOverlayLayoutSettings(settings);
         
         // Default gift sound
         const giftUrl = document.getElementById('soundboard-gift-url');
@@ -514,6 +589,52 @@ function loadEventSoundSettings(settings, eventType) {
     }
 }
 
+function loadAnimationSettings(settings, eventType) {
+    const animUrlEl = document.getElementById(`soundboard-${eventType}-animation-url`);
+    if (animUrlEl) animUrlEl.value = settings[`soundboard_${eventType}_animation_url`] || '';
+
+    const animTypeEl = document.getElementById(`soundboard-${eventType}-animation-type`);
+    if (animTypeEl) animTypeEl.value = settings[`soundboard_${eventType}_animation_type`] || 'none';
+
+    const animVolumeEl = document.getElementById(`soundboard-${eventType}-animation-volume`);
+    const animVolumeSliderEl = document.getElementById(`soundboard-${eventType}-animation-volume-slider`);
+    const animVolumeLabelEl = document.getElementById(`soundboard-${eventType}-animation-volume-label`);
+    if (animVolumeEl) {
+        const animVolumeValue = parseFloat(settings[`soundboard_${eventType}_animation_volume`] || '1.0');
+        animVolumeEl.value = animVolumeValue;
+        if (animVolumeSliderEl) animVolumeSliderEl.value = Math.round(animVolumeValue * 100);
+        if (animVolumeLabelEl) animVolumeLabelEl.textContent = `${Math.round(animVolumeValue * 100)}%`;
+    }
+}
+
+function loadOverlayLayoutSettings(settings) {
+    const values = {
+        'soundboard-animation-x': settings.soundboard_animation_x || '50',
+        'soundboard-animation-y': settings.soundboard_animation_y || '50',
+        'soundboard-animation-width': settings.soundboard_animation_width || '45',
+        'soundboard-animation-height': settings.soundboard_animation_height || '45',
+        'soundboard-animation-duration': settings.soundboard_animation_duration || '5',
+        'soundboard-animation-anchor': settings.soundboard_animation_anchor || 'center',
+        'soundboard-animation-fit': settings.soundboard_animation_fit || 'contain'
+    };
+
+    Object.entries(values).forEach(([id, value]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    });
+}
+
+function normalizeAnimationTypeForSave(urlEl, typeEl) {
+    const url = urlEl?.value || '';
+    const type = typeEl?.value || 'none';
+    if (url && type === 'none') {
+        const inferredType = inferAnimationTypeFromUrl(url);
+        if (typeEl) typeEl.value = inferredType;
+        return inferredType;
+    }
+    return type;
+}
+
 async function saveSoundboardSettings() {
     const soundboardEnabled = document.getElementById('soundboard-enabled');
     const audioTarget = document.getElementById('soundboard-audio-target');
@@ -544,12 +665,25 @@ async function saveSoundboardSettings() {
     // Default gift sound
     const giftUrl = document.getElementById('soundboard-gift-url');
     const giftVolume = document.getElementById('soundboard-gift-volume');
+    const giftAnimUrl = document.getElementById('soundboard-gift-animation-url');
+    const giftAnimType = document.getElementById('soundboard-gift-animation-type');
+    const giftAnimVolume = document.getElementById('soundboard-gift-animation-volume');
     
     // Like threshold
     const likeUrl = document.getElementById('soundboard-like-url');
     const likeVolume = document.getElementById('soundboard-like-volume');
+    const likeAnimUrl = document.getElementById('soundboard-like-animation-url');
+    const likeAnimType = document.getElementById('soundboard-like-animation-type');
+    const likeAnimVolume = document.getElementById('soundboard-like-animation-volume');
     const likeThreshold = document.getElementById('soundboard-like-threshold');
     const likeWindow = document.getElementById('soundboard-like-window');
+    const animationX = document.getElementById('soundboard-animation-x');
+    const animationY = document.getElementById('soundboard-animation-y');
+    const animationWidth = document.getElementById('soundboard-animation-width');
+    const animationHeight = document.getElementById('soundboard-animation-height');
+    const animationAnchor = document.getElementById('soundboard-animation-anchor');
+    const animationDuration = document.getElementById('soundboard-animation-duration');
+    const animationFit = document.getElementById('soundboard-animation-fit');
     
     const data = {
         soundboard_enabled: soundboardEnabled ? (soundboardEnabled.checked ? 'true' : 'false') : 'false',
@@ -561,35 +695,53 @@ async function saveSoundboardSettings() {
         soundboard_follow_sound: followUrl?.value || '',
         soundboard_follow_volume: followVolume?.value || '1.0',
         soundboard_follow_animation_url: followAnimUrl?.value || '',
-        soundboard_follow_animation_type: followAnimType?.value || 'none',
+        soundboard_follow_animation_type: normalizeAnimationTypeForSave(followAnimUrl, followAnimType),
         soundboard_follow_animation_volume: followAnimVolume?.value || '1.0',
         
         // Subscribe settings
         soundboard_subscribe_sound: subscribeUrl?.value || '',
         soundboard_subscribe_volume: subscribeVolume?.value || '1.0',
         soundboard_subscribe_animation_url: subscribeAnimUrl?.value || '',
-        soundboard_subscribe_animation_type: subscribeAnimType?.value || 'none',
+        soundboard_subscribe_animation_type: normalizeAnimationTypeForSave(subscribeAnimUrl, subscribeAnimType),
         soundboard_subscribe_animation_volume: subscribeAnimVolume?.value || '1.0',
         
         // Share settings
         soundboard_share_sound: shareUrl?.value || '',
         soundboard_share_volume: shareVolume?.value || '1.0',
         soundboard_share_animation_url: shareAnimUrl?.value || '',
-        soundboard_share_animation_type: shareAnimType?.value || 'none',
+        soundboard_share_animation_type: normalizeAnimationTypeForSave(shareAnimUrl, shareAnimType),
         soundboard_share_animation_volume: shareAnimVolume?.value || '1.0',
         
         // Default gift sound
         soundboard_default_gift_sound: giftUrl?.value || '',
         soundboard_gift_volume: giftVolume?.value || '1.0',
+        soundboard_gift_animation_url: giftAnimUrl?.value || '',
+        soundboard_gift_animation_type: normalizeAnimationTypeForSave(giftAnimUrl, giftAnimType),
+        soundboard_gift_animation_volume: giftAnimVolume?.value || '1.0',
         
         // Like threshold
         soundboard_like_sound: likeUrl?.value || '',
         soundboard_like_volume: likeVolume?.value || '1.0',
+        soundboard_like_animation_url: likeAnimUrl?.value || '',
+        soundboard_like_animation_type: normalizeAnimationTypeForSave(likeAnimUrl, likeAnimType),
+        soundboard_like_animation_volume: likeAnimVolume?.value || '1.0',
         soundboard_like_threshold: likeThreshold?.value || '0',
-        soundboard_like_window_seconds: likeWindow?.value || '10'
+        soundboard_like_window_seconds: likeWindow?.value || '10',
+
+        // OBS animation layout
+        soundboard_animation_x: animationX?.value || '50',
+        soundboard_animation_y: animationY?.value || '50',
+        soundboard_animation_width: animationWidth?.value || '45',
+        soundboard_animation_height: animationHeight?.value || '45',
+        soundboard_animation_anchor: animationAnchor?.value || 'center',
+        soundboard_animation_duration: animationDuration?.value || '5',
+        soundboard_animation_fit: animationFit?.value || 'contain'
     };
-    
+
     try {
+        updateCurrentMaxQueueLength(data.soundboard_max_queue_length);
+        if (maxQueue) maxQueue.value = String(currentMaxQueueLength);
+
         const response = await fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -852,8 +1004,14 @@ async function addGiftSound() {
     const url = urlEl.value;
     const volume = document.getElementById('new-gift-volume').value;
     const animationUrl = document.getElementById('new-gift-animation-url').value;
-    const animationType = document.getElementById('new-gift-animation-type').value;
+    const animationTypeEl = document.getElementById('new-gift-animation-type');
+    let animationType = animationTypeEl.value;
     const animationVolume = document.getElementById('new-gift-animation-volume').value;
+
+    if (animationUrl && animationType === 'none') {
+        animationType = inferAnimationTypeFromUrl(animationUrl);
+        animationTypeEl.value = animationType;
+    }
     
     if (!giftId || !label || !url) {
         alert('Please select a gift from the catalog above and enter a sound URL!');
@@ -1035,8 +1193,14 @@ async function saveEditedGiftSound() {
     const url = document.getElementById('edit-gift-url').value;
     const volume = parseFloat(document.getElementById('edit-gift-volume').value);
     const animationUrl = document.getElementById('edit-gift-animation-url').value;
-    const animationType = document.getElementById('edit-gift-animation-type').value;
+    const animationTypeEl = document.getElementById('edit-gift-animation-type');
+    let animationType = animationTypeEl.value;
     const animationVolume = parseFloat(document.getElementById('edit-gift-animation-volume').value);
+
+    if (animationUrl && animationType === 'none') {
+        animationType = inferAnimationTypeFromUrl(animationUrl);
+        animationTypeEl.value = animationType;
+    }
     
     if (isNaN(giftId) || !label || !url) {
         alert('Please fill in all required fields!');
@@ -1255,39 +1419,199 @@ async function testGiftSound(url, volume) {
     }
 }
 
-async function testEventSound(eventType) {
-    let url, volume;
-    
-    switch (eventType) {
-        case 'follow':
-            url = document.getElementById('soundboard-follow-url').value;
-            volume = document.getElementById('soundboard-follow-volume').value;
-            break;
-        case 'subscribe':
-            url = document.getElementById('soundboard-subscribe-url').value;
-            volume = document.getElementById('soundboard-subscribe-volume').value;
-            break;
-        case 'share':
-            url = document.getElementById('soundboard-share-url').value;
-            volume = document.getElementById('soundboard-share-volume').value;
-            break;
-        case 'gift':
-            url = document.getElementById('soundboard-gift-url').value;
-            volume = document.getElementById('soundboard-gift-volume').value;
-            break;
-        case 'like':
-            url = document.getElementById('soundboard-like-url').value;
-            volume = document.getElementById('soundboard-like-volume').value;
-            break;
+function getAnimationFormValues(eventType) {
+    return {
+        url: document.getElementById(`soundboard-${eventType}-animation-url`)?.value || '',
+        type: document.getElementById(`soundboard-${eventType}-animation-type`)?.value || 'none',
+        volume: document.getElementById(`soundboard-${eventType}-animation-volume`)?.value || '1.0'
+    };
+}
+
+function getOverlayLayoutFromForm() {
+    return {
+        x: document.getElementById('soundboard-animation-x')?.value || '50',
+        y: document.getElementById('soundboard-animation-y')?.value || '50',
+        width: document.getElementById('soundboard-animation-width')?.value || '45',
+        height: document.getElementById('soundboard-animation-height')?.value || '45',
+        anchor: document.getElementById('soundboard-animation-anchor')?.value || 'center',
+        duration: document.getElementById('soundboard-animation-duration')?.value || '5',
+        fit: document.getElementById('soundboard-animation-fit')?.value || 'contain'
+    };
+}
+
+async function testOverlayAnimation(url, type = 'auto', volume = '1.0', eventType = 'test') {
+    const response = await fetch('/api/soundboard/test-animation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, type, volume, eventType, label: `${eventType} animation test`, layout: getOverlayLayoutFromForm() })
+    });
+
+    const result = await response.json();
+    if (!result.success) {
+        throw new Error(result.error || 'Animation test failed');
     }
-    
-    if (!url) {
-        alert('Please enter a sound URL first!');
+
+    logAudioEvent('success', `OBS animation test sent: ${eventType}`, { url, type }, true);
+}
+
+async function testEventSound(eventType) {
+    const url = document.getElementById(`soundboard-${eventType}-url`)?.value || '';
+    const volume = document.getElementById(`soundboard-${eventType}-volume`)?.value || '1.0';
+    const animation = getAnimationFormValues(eventType);
+    let tested = false;
+
+    if (url) {
+        await testGiftSound(url, volume);
+        tested = true;
+    }
+
+    if (animation.url && animation.type !== 'none') {
+        await testOverlayAnimation(animation.url, animation.type, animation.volume, eventType);
+        tested = true;
+    }
+
+    if (!tested) {
+        alert('Please enter a sound URL or animation URL first!');
+    }
+}
+
+function findAnimationTypeSelect(inputEl) {
+    if (!inputEl || !inputEl.id) return null;
+    return document.getElementById(inputEl.id.replace('animation-url', 'animation-type'));
+}
+
+function inferAnimationTypeFromUrl(url) {
+    const cleanUrl = (url || '').split('?')[0].toLowerCase();
+    if (/\.(mp4|webm|mov)$/.test(cleanUrl)) return 'video';
+    if (/\.gif$/.test(cleanUrl)) return 'gif';
+    if (/\.(png|jpg|jpeg|webp|svg)$/.test(cleanUrl)) return 'image';
+    return 'video';
+}
+
+function findAnimationVolumeInput(inputEl) {
+    if (!inputEl || !inputEl.id) return null;
+    return document.getElementById(inputEl.id.replace('animation-url', 'animation-volume'));
+}
+
+function getFocusedAnimationTarget() {
+    if (activeAnimationInput && document.body.contains(activeAnimationInput)) {
+        return activeAnimationInput;
+    }
+    return document.getElementById('new-gift-animation-url')
+        || document.getElementById('soundboard-gift-animation-url')
+        || document.querySelector('input[id$="animation-url"]');
+}
+
+function useGifForAnimation(url) {
+    const target = getFocusedAnimationTarget();
+    if (!target) {
+        alert('No animation URL field found.');
         return;
     }
-    
-    // Use the same preview mechanism as testGiftSound
-    await testGiftSound(url, volume);
+
+    target.value = url;
+    activeAnimationInput = target;
+
+    const typeSelect = findAnimationTypeSelect(target);
+    if (typeSelect) typeSelect.value = 'gif';
+
+    target.focus();
+    logAudioEvent('success', 'GIF URL inserted into animation field', { target: target.id }, true);
+}
+
+async function testFocusedAnimation() {
+    const target = getFocusedAnimationTarget();
+    if (!target || !target.value) {
+        alert('Select or fill an animation URL first.');
+        return;
+    }
+
+    const typeSelect = findAnimationTypeSelect(target);
+    const volumeInput = findAnimationVolumeInput(target);
+    const type = typeSelect?.value || 'auto';
+    const volume = volumeInput?.value || '1.0';
+    const eventType = target.id.includes('like') ? 'like'
+        : target.id.includes('gift') ? 'gift'
+        : target.id.includes('follow') ? 'follow'
+        : target.id.includes('subscribe') ? 'subscribe'
+        : target.id.includes('share') ? 'share'
+        : 'test';
+
+    try {
+        await testOverlayAnimation(target.value, type, volume, eventType);
+    } catch (error) {
+        alert(`Animation test failed: ${error.message}`);
+    }
+}
+
+function renderGifResults(results) {
+    const container = document.getElementById('gif-search-results');
+    if (!container) return;
+
+    container.innerHTML = '';
+    if (!results || results.length === 0) {
+        container.innerHTML = '<div class="text-gray-400 text-sm text-center py-4">No GIFs found</div>';
+        return;
+    }
+
+    results.forEach(result => {
+        const item = document.createElement('div');
+        item.className = 'gif-result-item';
+
+        const img = document.createElement('img');
+        img.src = result.previewUrl || result.url;
+        img.alt = result.title || 'GIF';
+        img.loading = 'lazy';
+
+        const body = document.createElement('div');
+        body.className = 'gif-result-body';
+
+        const title = document.createElement('div');
+        title.className = 'gif-result-title';
+        title.textContent = result.title || 'GIF';
+
+        const useBtn = document.createElement('button');
+        useBtn.className = 'btn btn-sm btn-primary';
+        useBtn.type = 'button';
+        useBtn.textContent = 'Use GIF';
+        useBtn.addEventListener('click', () => useGifForAnimation(result.url));
+
+        body.appendChild(title);
+        body.appendChild(useBtn);
+        item.appendChild(img);
+        item.appendChild(body);
+        container.appendChild(item);
+    });
+}
+
+async function searchGifs() {
+    const input = document.getElementById('gif-search-input');
+    const status = document.getElementById('gif-search-status');
+    const query = input?.value.trim();
+
+    if (!query) {
+        alert('Please enter a GIF search term.');
+        return;
+    }
+
+    if (status) status.textContent = 'Searching GIFs...';
+
+    try {
+        const response = await fetch(`/api/soundboard/gif-search?query=${encodeURIComponent(query)}&limit=18`);
+        const data = await response.json();
+
+        if (!data.success) {
+            if (status) status.textContent = data.error || 'GIF search failed.';
+            renderGifResults([]);
+            return;
+        }
+
+        if (status) status.textContent = `${data.results.length} GIFs found via GIPHY.`;
+        renderGifResults(data.results);
+    } catch (error) {
+        if (status) status.textContent = `GIF search failed: ${error.message}`;
+        renderGifResults([]);
+    }
 }
 
 function clearGiftSoundForm() {
@@ -2329,6 +2653,42 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    document.addEventListener('focusin', function(e) {
+        const target = e.target;
+        if (target && target.matches && target.matches('input[id$="animation-url"]')) {
+            activeAnimationInput = target;
+        }
+    });
+
+    document.addEventListener('change', function(e) {
+        const target = e.target;
+        if (target && target.matches && target.matches('input[id$="animation-url"]')) {
+            const typeSelect = findAnimationTypeSelect(target);
+            if (typeSelect && target.value && typeSelect.value === 'none') {
+                typeSelect.value = inferAnimationTypeFromUrl(target.value);
+            }
+        }
+    });
+
+    const gifSearchBtn = document.getElementById('gif-search-btn');
+    if (gifSearchBtn) {
+        gifSearchBtn.addEventListener('click', searchGifs);
+    }
+
+    const gifSearchInput = document.getElementById('gif-search-input');
+    if (gifSearchInput) {
+        gifSearchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchGifs();
+            }
+        });
+    }
+
+    const testFocusedAnimationBtn = document.getElementById('test-focused-animation-btn');
+    if (testFocusedAnimationBtn) {
+        testFocusedAnimationBtn.addEventListener('click', testFocusedAnimation);
+    }
     
     // Add gift sound button
     const addGiftSoundBtn = document.getElementById('add-gift-sound-btn');
@@ -2775,7 +3135,7 @@ function initializeCollapsibleSections() {
 
 // ========== EVENT ANIMATION SLIDERS ==========
 function initializeEventAnimationSliders() {
-    const events = ['follow', 'subscribe', 'share'];
+    const events = ['follow', 'subscribe', 'share', 'gift', 'like'];
     
     events.forEach(eventType => {
         const sliderId = `soundboard-${eventType}-animation-volume-slider`;

@@ -170,26 +170,31 @@ class VirtualLeaderboard {
   getPlayerHTML(player, index) {
     const rank = index + 1;
     const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : '';
+    const nickname = player.nickname || player.uniqueId || player.userId || 'Player';
+    const profilePictureUrl = player.profilePictureUrl || player.profile_picture_url || '';
+    const safeTeam = typeof player.team === 'string' && /^(red|blue)$/.test(player.team) ? player.team : null;
+    const safeCoins = Number.isFinite(Number(player.coins)) ? Number(player.coins) : 0;
+    const safeGifts = Number.isFinite(Number(player.gifts)) ? Number(player.gifts) : 0;
     
     return `
       <div class="player-info ${rankClass}">
         <div class="player-rank">#${rank}</div>
         <div class="player-avatar">
-          ${player.profilePictureUrl 
-            ? `<img src="${player.profilePictureUrl}" alt="${player.nickname}">`
-            : `<div class="avatar-placeholder">${player.nickname[0]}</div>`
+          ${profilePictureUrl 
+            ? `<img src="${this.escapeHTML(profilePictureUrl)}" alt="${this.escapeHTML(nickname)}">`
+            : `<div class="avatar-placeholder">${this.escapeHTML(nickname.charAt(0).toUpperCase())}</div>`
           }
         </div>
         <div class="player-details">
-          <div class="player-name">${this.escapeHTML(player.nickname)}</div>
-          ${player.team ? `<div class="player-team team-${player.team}">${player.team}</div>` : ''}
+          <div class="player-name">${this.escapeHTML(nickname)}</div>
+          ${safeTeam ? `<div class="player-team team-${safeTeam}">${safeTeam}</div>` : ''}
         </div>
         <div class="player-stats">
           <div class="player-coins">
             <span class="coin-icon">🪙</span>
-            <span class="coin-value">${player.coins}</span>
+            <span class="coin-value">${safeCoins}</span>
           </div>
-          ${player.gifts ? `<div class="player-gifts">${player.gifts} gifts</div>` : ''}
+          ${safeGifts ? `<div class="player-gifts">${safeGifts} gifts</div>` : ''}
         </div>
       </div>
     `;
@@ -202,7 +207,7 @@ class VirtualLeaderboard {
     Object.assign(this.allPlayers[playerIndex], newData);
     
     if (playerIndex >= this.visibleStart && playerIndex < this.visibleEnd) {
-      const item = this.content.querySelector(`[data-user-id="${userId}"]`);
+      const item = Array.from(this.content.children).find((child) => child.dataset.userId === String(userId));
       if (item) {
         item.innerHTML = this.getPlayerHTML(this.allPlayers[playerIndex], playerIndex);
       }
@@ -281,7 +286,7 @@ class VirtualLeaderboard {
 
   escapeHTML(str) {
     const div = document.createElement('div');
-    div.textContent = str;
+    div.textContent = str == null ? '' : String(str);
     return div.innerHTML;
   }
 

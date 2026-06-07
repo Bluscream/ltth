@@ -12,8 +12,8 @@
    * @returns {string} Escaped safe string
    */
   function escapeHtml(unsafe) {
-    if (typeof unsafe !== 'string') return '';
-    return unsafe
+    if (unsafe == null) return '';
+    return String(unsafe)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')

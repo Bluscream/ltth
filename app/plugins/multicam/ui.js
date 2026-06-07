@@ -60,9 +60,21 @@ function updateState(data) {
     }
 
     if (state.currentScene) {
-        currentScene.innerHTML = `Current Scene: <strong>${state.currentScene}</strong>`;
+        currentScene.innerHTML = '';
+        const label = document.createElement('span');
+        label.textContent = 'Current Scene: ';
+        const value = document.createElement('strong');
+        value.textContent = state.currentScene;
+        currentScene.appendChild(label);
+        currentScene.appendChild(value);
     } else {
-        currentScene.innerHTML = `Current Scene: <strong>-</strong>`;
+        currentScene.innerHTML = '';
+        const label = document.createElement('span');
+        label.textContent = 'Current Scene: ';
+        const value = document.createElement('strong');
+        value.textContent = '-';
+        currentScene.appendChild(label);
+        currentScene.appendChild(value);
     }
 
     if (state.locked) {

@@ -760,7 +760,7 @@
               <span class="step-number">1</span>
               <div class="step-content">
                 <strong>Configure API</strong>
-                <small>Set your OpenAI or SiliconFlow API key in Settings</small>
+                <small>Set your OpenAI, OpenRouter, Ollama, or SiliconFlow API key in Settings</small>
               </div>
             </div>
             <div class="quick-start-step">
@@ -812,12 +812,15 @@
               
               <!-- Provider Selection -->
               <div class="form-grid-3">
-                <div class="mb-3">
+              <div class="mb-3">
                   <label class="form-label" data-i18n-key="cards.configuration.providers.llm">LLM Provider</label>
                   <select class="form-select" id="llmProvider">
                     <option value="openai">OpenAI (GPT)</option>
+                    <option value="openrouter">OpenRouter (Free Router)</option>
+                    <option value="ollama">Ollama Cloud / Local</option>
                     <option value="siliconflow">SiliconFlow</option>
                   </select>
+                  <small id="llmProviderHelp" class="form-text text-muted provider-help" style="white-space: pre-line;"></small>
                 </div>
                 <div class="mb-3">
                   <label class="form-label" data-i18n-key="cards.configuration.providers.image">Image Provider</label>
@@ -834,6 +837,29 @@
                 </div>
               </div>
               
+              <!-- Provider Credentials -->
+              <div class="form-grid-2">
+                <div class="mb-3" id="openRouterApiKeyGroup" style="display: none;">
+                  <label class="form-label" data-i18n-key="cards.configuration.providers.openrouter_key">OpenRouter API Key</label>
+                  <input type="password" class="form-control" id="openRouterApiKey" placeholder="sk-or-...">
+                  <small class="form-text text-muted">Required for OpenRouter. Use <code>openrouter/free</code> for zero-cost routing.</small>
+                </div>
+                <div class="mb-3" id="openRouterBaseUrlGroup" style="display: none;">
+                  <label class="form-label">OpenRouter Base URL</label>
+                  <input type="text" class="form-control" id="openRouterBaseUrl" placeholder="https://openrouter.ai/api/v1">
+                </div>
+                <div class="mb-3" id="ollamaBaseUrlGroup" style="display: none;">
+                  <label class="form-label" data-i18n-key="cards.configuration.providers.ollama_url">Ollama Base URL</label>
+                  <input type="text" class="form-control" id="ollamaBaseUrl" placeholder="https://ollama.com/api/v1">
+                  <small class="form-text text-muted">Use your cloud endpoint or a local instance such as <code>http://127.0.0.1:11434/v1</code>.</small>
+                </div>
+                <div class="mb-3" id="ollamaApiKeyGroup" style="display: none;">
+                  <label class="form-label" data-i18n-key="cards.configuration.providers.ollama_key">Ollama API Key</label>
+                  <input type="password" class="form-control" id="ollamaApiKey" placeholder="Optional for local Ollama">
+                  <small class="form-text text-muted">Leave empty for local Ollama; required only for some cloud deployments.</small>
+                </div>
+              </div>
+              
               <!-- Model Selection -->
               <div class="form-grid-2">
                 <div class="mb-3" id="openaiModelGroup">
@@ -844,6 +870,25 @@
                     <option value="gpt-4-turbo">GPT-4 Turbo (Fast)</option>
                     <option value="o1">o1 (Reasoning)</option>
                   </select>
+                </div>
+                <div class="mb-3" id="openrouterModelGroup" style="display: none;">
+                  <label class="form-label" data-i18n-key="cards.configuration.models.openrouter_llm">OpenRouter Model</label>
+                  <select class="form-select" id="openRouterModel">
+                    <option value="openrouter/free">OpenRouter Free Router (Recommended)</option>
+                    <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B Instruct (Free)</option>
+                    <option value="google/gemma-2-9b-it:free">Gemma 2 9B IT (Free)</option>
+                  </select>
+                </div>
+                <div class="mb-3" id="ollamaModelGroup" style="display: none;">
+                  <label class="form-label" data-i18n-key="cards.configuration.models.ollama_llm">Ollama Model</label>
+                  <input type="text" class="form-control" id="ollamaModel" list="ollamaModelSuggestions" placeholder="qwen3.5:cloud">
+                  <datalist id="ollamaModelSuggestions">
+                    <option value="qwen3.5:cloud"></option>
+                    <option value="kimi-k2.5:cloud"></option>
+                    <option value="glm-5.1:cloud"></option>
+                    <option value="minimax-m2.7:cloud"></option>
+                    <option value="llama3.2"></option>
+                  </datalist>
                 </div>
                 <div class="mb-3" id="siliconflowModelGroup" style="display: none;">
                   <label class="form-label" data-i18n-key="cards.configuration.models.silicon_llm">SiliconFlow LLM Model</label>
@@ -1458,7 +1503,7 @@
           },
           configuration: {
             title: '⚙️ Configuration',
-            api_info: '<strong>ℹ️ API Key Configuration</strong><br>Configure your AI provider API keys in <strong>Settings</strong>:<br>• <strong>OpenAI</strong>: Settings → OpenAI API Configuration<br>• <strong>SiliconFlow</strong>: Settings → TTS API Keys → Fish Speech 1.5 API Key (SiliconFlow)',
+            api_info: '<strong>ℹ️ API Key Configuration</strong><br>Configure your AI provider API keys in <strong>Settings</strong>:<br>• <strong>OpenAI</strong>: Settings → OpenAI API Configuration<br>• <strong>OpenRouter</strong>: Use an OpenRouter API key and select a free model router or free model variant<br>• <strong>Ollama</strong>: Use a local or cloud Ollama endpoint with an Ollama API key if required<br>• <strong>SiliconFlow</strong>: Settings → TTS API Keys → Fish Speech 1.5 API Key (SiliconFlow)',
             test_api_key: '🔍 Test API Key',
             test_hint: 'Click to validate your API key',
             testing: '⏳ Testing...',
@@ -1466,12 +1511,23 @@
               title: '🤖 AI Provider Selection',
               llm: 'LLM Provider',
               image: 'Image Provider',
-              tts: 'TTS Provider'
+              tts: 'TTS Provider',
+              openrouter_key: 'OpenRouter API Key',
+              ollama_url: 'Ollama Base URL',
+              ollama_key: 'Ollama API Key'
+            },
+            provider_help: {
+              openai: 'OpenAI uses the global API key from Settings. Pick one of the standard GPT models if you want the most predictable behavior.\nBest for direct OpenAI usage and the simplest setup.',
+              openrouter: 'OpenRouter works with the OpenAI-compatible API. Use `openrouter/free` for zero-cost routing, or choose a specific `:free` model if you want to pin behavior.\nAn OpenRouter key is required, and the model field accepts free-router friendly model IDs.',
+              ollama: 'Ollama can run locally or via ollama.com cloud models. Use a local base URL like `http://127.0.0.1:11434/v1` or the cloud API URL, then choose the model you want.\nThe API key is optional locally and required for some cloud deployments.',
+              siliconflow: 'SiliconFlow remains the legacy path for this plugin. Use it if you already have a working SiliconFlow setup and want to keep that pipeline.\nIt is still supported, but the newer OpenAI-compatible providers are usually easier to configure.'
             },
             models: {
               title: '🎯 Model Selection',
               openai_llm: 'OpenAI LLM Model',
               openai_hint: 'GPT-5.2 is OpenAI\'s most intelligent model with improved instruction following and multimodality.',
+              openrouter_llm: 'OpenRouter Model',
+              ollama_llm: 'Ollama Model',
               silicon_llm: 'SiliconFlow LLM Model',
               openai_image: 'OpenAI Image Model',
               silicon_image: 'SiliconFlow Image Model'
@@ -1619,7 +1675,7 @@
           },
           configuration: {
             title: '⚙️ Konfiguration',
-            api_info: '<strong>ℹ️ API-Key Konfiguration</strong><br>Konfiguriere deine KI-Provider-Schlüssel in <strong>Einstellungen</strong>:<br>• <strong>OpenAI</strong>: Einstellungen → OpenAI API Konfiguration<br>• <strong>SiliconFlow</strong>: Einstellungen → TTS API Keys → Fish Speech 1.5 API Key (SiliconFlow)',
+            api_info: '<strong>ℹ️ API-Key Konfiguration</strong><br>Konfiguriere deine KI-Provider-Schlüssel in <strong>Einstellungen</strong>:<br>• <strong>OpenAI</strong>: Einstellungen → OpenAI API Konfiguration<br>• <strong>OpenRouter</strong>: Verwende einen OpenRouter API-Key und wähle einen Free-Router oder ein freies Modell<br>• <strong>Ollama</strong>: Nutze einen lokalen oder Cloud-Ollama-Endpunkt mit API-Key, falls nötig<br>• <strong>SiliconFlow</strong>: Einstellungen → TTS API Keys → Fish Speech 1.5 API Key (SiliconFlow)',
             test_api_key: '🔍 API-Key testen',
             test_hint: 'Klicke, um deinen API-Key zu prüfen',
             testing: '⏳ Test läuft...',
@@ -1627,12 +1683,23 @@
               title: '🤖 KI-Provider Auswahl',
               llm: 'LLM-Provider',
               image: 'Bild-Provider',
-              tts: 'TTS-Provider'
+              tts: 'TTS-Provider',
+              openrouter_key: 'OpenRouter API-Key',
+              ollama_url: 'Ollama Basis-URL',
+              ollama_key: 'Ollama API-Key'
+            },
+            provider_help: {
+              openai: 'OpenAI verwendet den globalen API-Key aus den Einstellungen. Wähle ein Standard-GPT-Modell, wenn du möglichst vorhersehbares Verhalten willst.\nGut für direkte OpenAI-Nutzung und das einfachste Setup.',
+              openrouter: 'OpenRouter nutzt die OpenAI-kompatible API. Verwende `openrouter/free` für Zero-Cost-Routing oder ein konkretes `:free`-Modell, wenn du das Verhalten festlegen willst.\nEin OpenRouter-Key ist nötig, und das Modellfeld akzeptiert freie Modell-IDs.',
+              ollama: 'Ollama kann lokal oder über die ollama.com-Cloud laufen. Nutze eine lokale Base-URL wie `http://127.0.0.1:11434/v1` oder die Cloud-API-URL und wähle dann das gewünschte Modell.\nEin API-Key ist lokal optional und bei manchen Cloud-Setups erforderlich.',
+              siliconflow: 'SiliconFlow bleibt der Legacy-Pfad für dieses Plugin. Nutze ihn, wenn du bereits ein funktionierendes SiliconFlow-Setup hast und den bestehenden Pipeline-Weg behalten willst.\nEr wird weiter unterstützt, aber die neuen OpenAI-kompatiblen Provider sind meist einfacher zu konfigurieren.'
             },
             models: {
               title: '🎯 Modellauswahl',
               openai_llm: 'OpenAI LLM Modell',
               openai_hint: 'GPT-5.2 ist das intelligenteste OpenAI-Modell mit besserem Befolgen von Anweisungen und Multimodalität.',
+              openrouter_llm: 'OpenRouter Modell',
+              ollama_llm: 'Ollama Modell',
               silicon_llm: 'SiliconFlow LLM Modell',
               openai_image: 'OpenAI Bildmodell',
               silicon_image: 'SiliconFlow Bildmodell'
@@ -1799,6 +1866,12 @@
       document.documentElement.style.colorScheme = theme === 'day' ? 'light' : 'dark';
     }
 
+    function updateProviderHelp(provider) {
+      const help = document.getElementById('llmProviderHelp');
+      if (!help) return;
+      help.textContent = t(`cards.configuration.provider_help.${provider}`) || '';
+    }
+
     const socket = isPreviewMode ? { on: () => {}, emit: () => {} } : io();
     let selectedTheme = null;
     let currentStatus = null;
@@ -1820,6 +1893,7 @@
       }
 
       applyTranslations(currentLocale);
+      updateProviderHelp(document.getElementById('llmProvider')?.value || 'openai');
 
       const languageSelect = document.getElementById('languageSelect');
       if (languageSelect) {
@@ -1833,6 +1907,7 @@
             localStorage.setItem('app_locale', locale);
           }
           applyTranslations(locale);
+          updateProviderHelp(document.getElementById('llmProvider')?.value || 'openai');
         });
       }
 
@@ -1939,6 +2014,12 @@
           
           // Model selection
           openaiModel: document.getElementById('openaiModel').value,
+          openRouterApiKey: document.getElementById('openRouterApiKey').value.trim(),
+          openRouterBaseUrl: document.getElementById('openRouterBaseUrl').value.trim(),
+          openRouterModel: document.getElementById('openRouterModel').value.trim(),
+          ollamaBaseUrl: document.getElementById('ollamaBaseUrl').value.trim(),
+          ollamaApiKey: document.getElementById('ollamaApiKey').value.trim(),
+          ollamaModel: document.getElementById('ollamaModel').value.trim(),
           openaiImageModel: document.getElementById('openaiImageModel').value,
           defaultModel: document.getElementById('defaultModel').value,
           defaultImageModel: document.getElementById('defaultImageModel').value,
@@ -2018,9 +2099,13 @@
         const outline = document.getElementById('storyOutline')?.value || '';
         // Select model based on current LLM provider
         const llmProvider = document.getElementById('llmProvider')?.value || 'openai';
-        const model = llmProvider === 'openai' 
-          ? document.getElementById('openaiModel')?.value || 'gpt-4o-mini'
-          : document.getElementById('defaultModel')?.value || 'deepseek';
+        const model = llmProvider === 'openai'
+          ? document.getElementById('openaiModel')?.value || 'gpt-5.2'
+          : llmProvider === 'openrouter'
+            ? document.getElementById('openRouterModel')?.value || 'openrouter/free'
+            : llmProvider === 'ollama'
+              ? document.getElementById('ollamaModel')?.value || 'qwen3.5:cloud'
+              : document.getElementById('defaultModel')?.value || 'deepseek';
         
         try {
           const startBtn = document.getElementById('startStoryBtn');
@@ -2341,6 +2426,16 @@
       
       // Get the selected provider
       const provider = document.getElementById('llmProvider')?.value || 'openai';
+      const requestBody = {
+        provider,
+        openRouterApiKey: document.getElementById('openRouterApiKey')?.value || '',
+        openRouterBaseUrl: document.getElementById('openRouterBaseUrl')?.value || '',
+        openRouterModel: document.getElementById('openRouterModel')?.value || '',
+        ollamaBaseUrl: document.getElementById('ollamaBaseUrl')?.value || '',
+        ollamaApiKey: document.getElementById('ollamaApiKey')?.value || '',
+        ollamaModel: document.getElementById('ollamaModel')?.value || '',
+        defaultModel: document.getElementById('defaultModel')?.value || ''
+      };
       
       console.log('[TEST API KEY] Starting validation for provider:', provider);
       btn.disabled = true;
@@ -2352,7 +2447,7 @@
         const response = await fetch('/api/interactive-story/validate-api-key', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider })
+          body: JSON.stringify(requestBody)
         });
         
         console.log('[TEST API KEY] Response status:', response.status);
@@ -2486,6 +2581,12 @@
             ttsProvider: 'system',
             ttsEngine: 'openai',
             openaiModel: 'gpt-4o',
+            openRouterApiKey: '',
+            openRouterBaseUrl: 'https://openrouter.ai/api/v1',
+            openRouterModel: 'openrouter/free',
+            ollamaBaseUrl: 'https://ollama.com/api/v1',
+            ollamaApiKey: '',
+            ollamaModel: 'qwen3.5:cloud',
             openaiImageModel: 'dall-e-3',
             defaultModel: 'deepseek',
             defaultImageModel: 'flux-schnell',
@@ -2527,6 +2628,12 @@
           document.getElementById('ttsProvider').value = config.ttsProvider;
           document.getElementById('ttsEngine').value = config.ttsEngine;
           document.getElementById('openaiModel').value = config.openaiModel;
+          document.getElementById('openRouterApiKey').value = config.openRouterApiKey;
+          document.getElementById('openRouterBaseUrl').value = config.openRouterBaseUrl;
+          document.getElementById('openRouterModel').value = config.openRouterModel;
+          document.getElementById('ollamaBaseUrl').value = config.ollamaBaseUrl;
+          document.getElementById('ollamaApiKey').value = config.ollamaApiKey;
+          document.getElementById('ollamaModel').value = config.ollamaModel;
           document.getElementById('openaiImageModel').value = config.openaiImageModel;
           document.getElementById('defaultModel').value = config.defaultModel;
           document.getElementById('defaultImageModel').value = config.defaultImageModel;
@@ -2579,6 +2686,12 @@
         
         // Model selection
         document.getElementById('openaiModel').value = config.openaiModel || 'gpt-4o-mini';
+        document.getElementById('openRouterApiKey').value = config.openRouterApiKey || '';
+        document.getElementById('openRouterBaseUrl').value = config.openRouterBaseUrl || 'https://openrouter.ai/api/v1';
+        document.getElementById('openRouterModel').value = config.openRouterModel || 'openrouter/free';
+        document.getElementById('ollamaBaseUrl').value = config.ollamaBaseUrl || 'https://ollama.com/api/v1';
+        document.getElementById('ollamaApiKey').value = config.ollamaApiKey || '';
+        document.getElementById('ollamaModel').value = config.ollamaModel || 'qwen3.5:cloud';
         document.getElementById('openaiImageModel').value = config.openaiImageModel || 'dall-e-2';
         document.getElementById('defaultModel').value = config.defaultModel || 'deepseek';
         document.getElementById('defaultImageModel').value = config.defaultImageModel || 'flux-schnell';
@@ -2646,7 +2759,16 @@
       
       // Show/hide LLM model selectors
       document.getElementById('openaiModelGroup').style.display = llmProvider === 'openai' ? 'block' : 'none';
+      document.getElementById('openrouterModelGroup').style.display = llmProvider === 'openrouter' ? 'block' : 'none';
+      document.getElementById('ollamaModelGroup').style.display = llmProvider === 'ollama' ? 'block' : 'none';
       document.getElementById('siliconflowModelGroup').style.display = llmProvider === 'siliconflow' ? 'block' : 'none';
+
+      // Show/hide LLM credential fields
+      document.getElementById('openRouterApiKeyGroup').style.display = llmProvider === 'openrouter' ? 'block' : 'none';
+      document.getElementById('openRouterBaseUrlGroup').style.display = llmProvider === 'openrouter' ? 'block' : 'none';
+      document.getElementById('ollamaBaseUrlGroup').style.display = llmProvider === 'ollama' ? 'block' : 'none';
+      document.getElementById('ollamaApiKeyGroup').style.display = llmProvider === 'ollama' ? 'block' : 'none';
+      updateProviderHelp(llmProvider);
       
       // Show/hide Image model selectors
       document.getElementById('openaiImageModelGroup').style.display = imageProvider === 'openai' ? 'block' : 'none';

@@ -53,6 +53,13 @@ describe('OSC-Bridge GCCE Integration', () => {
         };
     });
 
+    afterEach(async () => {
+        if (oscBridgePlugin && typeof oscBridgePlugin.destroy === 'function') {
+            await oscBridgePlugin.destroy();
+        }
+        oscBridgePlugin = null;
+    });
+
     describe('GCCE Command Registration', () => {
         test('should register commands when GCCE is available and chat commands enabled', async () => {
             // Setup GCCE plugin
@@ -66,7 +73,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             
             // Mock config with chat commands enabled
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { enabled: true }
             });
 
@@ -105,7 +112,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             
             // Mock config with chat commands disabled
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { enabled: false }
             });
 
@@ -124,7 +131,7 @@ describe('OSC-Bridge GCCE Integration', () => {
 
             // Mock config with chat commands enabled
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { enabled: true }
             });
 
@@ -150,7 +157,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             
             // Mock config with chat commands enabled
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { 
                     enabled: true,
                     requireOSCConnection: true 
@@ -281,7 +288,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             oscBridgePlugin = new OSCBridgePlugin(mockApi);
             
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { enabled: true }
             });
 
@@ -303,7 +310,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             oscBridgePlugin = new OSCBridgePlugin(mockApi);
             
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { enabled: true }
             });
 
@@ -325,7 +332,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             oscBridgePlugin = new OSCBridgePlugin(mockApi);
             
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { enabled: true }
             });
 
@@ -351,7 +358,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             oscBridgePlugin = new OSCBridgePlugin(mockApi);
             
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { enabled: true }
             });
 
@@ -375,7 +382,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             oscBridgePlugin = new OSCBridgePlugin(mockApi);
             
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { enabled: true }
             });
 
@@ -413,7 +420,7 @@ describe('OSC-Bridge GCCE Integration', () => {
             oscBridgePlugin = new OSCBridgePlugin(mockApi);
             
             mockApi.getConfig.mockResolvedValueOnce({
-                enabled: true,
+                enabled: false,
                 chatCommands: { 
                     enabled: true,
                     requireOSCConnection: false 

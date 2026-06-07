@@ -1,0 +1,254 @@
+const fs = require('fs');
+const path = require('path');
+const Database = require('better-sqlite3');
+
+const GoalsDatabase = require('../plugins/goals/backend/database');
+const GoalsPlugin = require('../plugins/goals/main');
+
+function createApi(db, plugins = new Map()) {
+  return {
+    getDatabase: () => db,
+    getPluginDir: () => path.join(__dirname, '..', 'plugins', 'goals'),
+    getPlugin: jest.fn((pluginId) => plugins.get(pluginId) || null),
+    log: jest.fn(),
+    registerFlowAction: jest.fn(),
+    registerIFTTTAction: jest.fn(),
+    registerRoute: jest.fn(),
+    registerSocket: jest.fn(),
+    registerTikTokEvent: jest.fn()
+  };
+}
+
+describe('Goals firework finale integration', () => {
+  test('persists per-goal firework finale settings', () => {
+    const sqlite = new Database(':memory:');
+    const goalsDb = new GoalsDatabase(createApi(sqlite));
+    goalsDb.initialize();
+
+    const columns = sqlite.prepare('PRAGMA table_info(goals)').all().map((column) => column.name);
+    expect(columns).toEqual(expect.arrayContaining([
+      'firework_enabled',
+      'firework_intensity',
+      'firework_duration',
+      'firework_theme',
+      'firework_encounter_mode',
+      'firework_quality_profile',
+      'firework_hud_label',
+      'firework_progress_enabled',
+      'firework_progress_milestones'
+    ]));
+
+    const created = goalsDb.createGoal({
+      id: 'goal_fireworks',
+      name: 'Coin Finale',
+      goal_type: 'coin',
+      target_value: 1000,
+      firework_enabled: 1,
+      firework_intensity: 4.5,
+      firework_duration: 8000,
+      firework_theme: 'neon-reactor',
+      firework_encounter_mode: 'raid',
+      firework_quality_profile: 'ultra',
+      firework_hud_label: 'Goal Breaker',
+      firework_progress_enabled: 1,
+      firework_progress_milestones: '20,40,80'
+    });
+
+    expect(created.firework_enabled).toBe(1);
+    expect(created.firework_intensity).toBe(4.5);
+    expect(created.firework_duration).toBe(8000);
+    expect(created.firework_theme).toBe('neon-reactor');
+    expect(created.firework_encounter_mode).toBe('raid');
+    expect(created.firework_quality_profile).toBe('ultra');
+    expect(created.firework_hud_label).toBe('Goal Breaker');
+    expect(created.firework_progress_enabled).toBe(1);
+    expect(created.firework_progress_milestones).toBe('20,40,80');
+
+    const updated = goalsDb.updateGoal('goal_fireworks', {
+      firework_enabled: 0,
+      firework_intensity: 2,
+      firework_duration: 3000,
+      firework_theme: 'inferno-siege',
+      firework_encounter_mode: 'finale',
+      firework_quality_profile: 'high',
+      firework_hud_label: 'Final Push',
+      firework_progress_enabled: 0,
+      firework_progress_milestones: '50,90'
+    });
+
+    expect(updated.firework_enabled).toBe(0);
+    expect(updated.firework_intensity).toBe(2);
+    expect(updated.firework_duration).toBe(3000);
+    expect(updated.firework_theme).toBe('inferno-siege');
+    expect(updated.firework_encounter_mode).toBe('finale');
+    expect(updated.firework_quality_profile).toBe('high');
+    expect(updated.firework_hud_label).toBe('Final Push');
+    expect(updated.firework_progress_enabled).toBe(0);
+    expect(updated.firework_progress_milestones).toBe('50,90');
+  });
+
+  test('triggers the Fireworks plugin finale with goal-specific settings when an enabled goal is reached', () => {
+    const sqlite = new Database(':memory:');
+    const fireworksPlugin = { triggerFinale: jest.fn() };
+    const api = createApi(sqlite, new Map([['fireworks', fireworksPlugin]]));
+    const plugin = new GoalsPlugin(api);
+
+    plugin.db.initialize();
+    const goal = plugin.db.createGoal({
+      id: 'goal_reach_fireworks',
+      name: 'Reach Finale',
+      goal_type: 'coin',
+      current_value: 0,
+      target_value: 10,
+      firework_enabled: 1,
+      firework_intensity: 5,
+      firework_duration: 12000
+    });
+
+    const machine = plugin.stateMachineManager.getMachine(goal.id);
+    machine.initialize(goal);
+    plugin.setupStateMachineListeners(machine);
+
+    machine.updateValue(10, false);
+
+    expect(fireworksPlugin.triggerFinale).toHaveBeenCalledWith(5, 12000);
+  });
+
+  test('triggers a goal firework finale during live animated value updates without waiting for an overlay callback', () => {
+    const sqlite = new Database(':memory:');
+    const fireworksPlugin = { triggerFinale: jest.fn() };
+    const api = createApi(sqlite, new Map([['fireworks', fireworksPlugin]]));
+    const plugin = new GoalsPlugin(api);
+
+    plugin.db.initialize();
+    const goal = plugin.db.createGoal({
+      id: 'goal_live_likes_fireworks',
+      name: 'Live Likes Finale',
+      goal_type: 'likes',
+      current_value: 0,
+      target_value: 100,
+      firework_enabled: 1,
+      firework_intensity: 4,
+      firework_duration: 7000
+    });
+
+    const machine = plugin.stateMachineManager.getMachine(goal.id);
+    machine.initialize(goal);
+    plugin.setupStateMachineListeners(machine);
+
+    plugin.eventHandlers.setGoalValue(goal.id, 100);
+    machine.onUpdateAnimationEnd();
+
+    expect(fireworksPlugin.triggerFinale).toHaveBeenCalledWith(4, 7000);
+    expect(fireworksPlugin.triggerFinale).toHaveBeenCalledTimes(1);
+  });
+
+  test('prefers fireworks-dev and forwards bossfight finale settings when a goal is reached', () => {
+    const sqlite = new Database(':memory:');
+    const stableFireworks = { triggerFinale: jest.fn() };
+    const devFireworks = { triggerFinale: jest.fn(), triggerFirework: jest.fn() };
+    const api = createApi(sqlite, new Map([
+      ['fireworks', stableFireworks],
+      ['fireworks-dev', devFireworks]
+    ]));
+    const plugin = new GoalsPlugin(api);
+
+    plugin.db.initialize();
+    const goal = plugin.db.createGoal({
+      id: 'goal_dev_bossfight',
+      name: 'Boss Goal',
+      goal_type: 'coin',
+      current_value: 0,
+      target_value: 10,
+      firework_enabled: 1,
+      firework_intensity: 6,
+      firework_duration: 9000,
+      firework_theme: 'celestial-titan',
+      firework_encounter_mode: 'raid',
+      firework_quality_profile: 'ultra',
+      firework_hud_label: 'Boss Goal'
+    });
+
+    const machine = plugin.stateMachineManager.getMachine(goal.id);
+    machine.initialize(goal);
+    plugin.setupStateMachineListeners(machine);
+
+    machine.updateValue(10, false);
+
+    expect(devFireworks.triggerFinale).toHaveBeenCalledWith(6, 9000, true, expect.objectContaining({
+      theme: 'celestial-titan',
+      encounterMode: 'raid',
+      qualityProfile: 'ultra',
+      ultimateTier: 'goal-finale',
+      hudLabel: 'Boss Goal Complete',
+      screenFxPreset: 'goal-finale'
+    }));
+    expect(stableFireworks.triggerFinale).not.toHaveBeenCalled();
+  });
+
+  test('turns goal progress milestones into bossfight charge-up attacks before the finale', () => {
+    const sqlite = new Database(':memory:');
+    const devFireworks = { triggerFinale: jest.fn(), triggerFirework: jest.fn() };
+    const api = createApi(sqlite, new Map([['fireworks-dev', devFireworks]]));
+    const plugin = new GoalsPlugin(api);
+
+    plugin.db.initialize();
+    const goal = plugin.db.createGoal({
+      id: 'goal_progress_chargeup',
+      name: 'Charge Goal',
+      goal_type: 'coin',
+      current_value: 0,
+      target_value: 100,
+      firework_enabled: 1,
+      firework_intensity: 5,
+      firework_theme: 'neon-reactor',
+      firework_quality_profile: 'high',
+      firework_progress_enabled: 1,
+      firework_progress_milestones: '25,50,75'
+    });
+
+    const machine = plugin.stateMachineManager.getMachine(goal.id);
+    machine.initialize(goal);
+    plugin.setupStateMachineListeners(machine);
+
+    plugin.eventHandlers.setGoalValue(goal.id, 60);
+
+    expect(devFireworks.triggerFirework).toHaveBeenCalledTimes(2);
+    expect(devFireworks.triggerFirework).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      type: 'goal-progress',
+      theme: 'neon-reactor',
+      hudLabel: 'Charge Goal 25%'
+    }));
+    expect(devFireworks.triggerFirework).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      type: 'goal-progress',
+      theme: 'neon-reactor',
+      hudLabel: 'Charge Goal 50%'
+    }));
+    expect(devFireworks.triggerFinale).not.toHaveBeenCalled();
+  });
+
+  test('keeps firework duration and intensity controls hidden until the checkbox is enabled', () => {
+    const uiHtml = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'goals', 'ui.html'), 'utf8');
+    const uiJs = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'goals', 'ui.js'), 'utf8');
+
+    expect(uiHtml).toContain('id="goal-firework-enabled"');
+    expect(uiHtml).toContain('id="goal-firework-options" style="display: none;"');
+    expect(uiHtml).toContain('id="goal-firework-intensity"');
+    expect(uiHtml).toContain('id="goal-firework-duration"');
+    expect(uiHtml).toContain('id="goal-firework-theme"');
+    expect(uiHtml).toContain('id="goal-firework-encounter"');
+    expect(uiHtml).toContain('id="goal-firework-quality"');
+    expect(uiHtml).toContain('id="goal-firework-progress-enabled"');
+    expect(uiHtml).toContain('id="goal-firework-progress-milestones"');
+
+    expect(uiJs).toContain('toggleGoalFireworkOptions');
+    expect(uiJs).toContain('firework_enabled');
+    expect(uiJs).toContain('firework_intensity');
+    expect(uiJs).toContain('firework_duration');
+    expect(uiJs).toContain('firework_theme');
+    expect(uiJs).toContain('firework_encounter_mode');
+    expect(uiJs).toContain('firework_quality_profile');
+    expect(uiJs).toContain('firework_progress_enabled');
+    expect(uiJs).toContain('firework_progress_milestones');
+  });
+});

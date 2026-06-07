@@ -397,12 +397,16 @@
     reset(config = {}) {
       const w = config.width || window.innerWidth;
       const h = config.height || window.innerHeight;
+      const opacity = Number.isFinite(parseFloat(config.opacity)) ? parseFloat(config.opacity) : 1;
+      const directionDeg = Number.isFinite(parseFloat(config.directionDeg)) ? parseFloat(config.directionDeg) : 0;
+      const directionRad = directionDeg * Math.PI / 180;
       
       this.x = config.x !== undefined ? config.x : Math.random() * w;
       this.y = config.startFromTop ? -20 : (config.y !== undefined ? config.y : Math.random() * h);
       this.z = Math.random(); // Depth for parallax (0-1)
       this.active = true;
       this.parentEffect = config.parentEffect || null;
+      this.effectOpacity = Math.max(0.05, Math.min(1, opacity));
       
       // Store previous position for interpolation
       this.prevX = this.x;
@@ -411,10 +415,10 @@
       switch (this.type) {
         case 'rain':
           this.speedY = 15 + Math.random() * 15;
-          this.speedX = Math.random() * 3 - 1.5;
+          this.speedX = Math.random() * 3 - 1.5 + Math.sin(directionRad) * 6;
           this.length = 15 + Math.random() * 25;
           this.width = 1 + Math.random() * 1.5;
-          this.alpha = 0.4 + Math.random() * 0.4;
+          this.alpha = (0.4 + Math.random() * 0.4) * this.effectOpacity;
           this.color = `rgba(160, 196, 232, ${this.alpha})`;
           // Rain splash properties
           this.wind = 0;
@@ -426,9 +430,9 @@
         
         case 'snow':
           this.speedY = 1 + Math.random() * 2.5;
-          this.speedX = Math.random() * 2 - 1;
+          this.speedX = Math.random() * 2 - 1 + Math.sin(directionRad) * 1.5;
           this.size = 2 + Math.random() * 5;
-          this.alpha = 0.5 + Math.random() * 0.5;
+          this.alpha = (0.5 + Math.random() * 0.5) * this.effectOpacity;
           this.wobble = Math.random() * Math.PI * 2;
           this.wobbleSpeed = 0.02 + Math.random() * 0.04;
           this.rotation = Math.random() * Math.PI * 2;
@@ -447,10 +451,10 @@
         
         case 'storm':
           this.speedY = 20 + Math.random() * 20;
-          this.speedX = 8 + Math.random() * 12;
+          this.speedX = 8 + Math.random() * 12 + Math.sin(directionRad) * 10;
           this.length = 20 + Math.random() * 35;
           this.width = 1.5 + Math.random() * 2;
-          this.alpha = 0.5 + Math.random() * 0.4;
+          this.alpha = (0.5 + Math.random() * 0.4) * this.effectOpacity;
           this.color = `rgba(107, 163, 214, ${this.alpha})`;
           break;
         
@@ -458,7 +462,7 @@
           this.speedY = 0.3 + Math.random() * 0.4;
           this.speedX = 0.5 + Math.random() - 0.5;
           this.size = 80 + Math.random() * 200;
-          this.alpha = 0.15 + Math.random() * 0.2;
+          this.alpha = (0.15 + Math.random() * 0.2) * this.effectOpacity;
           this.life = 0;
           this.maxLife = 250 + Math.random() * 400;
           this.hue = 200 + Math.random() * 20; // Slight color variation
@@ -491,7 +495,7 @@
           this.speedX = (Math.random() - 0.5) * 0.8;
           this.size = 2 + Math.random() * 3;
           this.alpha = 0;
-          this.targetAlpha = 0.6 + Math.random() * 0.4;
+          this.targetAlpha = (0.6 + Math.random() * 0.4) * this.effectOpacity;
           this.glowPhase = Math.random() * Math.PI * 2;
           this.glowSpeed = 0.02 + Math.random() * 0.04;
           this.wanderAngle = Math.random() * Math.PI * 2;
@@ -504,9 +508,9 @@
         
         case 'sakura':
           this.speedY = 0.8 + Math.random() * 1.5;
-          this.speedX = (Math.random() - 0.3) * 1.5;
+          this.speedX = (Math.random() - 0.3) * 1.5 + Math.sin(directionRad) * 1.2;
           this.size = 4 + Math.random() * 6;
-          this.alpha = 0.6 + Math.random() * 0.4;
+          this.alpha = (0.6 + Math.random() * 0.4) * this.effectOpacity;
           this.rotation = Math.random() * Math.PI * 2;
           this.rotationSpeed = (Math.random() - 0.5) * 0.08;
           this.wobble = Math.random() * Math.PI * 2;
@@ -526,7 +530,7 @@
           this.speedY = -(1.5 + Math.random() * 2.5); // Rise upward
           this.speedX = (Math.random() - 0.5) * 2;
           this.size = 1.5 + Math.random() * 3;
-          this.alpha = 0.7 + Math.random() * 0.3;
+          this.alpha = (0.7 + Math.random() * 0.3) * this.effectOpacity;
           this.life = 1.0;
           this.decay = 0.002 + Math.random() * 0.004;
           this.hue = 15 + Math.random() * 25; // Orange-red
@@ -1275,6 +1279,11 @@
      */
     startEffect(type, intensity = 0.5, duration = 10000, options = {}) {
       const isPermanent = options.permanent === true;
+      const particleScale = Math.max(0.25, Math.min(2, parseFloat(options.particleScale) || 1));
+      const opacity = Math.max(0.05, Math.min(1, parseFloat(options.opacity) || 1));
+      const wind = Math.max(-1, Math.min(1, parseFloat(options.wind) || 0));
+      const directionDeg = Math.max(-180, Math.min(180, parseFloat(options.directionDeg) || 0));
+      const layer = Number.isFinite(parseFloat(options.layer)) ? parseFloat(options.layer) : 50;
       
       // Stop existing permanent effect of this type
       if (isPermanent) {
@@ -1287,27 +1296,36 @@
         startTime: Date.now(),
         duration,
         permanent: isPermanent,
+        opacity,
+        wind,
+        directionDeg,
+        layer,
+        options: { ...options, opacity, wind, directionDeg, layer, particleScale },
         particles: [],
         timerId: null
       };
       
       // Create particles based on effect type using pools
       if (type === 'rain') {
-        const particleCount = Math.min(Math.floor(250 * intensity), this.qualityPreset.maxParticles);
+        const particleCount = Math.min(Math.floor(250 * intensity * particleScale), this.qualityPreset.maxParticles);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.rain.acquire({
             width: this.dimensions.width,
             height: this.dimensions.height,
+            opacity,
+            directionDeg,
             parentEffect: effect
           });
           effect.particles.push(particle);
         }
       } else if (type === 'snow') {
-        const particleCount = Math.min(Math.floor(180 * intensity), this.qualityPreset.maxParticles);
+        const particleCount = Math.min(Math.floor(180 * intensity * particleScale), this.qualityPreset.maxParticles);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.snow.acquire({
             width: this.dimensions.width,
             height: this.dimensions.height,
+            opacity,
+            directionDeg,
             snowflakeVariants: this.snowflakeVariants,
             parentEffect: effect
           });
@@ -1327,24 +1345,27 @@
           effect.particles.push(particle);
         }
       } else if (type === 'storm') {
-        const particleCount = Math.min(Math.floor(300 * intensity), this.qualityPreset.maxParticles);
+        const particleCount = Math.min(Math.floor(300 * intensity * particleScale), this.qualityPreset.maxParticles);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.storm.acquire({
             width: this.dimensions.width,
             height: this.dimensions.height,
+            opacity,
+            directionDeg,
             parentEffect: effect
           });
           effect.particles.push(particle);
         }
       } else if (type === 'fog') {
         effect.fogColor = options.fogColor || 'default';
-        const particleCount = Math.min(Math.floor(30 * intensity), this.qualityPreset.maxParticles);
+        const particleCount = Math.min(Math.floor(30 * intensity * particleScale), this.qualityPreset.maxParticles);
         const groundFogCount = Math.floor(particleCount * 0.4);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.fog.acquire({
             width: this.dimensions.width,
             height: this.dimensions.height,
             parentEffect: effect,
+            opacity,
             groundFog: i < groundFogCount,
             fogColor: options.fogColor || 'default'
           });
@@ -1374,11 +1395,12 @@
           });
         }
       } else if (type === 'fireflies') {
-        const particleCount = Math.floor(40 * intensity);
+        const particleCount = Math.floor(40 * intensity * particleScale);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.fireflies.acquire({
             width: this.dimensions.width,
             height: this.dimensions.height,
+            opacity,
             y: this.dimensions.height * (0.4 + Math.random() * 0.6)
           });
           effect.particles.push(particle);
@@ -1388,28 +1410,35 @@
         effect.nextMeteor = Date.now() + Math.random() * 1000;
         effect.maxMeteors = Math.floor(3 + intensity * 5);
       } else if (type === 'sakura') {
-        const particleCount = Math.floor(60 * intensity);
+        const particleCount = Math.floor(60 * intensity * particleScale);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.sakura.acquire({
             width: this.dimensions.width,
-            height: this.dimensions.height
+            height: this.dimensions.height,
+            opacity,
+            directionDeg
           });
           effect.particles.push(particle);
         }
       } else if (type === 'embers') {
-        const particleCount = Math.floor(50 * intensity);
+        const particleCount = Math.floor(50 * intensity * particleScale);
         for (let i = 0; i < particleCount; i++) {
           const particle = this.pools.embers.acquire({
             width: this.dimensions.width,
             height: this.dimensions.height,
+            opacity,
             y: this.dimensions.height + Math.random() * 50
           });
           effect.particles.push(particle);
         }
+      } else if (type === 'heatwave') {
+        effect.phase = Math.random() * Math.PI * 2;
+        effect.bands = Math.floor(5 + intensity * 10 * particleScale);
       }
       
       this.state.particles.push(...effect.particles);
       this.state.activeEffects.push(effect);
+      this.sortEffectsForRender();
       
       // Schedule auto-stop
       if (!isPermanent && duration > 0) {
@@ -1417,6 +1446,25 @@
       }
       
       return effect;
+    }
+
+    sortEffectsForRender() {
+      this.state.activeEffects.sort((a, b) => (a.layer || 50) - (b.layer || 50));
+      this.state.particles.sort((a, b) => {
+        const layerA = a.parentEffect?.layer ?? 50;
+        const layerB = b.parentEffect?.layer ?? 50;
+        return layerA - layerB;
+      });
+    }
+
+    setQuality(level, adaptiveQuality = this.adaptiveQualityEnabled) {
+      if (!QUALITY_PRESETS[level]) {
+        return false;
+      }
+      this.options.renderQuality = level;
+      this.qualityPreset = QUALITY_PRESETS[level];
+      this.adaptiveQualityEnabled = adaptiveQuality !== false;
+      return true;
     }
 
     /**
@@ -1634,6 +1682,9 @@
         if (effect.type === 'meteors') {
           this.drawMeteors(effect);
         }
+        if (effect.type === 'heatwave') {
+          this.drawHeatwave(effect);
+        }
       }
       
       // Adaptive quality: check FPS every qualityCheckInterval frames
@@ -1647,11 +1698,11 @@
           const currentIdx = levels.indexOf(currentLevel);
           if (currentIdx === -1) return; // unknown quality level – skip
           if (avgFps < 30 && currentIdx > 0) {
-            this.options.renderQuality = levels[currentIdx - 1];
-            this.qualityPreset = QUALITY_PRESETS[this.options.renderQuality];
+            this.setQuality(levels[currentIdx - 1], true);
+            if (this.options.onQualityChange) this.options.onQualityChange(this.options.renderQuality, avgFps);
           } else if (avgFps > 55 && currentIdx < levels.length - 1) {
-            this.options.renderQuality = levels[currentIdx + 1];
-            this.qualityPreset = QUALITY_PRESETS[this.options.renderQuality];
+            this.setQuality(levels[currentIdx + 1], true);
+            if (this.options.onQualityChange) this.options.onQualityChange(this.options.renderQuality, avgFps);
           }
         }
       }
@@ -1681,7 +1732,8 @@
         
         const intensity = particle.parentEffect ? particle.parentEffect.intensity : 1.0;
         
-        particle.update(deltaTime, intensity, this.dimensions, this.globalWind, currentTime);
+        const effectWind = (particle.parentEffect?.wind || 0) * 8;
+        particle.update(deltaTime, intensity, this.dimensions, this.globalWind + effectWind, currentTime);
       }
       
       // Clean up inactive particles (done here, not in render loop)
@@ -2731,6 +2783,48 @@
         this.ctx.globalAlpha = 1.0;
       }
       
+      this.ctx.restore();
+    }
+
+    drawHeatwave(effect) {
+      const w = this.dimensions.width;
+      const h = this.dimensions.height;
+      const now = Date.now() * 0.002;
+      const opacity = effect.opacity ?? 0.75;
+      const intensity = effect.intensity || 0.4;
+      const bands = effect.bands || Math.floor(5 + intensity * 10);
+
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'screen';
+
+      const glow = this.ctx.createLinearGradient(0, h * 0.45, 0, h);
+      glow.addColorStop(0, 'rgba(255, 180, 80, 0)');
+      glow.addColorStop(0.6, `rgba(255, 130, 55, ${0.035 * intensity * opacity})`);
+      glow.addColorStop(1, `rgba(255, 90, 35, ${0.08 * intensity * opacity})`);
+      this.ctx.fillStyle = glow;
+      this.ctx.fillRect(0, 0, w, h);
+
+      for (let i = 0; i < bands; i++) {
+        const y = h * (0.35 + i / Math.max(1, bands) * 0.65);
+        const amplitude = (8 + i * 1.5) * intensity;
+        const alpha = (0.03 + i * 0.004) * opacity;
+        const gradient = this.ctx.createLinearGradient(0, y - 18, 0, y + 18);
+        gradient.addColorStop(0, 'rgba(255, 220, 150, 0)');
+        gradient.addColorStop(0.5, `rgba(255, 210, 130, ${alpha})`);
+        gradient.addColorStop(1, 'rgba(255, 220, 150, 0)');
+        this.ctx.fillStyle = gradient;
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, y);
+        for (let x = 0; x <= w; x += 30) {
+          const waveY = y + Math.sin(x * 0.018 + now + i * 0.7) * amplitude;
+          this.ctx.lineTo(x, waveY);
+        }
+        this.ctx.lineTo(w, y + 24);
+        this.ctx.lineTo(0, y + 24);
+        this.ctx.closePath();
+        this.ctx.fill();
+      }
+
       this.ctx.restore();
     }
 

@@ -47,6 +47,14 @@
       font-size: 18px;
       opacity: 0.9;
     }
+    
+    .profile-toolbar {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
 
     .hud-grid {
       display: grid;
@@ -632,6 +640,31 @@
     .stream-config .color-input-wrapper input[type="color"]:hover {
       border-color: var(--color-accent-primary);
     }
+    
+    .status-list {
+      display: grid;
+      gap: 8px;
+      margin: 0 0 20px;
+      padding: 12px;
+      background: var(--color-bg-secondary);
+      border-radius: 8px;
+      border: 1px solid var(--color-border);
+      font-size: 13px;
+    }
+    
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--color-text-secondary);
+    }
+    
+    .wizard-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      padding: 30px;
+    }
 
     .preview-styles {
       display: flex;
@@ -678,8 +711,15 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1>ClarityHUD Dashboard <span style="font-size: 12px; opacity: 0.6;">v1.1 (Multi-Stream)</span></h1>
+      <h1>ClarityHUD Dashboard <span id="plugin-version" style="font-size: 12px; opacity: 0.6;">v1.1.0</span></h1>
       <p>Ultra-minimalistic, VR-optimized, and accessible HUD overlays for TikTok Live</p>
+      <div class="profile-toolbar">
+        <button class="btn btn-info" data-action="export-profile">Export Profile</button>
+        <button class="btn btn-info" data-action="import-profile">Import Profile</button>
+        <button class="btn btn-primary" data-action="open-setup-wizard">Setup Wizard</button>
+        <button class="btn btn-secondary" data-action="save-custom-preset">Save Preset</button>
+        <input type="file" id="profile-import-input" accept="application/json,.json" hidden>
+      </div>
     </div>
 
     <div class="hud-grid">
@@ -698,22 +738,14 @@
             <div class="url-label">Overlay URL</div>
             <div class="url-display">
               <div class="url-text" id="chat-url">Loading...</div>
-              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="chat" title="Copy URL">
-                📋
-              </button>
+              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="chat" title="Copy URL">Copy</button>
             </div>
           </div>
 
           <div class="button-group">
-            <button class="btn btn-primary" data-action="open-settings" data-type="chat">
-              ⚙️ Settings
-            </button>
-            <button class="btn btn-success" data-action="test-event" data-type="chat">
-              🧪 Test Event
-            </button>
-            <button class="btn btn-secondary" data-action="refresh-preview" data-type="chat">
-              🔄 Refresh Preview
-            </button>
+            <button class="btn btn-primary" data-action="open-settings" data-type="chat">Settings</button>
+            <button class="btn btn-success" data-action="test-event" data-type="chat">Test Event</button>
+            <button class="btn btn-secondary" data-action="refresh-preview" data-type="chat">Refresh Preview</button>
           </div>
         </div>
       </div>
@@ -733,22 +765,14 @@
             <div class="url-label">Overlay URL</div>
             <div class="url-display">
               <div class="url-text" id="full-url">Loading...</div>
-              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="full" title="Copy URL">
-                📋
-              </button>
+              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="full" title="Copy URL">Copy</button>
             </div>
           </div>
 
           <div class="button-group">
-            <button class="btn btn-primary" data-action="open-settings" data-type="full">
-              ⚙️ Settings
-            </button>
-            <button class="btn btn-success" data-action="test-event" data-type="full">
-              🧪 Test Event
-            </button>
-            <button class="btn btn-secondary" data-action="refresh-preview" data-type="full">
-              🔄 Refresh Preview
-            </button>
+            <button class="btn btn-primary" data-action="open-settings" data-type="full">Settings</button>
+            <button class="btn btn-success" data-action="test-event" data-type="full">Test Event</button>
+            <button class="btn btn-secondary" data-action="refresh-preview" data-type="full">Refresh Preview</button>
           </div>
         </div>
       </div>
@@ -768,22 +792,18 @@
             <div class="url-label">Overlay URL</div>
             <div class="url-display">
               <div class="url-text" id="multi-url">Loading...</div>
-              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="multi" title="Copy URL">
-                📋
-              </button>
+              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="multi" title="Copy URL">Copy</button>
             </div>
           </div>
 
+          <div id="multi-status" class="status-list">
+            <div class="status-item"><span>Multi-stream status</span><span>Loading...</span></div>
+          </div>
+
           <div class="button-group">
-            <button class="btn btn-primary" data-action="open-settings" data-type="multi">
-              ⚙️ Settings
-            </button>
-            <button class="btn btn-success" data-action="test-event" data-type="multi">
-              🧪 Test Event
-            </button>
-            <button class="btn btn-secondary" data-action="refresh-preview" data-type="multi">
-              🔄 Refresh Preview
-            </button>
+            <button class="btn btn-primary" data-action="open-settings" data-type="multi">Settings</button>
+            <button class="btn btn-success" data-action="test-event" data-type="multi">Test Event</button>
+            <button class="btn btn-secondary" data-action="refresh-preview" data-type="multi">Refresh Preview</button>
           </div>
         </div>
       </div>
@@ -792,7 +812,7 @@
       <div class="hud-section">
         <div class="hud-header">
           <h2>Stream Overlay</h2>
-          <p>OBS-seitiges Overlay – Alerts, Highlights und Ticker für dein Publikum</p>
+          <p>OBS overlay for alerts, highlights, and ticker content</p>
         </div>
         <div class="hud-content">
           <div class="preview-container">
@@ -803,22 +823,14 @@
             <div class="url-label">Overlay URL</div>
             <div class="url-display">
               <div class="url-text" id="stream-url">Loading...</div>
-              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="stream" title="Copy URL">
-                📋
-              </button>
+              <button class="btn btn-info btn-icon" data-action="copy-url" data-type="stream" title="Copy URL">Copy</button>
             </div>
           </div>
 
           <div class="button-group">
-            <button class="btn btn-primary" data-action="open-settings" data-type="stream">
-              ⚙️ Settings
-            </button>
-            <button class="btn btn-success" data-action="test-event" data-type="stream">
-              🧪 Test All
-            </button>
-            <button class="btn btn-secondary" data-action="refresh-preview" data-type="stream">
-              🔄 Refresh
-            </button>
+            <button class="btn btn-primary" data-action="open-settings" data-type="stream">Settings</button>
+            <button class="btn btn-success" data-action="test-event" data-type="stream">Test All</button>
+            <button class="btn btn-secondary" data-action="refresh-preview" data-type="stream">Refresh Preview</button>
           </div>
         </div>
       </div>
@@ -861,7 +873,23 @@
     <span class="toast-message"></span>
   </div>
 
+  <!-- Setup Wizard -->
+  <div id="setup-wizard-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Setup Wizard</h2>
+        <span class="close" id="close-setup-wizard">&times;</span>
+      </div>
+      <div class="wizard-options">
+        <button class="preset-btn" data-wizard-preset="vrchat-readable">VRChat Readable</button>
+        <button class="preset-btn" data-wizard-preset="obs-clean">OBS Clean</button>
+        <button class="preset-btn" data-wizard-preset="high-activity">High Activity</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/plugins/clarityhud/lib/settings-schema.js"></script>
   <script src="/plugins/clarityhud/ui/stream-settings.js"></script>
   <script src="/plugins/clarityhud/ui/main.js"></script>
 </body>

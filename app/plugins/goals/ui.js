@@ -62,6 +62,8 @@ function init() {
             e.target.value === 'increment' ? 'block' : 'none';
     });
 
+    document.getElementById('goal-firework-enabled').addEventListener('change', toggleGoalFireworkOptions);
+
     // Update color pickers when goal type changes
     document.getElementById('goal-type').addEventListener('change', (e) => {
         const theme = getDefaultTheme(e.target.value);
@@ -178,6 +180,16 @@ function openCreateModal() {
     document.getElementById('goal-bg-color').value = '#0f172a'; // Default bg in hex
     document.getElementById('goal-font-family').value = "'Impact', 'Haettenschweiler', 'Arial Narrow Bold', sans-serif";
     document.getElementById('goal-font-size').value = '20';
+    document.getElementById('goal-firework-enabled').checked = false;
+    document.getElementById('goal-firework-intensity').value = '3';
+    document.getElementById('goal-firework-duration').value = '5';
+    document.getElementById('goal-firework-theme').value = '';
+    document.getElementById('goal-firework-encounter').value = 'finale';
+    document.getElementById('goal-firework-quality').value = 'high';
+    document.getElementById('goal-firework-hud-label').value = '';
+    document.getElementById('goal-firework-progress-enabled').checked = true;
+    document.getElementById('goal-firework-progress-milestones').value = '25,50,75';
+    toggleGoalFireworkOptions();
     
     document.getElementById('goal-modal').classList.add('active');
     
@@ -206,11 +218,21 @@ function editGoal(id) {
     document.getElementById('goal-anim-reach').value = goal.animation_on_reach;
     document.getElementById('goal-on-reach').value = goal.on_reach_action;
     document.getElementById('goal-increment').value = goal.on_reach_increment;
+    document.getElementById('goal-firework-enabled').checked = Number(goal.firework_enabled) === 1;
+    document.getElementById('goal-firework-intensity').value = clampNumber(goal.firework_intensity, 1, 10, 3);
+    document.getElementById('goal-firework-duration').value = clampNumber((goal.firework_duration || 5000) / 1000, 1, 30, 5);
+    document.getElementById('goal-firework-theme').value = goal.firework_theme || '';
+    document.getElementById('goal-firework-encounter').value = goal.firework_encounter_mode || 'finale';
+    document.getElementById('goal-firework-quality').value = goal.firework_quality_profile || 'high';
+    document.getElementById('goal-firework-hud-label').value = goal.firework_hud_label || '';
+    document.getElementById('goal-firework-progress-enabled').checked = Number(goal.firework_progress_enabled) !== 0;
+    document.getElementById('goal-firework-progress-milestones').value = goal.firework_progress_milestones || '25,50,75';
     document.getElementById('goal-width').value = goal.overlay_width;
     document.getElementById('goal-height').value = goal.overlay_height;
 
     document.getElementById('increment-amount-group').style.display =
         goal.on_reach_action === 'increment' ? 'block' : 'none';
+    toggleGoalFireworkOptions();
 
     document.getElementById('goal-modal').classList.add('active');
     
@@ -243,6 +265,15 @@ async function saveGoal(e) {
         animation_on_reach: document.getElementById('goal-anim-reach').value,
         on_reach_action: document.getElementById('goal-on-reach').value,
         on_reach_increment: parseInt(document.getElementById('goal-increment').value),
+        firework_enabled: document.getElementById('goal-firework-enabled').checked ? 1 : 0,
+        firework_intensity: clampNumber(document.getElementById('goal-firework-intensity').value, 1, 10, 3),
+        firework_duration: Math.round(clampNumber(document.getElementById('goal-firework-duration').value, 1, 30, 5) * 1000),
+        firework_theme: document.getElementById('goal-firework-theme').value || null,
+        firework_encounter_mode: document.getElementById('goal-firework-encounter').value,
+        firework_quality_profile: document.getElementById('goal-firework-quality').value,
+        firework_hud_label: document.getElementById('goal-firework-hud-label').value.trim() || null,
+        firework_progress_enabled: document.getElementById('goal-firework-progress-enabled').checked ? 1 : 0,
+        firework_progress_milestones: document.getElementById('goal-firework-progress-milestones').value.trim() || '25,50,75',
         overlay_width: parseInt(document.getElementById('goal-width').value),
         overlay_height: parseInt(document.getElementById('goal-height').value),
         enabled: 1
@@ -320,6 +351,22 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function toggleGoalFireworkOptions() {
+    const checkbox = document.getElementById('goal-firework-enabled');
+    const options = document.getElementById('goal-firework-options');
+    if (!checkbox || !options) return;
+
+    options.style.display = checkbox.checked ? 'block' : 'none';
+}
+
+function clampNumber(value, min, max, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+    return Math.min(max, Math.max(min, parsed));
 }
 
 // Event delegation for dynamically created goal card buttons
@@ -985,4 +1032,3 @@ window.addEventListener('DOMContentLoaded', () => {
     switchTab('goals');
     document.getElementById('create-goal-btn').style.display = 'block';
 });
-

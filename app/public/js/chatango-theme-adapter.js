@@ -1,6 +1,6 @@
 /**
  * Chatango Theme Adapter
- * Adapts Chatango shoutbox colors to match the current theme (day/night/high contrast)
+ * Adapts Chatango shoutbox colors to match the current theme (aurora/day/night/high contrast/vision impaired)
  * Corporate branding color: #13A318 (green)
  * 
  * This module now handles dynamic loading of Chatango embeds to ensure they
@@ -11,6 +11,33 @@ class ChatangoThemeAdapter {
     constructor() {
         this.pluginConfig = null; // Will be loaded from API
         this.themeConfigs = {
+            aurora: {
+                // New default aurora theme - dark glass with cyan/green accents
+                a: '08111F',      // Background color (deep navy)
+                b: 100,           // Background opacity
+                c: 'E2E8F0',      // Title and icons color (soft white)
+                d: 'F8FAFC',      // Group owner's msg, URL and background text color
+                e: '101A2D',      // Messages background color
+                f: 100,           // Messages background opacity
+                g: 'F8FAFC',      // Messages text color
+                h: '0F172A',      // Input background color
+                i: 100,           // Input background opacity
+                j: 'F8FAFC',      // Input text color
+                k: '22D3EE',      // Date color (cyan)
+                l: '34D399',      // Border color (emerald)
+                m: '22D3EE',      // Button color (cyan)
+                n: '08111F',      // Button text color (dark)
+                o: 100,           // Button opacity
+                p: '10',          // Font size
+                q: '34D399',      // Main border color (emerald)
+                r: 100,           // Main border visibility
+                s: 0,             // Rounded corners
+                t: 0,             // Messages sound toggle (off)
+                sbc: '7C8AA4',    // Scrollbar color
+                sba: 100,         // Scrollbar opacity
+                cvbg: '08111F',   // Collapsed view background
+                cvfg: 'E2E8F0'    // Collapsed view font/icon color
+            },
             night: {
                 // Default night mode - green branding
                 a: '13A318',      // Background color (green)
@@ -91,6 +118,33 @@ class ChatangoThemeAdapter {
                 sba: 100,         // Scrollbar opacity
                 cvbg: '000000',   // Collapsed view background (black)
                 cvfg: 'FFFF00'    // Collapsed view font/icon color (yellow)
+            },
+            'vision-impaired': {
+                // Vision impaired mode - larger font and maximum contrast
+                a: '000000',      // Background color (black)
+                b: 100,           // Background opacity
+                c: 'FFFFFF',      // Title and icons color (white)
+                d: 'FFFFFF',      // Group owner's msg, URL text (white)
+                e: '000000',      // Messages background color (black)
+                f: 100,           // Messages background opacity
+                g: 'FFFFFF',      // Messages text color (white)
+                h: '000000',      // Input background color (black)
+                i: 100,           // Input background opacity
+                j: 'FFFFFF',      // Input text color (white)
+                k: 'FFFFFF',      // Date color (white)
+                l: 'FFFFFF',      // Border color (white)
+                m: 'FFFFFF',      // Button color (white)
+                n: '000000',      // Button text color (black)
+                o: 100,           // Button opacity
+                p: '13',          // Font size (larger for readability)
+                q: 'FFFFFF',      // Main border color (white)
+                r: 100,           // Main border visibility
+                s: 0,             // Rounded corners
+                t: 0,             // Messages sound toggle (off)
+                sbc: 'FFFFFF',    // Scrollbar color (white)
+                sba: 100,         // Scrollbar opacity
+                cvbg: '000000',   // Collapsed view background (black)
+                cvfg: 'FFFFFF'    // Collapsed view font/icon color (white)
             }
         };
 
@@ -179,7 +233,7 @@ class ChatangoThemeAdapter {
         return {
             enabled: true,
             roomHandle: 'pupcidsltth',
-            theme: 'night',
+            theme: 'aurora',
             fontSize: '10',
             allowPM: false,
             showTicker: true,
@@ -276,6 +330,14 @@ class ChatangoThemeAdapter {
         return `${prefix}-${this.embedIdCounter}`;
     }
 
+    sanitizeWidgetDimension(val, defaultVal, min = 50, max = 1000) {
+        const parsed = parseInt(val, 10);
+        if (Number.isNaN(parsed) || parsed < min || parsed > max) {
+            return defaultVal;
+        }
+        return parsed;
+    }
+
     loadDashboardEmbed(theme) {
         const container = document.getElementById('chatango-embed-container');
         if (!container) {
@@ -302,9 +364,9 @@ class ChatangoThemeAdapter {
         iframe.style.border = 'none';
         iframe.title = 'Chatango Community Chat';
         iframe.setAttribute('allowtransparency', 'true');
-        
+
         container.appendChild(iframe);
-        
+
         console.log('💬 Dashboard embed iframe loaded:', iframe.id);
     }
 
@@ -324,56 +386,26 @@ class ChatangoThemeAdapter {
         // Clear any existing content
         container.innerHTML = '';
 
-        // Use iframe-based approach to avoid CSP issues with dynamic script injection
-        // The iframe loads a server-rendered HTML page with the Chatango embed
-        const iframe = document.createElement('iframe');
-        iframe.id = this.generateUniqueId('chatango-widget-iframe');
-        iframe.src = `/chatango/embed/widget?theme=${encodeURIComponent(theme)}`;
+        const embedCode = this.generateEmbedCode('widget', theme);
         
         // Widget has fixed dimensions from config - sanitize to prevent CSS injection
         const config = this.pluginConfig || this.getDefaultConfig();
-        const sanitizeDimension = (val, defaultVal) => {
-            // Only allow positive integers
-            const parsed = parseInt(val, 10);
-            if (isNaN(parsed) || parsed < 50 || parsed > 1000) {
-                return defaultVal;
-            }
-            return parsed;
-        };
+        const widgetWidth = this.sanitizeWidgetDimension(config.widgetWidth, 200, 150, 500);
+        const widgetHeight = this.sanitizeWidgetDimension(config.widgetHeight, 300, 200, 600);
         
-        const widgetWidth = sanitizeDimension(config.widgetWidth, 200);
-        const widgetHeight = sanitizeDimension(config.widgetHeight, 300);
+        // Direct script injection lets Chatango resize or remove its own floating UI.
+        const script = document.createElement('script');
+        script.id = `cid${Date.now()}-${this.generateUniqueId('chatango-widget-script')}`;
+        script.setAttribute('data-cfasync', 'false');
+        script.async = true;
+        script.src = 'https://st.chatango.com/js/gz/emb.js';
+        script.style.width = `${widgetWidth}px`;
+        script.style.height = `${widgetHeight}px`;
+        script.appendChild(document.createTextNode(JSON.stringify(embedCode.config)));
         
-        iframe.style.width = `${widgetWidth}px`;
-        iframe.style.height = `${widgetHeight}px`;
-        iframe.style.border = 'none';
-        iframe.style.position = 'fixed';
-        
-        // Position the widget based on config - validate position value
-        const validPositions = ['br', 'bl', 'tr', 'tl'];
-        const position = validPositions.includes(config.widgetPosition) ? config.widgetPosition : 'br';
-        
-        if (position === 'br') {
-            iframe.style.bottom = '10px';
-            iframe.style.right = '10px';
-        } else if (position === 'bl') {
-            iframe.style.bottom = '10px';
-            iframe.style.left = '10px';
-        } else if (position === 'tr') {
-            iframe.style.top = '10px';
-            iframe.style.right = '10px';
-        } else if (position === 'tl') {
-            iframe.style.top = '10px';
-            iframe.style.left = '10px';
-        }
-        
-        iframe.style.zIndex = '9999';
-        iframe.title = 'Chatango Widget';
-        iframe.setAttribute('allowtransparency', 'true');
-        
-        container.appendChild(iframe);
-        
-        console.log('💬 Widget embed iframe loaded:', iframe.id);
+        container.appendChild(script);
+
+        console.log('Chatango widget embed script loaded:', script.id);
     }
 
     showDisabledMessage() {
@@ -427,7 +459,7 @@ class ChatangoThemeAdapter {
 
     getCurrentTheme() {
         const themeAttr = document.documentElement.getAttribute('data-theme');
-        return themeAttr || 'night'; // Default to night if no theme set
+        return themeAttr || 'aurora'; // Default to aurora if no theme set
     }
 
     updateChatangoTheme() {
@@ -454,7 +486,7 @@ class ChatangoThemeAdapter {
      * This can be used to manually recreate the embed with new colors
      */
     getConfigForTheme(theme) {
-        return this.themeConfigs[theme] || this.themeConfigs.night;
+        return this.themeConfigs[theme] || this.themeConfigs.aurora || this.themeConfigs['vision-impaired'] || this.themeConfigs.night;
     }
 
     /**
@@ -486,11 +518,33 @@ class ChatangoThemeAdapter {
 
         if (position === 'widget') {
             // Widget configuration from plugin config
-            const widgetWidth = (this.pluginConfig && this.pluginConfig.widgetWidth) || 200;
-            const widgetHeight = (this.pluginConfig && this.pluginConfig.widgetHeight) || 300;
-            const widgetPos = (this.pluginConfig && this.pluginConfig.widgetPosition) || 'br';
-            const collapsedWidth = (this.pluginConfig && this.pluginConfig.collapsedWidth) || 75;
-            const collapsedHeight = (this.pluginConfig && this.pluginConfig.collapsedHeight) || 30;
+            const widgetWidth = this.sanitizeWidgetDimension(
+                this.pluginConfig && this.pluginConfig.widgetWidth,
+                200,
+                150,
+                500
+            );
+            const widgetHeight = this.sanitizeWidgetDimension(
+                this.pluginConfig && this.pluginConfig.widgetHeight,
+                300,
+                200,
+                600
+            );
+            const requestedWidgetPos = (this.pluginConfig && this.pluginConfig.widgetPosition) || 'br';
+            const validPositions = ['br', 'bl', 'tr', 'tl'];
+            const widgetPos = validPositions.includes(requestedWidgetPos) ? requestedWidgetPos : 'br';
+            const collapsedWidth = this.sanitizeWidgetDimension(
+                this.pluginConfig && this.pluginConfig.collapsedWidth,
+                75,
+                50,
+                200
+            );
+            const collapsedHeight = this.sanitizeWidgetDimension(
+                this.pluginConfig && this.pluginConfig.collapsedHeight,
+                30,
+                20,
+                100
+            );
             const showTicker = (this.pluginConfig && this.pluginConfig.showTicker) ? 1 : 0;
             
             return {

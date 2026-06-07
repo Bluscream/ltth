@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync, exec } = require('child_process');
+const { execSync, exec, execFileSync } = require('child_process');
 const TTYLogger = require('./tty-logger');
 
 // PERFORMANCE: Cache file for npm/node version checks
@@ -21,9 +21,11 @@ class Launcher {
     constructor() {
         this.log = new TTYLogger();
         this.projectRoot = path.join(__dirname, '..');
+        this.rootLogsDir = path.resolve(this.projectRoot, '..', 'logs');
         this.minNodeVersion = 18;
         this.maxNodeVersion = 24;
         this._envCache = null;
+        this.logArchiveDone = false;
     }
     
     /**
@@ -89,27 +91,30 @@ class Launcher {
             this._envCache = this._loadEnvCache();
 
             // 1. Node.js prüfen
-            this.log.step(1, 5, 'Prüfe Node.js Installation...');
+            this.log.step(1, 4, 'Prüfe Node.js Installation...');
             await this.checkNode();
             this.log.newLine();
 
             // 2. npm prüfen
-            this.log.step(2, 5, 'Prüfe npm Installation...');
+            this.log.step(2, 4, 'Prüfe npm Installation...');
             await this.checkNpm();
             this.log.newLine();
 
             // 3. Dependencies prüfen
-            this.log.step(3, 5, 'Prüfe Dependencies...');
+            this.log.step(3, 4, 'Prüfe Dependencies...');
             await this.checkDependencies();
             this.log.newLine();
 
-            // 4. Update-Check (optional)
-            this.log.step(4, 5, 'Prüfe auf Updates...');
+            await this.checkNativeModules();
+            this.log.newLine();
+
+            // Update-Check intentionally disabled for local snapshots
+            this.log.info('Auto-Update deaktiviert...');
             await this.checkUpdates();
             this.log.newLine();
 
-            // 5. Server starten
-            this.log.step(5, 5, 'Starte Server...');
+            // Server starten
+            this.log.step(4, 4, 'Starte Server...');
             await this.startServer();
 
         } catch (error) {
@@ -311,10 +316,10 @@ class Launcher {
 
             // Umgebungsvariablen setzen, um Puppeteer-Downloads zu überspringen
             // Dies verhindert Netzwerkfehler bei der Installation
-            const env = Object.assign({}, process.env, {
+            const env = this.sanitizeNodeEnvironment(Object.assign({}, process.env, {
                 PUPPETEER_SKIP_DOWNLOAD: 'true',
                 YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
-            });
+            }));
 
             execSync(command, {
                 cwd: this.projectRoot,
@@ -334,10 +339,10 @@ class Launcher {
                         cwd: this.projectRoot,
                         stdio: ['pipe', 'pipe', 'pipe'],
                         encoding: 'utf8',
-                        env: Object.assign({}, process.env, {
+                        env: this.sanitizeNodeEnvironment(Object.assign({}, process.env, {
                             PUPPETEER_SKIP_DOWNLOAD: 'true',
                             YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
-                        })
+                        }))
                     });
                     this.log.success('Fallback-Installation mit npm install erfolgreich!');
                     return;
@@ -354,35 +359,78 @@ class Launcher {
         }
     }
 
+    sanitizeNodeEnvironment(env = {}) {
+        const sanitized = Object.assign({}, env);
+        delete sanitized.NODE_OPTIONS;
+        delete sanitized.node_options;
+        delete sanitized.npm_config_node_options;
+        delete sanitized.NPM_CONFIG_NODE_OPTIONS;
+        return sanitized;
+    }
+
+    verifyNativeModules() {
+        const script = "const Database = require('better-sqlite3'); const db = new Database(':memory:'); db.close(); console.log('native-modules-ok')";
+        return execFileSync(process.execPath, ['-e', script], {
+            cwd: this.projectRoot,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            encoding: 'utf8',
+            env: this.sanitizeNodeEnvironment(process.env)
+        }).trim();
+    }
+
+    rebuildNativeModules() {
+        this.log.info('FÃ¼hre "npm rebuild better-sqlite3" aus...');
+        return execSync('npm rebuild better-sqlite3', {
+            cwd: this.projectRoot,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            encoding: 'utf8',
+            env: this.sanitizeNodeEnvironment(Object.assign({}, process.env, {
+                PUPPETEER_SKIP_DOWNLOAD: 'true',
+                YOUTUBE_DL_SKIP_PYTHON_CHECK: '1'
+            }))
+        });
+    }
+
+    async checkNativeModules() {
+        this.log.info('PrÃ¼fe native Node-Module...');
+        try {
+            const output = this.verifyNativeModules();
+            this.log.success(`Native Module OK: ${output}`);
+            return;
+        } catch (error) {
+            this.log.warn('Native Module passen nicht zur aktuellen Node.js-Version.');
+            this.log.warn(error.stderr || error.message);
+        }
+
+        try {
+            const output = this.rebuildNativeModules();
+            if (output && output.trim()) {
+                this.log.info(output.trim());
+            }
+            const verifyOutput = this.verifyNativeModules();
+            this.log.success(`Native Module repariert: ${verifyOutput}`);
+            return;
+        } catch (rebuildError) {
+            this.log.warn('npm rebuild fehlgeschlagen. Versuche npm install...');
+            this.log.warn(rebuildError.stderr || rebuildError.message);
+        }
+
+        await this.installDependencies();
+        try {
+            const verifyOutput = this.verifyNativeModules();
+            this.log.success(`Native Module repariert: ${verifyOutput}`);
+        } catch (verifyError) {
+            this.log.error('Native Module konnten nicht repariert werden.');
+            this.log.error(verifyError.stderr || verifyError.message);
+            throw new Error('Native Node-Module inkompatibel');
+        }
+    }
+
     /**
-     * Prüft auf Updates (nutzt Update-Manager falls vorhanden)
+     * Auto-update is intentionally disabled for this local snapshot.
      */
     async checkUpdates() {
-        try {
-            // Versuche Update-Manager zu laden
-            const UpdateManager = require('./update-manager');
-            const updateManager = new UpdateManager(this.log);
-
-            const updateInfo = await updateManager.checkForUpdates();
-
-            if (updateInfo.available) {
-                this.log.warn(`Neue Version verfügbar: ${updateInfo.latestVersion} (aktuell: ${updateInfo.currentVersion})`);
-                this.log.info('Öffne das Dashboard um das Update zu installieren.');
-                this.log.info(`Oder führe manuell aus: ${updateInfo.updateCommand || 'git pull && npm install'}`);
-            } else {
-                this.log.success(`Bereits auf dem neuesten Stand: ${updateInfo.currentVersion}`);
-            }
-        } catch (error) {
-            // Update-Manager nicht verfügbar oder Fehler
-            // Dies ist nicht kritisch - der Server kann trotzdem starten
-            if (error.code === 'MODULE_NOT_FOUND') {
-                this.log.warn('Update-Manager nicht verfügbar (fehlende Dependencies)');
-                this.log.info('Bitte stelle sicher, dass alle Dependencies installiert sind: npm install');
-            } else {
-                this.log.warn('Update-Check übersprungen (temporärer Fehler)');
-            }
-            this.log.debug(`Details: ${error.message}`);
-        }
+        this.log.info('Auto-Update ist deaktiviert; es werden keine Releases heruntergeladen.');
     }
 
     /**
@@ -406,13 +454,18 @@ class Launcher {
 
             // Forward PORT env var explicitly so any alternative port set by the
             // Go launcher (or the caller) is reliably passed to the server process.
-            const env = Object.assign({}, process.env);
+            const env = this.sanitizeNodeEnvironment(process.env);
+            env.LTTH_LOG_DIR = this.rootLogsDir;
+            if (this.logArchiveDone) {
+                env.LTTH_LOG_ARCHIVE_DONE = 'true';
+            }
 
             const serverProcess = spawn('node', [serverPath], {
                 cwd: this.projectRoot,
                 stdio: 'inherit',
                 env
             });
+            this.logArchiveDone = true;
 
             serverProcess.on('exit', (code) => {
                 // Exit Code 75 = Neustart angefordert (z.B. Profilwechsel)

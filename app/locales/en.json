@@ -24,7 +24,7 @@
     "soundboard": "Soundboard",
     "emoji_rain": "Emoji Rain",
     "fireworks": "Fireworks",
-    "fireworks_webgpu": "Vulkan Rockets",
+    "fireworks_dev": "Fireworks Dev",
     "flame_overlay": "Flame Overlay",
     "webgpu_emoji_rain": "WebGPU Emoji Rain",
     "multi_guest": "Multi-Guest",
@@ -53,10 +53,14 @@
     "chatango": "Chatango",
     "thermal_printer": "Thermal Printer",
     "config_import": "Config Import",
+    "animazingpal": "AnimazingPal",
     "plugin_manager": "Plugin Manager",
     "plugins": "Plugin Manager",
     "wiki": "Wiki",
     "settings": "Settings"
+  },
+  "chatango": {
+    "loading": "Loading Community Chat..."
   },
   "talking_heads_ui": {
     "title": "Talking Heads - AI Avatar Animation",
@@ -316,7 +320,8 @@
     "like_threshold_sound": "Like Threshold Sound",
     "max_queue_length": "Max Queue Length",
     "search_myinstants": "Search MyInstants",
-    "audio_debug_log": "Audio Debug Log"
+    "audio_debug_log": "Audio Debug Log",
+    "sequential": "Sequential"
   },
   "plugins": {
     "title": "Plugin Manager",
@@ -400,6 +405,7 @@
     "auto_update_check": "Check for updates on startup",
     "show_debug_info": "Show debug information",
     "enable_notifications": "Enable desktop notifications",
+    "show_update_notifications": "Show update notifications",
     "notification_volume": "Notification Volume",
     "ui_settings": "UI Settings",
     "advanced_settings": "Advanced Settings",
@@ -408,6 +414,7 @@
     "export_settings": "Export Settings",
     "import_settings": "Import Settings",
     "auto_start_title": "Auto-Start Settings",
+    "enable_auto_start": "Enable Auto-Start",
     "language_settings": "Language Settings",
     "global_settings": "Global Settings",
     "select_language": "Select Language",
@@ -470,6 +477,9 @@
     "manual_restart_prompt": "Profile switched to \"{{profile}}\".\n\nPlease restart the application to activate the new profile.",
     "auto_switched": "Profile automatically switched to \"{{profile}}\" based on TikTok connection.\n\nThe application will reload to activate the new profile...",
     "switched_notification": "Profile switched to \"{{profile}}\".\n\nThe application will reload to activate the new profile...",
+    "restarting": "Server is restarting...",
+    "restart_wait": "Please wait - the page will reload automatically.",
+    "restart_failed": "Server restart failed",
     "integrity_healthy": "Profile Integrity: Healthy",
     "integrity_warning": "Profile Integrity: Warning",
     "integrity_error": "Profile Integrity: Error",
@@ -489,7 +499,8 @@
     "light": "Day Mode",
     "dark": "Night Mode",
     "auto": "Auto (System)",
-    "high_contrast": "High Contrast"
+    "high_contrast": "High Contrast",
+    "vision_impaired": "Vision Impaired"
   },
   "common": {
     "loading": "Loading...",
@@ -593,7 +604,8 @@
         "event_triggers": "Event Triggers",
         "queue": "Queue & Playback",
         "stats": "Statistics",
-        "debug": "Debug Logs"
+        "debug": "Debug Logs",
+        "voice_clones": "Voice Clones"
       },
       "config": {
         "engine_settings": "Engine Settings",
@@ -713,6 +725,32 @@
         "search_placeholder": "Search voices...",
         "select_voice": "Select Voice",
         "cancel": "Cancel"
+      },
+      "voice_clones": {
+        "info_title": "Voice Cloning Information",
+        "info_text": "Create custom AI voices with Speechify voice cloning. Upload a 10-30 second audio sample to generate a unique voice copy for your TTS system.",
+        "info_requirements": "Requirements: clear audio, minimal background noise, 10-30 seconds long, less than 5 MB. Supported formats: MP3, WAV, OGG.",
+        "warning_title": "Speechify API Key Required",
+        "warning_text": "Voice cloning requires a Speechify API key. Configure your API key in the configuration tab to use this feature.",
+        "create_title": "Create Voice Clone",
+        "voice_name": "Voice Name",
+        "voice_name_hint": "Choose a descriptive name to identify this voice clone",
+        "language": "Language",
+        "language_hint": "Select the language of the voice sample",
+        "audio_sample": "Audio Sample",
+        "audio_hint": "Upload a clear 10-30 second audio sample (max. 5 MB). Speak naturally with minimal background noise.",
+        "consent": "I confirm that this is my voice or that I have explicit permission to use and clone this voice",
+        "consent_warning": "Creating voice clones without proper consent may violate laws and terms of service.",
+        "create_button": "Create Voice Clone",
+        "creating": "Cloning voice... This may take up to a minute.",
+        "manage_title": "My Voice Clones",
+        "refresh": "Refresh",
+        "no_clones": "No voice clones yet. Create your first one!",
+        "sample_guide_title": "Sample Recording Guide",
+        "best_practices": "Best Practices",
+        "avoid": "Avoid",
+        "sample_text_title": "Suggested Sample Text:",
+        "sample_text": "Hello, my name is [your name]. I am creating a custom voice for text-to-speech. This technology is fantastic and will help make interactions more personal and engaging. I can use this voice for streaming, content creation, and accessibility features."
       }
     }
   },
@@ -892,6 +930,62 @@
     "overlay": "📺 Overlay",
     "copy_overlay_url": "📋 Copy Overlay URL",
     "open_in_new_tab": "🔗 Open in New Tab",
-    "test_firework": "🧪 Test Firework"
+    "test_firework": "🧪 Test Firework",
+    "tab_settings": "Settings",
+    "tab_presets": "Presets",
+    "tab_benchmark": "Benchmark",
+    "toaster_mode": {
+      "title": "🍞 Toaster Mode (Low-End PCs)",
+      "description": "Uses Canvas 2D rendering instead of WebGL for maximum compatibility",
+      "enabled": "Enable Toaster Mode",
+      "help": "Optimized for weak systems and maximum compatibility",
+      "changes_title": "🔧 What changes:",
+      "renderer": "Renderer: WebGL -> Canvas 2D",
+      "gpu": "GPU Acceleration: Disabled",
+      "compatibility": "Compatibility: Maximum",
+      "performance": "Performance: Reduced but stable",
+      "effects": "Visual Effects: All maintained",
+      "tip_title": "Tip:",
+      "tip": "Use Toaster Mode if your PC slows down during fireworks or if you experience rendering issues in OBS."
+    },
+    "performance_limits": "⚡ Performance Limits",
+    "performance_info": "These settings protect against freezes during many simultaneous events. Lower values mean more stability.",
+    "max_concurrent_fireworks": "Max Concurrent Fireworks",
+    "max_total_particles": "Max Total Particles",
+    "emergency_cleanup_threshold": "Emergency Cleanup Threshold",
+    "adaptive_performance": "Adaptive Performance",
+    "min_target_fps": "Minimum Target FPS",
+    "frame_skip_info": "Frame Skip activates when FPS drops below this value",
+    "enable_frame_skip": "Enable Frame Skip",
+    "use_this_url_in_obs": "Use this URL in OBS as a Browser Source. Preview is available directly in OBS.",
+    "presets": {
+      "title": "Presets",
+      "description": "Choose a preset based on your system's performance. Use the benchmark to find the optimal settings.",
+      "apply": "Apply",
+      "tip": "Tip:",
+      "tip_text": "Use the Benchmark tab to automatically determine the best 2 presets for your system.",
+      "not_found": "Preset not found",
+      "applied": "Preset applied!",
+      "warning_title": "Warning: This preset might lag on your system!",
+      "warning_fps": "The benchmark measured an average FPS of {fps}.",
+      "warning_confirm": "Do you want to use this setting anyway?"
+    },
+    "benchmark": {
+      "title": "Performance Benchmark",
+      "description": "Run an automatic performance test to find the optimal settings for your system.",
+      "start": "Start Benchmark",
+      "stop": "Stop",
+      "running": "Benchmark running...",
+      "current_test": "Current test:",
+      "results": "Benchmark Results",
+      "recommendations": "Recommendations",
+      "info": "Note:",
+      "info_text": "The benchmark opens the OBS overlay window and runs several scenarios. This takes about 1-2 minutes. Do not close the window during the test.",
+      "popup_blocked": "Could not open benchmark window. Please allow pop-ups.",
+      "cancelled": "Benchmark cancelled",
+      "no_good_presets": "No preset reaches 30 FPS. We recommend the \"Potato\" preset for your system.",
+      "best_choice": "Best Choice",
+      "alternative": "Alternative"
+    }
   }
 }

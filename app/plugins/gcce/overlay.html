@@ -83,7 +83,7 @@
          */
         function escapeHtml(text) {
             const div = document.createElement('div');
-            div.textContent = text;
+            div.textContent = text === null || text === undefined ? '' : String(text);
             return div.innerHTML;
         }
         
@@ -175,12 +175,12 @@
             const body = document.getElementById('helpBody');
             
             let html = '';
-            for (const [category, commands] of Object.entries(data.categories)) {
+            for (const [category, commands] of Object.entries(data.categories || {})) {
                 html += `<div class="help-category">`;
-                html += `<h3>${category}</h3>`;
+                html += `<h3>${escapeHtml(category)}</h3>`;
                 html += `<ul>`;
                 for (const cmd of commands) {
-                    html += `<li><strong>/${cmd.name}</strong> - ${cmd.description}</li>`;
+                    html += `<li><strong>/${escapeHtml(cmd.name || '')}</strong> - ${escapeHtml(cmd.description || '')}</li>`;
                 }
                 html += `</ul>`;
                 html += `</div>`;
@@ -202,17 +202,18 @@
          * Show detailed help for a command
          */
         function showCommandHelp(command) {
+            command = command || {};
             const panel = document.getElementById('helpPanel');
             const title = document.getElementById('helpTitle');
             const body = document.getElementById('helpBody');
             
-            title.textContent = `/${command.name}`;
+            title.textContent = `/${command.name || ''}`;
             body.innerHTML = `
                 <div class="command-detail">
-                    <p class="description">${command.description}</p>
-                    <p class="syntax"><strong>Syntax:</strong> ${command.syntax}</p>
-                    <p class="permission"><strong>Permission:</strong> ${command.permission}</p>
-                    <p class="plugin"><strong>Plugin:</strong> ${command.pluginId}</p>
+                    <p class="description">${escapeHtml(command.description || '')}</p>
+                    <p class="syntax"><strong>Syntax:</strong> ${escapeHtml(command.syntax || '')}</p>
+                    <p class="permission"><strong>Permission:</strong> ${escapeHtml(command.permission || '')}</p>
+                    <p class="plugin"><strong>Plugin:</strong> ${escapeHtml(command.pluginId || '')}</p>
                 </div>
             `;
             
@@ -231,7 +232,7 @@
          * Show list of commands
          */
         function showCommandList(commands) {
-            const commandNames = commands.map(cmd => `/${cmd.name}`).join(', ');
+            const commandNames = (commands || []).map(cmd => `/${cmd.name || ''}`).join(', ');
             showMessage(`Available commands: ${commandNames}`, 'info');
         }
 

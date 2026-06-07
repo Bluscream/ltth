@@ -9,6 +9,25 @@ const MEDIA_FIELD_MAP = {
     audio: 'animation_audio_path'
 };
 
+const MB = 1024 * 1024;
+const MEDIA_UPLOAD_RULES = {
+    gif: {
+        maxSize: 25 * MB,
+        extensions: ['.gif', '.png', '.jpg', '.jpeg', '.webp'],
+        mimes: ['image/gif', 'image/png', 'image/jpeg', 'image/webp']
+    },
+    video: {
+        maxSize: 100 * MB,
+        extensions: ['.mp4', '.webm', '.mov', '.avi'],
+        mimes: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/avi']
+    },
+    audio: {
+        maxSize: 25 * MB,
+        extensions: ['.mp3', '.wav', '.ogg', '.m4a'],
+        mimes: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a']
+    }
+};
+
 /**
  * Gift Milestone Celebration Plugin
  *
@@ -168,35 +187,44 @@ class GiftMilestonePlugin {
                 fileSize: 100 * 1024 * 1024 // 100MB
             },
             fileFilter: (req, file, cb) => {
-                const fieldName = file.fieldname;
-                let allowedTypes = null;
-                let maxSize = 100 * 1024 * 1024; // Default 100MB
-
-                if (fieldName === 'gif') {
-                    allowedTypes = /gif|png|jpg|jpeg|webp/;
-                    maxSize = 25 * 1024 * 1024; // 25MB
-                } else if (fieldName === 'video') {
-                    allowedTypes = /mp4|webm|mov|avi/;
-                    maxSize = 100 * 1024 * 1024; // 100MB
-                } else if (fieldName === 'audio') {
-                    allowedTypes = /mp3|wav|ogg|m4a/;
-                    maxSize = 25 * 1024 * 1024; // 25MB
-                }
-
-                if (!allowedTypes) {
-                    return cb(new Error('Invalid field name'));
-                }
-
-                const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-                const mimetype = allowedTypes.test(file.mimetype);
-
-                if (mimetype && extname) {
+                const validation = this.validateUploadedMediaFile(file.fieldname, file);
+                if (validation.valid) {
                     return cb(null, true);
-                } else {
-                    cb(new Error(`Invalid file type for ${fieldName}. Allowed: ${allowedTypes}`));
                 }
+                cb(new Error(validation.error));
             }
         });
+    }
+
+    validateUploadedMediaFile(type, file) {
+        const rules = MEDIA_UPLOAD_RULES[type];
+
+        if (!rules) {
+            return { valid: false, error: 'Invalid field name' };
+        }
+
+        if (!file) {
+            return { valid: false, error: 'No file uploaded' };
+        }
+
+        const originalName = file.originalname || '';
+        const mimetype = file.mimetype ? String(file.mimetype).toLowerCase() : '';
+        const extension = path.extname(originalName).toLowerCase();
+
+        if (!rules.extensions.includes(extension)) {
+            return { valid: false, error: `Invalid file extension for ${type}` };
+        }
+
+        if (!rules.mimes.includes(mimetype)) {
+            return { valid: false, error: `Invalid MIME type for ${type}` };
+        }
+
+        if (Number.isFinite(file.size) && file.size > rules.maxSize) {
+            const maxMegabytes = Math.round(rules.maxSize / MB);
+            return { valid: false, error: `${type} file exceeds ${maxMegabytes}MB limit` };
+        }
+
+        return { valid: true };
     }
 
     registerRoutes() {
@@ -212,9 +240,22 @@ class GiftMilestonePlugin {
             res.sendFile(overlayPath);
         });
 
-        // Serve uploaded files via static route (path matches stored URLs: /gift-milestone/uploads/...)
-        const express = require('express');
-        this.api.getApp().use('/gift-milestone/uploads', express.static(this.uploadDir));
+        // Serve uploaded files via lifecycle-managed plugin route.
+        this.api.registerRoute('get', '/gift-milestone/uploads/:filename', (req, res) => {
+            const filename = req.params.filename || '';
+            const uploadRoot = path.resolve(this.uploadDir);
+            const filePath = path.resolve(uploadRoot, filename);
+
+            if (!filename || filename !== path.basename(filename) || !filePath.startsWith(uploadRoot + path.sep)) {
+                return res.status(400).json({ success: false, error: 'Invalid filename' });
+            }
+
+            if (!fs.existsSync(filePath)) {
+                return res.status(404).json({ success: false, error: 'File not found' });
+            }
+
+            res.sendFile(filePath);
+        });
 
         // Get milestone config
         this.api.registerRoute('get', '/api/gift-milestone/config', (req, res) => {
@@ -325,6 +366,15 @@ class GiftMilestonePlugin {
                 try {
                     if (!req.file) {
                         return res.status(400).json({ success: false, error: 'No file uploaded' });
+                    }
+
+                    const validation = this.validateUploadedMediaFile(type, req.file);
+                    if (!validation.valid) {
+                        const filePath = path.join(this.uploadDir, req.file.filename);
+                        if (fs.existsSync(filePath)) {
+                            fs.unlinkSync(filePath);
+                        }
+                        return res.status(400).json({ success: false, error: validation.error });
                     }
 
                     const fileUrl = `/gift-milestone/uploads/${req.file.filename}`;
@@ -513,6 +563,15 @@ class GiftMilestonePlugin {
                         return res.status(400).json({ success: false, error: 'No file uploaded' });
                     }
 
+                    const validation = this.validateUploadedMediaFile(type, req.file);
+                    if (!validation.valid) {
+                        const filePath = path.join(this.uploadDir, req.file.filename);
+                        if (fs.existsSync(filePath)) {
+                            fs.unlinkSync(filePath);
+                        }
+                        return res.status(400).json({ success: false, error: validation.error });
+                    }
+
                     const fileUrl = `/gift-milestone/uploads/${req.file.filename}`;
                     this.api.log(`📤 Tier ${tierId} ${type} uploaded: ${req.file.filename}`, 'info');
 
@@ -685,26 +744,17 @@ class GiftMilestonePlugin {
             }
 
             const config = db.getMilestoneConfig();
+            if (!config || !config.enabled) {
+                return;
+            }
 
             // Global milestone tracking (legacy support)
             const result = db.addCoinsToMilestone(coins);
-
-            // Emit stats update to UI
-            this.api.emit('milestone:stats-update', {
-                cumulative_coins: result.coins,
-                current_milestone: result.nextMilestone
-            });
-
-            if (result.triggered) {
-                this.api.log(`🎯 Milestone reached! ${result.milestone} coins (Total: ${result.coins})`, 'info');
-                this.triggerCelebration(result.milestone, null, userId, username);
-            } else {
-                this.api.log(`💰 Coins added: +${coins} (Total: ${result.coins}/${result.nextMilestone})`, 'debug');
-            }
+            let userResult = null;
 
             // Per-user milestone tracking (tier-based)
             if (userId && username) {
-                const userResult = db.addCoinsToUserMilestone(userId, username, coins);
+                userResult = db.addCoinsToUserMilestone(userId, username, coins);
                 
                 // ALSO update shared user statistics for cross-plugin usage
                 db.addCoinsToUserStats(userId, username, uniqueId, profilePictureUrl, coins);
@@ -716,16 +766,29 @@ class GiftMilestonePlugin {
                     cumulative_coins: userResult.coins,
                     tier: userResult.tier
                 });
+            }
 
-                if (userResult.triggered) {
-                    // Celebrate all triggered tiers
-                    if (userResult.triggeredTiers && userResult.triggeredTiers.length > 0) {
-                        for (const tier of userResult.triggeredTiers) {
-                            this.api.log(`🎯 User ${username} reached ${tier.name} tier! (${tier.threshold} coins)`, 'info');
-                            this.triggerCelebration(tier.threshold, tier, userId, username);
-                        }
-                    }
+            // Emit stats update to UI
+            this.api.emit('milestone:stats-update', {
+                cumulative_coins: result.coins,
+                current_milestone: result.nextMilestone
+            });
+
+            const triggeredTiers = userResult && Array.isArray(userResult.triggeredTiers)
+                ? userResult.triggeredTiers
+                : [];
+
+            if (triggeredTiers.length > 0) {
+                for (const tier of triggeredTiers) {
+                    const triggeredTier = tier;
+                this.api.log(`🎯 User ${username} reached ${triggeredTier.name} tier! (${triggeredTier.threshold} coins)`, 'info');
+                    this.triggerCelebration(tier.threshold, tier, userId, username);
                 }
+            } else if (result.triggered) {
+                this.api.log(`🎯 Milestone reached! ${result.milestone} coins (Total: ${result.coins})`, 'info');
+                this.triggerCelebration(result.milestone, null, userId, username);
+            } else {
+                this.api.log(`💰 Coins added: +${coins} (Total: ${result.coins}/${result.nextMilestone})`, 'debug');
             }
         } catch (error) {
             this.api.log(`Error handling gift event for milestone: ${error.message}`, 'error');

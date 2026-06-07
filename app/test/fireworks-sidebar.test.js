@@ -99,24 +99,6 @@ describe('Fireworks Plugin Sidebar Integration', () => {
     });
   });
 
-  describe('Fireworks WebGPU Branding', () => {
-    test('should display Vulkan Rockets label in sidebar', () => {
-      const sidebarSection = dashboardHtml.substring(
-        dashboardHtml.indexOf('data-view="fireworks-webgpu"') - 100,
-        dashboardHtml.indexOf('data-view="fireworks-webgpu"') + 400
-      );
-      expect(sidebarSection).toContain('Vulkan Rockets');
-    });
-
-    test('should show Vulkan Rockets title in view header', () => {
-      const viewSection = dashboardHtml.substring(
-        dashboardHtml.indexOf('id="view-fireworks-webgpu"'),
-        dashboardHtml.indexOf('id="view-fireworks-webgpu"') + 800
-      );
-      expect(viewSection).toContain('Vulkan Rockets');
-    });
-  });
-
   describe('Locale Translations', () => {
     test('should have English translation for fireworks', () => {
       expect(enLocale.navigation).toBeDefined();
@@ -146,10 +128,6 @@ describe('Fireworks Plugin Sidebar Integration', () => {
       expect(deFireworksIndex).toBeGreaterThan(deEmojiRainIndex);
       expect(deFireworksIndex).toBeLessThan(deMultiGuestIndex);
     });
-
-    test('should have Vulkan Rockets navigation label', () => {
-      expect(enLocale.navigation.fireworks_webgpu).toBe('Vulkan Rockets');
-    });
   });
 
   describe('Pattern Consistency', () => {
@@ -157,13 +135,13 @@ describe('Fireworks Plugin Sidebar Integration', () => {
       // Extract webgpu-emoji-rain sidebar pattern
       const webgpuEmojiRainPattern = dashboardHtml.substring(
         dashboardHtml.indexOf('data-view="webgpu-emoji-rain"') - 100,
-        dashboardHtml.indexOf('data-view="webgpu-emoji-rain"') + 200
+        dashboardHtml.indexOf('data-view="webgpu-emoji-rain"') + 300
       );
       
       // Extract fireworks sidebar pattern
       const fireworksPattern = dashboardHtml.substring(
         dashboardHtml.indexOf('data-view="fireworks"') - 100,
-        dashboardHtml.indexOf('data-view="fireworks"') + 200
+        dashboardHtml.indexOf('data-view="fireworks"') + 300
       );
       
       // Both should have the same structural elements

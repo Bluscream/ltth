@@ -47,11 +47,6 @@ GPU-beschleunigtes Rendering-System für hochperformante visuelle Effekte.
    - Custom Emoji-Sets
    - 60 FPS bei 2000+ Emojis
 
-2. **Vulkan Rockets** (Early Beta)
-   - Multi-Stage Feuerwerk
-   - Compute-Shader-Physik
-   - 10.000+ Partikel gleichzeitig
-
 ### Browser-Support
 
 | Browser | Version | WebGPU-Support |

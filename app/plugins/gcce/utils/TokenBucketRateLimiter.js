@@ -4,18 +4,22 @@
  */
 
 class TokenBucketRateLimiter {
-  constructor(capacity = 10, refillRate = 10, refillInterval = 60000) {
+  constructor(capacity = 10, refillRate = 10, refillInterval = 60000, globalCapacity = capacity, globalRefillRate = refillRate) {
     this.capacity = capacity; // Max tokens
     this.refillRate = refillRate; // Tokens to add per interval
     this.refillInterval = refillInterval; // Interval in ms (default 1 minute)
+    this.globalCapacity = globalCapacity;
+    this.globalRefillRate = globalRefillRate;
     
     // Map<userId, BucketState>
     this.buckets = new Map();
     
     // Global bucket
     this.globalBucket = {
-      tokens: capacity,
-      lastRefill: Date.now()
+      tokens: globalCapacity,
+      lastRefill: Date.now(),
+      capacity: globalCapacity,
+      refillRate: globalRefillRate
     };
   }
 
@@ -45,7 +49,9 @@ class TokenBucketRateLimiter {
     if (!this.buckets.has(userId)) {
       this.buckets.set(userId, {
         tokens: this.capacity,
-        lastRefill: now
+        lastRefill: now,
+        capacity: this.capacity,
+        refillRate: this.refillRate
       });
     }
 
@@ -84,8 +90,10 @@ class TokenBucketRateLimiter {
     const intervals = Math.floor(elapsed / this.refillInterval);
     
     if (intervals > 0) {
-      const tokensToAdd = intervals * this.refillRate;
-      bucket.tokens = Math.min(this.capacity, bucket.tokens + tokensToAdd);
+      const capacity = bucket.capacity || this.capacity;
+      const refillRate = bucket.refillRate || this.refillRate;
+      const tokensToAdd = intervals * refillRate;
+      bucket.tokens = Math.min(capacity, bucket.tokens + tokensToAdd);
       bucket.lastRefill = now;
     }
   }
@@ -125,7 +133,8 @@ class TokenBucketRateLimiter {
     const threshold = now - maxAge;
 
     for (const [userId, bucket] of this.buckets.entries()) {
-      if (bucket.lastRefill < threshold && bucket.tokens >= this.capacity) {
+      const capacity = bucket.capacity || this.capacity;
+      if (bucket.lastRefill < threshold && bucket.tokens >= capacity) {
         this.buckets.delete(userId);
       }
     }
@@ -141,6 +150,8 @@ class TokenBucketRateLimiter {
       globalTokens: this.globalBucket.tokens,
       capacity: this.capacity,
       refillRate: this.refillRate,
+      globalCapacity: this.globalCapacity,
+      globalRefillRate: this.globalRefillRate,
       refillInterval: this.refillInterval
     };
   }
@@ -151,8 +162,10 @@ class TokenBucketRateLimiter {
   reset() {
     this.buckets.clear();
     this.globalBucket = {
-      tokens: this.capacity,
-      lastRefill: Date.now()
+      tokens: this.globalCapacity,
+      lastRefill: Date.now(),
+      capacity: this.globalCapacity,
+      refillRate: this.globalRefillRate
     };
   }
 }

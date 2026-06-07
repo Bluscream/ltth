@@ -36,6 +36,17 @@ class GoalsDatabase {
                     on_reach_action TEXT DEFAULT 'hide',
                     on_reach_increment INTEGER DEFAULT 100,
 
+                    -- Fireworks finale on reach
+                    firework_enabled INTEGER DEFAULT 0,
+                    firework_intensity REAL DEFAULT 3.0,
+                    firework_duration INTEGER DEFAULT 5000,
+                    firework_theme TEXT DEFAULT NULL,
+                    firework_encounter_mode TEXT DEFAULT 'finale',
+                    firework_quality_profile TEXT DEFAULT 'high',
+                    firework_hud_label TEXT DEFAULT NULL,
+                    firework_progress_enabled INTEGER DEFAULT 1,
+                    firework_progress_milestones TEXT DEFAULT '25,50,75',
+
                     -- Styling (JSON)
                     theme_json TEXT,
                     overlay_width INTEGER DEFAULT 500,
@@ -91,6 +102,8 @@ class GoalsDatabase {
                 CREATE INDEX IF NOT EXISTS idx_multigoal_goals_goal ON multigoal_goals(goal_id);
             `);
 
+            this.ensureGoalColumns();
+
             // Verify table creation
             const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='goals'").get();
             if (!tables) {
@@ -101,6 +114,60 @@ class GoalsDatabase {
         } catch (error) {
             this.api.log(`❌ Failed to initialize goals database tables: ${error.message}`, 'error');
             throw error;
+        }
+    }
+
+    /**
+     * Add columns introduced after the initial goals table shipped.
+     */
+    ensureGoalColumns() {
+        const existingColumns = new Set(
+            this.db.prepare('PRAGMA table_info(goals)').all().map(column => column.name)
+        );
+
+        const migrations = [
+            {
+                name: 'firework_enabled',
+                sql: 'ALTER TABLE goals ADD COLUMN firework_enabled INTEGER DEFAULT 0'
+            },
+            {
+                name: 'firework_intensity',
+                sql: 'ALTER TABLE goals ADD COLUMN firework_intensity REAL DEFAULT 3.0'
+            },
+            {
+                name: 'firework_duration',
+                sql: 'ALTER TABLE goals ADD COLUMN firework_duration INTEGER DEFAULT 5000'
+            },
+            {
+                name: 'firework_theme',
+                sql: 'ALTER TABLE goals ADD COLUMN firework_theme TEXT DEFAULT NULL'
+            },
+            {
+                name: 'firework_encounter_mode',
+                sql: "ALTER TABLE goals ADD COLUMN firework_encounter_mode TEXT DEFAULT 'finale'"
+            },
+            {
+                name: 'firework_quality_profile',
+                sql: "ALTER TABLE goals ADD COLUMN firework_quality_profile TEXT DEFAULT 'high'"
+            },
+            {
+                name: 'firework_hud_label',
+                sql: 'ALTER TABLE goals ADD COLUMN firework_hud_label TEXT DEFAULT NULL'
+            },
+            {
+                name: 'firework_progress_enabled',
+                sql: 'ALTER TABLE goals ADD COLUMN firework_progress_enabled INTEGER DEFAULT 1'
+            },
+            {
+                name: 'firework_progress_milestones',
+                sql: "ALTER TABLE goals ADD COLUMN firework_progress_milestones TEXT DEFAULT '25,50,75'"
+            }
+        ];
+
+        for (const migration of migrations) {
+            if (!existingColumns.has(migration.name)) {
+                this.db.exec(migration.sql);
+            }
         }
     }
 
@@ -121,6 +188,15 @@ class GoalsDatabase {
             animation_on_reach = 'celebration',
             on_reach_action = 'hide',
             on_reach_increment = 100,
+            firework_enabled = 0,
+            firework_intensity = 3.0,
+            firework_duration = 5000,
+            firework_theme = null,
+            firework_encounter_mode = 'finale',
+            firework_quality_profile = 'high',
+            firework_hud_label = null,
+            firework_progress_enabled = 1,
+            firework_progress_milestones = '25,50,75',
             theme_json = null,
             overlay_width = 500,
             overlay_height = 100
@@ -130,15 +206,23 @@ class GoalsDatabase {
             INSERT INTO goals (
                 id, name, goal_type, enabled, current_value, target_value, start_value,
                 template_id, animation_on_update, animation_on_reach,
-                on_reach_action, on_reach_increment, theme_json,
+                on_reach_action, on_reach_increment,
+                firework_enabled, firework_intensity, firework_duration,
+                firework_theme, firework_encounter_mode, firework_quality_profile,
+                firework_hud_label, firework_progress_enabled, firework_progress_milestones,
+                theme_json,
                 overlay_width, overlay_height
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         stmt.run(
             id, name, goal_type, enabled, current_value, target_value, start_value,
             template_id, animation_on_update, animation_on_reach,
-            on_reach_action, on_reach_increment, theme_json,
+            on_reach_action, on_reach_increment,
+            firework_enabled ? 1 : 0, firework_intensity, firework_duration,
+            firework_theme, firework_encounter_mode, firework_quality_profile,
+            firework_hud_label, firework_progress_enabled ? 1 : 0, firework_progress_milestones,
+            theme_json,
             overlay_width, overlay_height
         );
 
@@ -215,7 +299,11 @@ class GoalsDatabase {
         const allowedFields = [
             'name', 'goal_type', 'enabled', 'current_value', 'target_value',
             'start_value', 'template_id', 'animation_on_update', 'animation_on_reach',
-            'on_reach_action', 'on_reach_increment', 'overlay_width', 'overlay_height'
+            'on_reach_action', 'on_reach_increment',
+            'firework_enabled', 'firework_intensity', 'firework_duration',
+            'firework_theme', 'firework_encounter_mode', 'firework_quality_profile',
+            'firework_hud_label', 'firework_progress_enabled', 'firework_progress_milestones',
+            'overlay_width', 'overlay_height'
         ];
 
         // Build dynamic update query

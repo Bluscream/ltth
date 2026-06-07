@@ -11,6 +11,8 @@ const LanguageDetector = require('./utils/language-detector');
 const ProfanityFilter = require('./utils/profanity-filter');
 const PermissionManager = require('./utils/permission-manager');
 const QueueManager = require('./utils/queue-manager');
+const EngineCircuitBreaker = require('./utils/engine-circuit-breaker');
+const { resolvePlaybackDuration } = require('./utils/audio-duration');
 const EventTTSHandler = require('./event-tts-handler');
 
 /**
@@ -54,9 +56,16 @@ class TTSPlugin {
         this.debugLogs = [];
         this.maxDebugLogs = 500;
         this.debugEnabled = true;
+        this.lastChatTtsUnavailableLogAt = 0;
+        this.chatTtsUnavailableLogIntervalMs = 30000;
 
         // Load configuration
         this.config = this._loadConfig();
+
+        this.engineCircuitBreaker = new EngineCircuitBreaker({
+            failureThreshold: this.config.engineCircuitBreakerFailureThreshold,
+            cooldownMs: this.config.engineCircuitBreakerCooldownMs
+        });
         
         // Sanitize message prefix filter on load
         this.config.messagePrefixFilter = this._sanitizePrefixFilter(this.config.messagePrefixFilter);
@@ -353,6 +362,7 @@ class TTSPlugin {
         if (!this.engines[engineName]) {
             throw new Error(`Engine ${engineName} not available`);
         }
+        this._assertEngineCircuitAllows(engineName);
 
         let fallbackVoice = currentVoice;
         
@@ -457,9 +467,14 @@ class TTSPlugin {
             }
         }
 
-        const audioData = await this.engines[engineName].synthesize(text, fallbackVoice, this.config.speed, 
-            engineName === 'speechify' ? { language: this.languageDetector.detect(text)?.langCode } : 
-            engineName === 'fishaudio' ? { customVoices: this.config.customFishVoices || {} } : {});
+        const audioData = await this._synthesizeWithCircuit(
+            engineName,
+            text,
+            fallbackVoice,
+            this.config.speed,
+            engineName === 'speechify' ? { language: this.languageDetector.detect(text)?.langCode } :
+            engineName === 'fishaudio' ? { customVoices: this.config.customFishVoices || {} } : {}
+        );
         
         return { audioData, voice: fallbackVoice };
     }
@@ -503,8 +518,239 @@ class TTSPlugin {
         // Emit to clients
         this.api.emit('tts:debug', logEntry);
 
-        // Also log to console with category prefix
-        this.logger.info(`[TTS:${category}] ${message}`, data);
+        if (this.config?.debugToLogger === true) {
+            this.logger.info(`[TTS:${category}] ${message}`, data);
+        }
+    }
+
+    _hasTikTokSessionConfigured(engine = this.engines?.tiktok) {
+        if (engine?.sessionId) return true;
+
+        try {
+            const db = this.api?.getDatabase?.();
+            const rawSession = db?.getSetting?.('tiktok_session_id');
+            return !!(typeof rawSession === 'string' && rawSession.trim() && rawSession.trim() !== 'null');
+        } catch (error) {
+            return false;
+        }
+    }
+
+    _isCallableChatTtsEngine(engineName) {
+        if (!engineName || !this.engines?.[engineName]) return false;
+
+        if (
+            this._isCircuitBreakerEnabled() &&
+            this.engineCircuitBreaker &&
+            !this.engineCircuitBreaker.canCall(engineName)
+        ) {
+            return false;
+        }
+
+        if (engineName === 'tiktok') {
+            return this._hasTikTokSessionConfigured(this.engines.tiktok);
+        }
+
+        return true;
+    }
+
+    _hasCallableChatTtsPath() {
+        const engineNames = Object.keys(this.engines || {});
+        return engineNames.some(engineName => this._isCallableChatTtsEngine(engineName));
+    }
+
+    _logChatTtsUnavailable(context = {}) {
+        const now = Date.now();
+        if (now - this.lastChatTtsUnavailableLogAt < this.chatTtsUnavailableLogIntervalMs) {
+            return;
+        }
+
+        this.lastChatTtsUnavailableLogAt = now;
+        this.logger.warn(
+            'TTS: Chat TTS skipped because no callable TTS engine is available. ' +
+            'Configure a TikTok SessionID or enable another TTS engine to read chat messages.'
+        );
+        this._logDebug('TIKTOK_EVENT', 'Chat TTS skipped because no callable engine is available', context);
+    }
+
+    _isCircuitBreakerEnabled() {
+        return this.config.enableEngineCircuitBreaker !== false && this.engineCircuitBreaker;
+    }
+
+    _assertEngineCircuitAllows(engineName) {
+        if (!this._isCircuitBreakerEnabled()) {
+            return;
+        }
+
+        if (!this.engineCircuitBreaker.canCall(engineName)) {
+            const state = this.engineCircuitBreaker.getState(engineName);
+            const error = new Error(`TTS engine circuit open: ${engineName}`);
+            error.code = 'ENGINE_CIRCUIT_OPEN';
+            this._logDebug('CIRCUIT_BREAKER', 'Engine skipped because circuit is open', {
+                engine: engineName,
+                state
+            });
+            throw error;
+        }
+    }
+
+    _recordEngineSuccess(engineName) {
+        if (!this._isCircuitBreakerEnabled()) {
+            return;
+        }
+
+        this.engineCircuitBreaker.recordSuccess(engineName);
+    }
+
+    _recordEngineFailure(engineName, error) {
+        if (!this._isCircuitBreakerEnabled() || error?.code === 'ENGINE_CIRCUIT_OPEN') {
+            return;
+        }
+
+        this.engineCircuitBreaker.recordFailure(engineName, error);
+        this._logDebug('CIRCUIT_BREAKER', 'Engine failure recorded', {
+            engine: engineName,
+            state: this.engineCircuitBreaker.getState(engineName)
+        });
+    }
+
+    async _synthesizeWithCircuit(engineName, text, voice, speed, options = {}) {
+        const ttsEngine = this.engines[engineName];
+        if (!ttsEngine || typeof ttsEngine.synthesize !== 'function') {
+            throw new Error(`Engine not available: ${engineName}`);
+        }
+
+        this._assertEngineCircuitAllows(engineName);
+
+        try {
+            const audioData = await ttsEngine.synthesize(text, voice, speed, options);
+            this._recordEngineSuccess(engineName);
+            return audioData;
+        } catch (error) {
+            this._recordEngineFailure(engineName, error);
+            throw error;
+        }
+    }
+
+    _resolvePlaybackDuration(item, audioData = item.audioData) {
+        return resolvePlaybackDuration({
+            audioData,
+            text: item.text,
+            speed: item.speed,
+            measuredBufferMs: this.config.playbackCompletionBufferMs,
+            estimateBufferMs: this.config.playbackEstimateBufferMs
+        });
+    }
+
+    _clonePlainObject(value) {
+        return JSON.parse(JSON.stringify(value || {}));
+    }
+
+    _deepMergeConfig(base, updates) {
+        const merged = this._clonePlainObject(base);
+
+        Object.entries(updates || {}).forEach(([key, value]) => {
+            if (TTSPlugin.CONFIG_KEYS_EXCLUDED_FROM_UPDATE.has(key) || !(key in this.config)) {
+                return;
+            }
+
+            if (
+                value &&
+                typeof value === 'object' &&
+                !Array.isArray(value) &&
+                merged[key] &&
+                typeof merged[key] === 'object' &&
+                !Array.isArray(merged[key])
+            ) {
+                merged[key] = this._deepMergePlainObject(merged[key], value);
+            } else {
+                merged[key] = value;
+            }
+        });
+
+        return merged;
+    }
+
+    _deepMergePlainObject(base, updates) {
+        const merged = this._clonePlainObject(base);
+
+        Object.entries(updates || {}).forEach(([key, value]) => {
+            if (
+                value &&
+                typeof value === 'object' &&
+                !Array.isArray(value) &&
+                merged[key] &&
+                typeof merged[key] === 'object' &&
+                !Array.isArray(merged[key])
+            ) {
+                merged[key] = this._deepMergePlainObject(merged[key], value);
+            } else {
+                merged[key] = value;
+            }
+        });
+
+        return merged;
+    }
+
+    _getExportableConfig() {
+        const config = this._clonePlainObject(this.config);
+        for (const key of TTSPlugin.CONFIG_KEYS_EXCLUDED_FROM_UPDATE) {
+            delete config[key];
+        }
+        return config;
+    }
+
+    _refreshRuntimeConfigConsumers() {
+        if (this.queueManager && typeof this.queueManager.updateConfig === 'function') {
+            this.queueManager.updateConfig(this.config);
+        }
+
+        if (this.engineCircuitBreaker) {
+            this.engineCircuitBreaker.failureThreshold = this.config.engineCircuitBreakerFailureThreshold;
+            this.engineCircuitBreaker.cooldownMs = this.config.engineCircuitBreakerCooldownMs;
+        }
+
+        if (this.profanityFilter) {
+            this.profanityFilter.setMode(this.config.profanityFilter);
+        }
+    }
+
+    _buildExportPayload() {
+        return {
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            config: this._getExportableConfig(),
+            users: this.permissionManager.exportUsers()
+        };
+    }
+
+    _importExportPayload(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return {
+                success: false,
+                error: 'invalid_payload'
+            };
+        }
+
+        let importedConfigKeys = 0;
+        if (payload.config && typeof payload.config === 'object') {
+            const nextConfig = this._deepMergeConfig(this.config, payload.config);
+            importedConfigKeys = Object.keys(payload.config)
+                .filter(key => key in this.config && !TTSPlugin.CONFIG_KEYS_EXCLUDED_FROM_UPDATE.has(key))
+                .length;
+
+            this.config = nextConfig;
+            this.config.messagePrefixFilter = this._sanitizePrefixFilter(this.config.messagePrefixFilter);
+            this._refreshRuntimeConfigConsumers();
+            this.api.setConfig('config', this.config);
+        }
+
+        const importedUsers = this.permissionManager.importUsers(payload.users || []);
+
+        return {
+            success: true,
+            importedConfigKeys,
+            importedUsers
+        };
     }
 
     /**
@@ -583,6 +829,22 @@ class TTSPlugin {
             enableAutoFallback: true, // Enable automatic fallback to other engines when primary fails
             stripEmojis: false, // Strip emojis from TTS text (prevents emojis from being read aloud)
             performanceMode: 'balanced', // Performance mode: 'fast' (low-resource), 'balanced', 'quality' (high-resource)
+            playbackCompletionBufferMs: 250, // Small safety buffer added to measured audio duration
+            playbackEstimateBufferMs: 2000, // Compatibility buffer when audio duration cannot be measured
+            enableEngineCircuitBreaker: true, // Temporarily skip engines with repeated failures
+            engineCircuitBreakerFailureThreshold: 3,
+            engineCircuitBreakerCooldownMs: 30000,
+            debugToLogger: false, // Keep debug data in the admin UI without flooding runtime logs
+            priorityAgingEnabled: true, // Gradually raises old queue items to avoid starvation
+            priorityAgingIntervalMs: 30000,
+            priorityAgingBoost: 1,
+            maxPriorityAgingBoost: 50,
+            adaptivePreGeneration: true, // Increase pre-generation when calm, reduce when errors spike
+            preGenerateCount: 3,
+            calmQueueThreshold: 2,
+            calmPreGenerateCount: 5,
+            minPreGenerateCount: 1,
+            preGenerationErrorThreshold: 0.5,
             // Fallback engine activation settings - only activated engines are loaded
             enableTikTokFallback: true, // Enable TikTok as fallback engine (free, no API key needed)
             enableGoogleFallback: true, // Enable Google as fallback engine (for backward compatibility)
@@ -1414,6 +1676,8 @@ class TTSPlugin {
                     }
                 }
 
+                this._refreshRuntimeConfigConsumers();
+
                 // Save configuration to database
                 const saveResult = this._saveConfig();
                 
@@ -1439,6 +1703,30 @@ class TTSPlugin {
 
             } catch (error) {
                 this.logger.error(`Failed to update config: ${error.message}`);
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('GET', '/api/tts/export', (req, res) => {
+            try {
+                res.json({
+                    success: true,
+                    export: this._buildExportPayload()
+                });
+            } catch (error) {
+                this.logger.error(`Failed to export TTS config: ${error.message}`);
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        this.api.registerRoute('POST', '/api/tts/import', (req, res) => {
+            try {
+                const payload = req.body?.export || req.body;
+                const result = this._importExportPayload(payload);
+                const status = result.success ? 200 : 400;
+                res.status(status).json(result);
+            } catch (error) {
+                this.logger.error(`Failed to import TTS config: ${error.message}`);
                 res.status(500).json({ success: false, error: error.message });
             }
         });
@@ -1770,6 +2058,7 @@ class TTSPlugin {
                         openai: !!this.engines.openai
                     },
                     queue: this.queueManager.getInfo(),
+                    circuitBreaker: this.engineCircuitBreaker.getStats(),
                     debugEnabled: this.debugEnabled,
                     totalDebugLogs: this.debugLogs.length
                 }
@@ -2089,13 +2378,21 @@ class TTSPlugin {
                     timestamp: data.timestamp
                 });
 
-                this.logger.info(`TTS: Received chat event from ${username}: "${chatText}"`);
+                this.logger.debug?.(`TTS: Received chat event from ${username}: "${chatText}"`);
 
                 // Only process if chat TTS is enabled
                 // Note: Global tts_enabled check is now in speak() method
                 if (!this.config.enabledForChat) {
                     this._logDebug('TIKTOK_EVENT', 'Chat TTS disabled in config', { enabledForChat: false });
                     this.logger.warn('TTS: Chat TTS is disabled in config');
+                    return;
+                }
+
+                if (!this._hasCallableChatTtsPath()) {
+                    this._logChatTtsUnavailable({
+                        source: 'chat',
+                        username
+                    });
                     return;
                 }
 
@@ -2133,7 +2430,7 @@ class TTSPlugin {
         });
 
         this._logDebug('INIT', 'TikTok events registered', { enabledForChat: this.config.enabledForChat });
-        this.logger.info(`TTS Plugin: TikTok events registered (enabledForChat: ${this.config.enabledForChat})`);
+        this.logger.debug?.(`TTS Plugin: TikTok events registered (enabledForChat: ${this.config.enabledForChat})`);
     }
 
     /**
@@ -2810,7 +3107,7 @@ class TTSPlugin {
             } else {
                 // Regular synthesis path for all other cases
                 try {
-                    audioData = await ttsEngine.synthesize(finalText, selectedVoice, this.config.speed, synthesisOptions);
+                    audioData = await this._synthesizeWithCircuit(selectedEngine, finalText, selectedVoice, this.config.speed, synthesisOptions);
                     this._logDebug('SPEAK_STEP5', 'TTS synthesis successful', {
                         engine: selectedEngine,
                         voice: selectedVoice,
@@ -3009,7 +3306,7 @@ class TTSPlugin {
         });
         
         try {
-            const audioData = await ttsEngine.synthesize(text, voice, this.config.speed, options);
+            const audioData = await this._synthesizeWithCircuit(engine, text, voice, this.config.speed, options);
             
             this._logDebug('PRE_GEN', 'Pre-generation synthesis complete', {
                 audioLength: audioData?.length || 0,
@@ -3064,7 +3361,8 @@ class TTSPlugin {
                 const ttsEngine = this.engines[item.engine];
                 if (ttsEngine) {
                     try {
-                        item.audioData = await ttsEngine.synthesize(
+                        item.audioData = await this._synthesizeWithCircuit(
+                            item.engine,
                             item.text,
                             item.voice,
                             this.config.speed,
@@ -3101,6 +3399,8 @@ class TTSPlugin {
 
                     let streamResult;
                     
+                    let streamedAudioData = null;
+
                     if (useWebSocket) {
                         // WebSocket-based streaming for Fish.audio (true low-latency)
                         this._logDebug('PLAYBACK', 'Using WebSocket streaming for Fish.audio', {
@@ -3185,12 +3485,14 @@ class TTSPlugin {
                         });
 
                         // Start streaming synthesis
+                        this._assertEngineCircuitAllows(item.engine);
                         streamResult = await ttsEngine.synthesizeStream(
                             item.text,
                             item.voice,
                             item.speed,
                             item.synthesisOptions || {}
                         );
+                        this._recordEngineSuccess(item.engine);
 
                         this._logDebug('PLAYBACK', 'Stream connection established', {
                             id: item.id,
@@ -3272,23 +3574,26 @@ class TTSPlugin {
                                 reject(error);
                             });
                         });
+                        streamedAudioData = chunks.length > 0 ? Buffer.concat(chunks).toString('base64') : null;
                     }
 
-                    // Estimate playback duration based on realistic speech rate
-                    const baseDelay = Math.ceil(item.text.length * 100); // 100ms per character
-                    const speedAdjustment = item.speed ? (1 / item.speed) : 1;
-                    const buffer = 2000; // 2 second buffer
-                    const estimatedDuration = Math.ceil(baseDelay * speedAdjustment) + buffer;
+                    const durationInfo = this._resolvePlaybackDuration(item, streamedAudioData);
+                    const estimatedDuration = durationInfo.durationMs;
+                    playbackMeta.duration = estimatedDuration;
 
                     this._logDebug('PLAYBACK', 'Waiting for audio playback to complete', {
                         estimatedDuration,
-                        textLength: item.text.length
+                        textLength: item.text.length,
+                        durationSource: durationInfo.source,
+                        audioFormat: durationInfo.format,
+                        measuredDurationMs: durationInfo.measuredDurationMs
                     });
 
                     // Wait for audio playback to complete
                     await new Promise(resolve => setTimeout(resolve, estimatedDuration));
 
                 } catch (streamError) {
+                    this._recordEngineFailure(item.engine, streamError);
                     this.logger.error(`TTS streaming error: ${streamError.message}, falling back to regular synthesis`);
                     this._logDebug('PLAYBACK', 'Streaming failed, attempting fallback to regular synthesis', {
                         id: item.id,
@@ -3299,7 +3604,8 @@ class TTSPlugin {
                     const ttsEngine = this.engines[item.engine];
                     if (ttsEngine && ttsEngine.synthesize) {
                         try {
-                            const audioData = await ttsEngine.synthesize(
+                            const audioData = await this._synthesizeWithCircuit(
+                                item.engine,
                                 item.text,
                                 item.voice,
                                 item.speed,
@@ -3326,11 +3632,14 @@ class TTSPlugin {
                                 duckVolume: this.config.duckVolume
                             });
 
-                            // Wait for playback
-                            const baseDelay = Math.ceil(item.text.length * 100);
-                            const speedAdjustment = item.speed ? (1 / item.speed) : 1;
-                            const buffer = 2000;
-                            const estimatedDuration = Math.ceil(baseDelay * speedAdjustment) + buffer;
+                            const durationInfo = this._resolvePlaybackDuration(item, audioData);
+                            const estimatedDuration = durationInfo.durationMs;
+                            this._logDebug('PLAYBACK', 'Waiting for fallback audio playback to complete', {
+                                estimatedDuration,
+                                durationSource: durationInfo.source,
+                                audioFormat: durationInfo.format,
+                                measuredDurationMs: durationInfo.measuredDurationMs
+                            });
                             await new Promise(resolve => setTimeout(resolve, estimatedDuration));
 
                         } catch (fallbackError) {
@@ -3371,13 +3680,8 @@ class TTSPlugin {
                     audioDataLength: item.audioData?.length || 0
                 });
 
-                // Estimate playback duration based on realistic speech rate
-                // Average speaking rate: ~150 words/min = ~2.5 words/sec = ~12.5 chars/sec
-                // Formula: chars * 100ms + buffer (accounting for pauses, pacing, etc.)
-                const baseDelay = Math.ceil(item.text.length * 100); // 100ms per character
-                const speedAdjustment = item.speed ? (1 / item.speed) : 1; // Adjust for speed
-                const buffer = 2000; // 2 second buffer for network latency and startup
-                const estimatedDuration = Math.ceil(baseDelay * speedAdjustment) + buffer;
+                const durationInfo = this._resolvePlaybackDuration(item);
+                const estimatedDuration = durationInfo.durationMs;
                 playbackMeta.duration = estimatedDuration;
 
                 if (this.api.pluginLoader && typeof this.api.pluginLoader.emit === 'function') {
@@ -3392,7 +3696,9 @@ class TTSPlugin {
                     estimatedDuration,
                     textLength: item.text.length,
                     speed: item.speed,
-                    calculation: `${item.text.length} chars * 100ms * ${speedAdjustment.toFixed(2)} + ${buffer}ms = ${estimatedDuration}ms`
+                    durationSource: durationInfo.source,
+                    audioFormat: durationInfo.format,
+                    measuredDurationMs: durationInfo.measuredDurationMs
                 });
 
                 // Wait for playback to complete

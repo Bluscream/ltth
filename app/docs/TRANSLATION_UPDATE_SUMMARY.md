@@ -54,7 +54,7 @@ All 4 main locale files now have **complete, professional translations** with id
 
 ### 2. Plugin Locale Files
 
-**All 26 plugins** now have complete locale support in all 4 languages:
+**All 25 plugins** now have complete locale support in all 4 languages:
 
 | Plugin | EN | DE | ES | FR |
 |--------|----|----|----|----|
@@ -65,7 +65,6 @@ All 4 main locale files now have **complete, professional translations** with id
 | config-import | ✅ | ✅ | ✅ | ✅ |
 | emoji-rain | ✅ | ✅ | ✅ | ✅ |
 | fireworks | ✅ | ✅ | ✅ | ✅ |
-| fireworks-webgpu | ✅ | ✅ | ✅ | ✅ |
 | gcce | ✅ | ✅ | ✅ | ✅ |
 | gift-milestone | ✅ | ✅ | ✅ | ✅ |
 | goals | ✅ | ✅ | ✅ | ✅ |

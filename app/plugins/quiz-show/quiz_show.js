@@ -1,4 +1,4 @@
-// Quiz Show Plugin - Client Side JavaScript
+﻿// Quiz Show Plugin - Client Side JavaScript
 (function() {
     'use strict';
 
@@ -26,6 +26,8 @@
         initializeCategoryFilterDropdown();
         loadInitialState();
         loadTTSVoices(); // Load available TTS voices
+        initializeExpansionControls();
+        loadExpansionControls();
     });
 
     // Tab Navigation
@@ -222,6 +224,14 @@
         socket.on('quiz-show:config-updated', handleConfigUpdate);
         socket.on('quiz-show:stopped', handleQuizStopped);
         socket.on('quiz-show:error', handleError);
+        socket.on('quiz-show:category-vote-update', renderCategoryVoteStatus);
+        socket.on('quiz-show:category-vote-ended', renderCategoryVoteEnded);
+        socket.on('quiz-show:duel-update', renderDuelStatus);
+        socket.on('quiz-show:duel-ended', renderDuelStatus);
+        socket.on('quiz-show:achievement-unlocked', (award) => {
+            showMessage(`Achievement: ${award.label} fuer ${award.username}`, 'success');
+            loadAchievements();
+        });
     }
 
     // Load Initial State
@@ -233,6 +243,7 @@
             if (data.success) {
                 currentState = data;
                 updateUI();
+                renderExpansionConfig(currentState.config || {});
                 loadCategories();
                 loadSeasons();
             }
@@ -737,6 +748,7 @@
     function handleConfigUpdate(config) {
         currentState.config = config;
         updateSettingsForm();
+        renderExpansionConfig(config);
     }
 
     function handleQuizStopped() {
@@ -843,7 +855,7 @@
                 const packageSizeField = document.getElementById('defaultPackageSizeSettings');
                 
                 if (apiKeyField && data.config.hasKey) {
-                    apiKeyField.placeholder = '••••••••••••';
+                    apiKeyField.placeholder = '';
                 }
                 if (modelField && data.config.model) {
                     modelField.value = data.config.model;
@@ -869,7 +881,7 @@
             return;
         }
 
-        const difficultyStars = (difficulty) => '⭐'.repeat(difficulty || 2);
+        const difficultyStars = (difficulty) => ''.repeat(difficulty || 2);
 
         container.innerHTML = questions.map((q, index) => `
             <div class="question-item" data-id="${q.id}">
@@ -877,7 +889,7 @@
                 <div class="question-content">
                     <div class="question-text">${escapeHtml(q.question)}</div>
                     <div class="question-meta" style="font-size: 0.9em; color: #888; margin: 5px 0;">
-                        <span>📁 ${escapeHtml(q.category || 'Allgemein')}</span>
+                        <span> ${escapeHtml(q.category || 'Allgemein')}</span>
                         <span style="margin-left: 15px;">${difficultyStars(q.difficulty)}</span>
                     </div>
                     <div class="question-answers">
@@ -889,8 +901,8 @@
                     </div>
                 </div>
                 <div class="question-actions">
-                    <button class="btn-icon btn-edit-question" data-question-id="${q.id}" title="Bearbeiten">✏️</button>
-                    <button class="btn-icon btn-delete-question" data-question-id="${q.id}" title="Löschen">🗑️</button>
+                    <button class="btn-icon btn-edit-question" data-question-id="${q.id}" title="Bearbeiten"></button>
+                    <button class="btn-icon btn-delete-question" data-question-id="${q.id}" title="Löschen"></button>
                 </div>
             </div>
         `).join('');
@@ -908,7 +920,7 @@
         tbody.innerHTML = leaderboard.map((entry, index) => `
             <tr>
                 <td class="rank">
-                    ${index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                    ${index === 0 ? '' : index === 1 ? '' : index === 2 ? '' : index + 1}
                 </td>
                 <td>${escapeHtml(entry.username)}</td>
                 <td class="points">${entry.points}</td>
@@ -1039,9 +1051,9 @@
         };
 
         const jokerIcons = {
-            '50': '✂️',
-            'info': '💡',
-            'time': '⏰'
+            '50': '',
+            'info': '',
+            'time': ''
         };
 
         const event = document.createElement('div');
@@ -1266,6 +1278,10 @@
         window.open('/quiz-show/overlay', 'QuizShowOverlay', 'width=1920,height=1080');
     }
 
+    function openSplitscreenOverlay() {
+        window.open('/quiz-show/overlay/splitscreen', 'QuizShowSplitscreenOverlay', 'width=1080,height=1920');
+    }
+
     // HUD Tab Event Listeners
     if (document.getElementById('saveHUDConfigBtn')) {
         document.getElementById('saveHUDConfigBtn').addEventListener('click', saveHUDConfig);
@@ -1275,6 +1291,9 @@
     }
     if (document.getElementById('openOverlayBtn')) {
         document.getElementById('openOverlayBtn').addEventListener('click', openOverlay);
+    }
+    if (document.getElementById('openSplitscreenOverlayBtn')) {
+        document.getElementById('openSplitscreenOverlayBtn').addEventListener('click', openSplitscreenOverlay);
     }
     if (document.getElementById('openLeaderboardOverlayBtn')) {
         document.getElementById('openLeaderboardOverlayBtn').addEventListener('click', openLeaderboardOverlay);
@@ -1758,7 +1777,7 @@
 
             const btn = document.getElementById('generatePackageBtn');
             const originalText = btn.textContent;
-            btn.textContent = '🤖 Generiere...';
+            btn.textContent = ' Generiere...';
             btn.disabled = true;
 
             const response = await fetch('/api/quiz-show/packages/generate', {
@@ -1847,19 +1866,19 @@
                     </div>
                     <div class="package-meta">
                         <div class="package-meta-item">
-                            <span>📝 ${pkg.question_count} Fragen</span>
+                            <span> ${pkg.question_count} Fragen</span>
                         </div>
                         <div class="package-meta-item">
-                            <span>📅 ${new Date(pkg.created_at).toLocaleDateString('de-DE')}</span>
+                            <span> ${new Date(pkg.created_at).toLocaleDateString('de-DE')}</span>
                         </div>
                     </div>
                 </div>
                 <div class="package-actions">
                     <button class="btn-view btn-view-package" data-package-id="${pkg.id}" title="Fragen anzeigen">
-                        👁️ Anzeigen
+                         Anzeigen
                     </button>
                     <button class="btn-delete btn-delete-package" data-package-id="${pkg.id}" title="Paket löschen">
-                        🗑️ Löschen
+                         Löschen
                     </button>
                 </div>
             </div>
@@ -1997,17 +2016,17 @@
                     <div class="layout-name">${escapeHtml(layout.name)}${activeBadge}</div>
                     <div class="layout-meta">
                         ${layout.resolution_width}x${layout.resolution_height} | 
-                        ${layout.orientation === 'horizontal' ? '🖼️ Landscape' : '📱 Portrait'}
+                        ${layout.orientation === 'horizontal' ? ' Landscape' : ' Portrait'}
                         ${defaultBadge}
                     </div>
                 </div>
                 <div class="layout-actions">
                     ${isActive 
-                        ? `<button class="btn-icon btn-deactivate-layout" title="Deaktivieren">⏸️</button>`
-                        : `<button class="btn-icon btn-activate-layout" data-layout-id="${layout.id}" title="Aktivieren">▶️</button>`
+                        ? `<button class="btn-icon btn-deactivate-layout" title="Deaktivieren"></button>`
+                        : `<button class="btn-icon btn-activate-layout" data-layout-id="${layout.id}" title="Aktivieren"></button>`
                     }
-                    <button class="btn-icon btn-edit-layout" data-layout-id="${layout.id}" title="Bearbeiten">✏️</button>
-                    <button class="btn-icon btn-delete-layout" data-layout-id="${layout.id}" title="Löschen">🗑️</button>
+                    <button class="btn-icon btn-edit-layout" data-layout-id="${layout.id}" title="Bearbeiten"></button>
+                    <button class="btn-icon btn-delete-layout" data-layout-id="${layout.id}" title="Löschen"></button>
                 </div>
             </div>
         `;
@@ -2476,11 +2495,11 @@
         };
         
         const elementLabels = {
-            question: '❓ Frage',
-            answers: '🅰️ Antworten',
-            timer: '⏱️ Timer',
-            leaderboard: '🏆 Leaderboard',
-            jokerInfo: '🎯 Joker Info'
+            question: ' Frage',
+            answers: ' Antworten',
+            timer: ' Timer',
+            leaderboard: ' Leaderboard',
+            jokerInfo: ' Joker Info'
         };
         
         // Get layout resolution from inputs (fallback to 1920x1080)
@@ -2654,7 +2673,7 @@
                 const giftName = escapeHtml(gift.name);
                 return `
                     <option value="${giftId}" data-name="${giftName}">
-                        ${giftName} (ID: ${giftId}, 💎 ${diamondCount})
+                        ${giftName} (ID: ${giftId},  ${diamondCount})
                     </option>
                 `;
             }).join('');
@@ -2684,7 +2703,7 @@
                 const giftName = escapeHtml(gift.name);
                 return `
                     <option value="${giftId}" data-name="${giftName}">
-                        ${giftName} (ID: ${giftId}, 💎 ${diamondCount})
+                        ${giftName} (ID: ${giftId},  ${diamondCount})
                     </option>
                 `;
             }).join('');
@@ -2740,8 +2759,8 @@
                 <td>${jokerNames[mapping.joker_type] || mapping.joker_type}</td>
                 <td><span class="status-badge ${mapping.enabled ? 'status-connected' : 'status-error'}">${mapping.enabled ? 'Aktiv' : 'Inaktiv'}</span></td>
                 <td>
-                    <button class="btn-icon btn-edit-gift-joker" data-gift-id="${mapping.gift_id}" title="Bearbeiten">✏️</button>
-                    <button class="btn-icon btn-delete-gift-joker" data-gift-id="${mapping.gift_id}" title="Löschen">🗑️</button>
+                    <button class="btn-icon btn-edit-gift-joker" data-gift-id="${mapping.gift_id}" title="Bearbeiten"></button>
+                    <button class="btn-icon btn-delete-gift-joker" data-gift-id="${mapping.gift_id}" title="Löschen"></button>
                 </td>
             </tr>
         `).join('');
@@ -3298,7 +3317,7 @@
                 // Disable button
                 if (batchGenerateBtn) {
                     batchGenerateBtn.disabled = true;
-                    batchGenerateBtn.textContent = '⏳ Generierung läuft...';
+                    batchGenerateBtn.textContent = ' Generierung läuft...';
                 }
                 
                 // Show progress
@@ -3326,7 +3345,7 @@
                     showMessage('Fehler: ' + data.error, 'error', 'batchGenerateMessage');
                     if (batchGenerateBtn) {
                         batchGenerateBtn.disabled = false;
-                        batchGenerateBtn.textContent = '🤖 Batch Generierung Starten';
+                        batchGenerateBtn.textContent = ' Batch Generierung Starten';
                     }
                     batchGenerationActive = false;
                 }
@@ -3335,7 +3354,7 @@
                 const batchGenerateBtn = document.getElementById('batchGenerateBtn');
                 if (batchGenerateBtn) {
                     batchGenerateBtn.disabled = false;
-                    batchGenerateBtn.textContent = '🤖 Batch Generierung Starten';
+                    batchGenerateBtn.textContent = ' Batch Generierung Starten';
                 }
                 batchGenerationActive = false;
             }
@@ -3381,7 +3400,7 @@
         
         if (batchGenerateBtn) {
             batchGenerateBtn.disabled = false;
-            batchGenerateBtn.textContent = '🤖 Batch Generierung Starten';
+            batchGenerateBtn.textContent = ' Batch Generierung Starten';
         }
         
         if (batchProgressLog) {
@@ -3402,4 +3421,487 @@
         loadPackages();
     });
 
+    // ============================================
+    // EXPANSION CONTROLS
+    // ============================================
+
+    function expansionValue(id, fallback = '') {
+        const element = document.getElementById(id);
+        return element ? element.value : fallback;
+    }
+
+    function expansionChecked(id, fallback = false) {
+        const element = document.getElementById(id);
+        return element ? element.checked : fallback;
+    }
+
+    function setExpansionValue(id, value) {
+        const element = document.getElementById(id);
+        if (element) element.value = value ?? '';
+    }
+
+    function setExpansionChecked(id, value) {
+        const element = document.getElementById(id);
+        if (element) element.checked = !!value;
+    }
+
+    function initializeExpansionControls() {
+        const bind = (id, event, handler) => {
+            const element = document.getElementById(id);
+            if (element && !element.dataset.expansionBound) {
+                element.addEventListener(event, handler);
+                element.dataset.expansionBound = 'true';
+            }
+        };
+
+        bind('saveSetupWizardBtn', 'click', saveSetupWizard);
+        bind('refreshHealthBtn', 'click', loadHealth);
+        bind('saveVotingConfigBtn', 'click', saveVotingConfig);
+        bind('startCategoryVoteBtn', 'click', startCategoryVote);
+        bind('finishCategoryVoteBtn', 'click', finishCategoryVote);
+        bind('saveShowBtn', 'click', saveShow);
+        bind('startDuelBtn', 'click', startDuel);
+        bind('stopDuelBtn', 'click', stopDuel);
+        bind('saveVisualExpansionBtn', 'click', saveVisualExpansion);
+        bind('uploadSoundBtn', 'click', uploadSound);
+        bind('testSoundBtn', 'click', testSound);
+        bind('saveAchievementSeasonBtn', 'click', saveAchievementSeason);
+    }
+
+    async function loadExpansionControls() {
+        await Promise.all([
+            loadHealth(),
+            loadShows(),
+            loadSounds(),
+            loadAchievements(),
+            loadSeasonAutomation(),
+            loadSetupWizard()
+        ]);
+        renderExpansionConfig(currentState.config || {});
+    }
+
+    function renderExpansionConfig(config) {
+        setExpansionValue('questionCooldownHours', config.questionCooldownHours ?? 24);
+        setExpansionChecked('categoryVotingEnabled', config.categoryVotingEnabled);
+        setExpansionChecked('categoryVoteBeforeQuestion', config.categoryVoteBeforeQuestion);
+        setExpansionValue('categoryVoteDuration', config.categoryVoteDuration ?? 20);
+        setExpansionValue('hudThemePreset', config.hudThemePreset || 'neon');
+        setExpansionChecked('reducedMotion', config.reducedMotion);
+        setExpansionChecked('highContrast', config.highContrast);
+        setExpansionValue('avatarPerformanceMode', config.avatarPerformanceMode || 'balanced');
+        setExpansionChecked('avatarCacheEnabled', config.avatarCacheEnabled !== false);
+        setExpansionChecked('achievementsEnabled', config.achievementsEnabled !== false);
+        setExpansionChecked('achievementPopupsEnabled', config.achievementPopupsEnabled !== false);
+        setExpansionValue('seasonAutomationMode', config.seasonAutomationMode || 'manual');
+        setExpansionValue('seasonAutomationDay', config.seasonAutomationDay ?? 1);
+    }
+
+    async function saveConfigPatch(patch, messageId = null) {
+        const response = await fetch('/api/quiz-show/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch)
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Speichern fehlgeschlagen');
+        currentState.config = data.config;
+        renderExpansionConfig(data.config);
+        if (messageId) showMessage('Gespeichert', 'success', messageId);
+        return data.config;
+    }
+
+    async function saveVotingConfig() {
+        try {
+            await saveConfigPatch({
+                questionCooldownHours: parseFloat(expansionValue('questionCooldownHours', 24)),
+                categoryVotingEnabled: expansionChecked('categoryVotingEnabled'),
+                categoryVoteBeforeQuestion: expansionChecked('categoryVoteBeforeQuestion'),
+                categoryVoteDuration: parseInt(expansionValue('categoryVoteDuration', 20), 10)
+            }, 'categoryVoteStatus');
+        } catch (error) {
+            showMessage(error.message, 'error', 'categoryVoteStatus');
+        }
+    }
+
+    function getManualVoteCategories() {
+        return expansionValue('categoryVoteOptions', '')
+            .split('\n')
+            .map(item => item.trim())
+            .filter(Boolean);
+    }
+
+    async function startCategoryVote() {
+        try {
+            const categories = getManualVoteCategories();
+            const response = await fetch('/api/quiz-show/category-vote/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    categories,
+                    duration: parseInt(expansionValue('categoryVoteDuration', 20), 10)
+                })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            renderCategoryVoteStatus(data.vote);
+        } catch (error) {
+            showMessage(error.message, 'error', 'categoryVoteStatus');
+        }
+    }
+
+    async function finishCategoryVote() {
+        try {
+            const response = await fetch('/api/quiz-show/category-vote/finish', { method: 'POST' });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            renderCategoryVoteEnded(data);
+        } catch (error) {
+            showMessage(error.message, 'error', 'categoryVoteStatus');
+        }
+    }
+
+    function renderCategoryVoteStatus(vote) {
+        const element = document.getElementById('categoryVoteStatus');
+        if (!element || !vote) return;
+        const rows = Object.entries(vote.votesByCategory || {})
+            .map(([category, count]) => `${escapeHtml(category)}: ${count}`)
+            .join(' | ');
+        element.textContent = vote.active ? `Voting laeuft: ${rows}` : `Voting bereit: ${rows}`;
+        element.className = 'message message-info';
+        element.classList.remove('hidden');
+    }
+
+    function renderCategoryVoteEnded(data) {
+        const element = document.getElementById('categoryVoteStatus');
+        if (!element) return;
+        element.textContent = `Gewaehlte Kategorie: ${data.selectedCategory || 'keine'}`;
+        element.className = 'message message-success';
+        element.classList.remove('hidden');
+    }
+
+    async function loadShows() {
+        try {
+            const response = await fetch('/api/quiz-show/shows');
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            const list = document.getElementById('showsList');
+            if (!list) return;
+            if (!data.shows.length) {
+                list.innerHTML = '<div class="empty-state">Noch keine Shows gespeichert.</div>';
+                return;
+            }
+            list.innerHTML = data.shows.map(show => `
+                <div class="compact-row">
+                    <strong>${escapeHtml(show.name)}</strong>
+                    <span>${show.round_count} Runden</span>
+                    <span>${(show.categories || []).map(escapeHtml).join(', ') || 'Alle Kategorien'}</span>
+                    <button class="btn btn-secondary btn-sm" data-activate-show="${show.id}">Aktivieren</button>
+                    <button class="btn btn-danger btn-sm" data-delete-show="${show.id}">Loeschen</button>
+                </div>
+            `).join('');
+            list.querySelectorAll('[data-activate-show]').forEach(button => {
+                button.addEventListener('click', () => activateShow(parseInt(button.dataset.activateShow, 10)));
+            });
+            list.querySelectorAll('[data-delete-show]').forEach(button => {
+                button.addEventListener('click', () => deleteShow(parseInt(button.dataset.deleteShow, 10)));
+            });
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    }
+
+    async function saveShow() {
+        try {
+            const categories = expansionValue('showCategories', '').split('\n').map(item => item.trim()).filter(Boolean);
+            const response = await fetch('/api/quiz-show/shows', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: expansionValue('showName'),
+                    categories,
+                    roundCount: parseInt(expansionValue('showRoundCount', 10), 10),
+                    questionOrder: 'random',
+                    audienceVoting: expansionChecked('showAudienceVoting')
+                })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            setExpansionValue('showName', '');
+            await loadShows();
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    }
+
+    async function activateShow(id) {
+        const showsResponse = await fetch('/api/quiz-show/shows');
+        const showsData = await showsResponse.json();
+        const existing = (showsData.shows || []).find(show => show.id === id);
+        if (!existing) {
+            showMessage('Show nicht gefunden', 'error');
+            return;
+        }
+        const show = {
+            name: existing.name,
+            description: existing.description || '',
+            categories: existing.categories || [],
+            packageIds: existing.package_ids || [],
+            roundCount: existing.round_count || 10,
+            questionOrder: existing.question_order || 'random',
+            audienceVoting: !!existing.audience_voting,
+            activate: true
+        };
+        const response = await fetch(`/api/quiz-show/shows/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(show)
+        });
+        const data = await response.json();
+        if (!data.success) showMessage(data.error, 'error');
+        await loadShows();
+    }
+
+    async function deleteShow(id) {
+        if (!confirm('Show wirklich loeschen?')) return;
+        await fetch(`/api/quiz-show/shows/${id}`, { method: 'DELETE' });
+        await loadShows();
+    }
+
+    async function startDuel() {
+        try {
+            const response = await fetch('/api/quiz-show/duel/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    leftLabel: expansionValue('duelLeftLabel', 'Team A'),
+                    rightLabel: expansionValue('duelRightLabel', 'Team B'),
+                    leftUsers: expansionValue('duelLeftUsers', '').split(',').map(item => item.trim()).filter(Boolean),
+                    rightUsers: expansionValue('duelRightUsers', '').split(',').map(item => item.trim()).filter(Boolean)
+                })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            renderDuelStatus(data.duel);
+        } catch (error) {
+            showMessage(error.message, 'error', 'duelStatus');
+        }
+    }
+
+    async function stopDuel() {
+        const response = await fetch('/api/quiz-show/duel/stop', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) renderDuelStatus(data.duel);
+    }
+
+    function renderDuelStatus(duel) {
+        const element = document.getElementById('duelStatus');
+        if (!element || !duel) return;
+        element.textContent = `${duel.left.label}: ${duel.left.score} | ${duel.right.label}: ${duel.right.score}${duel.winner ? ` | Gewinner: ${duel.winner}` : ''}`;
+        element.className = 'message message-info';
+        element.classList.remove('hidden');
+    }
+
+    async function saveVisualExpansion() {
+        try {
+            await saveConfigPatch({
+                hudThemePreset: expansionValue('hudThemePreset', 'neon'),
+                reducedMotion: expansionChecked('reducedMotion'),
+                highContrast: expansionChecked('highContrast'),
+                avatarPerformanceMode: expansionValue('avatarPerformanceMode', 'balanced'),
+                avatarCacheEnabled: expansionChecked('avatarCacheEnabled')
+            });
+            const hudResponse = await fetch('/api/quiz-show/hud-config');
+            const hudData = await hudResponse.json();
+            const nextHud = {
+                ...(hudData.config || {}),
+                themePreset: expansionValue('hudThemePreset', 'neon'),
+                reducedMotion: expansionChecked('reducedMotion'),
+                highContrast: expansionChecked('highContrast')
+            };
+            await fetch('/api/quiz-show/hud-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(nextHud)
+            });
+            showMessage('Visuals gespeichert', 'success');
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    }
+
+    async function loadSounds() {
+        const list = document.getElementById('soundsList');
+        if (!list) return;
+        try {
+            const response = await fetch('/api/quiz-show/sounds');
+            const data = await response.json();
+            const sounds = data.sounds || [];
+            list.innerHTML = sounds.length ? sounds.map(sound => `
+                <div class="compact-row">
+                    <strong>${escapeHtml(sound.event_name)}</strong>
+                    <span>${escapeHtml(sound.file_path || '')}</span>
+                    <span>${sound.volume}</span>
+                </div>
+            `).join('') : '<div class="empty-state">Keine Sounds hinterlegt.</div>';
+        } catch (error) {
+            list.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+        }
+    }
+
+    async function uploadSound() {
+        try {
+            const fileInput = document.getElementById('soundFileInput');
+            const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+            const eventName = expansionValue('soundEventName').trim();
+            if (!eventName || !file) {
+                showMessage('Event-Name und Audiodatei sind erforderlich', 'error');
+                return;
+            }
+            const contentBase64 = await readFileAsDataUrl(file);
+            const response = await fetch('/api/quiz-show/sounds', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event_name: eventName,
+                    fileName: file.name,
+                    contentBase64,
+                    volume: parseFloat(expansionValue('soundVolume', 1))
+                })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            await loadSounds();
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    }
+
+    function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function testSound() {
+        const eventName = expansionValue('soundEventName').trim();
+        if (!eventName) return;
+        await fetch('/api/quiz-show/sounds/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ eventName })
+        });
+    }
+
+    async function loadAchievements() {
+        const list = document.getElementById('achievementRulesList');
+        if (!list) return;
+        try {
+            const response = await fetch('/api/quiz-show/achievements');
+            const data = await response.json();
+            const rules = data.rules || [];
+            list.innerHTML = rules.map(rule => `
+                <label class="compact-row">
+                    <input type="checkbox" data-achievement-rule="${escapeHtml(rule.id)}" ${rule.enabled ? 'checked' : ''}>
+                    <strong>${escapeHtml(rule.label)}</strong>
+                    <span>${escapeHtml(rule.type)} >= ${rule.threshold}</span>
+                </label>
+            `).join('');
+        } catch (error) {
+            list.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+        }
+    }
+
+    async function saveAchievementSeason() {
+        try {
+            await saveConfigPatch({
+                achievementsEnabled: expansionChecked('achievementsEnabled'),
+                achievementPopupsEnabled: expansionChecked('achievementPopupsEnabled'),
+                seasonAutomationMode: expansionValue('seasonAutomationMode', 'manual'),
+                seasonAutomationDay: parseInt(expansionValue('seasonAutomationDay', 1), 10)
+            });
+            await fetch('/api/quiz-show/season-automation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mode: expansionValue('seasonAutomationMode', 'manual'),
+                    rolloverDay: parseInt(expansionValue('seasonAutomationDay', 1), 10)
+                })
+            });
+            showMessage('Achievements und Seasons gespeichert', 'success');
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    }
+
+    async function loadSeasonAutomation() {
+        try {
+            const response = await fetch('/api/quiz-show/season-automation');
+            const data = await response.json();
+            if (data.success && data.config) {
+                setExpansionValue('seasonAutomationMode', data.config.mode || 'manual');
+                setExpansionValue('seasonAutomationDay', data.config.rollover_day ?? 1);
+            }
+        } catch (error) {
+            console.error('Error loading season automation:', error);
+        }
+    }
+
+    async function loadSetupWizard() {
+        try {
+            const response = await fetch('/api/quiz-show/setup-wizard');
+            const data = await response.json();
+            if (data.success) {
+                setExpansionValue('setupWizardStep', data.step || 'questions');
+                setExpansionChecked('setupWizardCompleted', data.completed);
+            }
+        } catch (error) {
+            console.error('Error loading setup wizard:', error);
+        }
+    }
+
+    async function saveSetupWizard() {
+        try {
+            const response = await fetch('/api/quiz-show/setup-wizard', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    step: expansionValue('setupWizardStep', 'questions'),
+                    completed: expansionChecked('setupWizardCompleted')
+                })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+            showMessage('Setup gespeichert', 'success', 'setupWizardMessage');
+        } catch (error) {
+            showMessage(error.message, 'error', 'setupWizardMessage');
+        }
+    }
+
+    async function loadHealth() {
+        const panel = document.getElementById('quizHealthPanel');
+        if (!panel) return;
+        try {
+            const response = await fetch('/api/quiz-show/health');
+            const data = await response.json();
+            const checks = data.checks || {};
+            panel.innerHTML = `
+                <div><strong>Datenbank</strong><span>${escapeHtml(checks.database?.status || 'unknown')}</span></div>
+                <div><strong>Socket</strong><span>${escapeHtml(checks.socket?.status || 'unknown')}</span></div>
+                <div><strong>TTS</strong><span>${escapeHtml(checks.tts?.status || 'unknown')}</span></div>
+                <div><strong>OpenAI</strong><span>${escapeHtml(checks.openai?.status || 'unknown')}</span></div>
+                <div><strong>Fragen</strong><span>${data.inventory?.questions ?? 0}</span></div>
+                <div><strong>Kategorien</strong><span>${data.inventory?.categories ?? 0}</span></div>
+                <div><strong>Sounds</strong><span>${data.inventory?.sounds ?? 0}</span></div>
+                <div><strong>Setup</strong><span>${data.setup?.completed ? 'fertig' : data.setup?.step}</span></div>
+            `;
+        } catch (error) {
+            panel.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+        }
+    }
+
 })();
+
+

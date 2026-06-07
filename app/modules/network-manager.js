@@ -154,6 +154,12 @@ class NetworkManager {
     origins.add(`http://127.0.0.1:${port}`);
     origins.add('null'); // OBS BrowserSource
 
+    // Allow local fallback ports to query each other during profile-restart recovery.
+    for (let localPort = 3000; localPort <= 3050; localPort++) {
+      origins.add(`http://localhost:${localPort}`);
+      origins.add(`http://127.0.0.1:${localPort}`);
+    }
+
     if (this.bindMode === 'all' || this.bindMode === 'select') {
       // Add all detected LAN IPs
       const ifaces = this.getInterfaces();
@@ -412,6 +418,11 @@ class NetworkManager {
         });
 
       } else if (provider === 'custom') {
+        if (cfg.allowCustomTunnelCommand !== true) {
+          fail(new Error('Custom tunnel commands are disabled. Set allowCustomTunnelCommand=true to enable this local-only advanced option.'));
+          return;
+        }
+
         const command = (cfg.command || '').replace('{{PORT}}', String(port));
         if (!command) {
           fail(new Error('Custom tunnel command is empty'));
@@ -553,6 +564,16 @@ class NetworkManager {
     const bindModeChanged = body.bindMode !== undefined && body.bindMode !== this.bindMode;
     const bindAddressChanged = body.bindAddress !== undefined && body.bindAddress !== this.bindAddress;
     const needsRestart = bindModeChanged || bindAddressChanged;
+
+    if (
+      (body.tunnelProvider === 'custom' || this.tunnelProvider === 'custom') &&
+      body.tunnelConfig &&
+      typeof body.tunnelConfig === 'object' &&
+      body.tunnelConfig.command &&
+      body.tunnelConfig.allowCustomTunnelCommand !== true
+    ) {
+      throw new Error('Custom tunnel commands are disabled. Set allowCustomTunnelCommand=true to enable this local-only advanced option.');
+    }
 
     if (body.bindMode !== undefined) {
       const valid = ['local', 'select', 'all', 'custom'];

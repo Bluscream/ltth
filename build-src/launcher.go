@@ -473,6 +473,9 @@ func installNodePortable() (string, error) {
 // Note: Uses simple string comparison. Works for same version format (e.g., "20.18.1" vs "20.18.0")
 // but may not work correctly for semantic version comparison with different digit counts.
 func checkNodeUpdate(nodeDir string) (bool, error) {
+	fmt.Println("Portable Node.js Auto-Update deaktiviert; verwende bestehende Installation.")
+	return false, nil
+
 	installedVersion := getInstalledNodeVersion(nodeDir)
 	if installedVersion == "" {
 		// No version file, assume update needed
@@ -489,6 +492,8 @@ func checkNodeUpdate(nodeDir string) (bool, error) {
 
 // updateNodePortable updates the portable Node.js installation
 func updateNodePortable() error {
+	return fmt.Errorf("portable Node.js auto-update is disabled")
+
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("kann Programmverzeichnis nicht ermitteln: %v", err)
@@ -981,6 +986,8 @@ func checkForReleasesUpdate() (*UpdateInfo, error) {
 // checkForUpdates checks if an update is available (unified for both modes)
 // Returns: hasUpdate, commitSHA, releaseInfo (may be nil), error
 func checkForUpdates() (bool, string, *UpdateInfo, error) {
+	return false, "", nil, nil
+
 	// 1. Check rate limiting
 	if !shouldCheckForUpdates() {
 		return false, "", nil, nil
@@ -1178,6 +1185,8 @@ func downloadFileFromGitHub(baseDir string, file GitHubTreeItem) error {
 
 // downloadUpdate downloads and applies an update from GitHub
 func downloadUpdate(commitSHA string) error {
+	return fmt.Errorf("app auto-update is disabled")
+
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("kann Programmverzeichnis nicht ermitteln: %v", err)
@@ -1323,68 +1332,7 @@ func main() {
 	}
 	
 	// === Auto-Update Check ===
-	fmt.Println("Pruefe auf Updates...")
-	hasUpdate, latestSHA, updateInfo, err := checkForUpdates()
-	if err != nil {
-		fmt.Printf("⚠️  Update-Pruefung fehlgeschlagen: %v\n", err)
-		fmt.Println("Fahre mit lokalem Stand fort...")
-	} else if hasUpdate {
-		fmt.Println()
-		fmt.Println("===============================================")
-		fmt.Println("  Update verfuegbar!")
-		fmt.Println("===============================================")
-		fmt.Println()
-		
-		// Show version information if available
-		if updateInfo != nil {
-			fmt.Printf("Aktuelle Version: %s\n", updateInfo.CurrentVersion)
-			fmt.Printf("Neue Version:     %s\n", updateInfo.LatestVersion)
-			fmt.Println()
-			
-			// Show release notes if available (max 10 lines)
-			if updateInfo.ReleaseNotes != "" {
-				fmt.Println("Release Notes:")
-				fmt.Println("---")
-				lines := strings.Split(updateInfo.ReleaseNotes, "\n")
-				maxLines := 10
-				if len(lines) > maxLines {
-					for i := 0; i < maxLines; i++ {
-						fmt.Println(lines[i])
-					}
-					fmt.Println("... (gekuerzt)")
-				} else {
-					fmt.Println(updateInfo.ReleaseNotes)
-				}
-				fmt.Println("---")
-				fmt.Println()
-			}
-		}
-		
-		// Accept update with "J" (Ja), "Y" (Yes), or just pressing Enter for convenience
-		fmt.Print("Moechtest du das Update jetzt installieren? (J/N): ")
-		
-		var input string
-		fmt.Scanln(&input)
-		
-		input = strings.ToUpper(strings.TrimSpace(input))
-		if input == "J" || input == "Y" || input == "" {
-			err := downloadUpdate(latestSHA)
-			if err != nil {
-				fmt.Printf("❌ Update fehlgeschlagen: %v\n", err)
-				fmt.Println("Fahre mit lokalem Stand fort...")
-			} else {
-				// Write version file if we have version info
-				if updateInfo != nil && updateInfo.LatestVersion != "" {
-					writeLocalVersion(updateInfo.LatestVersion)
-				}
-				fmt.Println("Hinweis: npm install wird automatisch ausgefuehrt falls noetig...")
-				fmt.Println()
-			}
-		} else {
-			fmt.Println("Update uebersprungen.")
-			fmt.Println()
-		}
-	}
+	fmt.Println("Auto-Update deaktiviert; verwende lokalen Stand.")
 	
 	// === Node.js Check ===
 	// Check Node.js installation

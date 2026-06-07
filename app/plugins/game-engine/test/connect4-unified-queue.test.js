@@ -197,11 +197,12 @@ describe('Connect4 Unified Queue Integration', () => {
         showChallengeScreen: false
       }));
       
-      plugin.startGame = jest.fn();
+      plugin.startGame = jest.fn(() => ({ success: true, started: true, sessionId: 123 }));
       
-      await plugin.startGameFromQueue('connect4', 'user1', 'User One', 'command', '/c4start');
+      const result = await plugin.startGameFromQueue('connect4', 'user1', 'User One', 'command', '/c4start');
       
       expect(plugin.startGame).toHaveBeenCalledWith('connect4', 'user1', 'User One', 'command', '/c4start');
+      expect(result).toMatchObject({ success: true, started: true, sessionId: 123 });
     });
 
     test('should complete processing if player already has active game', async () => {
@@ -209,9 +210,14 @@ describe('Connect4 Unified Queue Integration', () => {
       
       const completeProcessingSpy = jest.spyOn(plugin.unifiedQueue, 'completeProcessing');
       
-      await plugin.startGameFromQueue('connect4', 'user1', 'User One', 'command', '/c4start');
+      const result = await plugin.startGameFromQueue('connect4', 'user1', 'User One', 'command', '/c4start');
       
       expect(completeProcessingSpy).toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: false,
+        completed: true,
+        error: expect.stringContaining('active game')
+      });
     });
   });
 

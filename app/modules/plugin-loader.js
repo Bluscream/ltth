@@ -3,6 +3,11 @@ const path = require('path');
 const crypto = require('crypto');
 const EventEmitter = require('events');
 const express = require('express');
+const {
+    assertPluginId,
+    assertPathInside,
+    resolvePluginEntryPath
+} = require('./plugin-paths');
 
 /**
  * PluginAPI - Bereitgestellte API für Plugins
@@ -25,6 +30,7 @@ class PluginAPI {
         this.registeredRoutes = [];
         this.registeredSocketEvents = [];
         this.registeredTikTokEvents = [];
+        this.registeredPluginEvents = [];
         this.registeredFlowActions = [];
         this.registeredIFTTTTriggers = [];
         this.registeredIFTTTConditions = [];
@@ -47,6 +53,11 @@ class PluginAPI {
             // Wrapper für Error-Handling
             const wrappedHandler = async (req, res, next) => {
                 try {
+                    const activePlugin = this.pluginLoader.plugins.get(this.pluginId);
+                    if (!activePlugin || activePlugin.api !== this) {
+                        return next();
+                    }
+
                     await handler(req, res, next);
                 } catch (error) {
                     this.log(`Route error in ${fullPath}: ${error.message}`, 'error');
@@ -273,12 +284,40 @@ class PluginAPI {
      */
     emit(event, data) {
         try {
+            if (this.pluginLoader && typeof this.pluginLoader.emit === 'function') {
+                this.pluginLoader.emit(event, data);
+            }
             this.io.emit(event, data);
             return true;
         } catch (error) {
             this.log(`Failed to emit event: ${error.message}`, 'error');
             return false;
         }
+    }
+
+    on(event, callback) {
+        try {
+            if (!this.pluginLoader || typeof this.pluginLoader.on !== 'function') {
+                throw new Error('plugin event bus is not available');
+            }
+
+            this.pluginLoader.on(event, callback);
+            this.registeredPluginEvents.push({ event, callback });
+            return true;
+        } catch (error) {
+            this.log(`Failed to register plugin event listener ${event}: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
+    removeListener(event, callback) {
+        if (this.pluginLoader && typeof this.pluginLoader.removeListener === 'function') {
+            this.pluginLoader.removeListener(event, callback);
+        }
+    }
+
+    getPlugin(pluginId) {
+        return this.pluginLoader?.loadedPlugins?.get(pluginId)?.instance || null;
     }
 
     /**
@@ -402,6 +441,17 @@ class PluginAPI {
 
         this.registeredSocketEvents = [];
         this.registeredTikTokEvents = [];
+        this.registeredPluginEvents.forEach(({ event, callback }) => {
+            try {
+                if (this.pluginLoader && typeof this.pluginLoader.removeListener === 'function') {
+                    this.pluginLoader.removeListener(event, callback);
+                    this.log(`Unregistered plugin event: ${event}`);
+                }
+            } catch (error) {
+                this.log(`Failed to unregister plugin event ${event}: ${error.message}`, 'error');
+            }
+        });
+        this.registeredPluginEvents = [];
         this.registeredFlowActions = [];
 
         // Unregister IFTTT components
@@ -766,6 +816,72 @@ class PluginLoader extends EventEmitter {
         }
     }
 
+    getPluginEnabledPreference(manifest) {
+        const pluginState = this.state[manifest.id] || {};
+        return pluginState.enabled !== undefined ? pluginState.enabled : manifest.enabled !== false;
+    }
+
+    isPluginEnabledFromDisk(pluginId) {
+        try {
+            const manifestPath = path.join(this.pluginsDir, pluginId, 'plugin.json');
+            if (!fs.existsSync(manifestPath)) {
+                return false;
+            }
+
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            if (!manifest.id || manifest.disabled === true) {
+                return false;
+            }
+
+            return this.getPluginEnabledPreference(manifest);
+        } catch (error) {
+            this.logger?.warn?.(`Could not inspect plugin ${pluginId}: ${error.message}`);
+            return false;
+        }
+    }
+
+    getSupersedingPluginId(pluginId) {
+        if ((pluginId === 'viewer-leaderboard' || pluginId === 'gift-milestone') &&
+            this.isPluginEnabledFromDisk('milestone-leaderboard')) {
+            return 'milestone-leaderboard';
+        }
+
+        return null;
+    }
+
+    pruneStalePluginState(pluginDirs) {
+        const installedPluginIds = new Set();
+
+        for (const dir of pluginDirs) {
+            const manifestPath = path.join(this.pluginsDir, dir.name, 'plugin.json');
+            if (!fs.existsSync(manifestPath)) {
+                continue;
+            }
+
+            try {
+                const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                if (manifest.id) {
+                    installedPluginIds.add(manifest.id);
+                }
+            } catch (error) {
+                this.logger?.warn?.(`Could not inspect plugin state for ${dir.name}: ${error.message}`);
+            }
+        }
+
+        const staleIds = Object.keys(this.state).filter(pluginId => !installedPluginIds.has(pluginId));
+        if (staleIds.length === 0) {
+            return;
+        }
+
+        for (const staleId of staleIds) {
+            delete this.state[staleId];
+        }
+
+        if (this.saveState()) {
+            this.logger.info(`Pruned stale plugin state entries: ${staleIds.join(', ')}`);
+        }
+    }
+
     /**
      * Load all plugins from the plugins directory
      * PERFORMANCE: Plugins are now loaded in parallel (max 5 simultaneously)
@@ -779,7 +895,20 @@ class PluginLoader extends EventEmitter {
             }
 
             const entries = fs.readdirSync(this.pluginsDir, { withFileTypes: true });
-            const pluginDirs = entries.filter(entry => entry.isDirectory() && !entry.name.startsWith('_'));
+            const pluginDirs = entries.filter(entry => {
+                if (!entry.isDirectory() || entry.name.startsWith('_')) {
+                    return false;
+                }
+
+                const manifestPath = path.join(this.pluginsDir, entry.name, 'plugin.json');
+                if (!fs.existsSync(manifestPath)) {
+                    this.logger.debug(`Skipping non-plugin directory without manifest: ${entry.name}`);
+                    return false;
+                }
+
+                return true;
+            });
+            this.pruneStalePluginState(pluginDirs);
 
             this.logger.info(`Found ${pluginDirs.length} plugin directories`);
 
@@ -897,16 +1026,29 @@ class PluginLoader extends EventEmitter {
             }
 
             // State prüfen
-            const pluginState = this.state[manifest.id] || {};
-            const isEnabled = pluginState.enabled !== undefined ? pluginState.enabled : manifest.enabled !== false;
+            const isEnabled = this.getPluginEnabledPreference(manifest);
 
             if (!isEnabled) {
                 this.logger.info(`Plugin ${manifest.id} is disabled, skipping`);
                 return null;
             }
 
+            const supersedingPluginId = this.getSupersedingPluginId(manifest.id);
+            if (supersedingPluginId) {
+                this.logger.info(`Plugin ${manifest.id} is provided by ${supersedingPluginId}; disabling standalone plugin to avoid duplicate routes and registrations`);
+                this.state[manifest.id] = {
+                    ...(this.state[manifest.id] || {}),
+                    enabled: false,
+                    supersededBy: supersedingPluginId
+                };
+                this.saveState();
+                return null;
+            }
+
             // Entry-Datei prüfen
-            const entryPath = path.join(pluginPath, manifest.entry);
+            assertPluginId(manifest.id);
+            assertPathInside(this.pluginsDir, pluginPath, 'Plugin directory');
+            const entryPath = resolvePluginEntryPath(pluginPath, manifest.entry);
             if (!fs.existsSync(entryPath)) {
                 this.logger.warn(`Entry file not found: ${entryPath}`);
                 return null;
@@ -1071,6 +1213,11 @@ class PluginLoader extends EventEmitter {
                 // Try to load the plugin with state already set to enabled
                 const loadResult = await this.loadPlugin(pluginPath);
                 if (!loadResult) {
+                    const supersedingPluginId = this.state[pluginId]?.supersededBy;
+                    if (supersedingPluginId) {
+                        throw new Error(`Plugin ${pluginId} is already provided by ${supersedingPluginId}. Disable ${supersedingPluginId} before enabling ${pluginId}.`);
+                    }
+
                     this.logger.error(`Plugin ${pluginId} failed to load. Check server logs for detailed error information.`);
                     throw new Error(`Plugin ${pluginId} failed to load. Please check the server logs for detailed error information about what went wrong during initialization.`);
                 }
@@ -1114,8 +1261,10 @@ class PluginLoader extends EventEmitter {
             this.state[pluginId].enabled = false;
             this.saveState();
 
+            const safePluginId = assertPluginId(pluginId);
+
             // Plugin entladen
-            await this.unloadPlugin(pluginId);
+            await this.unloadPlugin(safePluginId);
 
             this.logger.info(`Disabled plugin: ${pluginId}`);
             this.emit('plugin:disabled', pluginId);
@@ -1146,9 +1295,13 @@ class PluginLoader extends EventEmitter {
 
             this.saveState();
 
-            await this.unloadPlugin(pluginId);
+            await this.unloadPlugin(safePluginId);
 
-            const pluginPath = path.join(this.pluginsDir, pluginId);
+            const pluginPath = assertPathInside(
+                this.pluginsDir,
+                path.join(this.pluginsDir, safePluginId),
+                'Plugin delete path'
+            );
             await this.loadPlugin(pluginPath);
 
             // Re-register TikTok events after reload (consistent with enablePlugin).
@@ -1175,21 +1328,27 @@ class PluginLoader extends EventEmitter {
      */
     async deletePlugin(pluginId) {
         try {
+            const safePluginId = assertPluginId(pluginId);
+
             // Plugin entladen
             await this.unloadPlugin(pluginId);
 
             // Verzeichnis löschen
-            const pluginPath = path.join(this.pluginsDir, pluginId);
+            const pluginPath = assertPathInside(
+                this.pluginsDir,
+                path.join(this.pluginsDir, safePluginId),
+                'Plugin delete path'
+            );
             if (fs.existsSync(pluginPath)) {
                 fs.rmSync(pluginPath, { recursive: true, force: true });
             }
 
             // State löschen
-            delete this.state[pluginId];
+            delete this.state[safePluginId];
             this.saveState();
 
-            this.logger.info(`Deleted plugin: ${pluginId}`);
-            this.emit('plugin:deleted', pluginId);
+            this.logger.info(`Deleted plugin: ${safePluginId}`);
+            this.emit('plugin:deleted', safePluginId);
 
             return true;
         } catch (error) {
@@ -1205,13 +1364,27 @@ class PluginLoader extends EventEmitter {
      * @returns {string} Localized description or fallback
      */
     getLocalizedDescription(manifest, locale = 'en') {
-        // If descriptions object exists and has the requested locale, use it
-        if (manifest.descriptions && manifest.descriptions[locale]) {
-            return manifest.descriptions[locale];
+        const normalizedLocale = this.normalizeLocale(locale);
+
+        if (manifest.descriptions && manifest.descriptions[normalizedLocale]) {
+            return manifest.descriptions[normalizedLocale];
         }
-        
+
+        if (manifest.descriptions && manifest.descriptions.en) {
+            return manifest.descriptions.en;
+        }
+
         // Fallback to default description field
         return manifest.description || '';
+    }
+
+    normalizeLocale(locale = 'en') {
+        if (typeof locale !== 'string' || locale.trim() === '') {
+            return 'en';
+        }
+
+        const baseLocale = locale.trim().toLowerCase().replace('_', '-').split('-')[0];
+        return ['en', 'de', 'es', 'fr'].includes(baseLocale) ? baseLocale : 'en';
     }
 
     /**

@@ -37,6 +37,11 @@ class ViewerXPPlugin extends EventEmitter {
     // Watch time tracking (in-memory, persisted periodically)
     this.watchTimers = new Map(); // username -> { startTime, lastUpdate }
     this.watchTimeInterval = null;
+
+    // Detail log retention cleanup
+    this.retentionCleanupTimer = null;
+    this.retentionCleanupInterval = null;
+    this.retentionCleanupRunning = false;
     
     // Currency system constants
     this.UNRANKED_FALLBACK = 999; // Fallback rank for users with no previous ranking
@@ -91,6 +96,9 @@ class ViewerXPPlugin extends EventEmitter {
 
       // Start watch time tracking
       this.startWatchTimeTracking();
+
+      // Start bounded retention cleanup for high-volume XP detail logs
+      this.startRetentionCleanup();
 
       this.api.log('✅ Viewer XP System initialized successfully', 'info');
       this.api.log('   - XP tracking active for all viewer actions', 'info');
@@ -765,6 +773,15 @@ class ViewerXPPlugin extends EventEmitter {
           }
           if (value.global < 0.1 || value.global > 10.0) {
             return res.status(400).json({ success: false, error: 'Global multiplier must be between 0.1 and 10.0' });
+          }
+        }
+
+        if (key === 'detail_log_retention' && value) {
+          if (typeof value !== 'object') {
+            return res.status(400).json({ success: false, error: 'detail_log_retention must be an object' });
+          }
+          if (value.detail_log_days !== undefined && (Number(value.detail_log_days) < 1 || Number(value.detail_log_days) > 3650)) {
+            return res.status(400).json({ success: false, error: 'detail_log_days must be between 1 and 3650' });
           }
         }
 
@@ -1497,7 +1514,8 @@ class ViewerXPPlugin extends EventEmitter {
       // ── COIN SYSTEM IFTTT INTEGRATION ─────────────────────────────────────
 
       // Condition: Viewer has enough coins
-      this.api.registerIFTTTCondition('viewer-xp:has-coins', {
+      if (typeof this.api.registerIFTTTCondition === 'function') {
+        this.api.registerIFTTTCondition('viewer-xp:has-coins', {
         name: 'Viewer has enough Coins',
         description: 'Check if viewer has at least the specified number of spendable coins',
         category: 'viewer-xp',
@@ -1522,7 +1540,8 @@ class ViewerXPPlugin extends EventEmitter {
           label: 'Coin Balance',
           description: 'Current spendable coin balance of the viewer'
         }
-      });
+        });
+      }
 
       // Action: Spend coins (deduct from viewer)
       this.api.registerIFTTTAction('viewer-xp:spend-coins', {
@@ -2555,7 +2574,10 @@ class ViewerXPPlugin extends EventEmitter {
    */
   emitXPUpdate(username, amount, actionType, details = null) {
     try {
-      const io = this.api.getSocketIO();
+      const io = this.getSocketIOIfAvailable('emit');
+      if (!io) {
+        this.api.log('Socket.IO not available, skipping XP socket update', 'debug');
+      }
       const profile = this.db.getViewerProfile(username);
       const coinBalance = this.db.getCoinBalance(username);
       
@@ -2571,7 +2593,9 @@ class ViewerXPPlugin extends EventEmitter {
         meta: details
       };
 
-      io.emit('viewer-xp:update', eventData);
+      if (io) {
+        io.emit('viewer-xp:update', eventData);
+      }
 
       // NEW: Emit to new event log channel (to subscribed clients only)
       const eventLogData = {
@@ -2584,13 +2608,19 @@ class ViewerXPPlugin extends EventEmitter {
         created_at: Date.now()
       };
       
-      io.to('viewerxp-events').emit('viewerxp:event', eventLogData);
+      if (io && typeof io.to === 'function') {
+        io.to('viewerxp-events').emit('viewerxp:event', eventLogData);
+      }
       
       // Also emit to general broadcast for backward compatibility
-      io.emit('viewerxp:event', eventLogData);
+      if (io) {
+        io.emit('viewerxp:event', eventLogData);
+      }
 
       // Trigger throttled leaderboard update
-      this.emitThrottledLeaderboardUpdate();
+      if (io) {
+        this.emitThrottledLeaderboardUpdate();
+      }
 
       // Emit IFTTT event for XP gained
       if (profile) {
@@ -2641,7 +2671,7 @@ class ViewerXPPlugin extends EventEmitter {
         username,
         oldLevel,
         newLevel,
-        totalXP: profile.total_xp_earned,
+        totalXP: profile ? profile.total_xp_earned : 0,
         rewards
       });
 
@@ -2674,8 +2704,13 @@ class ViewerXPPlugin extends EventEmitter {
         return;
       }
 
+      if (typeof iftttEngine.processEvent !== 'function') {
+        this.api.log('IFTTT engine has no processEvent method, skipping event emission', 'debug');
+        return;
+      }
+
       // Emit event to IFTTT engine
-      iftttEngine.processEvent(eventType, eventData).catch(error => {
+      Promise.resolve(iftttEngine.processEvent(eventType, eventData)).catch(error => {
         this.api.log(`Error processing IFTTT event ${eventType}: ${error.message}`, 'error');
       });
 
@@ -3173,6 +3208,109 @@ class ViewerXPPlugin extends EventEmitter {
   }
 
   /**
+   * Start periodic cleanup of high-volume XP detail logs.
+   * Aggregated viewer profiles, levels, XP totals, and coin balances are kept.
+   */
+  startRetentionCleanup() {
+    if (
+      !this.db ||
+      typeof this.db.getDetailLogRetentionConfig !== 'function' ||
+      typeof this.db.cleanupDetailLogs !== 'function'
+    ) {
+      this.api.log('Viewer XP detail log retention unavailable for this database adapter', 'debug');
+      return;
+    }
+
+    const config = this.db.getDetailLogRetentionConfig();
+    if (!config.enabled) {
+      this.api.log('Viewer XP detail log retention disabled', 'debug');
+      return;
+    }
+
+    const runCleanup = () => {
+      this.runRetentionCleanup().catch((error) => {
+        this.api.log(`Viewer XP detail log retention failed: ${error.message}`, 'error');
+      });
+    };
+
+    this.retentionCleanupTimer = setTimeout(runCleanup, 30000);
+    if (typeof this.retentionCleanupTimer.unref === 'function') {
+      this.retentionCleanupTimer.unref();
+    }
+
+    this.retentionCleanupInterval = setInterval(
+      runCleanup,
+      config.cleanup_interval_hours * 60 * 60 * 1000
+    );
+    if (typeof this.retentionCleanupInterval.unref === 'function') {
+      this.retentionCleanupInterval.unref();
+    }
+  }
+
+  async runRetentionCleanup() {
+    if (
+      !this.db ||
+      typeof this.db.getDetailLogRetentionConfig !== 'function' ||
+      typeof this.db.cleanupDetailLogs !== 'function'
+    ) {
+      return { skipped: true, reason: 'unavailable' };
+    }
+
+    if (this.retentionCleanupRunning) {
+      return { skipped: true, reason: 'already_running' };
+    }
+
+    this.retentionCleanupRunning = true;
+    const config = this.db.getDetailLogRetentionConfig();
+    const deadline = Date.now() + config.cleanup_max_duration_ms;
+    const totals = {
+      xp_transactions: 0,
+      viewer_xp_events: 0,
+      coin_transactions: 0
+    };
+    let batches = 0;
+    let hasMore = false;
+
+    try {
+      if (!config.enabled) {
+        return { skipped: true, reason: 'disabled', totals, batches, hasMore: false };
+      }
+
+      do {
+        const result = this.db.cleanupDetailLogs({ batchSize: config.cleanup_batch_size });
+        if (result.skipped) {
+          return { ...result, totals, batches, hasMore: false };
+        }
+
+        batches++;
+        for (const key of Object.keys(totals)) {
+          totals[key] += result.deleted[key] || 0;
+        }
+        hasMore = result.hasMore;
+
+        if (!hasMore || Date.now() >= deadline) {
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      } while (hasMore);
+
+      const totalDeleted = Object.values(totals).reduce((sum, value) => sum + value, 0);
+      if (totalDeleted > 0) {
+        this.api.log(
+          `Viewer XP detail log retention removed ${totalDeleted} expired rows ` +
+          `(xp: ${totals.xp_transactions}, events: ${totals.viewer_xp_events}, coins: ${totals.coin_transactions})`,
+          'info'
+        );
+      }
+
+      return { skipped: false, totals, batches, hasMore, totalDeleted };
+    } finally {
+      this.retentionCleanupRunning = false;
+    }
+  }
+
+  /**
    * Gifter Leaderboard Helper Methods
    * Integrated from standalone leaderboard plugin
    */
@@ -3316,6 +3454,17 @@ class ViewerXPPlugin extends EventEmitter {
     // Stop watch time tracking
     if (this.watchTimeInterval) {
       clearInterval(this.watchTimeInterval);
+      this.watchTimeInterval = null;
+    }
+
+    if (this.retentionCleanupTimer) {
+      clearTimeout(this.retentionCleanupTimer);
+      this.retentionCleanupTimer = null;
+    }
+
+    if (this.retentionCleanupInterval) {
+      clearInterval(this.retentionCleanupInterval);
+      this.retentionCleanupInterval = null;
     }
 
     // Cleanup database

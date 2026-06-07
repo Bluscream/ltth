@@ -51,15 +51,18 @@ class CommandRegistry {
             this.validateCommandDefinition(commandDef);
             
             const fullCommandName = this.getFullCommandName(commandDef.pluginId, commandDef.name);
+            const existing = this.commands.get(commandDef.name);
             
             // Check for conflicts
-            if (this.commands.has(commandDef.name)) {
-                const existing = this.commands.get(commandDef.name);
+            if (existing) {
                 if (existing.pluginId !== commandDef.pluginId) {
                     this.logger.warn(`[GCCE] Command conflict: ${commandDef.name} already registered by ${existing.pluginId}`);
                     return false;
                 }
+                this.aliasManager.unregisterAllAliases(commandDef.name);
             }
+
+            this.invalidateCommandAndAliases(commandDef.name);
             
             // Register command
             this.commands.set(commandDef.name, {
@@ -73,8 +76,17 @@ class CommandRegistry {
                 this.pluginCommands.set(commandDef.pluginId, new Set());
             }
             this.pluginCommands.get(commandDef.pluginId).add(commandDef.name);
+
+            if (Array.isArray(commandDef.aliases) && commandDef.aliases.length > 0) {
+                const aliasResult = this.registerAliases(commandDef.aliases, commandDef.name);
+                if (aliasResult.failed > 0) {
+                    this.logger.warn(`[GCCE] Failed to register ${aliasResult.failed} alias(es) for /${commandDef.name}`);
+                }
+            }
             
-            this.stats.totalRegistered++;
+            if (!existing) {
+                this.stats.totalRegistered++;
+            }
             this.logger.info(`[GCCE] Registered command: /${commandDef.name} (${commandDef.pluginId})`);
             
             return true;
@@ -92,6 +104,7 @@ class CommandRegistry {
      */
     unregisterCommand(commandName, pluginId) {
         try {
+            commandName = this.normalizeName(commandName);
             const command = this.commands.get(commandName);
             
             if (!command) {
@@ -105,6 +118,8 @@ class CommandRegistry {
             }
             
             this.commands.delete(commandName);
+            this.aliasManager.unregisterAllAliases(commandName);
+            this.invalidateCommandAndAliases(commandName);
             
             if (this.pluginCommands.has(pluginId)) {
                 this.pluginCommands.get(pluginId).delete(commandName);
@@ -129,7 +144,9 @@ class CommandRegistry {
         if (!commands) return;
         
         for (const commandName of commands) {
+            this.aliasManager.unregisterAllAliases(commandName);
             this.commands.delete(commandName);
+            this.invalidateCommandAndAliases(commandName);
             this.stats.totalRegistered--;
         }
         
@@ -143,6 +160,9 @@ class CommandRegistry {
      * @returns {Object|null} Command definition or null
      */
     getCommand(commandName) {
+        commandName = this.normalizeName(commandName);
+        if (!commandName) return null;
+
         // Resolve alias to canonical name
         const canonicalName = this.aliasManager.resolve(commandName);
 
@@ -201,7 +221,9 @@ class CommandRegistry {
         const commandNames = this.pluginCommands.get(pluginId);
         if (!commandNames) return [];
         
-        return Array.from(commandNames).map(name => this.commands.get(name));
+        return Array.from(commandNames)
+            .map(name => this.commands.get(name))
+            .filter(Boolean);
     }
 
     /**
@@ -211,11 +233,13 @@ class CommandRegistry {
      * @returns {boolean} Success status
      */
     setCommandEnabled(commandName, enabled) {
-        const command = this.commands.get(commandName);
+        const canonicalName = this.aliasManager.resolve(this.normalizeName(commandName));
+        const command = this.commands.get(canonicalName);
         if (!command) return false;
         
         command.enabled = enabled;
-        this.logger.info(`[GCCE] Command /${commandName} ${enabled ? 'enabled' : 'disabled'}`);
+        this.invalidateCommandAndAliases(canonicalName);
+        this.logger.info(`[GCCE] Command /${canonicalName} ${enabled ? 'enabled' : 'disabled'}`);
         return true;
     }
 
@@ -225,6 +249,7 @@ class CommandRegistry {
      * @param {boolean} success - Whether execution succeeded
      */
     recordExecution(commandName, success) {
+        commandName = this.aliasManager.resolve(this.normalizeName(commandName));
         const command = this.commands.get(commandName);
         if (command) {
             command.executionCount++;
@@ -349,9 +374,23 @@ class CommandRegistry {
      */
     invalidateCache(commandName = null) {
         if (commandName) {
-            this.commandCache.delete(commandName);
+            this.commandCache.delete(this.normalizeName(commandName));
         } else {
             this.commandCache.clear();
+        }
+    }
+
+    /**
+     * Invalidate cache for a command and aliases pointing to it.
+     * @param {string} commandName - Canonical command name
+     */
+    invalidateCommandAndAliases(commandName) {
+        const canonicalName = this.normalizeName(commandName);
+        if (!canonicalName) return;
+
+        this.invalidateCache(canonicalName);
+        for (const alias of this.aliasManager.getAliases(canonicalName)) {
+            this.invalidateCache(alias);
         }
     }
 
@@ -362,14 +401,27 @@ class CommandRegistry {
      * @returns {boolean} Success status
      */
     registerAlias(alias, commandName) {
+        alias = this.normalizeName(alias);
+        commandName = this.normalizeName(commandName);
+
+        if (!alias || !commandName || alias === commandName) {
+            return false;
+        }
+
         const command = this.commands.get(commandName);
         if (!command) {
             this.logger.warn(`[GCCE] Cannot register alias for unknown command: ${commandName}`);
             return false;
         }
 
+        if (this.commands.has(alias)) {
+            this.logger.warn(`[GCCE] Cannot register alias /${alias}: command already exists`);
+            return false;
+        }
+
         const success = this.aliasManager.registerAlias(alias, commandName);
         if (success) {
+            this.invalidateCommandAndAliases(commandName);
             this.logger.info(`[GCCE] Registered alias: /${alias} -> /${commandName}`);
         }
         return success;
@@ -382,7 +434,18 @@ class CommandRegistry {
      * @returns {Object} Result { success, failed }
      */
     registerAliases(aliases, commandName) {
-        return this.aliasManager.registerAliases(aliases, commandName);
+        let success = 0;
+        let failed = 0;
+
+        for (const alias of aliases) {
+            if (this.registerAlias(alias, commandName)) {
+                success++;
+            } else {
+                failed++;
+            }
+        }
+
+        return { success, failed };
     }
 
     /**
@@ -391,7 +454,16 @@ class CommandRegistry {
      * @returns {Array<string>} Array of aliases
      */
     getCommandAliases(commandName) {
-        return this.aliasManager.getAliases(commandName);
+        return this.aliasManager.getAliases(this.normalizeName(commandName));
+    }
+
+    /**
+     * Normalize a command or alias name.
+     * @param {string} commandName - Raw command name
+     * @returns {string} Normalized command name
+     */
+    normalizeName(commandName) {
+        return String(commandName || '').toLowerCase().trim();
     }
 
     /**

@@ -350,7 +350,7 @@ describe('ExpressionController', () => {
             expect(controller.activeExpressions.size).toBe(0);
             expect(controller.comboQueue.length).toBe(0);
             expect(controller.cooldowns.size).toBe(0);
-            expect(controller.cleanupInterval).toBeUndefined();
+            expect(controller.cleanupInterval).toBeNull();
         });
     });
 });

@@ -11,6 +11,11 @@ class TemplateRenderer {
     this.settings = settings || {};
     this.currentUser = null;
     this.imageCache = new Map();
+    this.textEffects = null;
+
+    if (typeof window !== 'undefined' && window.TextEffects) {
+      this.textEffects = new window.TextEffects();
+    }
     
     // Design variant configurations
     this.designVariants = {
@@ -125,6 +130,9 @@ class TemplateRenderer {
       this.container.style.alignItems = 'center';
       this.container.style.textAlign = 'center';
     } else {
+      this.container.style.display = '';
+      this.container.style.justifyContent = '';
+      this.container.style.alignItems = '';
       this.container.style.textAlign = 'left';
     }
 
@@ -140,7 +148,7 @@ class TemplateRenderer {
    * Preload profile picture
    */
   async preloadImage(url) {
-    if (!url) return null;
+    if (!url || typeof url !== 'string') return null;
 
     // Check cache
     if (this.imageCache.has(url)) {
@@ -175,10 +183,13 @@ class TemplateRenderer {
 
     // Handle null user
     if (!userData && this.settings.hideOnNullUser) {
+      this.clearTextEffects();
+      this.container.innerHTML = '';
       this.container.style.display = 'none';
       return;
     } else if (!userData) {
       // Show container with placeholder message
+      this.clearTextEffects();
       this.container.style.display = '';
       this.container.innerHTML = '<div class="no-data">Waiting for event...</div>';
       return;
@@ -188,21 +199,28 @@ class TemplateRenderer {
     this.container.style.display = '';
 
     // Preload images if enabled
-    let profilePicUrl = userData.profilePictureUrl;
+    let profilePicUrl = this.normalizeImageUrl(userData.profilePictureUrl);
     if (this.settings.preloadImages && profilePicUrl) {
-      profilePicUrl = await this.preloadImage(profilePicUrl);
+      const preloadedProfilePicUrl = await this.preloadImage(profilePicUrl);
+      if (preloadedProfilePicUrl) {
+        profilePicUrl = preloadedProfilePicUrl;
+      }
     }
     
     // Also preload gift image if available
-    let giftPicUrl = userData.metadata?.giftPictureUrl;
+    let giftPicUrl = this.normalizeImageUrl(userData.metadata?.giftPictureUrl);
     if (this.settings.preloadImages && giftPicUrl) {
-      giftPicUrl = await this.preloadImage(giftPicUrl);
+      const preloadedGiftPicUrl = await this.preloadImage(giftPicUrl);
+      if (preloadedGiftPicUrl) {
+        giftPicUrl = preloadedGiftPicUrl;
+      }
     }
 
     // Build HTML based on design variant
     const html = this.buildHTML(userData, profilePicUrl, giftPicUrl);
 
     // Update DOM
+    this.clearTextEffects();
     this.container.innerHTML = html;
 
     // Apply styles
@@ -276,6 +294,47 @@ class TemplateRenderer {
     const unitMatch = size.match(/[a-zA-Z%]+$/);
     const unit = unitMatch ? unitMatch[0] : 'px';
     return Math.round(value * factor) + unit;
+  }
+
+  normalizeImageUrl(value) {
+    if (!value) return '';
+
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+
+    if (Array.isArray(value)) {
+      const firstString = value.find(item => typeof item === 'string' && item.trim());
+      return firstString ? firstString.trim() : '';
+    }
+
+    if (typeof value === 'object') {
+      const candidates = [
+        value.url,
+        value.urlList,
+        value.url_list,
+        value.urls,
+        value.imageUrl,
+        value.image_url,
+        value.giftPictureUrl,
+        value.picture_url,
+        value.image?.url,
+        value.image?.urlList,
+        value.image?.url_list,
+        value.image?.urls,
+        value.icon?.url,
+        value.icon?.urlList,
+        value.icon?.url_list,
+        value.icon?.urls
+      ];
+
+      for (const candidate of candidates) {
+        const normalized = this.normalizeImageUrl(candidate);
+        if (normalized) return normalized;
+      }
+    }
+
+    return '';
   }
 
   /**
@@ -443,7 +502,7 @@ class TemplateRenderer {
     }
 
     // Use preloaded URL if available, otherwise fall back to original URL
-    const giftPictureUrl = preloadedGiftPicUrl || userData.metadata?.giftPictureUrl;
+    const giftPictureUrl = this.normalizeImageUrl(preloadedGiftPicUrl || userData.metadata?.giftPictureUrl);
     
     // Determine fallback emoji based on event type
     const giftEmoji = userData.eventType === 'topgift' ? '💎' : (userData.eventType === 'giftstreak' ? '🔥' : '🎁');
@@ -451,7 +510,7 @@ class TemplateRenderer {
     // Fallback SVG data URI for when gift picture fails to load
     const fallbackSvg = this.generateFallbackSvg(giftEmoji, { borderRadius: '10', fontSize: '50' });
     
-    if (giftPictureUrl && giftPictureUrl.trim() !== '') {
+    if (giftPictureUrl) {
       const escapedGiftPictureUrl = this.escapeHtml(giftPictureUrl);
       const escapedGiftName = this.escapeHtml(giftName);
       return `
@@ -541,9 +600,7 @@ class TemplateRenderer {
       }
       
       textParts.push(`
-        <div class="username" style="${usernameStyle}">
-          ${escapedNickname}
-        </div>
+        <div class="username" style="${usernameStyle}">${escapedNickname}</div>
       `);
     }
 
@@ -611,13 +668,18 @@ class TemplateRenderer {
   applyElementStyles() {
     const usernameElement = this.container.querySelector('.username');
 
-    if (usernameElement && window.TextEffects) {
-      const textEffects = new window.TextEffects();
-      textEffects.applyComprehensiveEffects(usernameElement, this.settings);
+    if (usernameElement && this.textEffects) {
+      this.textEffects.applyComprehensiveEffects(usernameElement, this.settings);
     }
 
     // Attach error handlers to images for fallback support
     this.attachImageErrorHandlers();
+  }
+
+  clearTextEffects() {
+    if (this.textEffects && typeof this.textEffects.clearAll === 'function') {
+      this.textEffects.clearAll();
+    }
   }
 
   /**
@@ -650,6 +712,7 @@ class TemplateRenderer {
    */
   clear() {
     if (this.container) {
+      this.clearTextEffects();
       this.container.innerHTML = '';
     }
     this.currentUser = null;

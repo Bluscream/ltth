@@ -7,8 +7,23 @@
 class GameEngineDatabase {
   constructor(api, logger) {
     this.api = api;
-    this.logger = logger;
+    this.logger = this._normalizeLogger(logger);
     this.db = api.getDatabase().db; // Get the underlying better-sqlite3 instance
+  }
+
+  _normalizeLogger(logger) {
+    const fallback = (level) => (message) => {
+      if (typeof this.api?.log === 'function') {
+        this.api.log(message, level);
+      }
+    };
+
+    return {
+      info: typeof logger?.info === 'function' ? logger.info.bind(logger) : fallback('info'),
+      warn: typeof logger?.warn === 'function' ? logger.warn.bind(logger) : fallback('warn'),
+      error: typeof logger?.error === 'function' ? logger.error.bind(logger) : fallback('error'),
+      debug: typeof logger?.debug === 'function' ? logger.debug.bind(logger) : fallback('debug')
+    };
   }
 
   /**
@@ -299,7 +314,7 @@ class GameEngineDatabase {
 
     // Initialize default Plinko config if no boards exist
     const plinkoConfigExists = this.db.prepare('SELECT COUNT(*) as count FROM game_plinko_config').get();
-    if (plinkoConfigExists.count === 0) {
+    if ((plinkoConfigExists?.count || 0) === 0) {
       const defaultSlots = [
         { multiplier: 0.2, color: '#FF6B6B' },
         { multiplier: 0.5, color: '#FFA500' },
@@ -456,7 +471,7 @@ class GameEngineDatabase {
 
     // Initialize default Wheel config if no wheels exist
     const wheelConfigExists = this.db.prepare('SELECT COUNT(*) as count FROM game_wheel_config').get();
-    if (wheelConfigExists.count === 0) {
+    if ((wheelConfigExists?.count || 0) === 0) {
       const defaultSegments = [
         { text: '100 XP', color: '#FF6B6B', weight: 10, isNiete: false, isShock: false, shockIntensity: 0, shockDuration: 0, shockType: 'shock', shockDevices: [] },
         { text: '200 XP', color: '#FFA500', weight: 8, isNiete: false, isShock: false, shockIntensity: 0, shockDuration: 0, shockType: 'shock', shockDevices: [] },
@@ -514,14 +529,14 @@ class GameEngineDatabase {
    * Initialize overlay settings with defaults for all game types
    */
   initializeOverlaySettings() {
-    const games = ['connect4', 'chess', 'plinko', 'wheel'];
+    const games = ['connect4', 'chess', 'plinko', 'wheel', 'slot', 'arena'];
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO game_overlay_settings (game_type, use_unified_overlay)
-      VALUES (?, 1)
+      VALUES (?, ?)
     `);
     
     games.forEach(game => {
-      stmt.run(game);
+      stmt.run(game, game === 'arena' ? 0 : 1);
     });
   }
   
@@ -543,7 +558,7 @@ class GameEngineDatabase {
   
   /**
    * Set overlay setting for a specific game type
-   * @param {string} gameType - Game type (connect4, chess, plinko, wheel)
+   * @param {string} gameType - Game type (connect4, chess, plinko, wheel, slot, arena)
    * @param {boolean} useUnified - Whether to use unified overlay
    */
   setOverlaySetting(gameType, useUnified) {
@@ -1197,31 +1212,6 @@ class GameEngineDatabase {
     `);
     
     stmt.run(newELO, newELO, newELO, username, gameType);
-  }
-
-  /**
-   * Calculate ELO rating change
-   */
-  calculateELOChange(player1ELO, player2ELO, player1Score, kFactor = 32) {
-    // Expected score for player1
-    const expected = 1 / (1 + Math.pow(10, (player2ELO - player1ELO) / 400));
-    
-    // New rating
-    const change = Math.round(kFactor * (player1Score - expected));
-    
-    return change;
-  }
-
-  /**
-   * Get ELO leaderboard
-   */
-  getELOLeaderboard(gameType, limit = 10) {
-    const query = gameType 
-      ? `SELECT * FROM game_player_stats WHERE game_type = ? ORDER BY elo_rating DESC LIMIT ?`
-      : `SELECT * FROM game_player_stats ORDER BY elo_rating DESC LIMIT ?`;
-    
-    const stmt = this.db.prepare(query);
-    return gameType ? stmt.all(gameType, limit) : stmt.all(limit);
   }
 
   /**
@@ -2202,7 +2192,7 @@ class GameEngineDatabase {
 
     // Seed a default slot machine if none exists
     const count = this.db.prepare('SELECT COUNT(*) as c FROM game_slot_config').get();
-    if (count.c === 0) {
+    if ((count?.c || 0) === 0) {
       const defaultSymbols = [
         { id: 'cherry',  emoji: '🍒', label: 'Cherry',  weight: 18 },
         { id: 'lemon',   emoji: '🍋', label: 'Lemon',   weight: 16 },

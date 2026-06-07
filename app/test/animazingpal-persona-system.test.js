@@ -4,7 +4,6 @@
  */
 
 const assert = require('assert');
-const path = require('path');
 
 describe('AnimazingPal Persona System', function() {
   let MemoryDatabase;
@@ -14,19 +13,22 @@ describe('AnimazingPal Persona System', function() {
   let memoryDb;
   let brainEngine;
 
-  before(function() {
+  beforeAll(function() {
     // Load required modules
     try {
-      MemoryDatabase = require('../../animazingpal/brain/memory-database');
-      BrainEngine = require('../../animazingpal/brain/brain-engine');
+      MemoryDatabase = require('../plugins/animazingpal/brain/memory-database');
+      BrainEngine = require('../plugins/animazingpal/brain/brain-engine');
     } catch (err) {
       console.log('Could not load modules, skipping tests:', err.message);
-      this.skip();
     }
   });
 
   beforeEach(function() {
     // Create mock database using in-memory SQLite
+    if (!MemoryDatabase || !BrainEngine) {
+      return;
+    }
+
     const Database = require('better-sqlite3');
     mockDb = new Database(':memory:');
     
@@ -51,6 +53,10 @@ describe('AnimazingPal Persona System', function() {
   });
 
   afterEach(function() {
+    if (!MemoryDatabase || !BrainEngine) {
+      return;
+    }
+
     if (mockDb) {
       mockDb.close();
     }

@@ -179,7 +179,6 @@ class BaseAdapter extends EventEmitter {
    * @returns {Promise<void>}
    * @abstract
    */
-  // eslint-disable-next-line no-unused-vars
   async connect(username, options = {}) {
     throw new Error('connect() must be implemented by subclass');
   }

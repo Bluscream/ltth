@@ -25,7 +25,7 @@ const { detectPluginConflicts, detectSettingsConflicts } = require('./conflict-r
  *
  * @param {string} zipPath - Absolute path to the uploaded ZIP file
  * @param {number} [fileSizeBytes] - Pre-computed file size for size validation
- * @returns {Promise<{ manifest: object, globalSettings: object|null, pluginSettings: object, dataFiles: object, warnings: string[], errors: string[] }>}
+ * @returns {Promise<{ manifest: object, globalSettings: object|null, pluginSettings: object, dataFiles: object, userConfigsFiles: Array, warnings: string[], errors: string[] }>}
  */
 async function parseBackupZip(zipPath, fileSizeBytes) {
     const warnings = [];
@@ -35,7 +35,7 @@ async function parseBackupZip(zipPath, fileSizeBytes) {
     if (fileSizeBytes !== undefined) {
         const sizeCheck = validateBackupSize(fileSizeBytes);
         if (!sizeCheck.valid) {
-            return { manifest: null, globalSettings: null, pluginSettings: {}, dataFiles: {}, warnings, errors: [sizeCheck.error] };
+            return { manifest: null, globalSettings: null, pluginSettings: {}, dataFiles: {}, userConfigsFiles: [], warnings, errors: [sizeCheck.error] };
         }
     }
 
@@ -45,14 +45,14 @@ async function parseBackupZip(zipPath, fileSizeBytes) {
         await zl.extract(zipPath, tmpDir);
     } catch (err) {
         cleanupTempDir(tmpDir);
-        return { manifest: null, globalSettings: null, pluginSettings: {}, dataFiles: {}, warnings, errors: [`Failed to extract backup archive: ${err.message}`] };
+        return { manifest: null, globalSettings: null, pluginSettings: {}, dataFiles: {}, userConfigsFiles: [], warnings, errors: [`Failed to extract backup archive: ${err.message}`] };
     }
 
     // ── Read manifest ─────────────────────────────────────────────────────────
     const manifestPath = path.join(tmpDir, 'manifest.json');
     if (!fs.existsSync(manifestPath)) {
         cleanupTempDir(tmpDir);
-        return { manifest: null, globalSettings: null, pluginSettings: {}, dataFiles: {}, warnings, errors: ['Invalid backup: manifest.json not found'] };
+        return { manifest: null, globalSettings: null, pluginSettings: {}, dataFiles: {}, userConfigsFiles: [], warnings, errors: ['Invalid backup: manifest.json not found'] };
     }
 
     let manifest;
@@ -60,13 +60,13 @@ async function parseBackupZip(zipPath, fileSizeBytes) {
         manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     } catch (err) {
         cleanupTempDir(tmpDir);
-        return { manifest: null, globalSettings: null, pluginSettings: {}, dataFiles: {}, warnings, errors: [`Failed to parse manifest.json: ${err.message}`] };
+        return { manifest: null, globalSettings: null, pluginSettings: {}, dataFiles: {}, userConfigsFiles: [], warnings, errors: [`Failed to parse manifest.json: ${err.message}`] };
     }
 
     const manifestValidation = validateManifest(manifest);
     if (!manifestValidation.valid) {
         cleanupTempDir(tmpDir);
-        return { manifest, globalSettings: null, pluginSettings: {}, dataFiles: {}, warnings, errors: manifestValidation.errors };
+        return { manifest, globalSettings: null, pluginSettings: {}, dataFiles: {}, userConfigsFiles: [], warnings, errors: manifestValidation.errors };
     }
     warnings.push(...(manifest.warnings || []).map(w => `[original export] ${w}`));
 
@@ -147,11 +147,20 @@ async function parseBackupZip(zipPath, fileSizeBytes) {
         });
     }
 
+    const userConfigsFiles = [];
+    const userConfigsDir = path.join(tmpDir, 'user_configs');
+    if (fs.existsSync(userConfigsDir)) {
+        walkDir(userConfigsDir).forEach(absPath => {
+            userConfigsFiles.push({ tmpPath: absPath, relPath: path.relative(userConfigsDir, absPath) });
+        });
+    }
+
     return {
         manifest,
         globalSettings,
         pluginSettings,
         dataFiles,
+        userConfigsFiles,
         uploadFiles,
         userDataFiles,
         tmpDir,     // Caller must clean up
@@ -218,6 +227,7 @@ function previewImport(parsed, deps, opts = {}) {
                 }
             ])
         ),
+        userConfigFiles: (parsed.userConfigsFiles || []).length,
         uploadFiles: (parsed.uploadFiles || []).length,
         userDataFiles: (parsed.userDataFiles || []).length
     };
@@ -236,8 +246,9 @@ function previewImport(parsed, deps, opts = {}) {
  * @param {boolean} [opts.includeGlobalSettings=true]
  * @param {boolean} [opts.includePluginSettings=true]
  * @param {boolean} [opts.includePluginData=true]
- * @param {boolean} [opts.includeUploads=false]
- * @param {boolean} [opts.includeUserData=false]
+ * @param {boolean} [opts.includeUserConfigs=true]
+ * @param {boolean} [opts.includeUploads=true]
+ * @param {boolean} [opts.includeUserData=true]
  * @param {string[]} [opts.pluginFilter] - Only restore these plugin IDs
  * @returns {Promise<{ success: boolean, report: object, warnings: string[], errors: string[] }>}
  */
@@ -248,8 +259,9 @@ async function performImport(parsed, deps, opts = {}) {
         includeGlobalSettings = true,
         includePluginSettings = true,
         includePluginData = true,
-        includeUploads = false,
-        includeUserData = false,
+        includeUserConfigs = true,
+        includeUploads = true,
+        includeUserData = true,
         pluginFilter = null
     } = opts;
 
@@ -257,7 +269,8 @@ async function performImport(parsed, deps, opts = {}) {
     const errors = [];
     const report = {
         globalSettings: { imported: [], skipped: [] },
-        plugins: {}
+        plugins: {},
+        userConfigs: { imported: [], skipped: [], renamed: [] }
     };
 
     // ── Global settings ───────────────────────────────────────────────────────
@@ -344,6 +357,111 @@ async function performImport(parsed, deps, opts = {}) {
     }
 
     // ── Uploads ───────────────────────────────────────────────────────────────
+    // User profile config files
+    if (includeUserConfigs && parsed.userConfigsFiles && parsed.userConfigsFiles.length > 0) {
+        if (!configPathManager || typeof configPathManager.getUserConfigsDir !== 'function') {
+            warnings.push('[user_configs] Config path manager does not expose getUserConfigsDir()');
+        } else {
+            const userConfigsBase = configPathManager.getUserConfigsDir();
+            const profileNameMap = {};
+            const activeDbPath = getActiveDbPath(db);
+            const files = parsed.userConfigsFiles.slice().sort(sortUserConfigFiles);
+
+            for (const { tmpPath, relPath } of files) {
+                const pathCheck = validateEntryPath(relPath);
+                if (!pathCheck.valid) {
+                    warnings.push(`[user_configs] Skipping file with unsafe path: ${relPath}`);
+                    report.userConfigs.skipped.push(relPath);
+                    continue;
+                }
+
+                if (isActiveProfileMarker(relPath)) {
+                    try {
+                        const originalProfile = fs.readFileSync(tmpPath, 'utf8').trim();
+                        const restoredProfile = profileNameMap[originalProfile] || originalProfile;
+                        const destPath = path.join(userConfigsBase, '.active_profile');
+                        const destCheck = validateDestinationPath(destPath, userConfigsBase);
+                        if (!destCheck.valid) {
+                            warnings.push(`[user_configs] Skipping .active_profile, ${destCheck.error}`);
+                            report.userConfigs.skipped.push(relPath);
+                            continue;
+                        }
+                        if (mode === 'merge' && fs.existsSync(destPath)) {
+                            report.userConfigs.skipped.push(relPath);
+                            continue;
+                        }
+                        fs.mkdirSync(path.dirname(destPath), { recursive: true });
+                        fs.writeFileSync(destPath, restoredProfile, 'utf8');
+                        report.userConfigs.imported.push(relPath);
+                    } catch (err) {
+                        warnings.push(`[user_configs] Failed to restore ${relPath}: ${err.message}`);
+                        report.userConfigs.skipped.push(relPath);
+                    }
+                    continue;
+                }
+
+                let targetRelPath = mapUserConfigRelPath(relPath, profileNameMap);
+                let destPath = path.join(userConfigsBase, targetRelPath);
+                const destCheck = validateDestinationPath(destPath, userConfigsBase);
+                if (!destCheck.valid) {
+                    warnings.push(`[user_configs] Skipping file, ${destCheck.error}`);
+                    report.userConfigs.skipped.push(relPath);
+                    continue;
+                }
+
+                if (mode === 'merge' && fs.existsSync(destPath)) {
+                    report.userConfigs.skipped.push(relPath);
+                    continue;
+                }
+
+                if (isRootProfileDatabase(relPath) && activeDbPath && path.resolve(destPath) === activeDbPath) {
+                    const originalProfile = path.basename(relPath, '.db');
+                    const restoredProfile = makeRestoreProfileName(userConfigsBase, originalProfile);
+                    profileNameMap[originalProfile] = restoredProfile;
+                    targetRelPath = `${restoredProfile}.db`;
+                    destPath = path.join(userConfigsBase, targetRelPath);
+                    report.userConfigs.renamed.push({ from: relPath, to: targetRelPath });
+                    warnings.push(
+                        `[user_configs] Active profile database ${relPath} restored as ${targetRelPath}; restart the application to load it.`
+                    );
+                }
+
+                try {
+                    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+                    fs.copyFileSync(tmpPath, destPath);
+                    report.userConfigs.imported.push(targetRelPath);
+                } catch (err) {
+                    if (isRootProfileDatabase(relPath)) {
+                        const originalProfile = path.basename(relPath, '.db');
+                        const restoredProfile = profileNameMap[originalProfile] || makeRestoreProfileName(userConfigsBase, originalProfile);
+                        profileNameMap[originalProfile] = restoredProfile;
+                        const fallbackRelPath = `${restoredProfile}.db`;
+                        const fallbackDestPath = path.join(userConfigsBase, fallbackRelPath);
+                        const fallbackCheck = validateDestinationPath(fallbackDestPath, userConfigsBase);
+
+                        if (fallbackCheck.valid) {
+                            try {
+                                fs.mkdirSync(path.dirname(fallbackDestPath), { recursive: true });
+                                fs.copyFileSync(tmpPath, fallbackDestPath);
+                                report.userConfigs.imported.push(fallbackRelPath);
+                                report.userConfigs.renamed.push({ from: relPath, to: fallbackRelPath });
+                                warnings.push(
+                                    `[user_configs] Could not overwrite ${relPath}; restored as ${fallbackRelPath}: ${err.message}`
+                                );
+                                continue;
+                            } catch (fallbackErr) {
+                                warnings.push(`[user_configs] Failed fallback restore for ${relPath}: ${fallbackErr.message}`);
+                            }
+                        }
+                    } else {
+                        warnings.push(`[user_configs] Failed to restore ${relPath}: ${err.message}`);
+                    }
+                    report.userConfigs.skipped.push(relPath);
+                }
+            }
+        }
+    }
+
     if (includeUploads && parsed.uploadFiles && parsed.uploadFiles.length > 0) {
         const uploadsBase = configPathManager.getUploadsDir();
         report.uploads = { imported: [], skipped: [] };
@@ -447,6 +565,68 @@ function walkDir(dir) {
         }
     }
     return results;
+}
+
+function isActiveProfileMarker(relPath) {
+    return relPath.replace(/\\/g, '/') === '.active_profile';
+}
+
+function isRootProfileDatabase(relPath) {
+    const zipPath = relPath.replace(/\\/g, '/');
+    return !zipPath.includes('/') && zipPath.endsWith('.db');
+}
+
+function isRootPluginStateFile(relPath) {
+    const zipPath = relPath.replace(/\\/g, '/');
+    return !zipPath.includes('/') && zipPath.endsWith('_plugins_state.json');
+}
+
+function mapUserConfigRelPath(relPath, profileNameMap) {
+    if (isRootPluginStateFile(relPath)) {
+        const fileName = path.basename(relPath);
+        const profileName = fileName.slice(0, -'_plugins_state.json'.length);
+        if (profileNameMap[profileName]) {
+            return `${profileNameMap[profileName]}_plugins_state.json`;
+        }
+    }
+
+    return relPath;
+}
+
+function sortUserConfigFiles(a, b) {
+    const priority = (relPath) => {
+        if (isRootProfileDatabase(relPath)) return 0;
+        if (isRootPluginStateFile(relPath)) return 1;
+        if (isActiveProfileMarker(relPath)) return 2;
+        return 3;
+    };
+
+    return priority(a.relPath) - priority(b.relPath);
+}
+
+function makeRestoreProfileName(userConfigsBase, originalProfile) {
+    const safeBaseName = originalProfile.replace(/[^a-zA-Z0-9_-]/g, '_') || 'imported-profile';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    let candidate = `${safeBaseName}-restored-${timestamp}`;
+    let counter = 1;
+
+    while (
+        fs.existsSync(path.join(userConfigsBase, `${candidate}.db`)) ||
+        fs.existsSync(path.join(userConfigsBase, `${candidate}_plugins_state.json`))
+    ) {
+        candidate = `${safeBaseName}-restored-${timestamp}-${counter}`;
+        counter += 1;
+    }
+
+    return candidate;
+}
+
+function getActiveDbPath(db) {
+    if (!db) return null;
+    if (db.dbPath) return path.resolve(db.dbPath);
+    if (db.name && db.name !== ':memory:') return path.resolve(db.name);
+    if (db.db && db.db.name && db.db.name !== ':memory:') return path.resolve(db.db.name);
+    return null;
 }
 
 /**

@@ -15,7 +15,7 @@ const FLOW_PRESETS = [
             trigger_type: 'tiktok:gift',
             trigger_condition: { field: 'giftName', operator: 'equals', value: 'Rose' },
             actions: [
-                { type: 'tts:speak', text: 'Danke {{username}} für die Rose!', voice: '', volume: 80 }
+                { type: 'tts:speak', text: 'Danke {username} für die Rose!', voice: '', volume: 80 }
             ],
             enabled: true,
             cooldown: 5
@@ -32,7 +32,7 @@ const FLOW_PRESETS = [
             trigger_type: 'tiktok:follow',
             trigger_condition: null,
             actions: [
-                { type: 'alert:show', text: '{{username}} folgt jetzt!', duration: 5, volume: 80 }
+                { type: 'alert:show', text: '{username} folgt jetzt!', duration: 5, volume: 80 }
             ],
             enabled: true,
             cooldown: 3
@@ -49,7 +49,7 @@ const FLOW_PRESETS = [
             trigger_type: 'tiktok:subscribe',
             trigger_condition: null,
             actions: [
-                { type: 'tts:speak', text: 'Vielen Dank {{username}} für das Abonnement!', voice: '', volume: 80 },
+                { type: 'tts:speak', text: 'Vielen Dank {username} für das Abonnement!', voice: '', volume: 80 },
                 { type: 'osc:vrchat:dance', parameter: '/avatar/parameters/Dance', value: true }
             ],
             enabled: true,
@@ -67,8 +67,8 @@ const FLOW_PRESETS = [
             trigger_type: 'tiktok:gift',
             trigger_condition: { field: 'coins', operator: 'greaterThan', value: '100' },
             actions: [
-                { type: 'alert:show', text: '🎁 {{username}} hat {{giftName}} ({{coins}} Coins) geschenkt!', duration: 8, volume: 80 },
-                { type: 'tts:speak', text: 'Wow! {{username}} hat {{giftName}} für {{coins}} Coins geschenkt. Mega vielen Dank!', voice: '', volume: 80 },
+                { type: 'alert:show', text: '🎁 {username} hat {giftName} ({coins} Coins) geschenkt!', duration: 8, volume: 80 },
+                { type: 'tts:speak', text: 'Wow! {username} hat {giftName} für {coins} Coins geschenkt. Mega vielen Dank!', voice: '', volume: 80 },
                 { type: 'emojirain:trigger', emoji: '🎁', count: 30, duration: 4 }
             ],
             enabled: true,
@@ -122,7 +122,7 @@ const FLOW_PRESETS = [
             trigger_condition: null,
             actions: [
                 { type: 'osc:vrchat:hearts', parameter: '/avatar/parameters/Hearts', value: true },
-                { type: 'tts:speak', text: 'Danke {{username}} fürs Teilen!', voice: '', volume: 80 }
+                { type: 'tts:speak', text: 'Danke {username} fürs Teilen!', voice: '', volume: 80 }
             ],
             enabled: true,
             cooldown: 5

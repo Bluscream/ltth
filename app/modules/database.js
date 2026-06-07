@@ -13,7 +13,13 @@ class DatabaseManager {
             
             // Test database integrity
             try {
-                this.db.pragma('integrity_check');
+                const integrityResult = this.db.pragma('integrity_check');
+                const isHealthy = Array.isArray(integrityResult) &&
+                    integrityResult.length > 0 &&
+                    integrityResult[0].integrity_check === 'ok';
+                if (!isHealthy) {
+                    throw new Error(`integrity_check failed: ${JSON.stringify(integrityResult)}`);
+                }
             } catch (integrityError) {
                 console.error('❌ [DATABASE] Database integrity check failed:', integrityError.message);
                 throw new Error('DATABASE_CORRUPTED');
@@ -41,6 +47,8 @@ class DatabaseManager {
         this.maxEventLogEntries = 5000; // Maximum entries to keep
         this.eventLogCleanupCounter = 0;
         this.eventLogCleanupInterval = 500; // Run cleanup every 500 batch flushes
+        this.isClosing = false;
+        this.isClosed = false;
 
         // Flag für Shutdown-Handler (verhindert doppelte Registrierung)
         this.shutdownHandlersRegistered = false;
@@ -65,6 +73,7 @@ class DatabaseManager {
                 return;
             }
             this._isShuttingDown = true;
+            this.isClosing = true;
 
             try {
                 // Flush mit Timeout-Schutz
@@ -72,7 +81,10 @@ class DatabaseManager {
                     this.flushEventBatch(),
                     new Promise(resolve => setTimeout(resolve, 3000))
                 ]);
-                this.db.close();
+                if (this.db?.open) {
+                    this.db.close();
+                }
+                this.isClosed = true;
             } catch (error) {
                 console.error('Error during graceful shutdown:', error);
             }
@@ -83,6 +95,10 @@ class DatabaseManager {
         process.once('exit', gracefulShutdown);
 
         DatabaseManager.shutdownHandlersRegistered = true;
+    }
+
+    _isDbOpen() {
+        return !!this.db && this.db.open && !this.isClosed;
     }
 
     handleCorruptedDatabase(dbPath) {
@@ -159,9 +175,14 @@ class DatabaseManager {
                 trigger_condition TEXT,
                 actions TEXT NOT NULL,
                 enabled INTEGER DEFAULT 1,
+                description TEXT DEFAULT '',
+                priority TEXT DEFAULT 'normal',
+                schema_version INTEGER DEFAULT 1,
+                flow_graph TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        this.ensureFlowsSchema();
 
         // Event-Log (optional, für Analytics)
         this.db.exec(`
@@ -173,6 +194,7 @@ class DatabaseManager {
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        this.ensureEventLogsSchema();
 
         // Indexes for event_logs performance (critical for high-volume scenarios)
         this.db.exec(`
@@ -605,6 +627,240 @@ class DatabaseManager {
         }
     }
 
+    getTableColumns(tableName) {
+        return new Set(this.db.prepare(`PRAGMA table_info(${tableName})`).all().map(col => col.name));
+    }
+
+    addColumnIfMissing(tableName, columns, columnName, definition) {
+        if (columns.has(columnName)) {
+            return;
+        }
+
+        this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+        columns.add(columnName);
+    }
+
+    selectLegacyColumn(columns, columnName, fallbackSql) {
+        return columns.has(columnName) ? columnName : fallbackSql;
+    }
+
+    ensureEventLogsSchema() {
+        const columns = this.getTableColumns('event_logs');
+        this.addColumnIfMissing('event_logs', columns, 'event_type', 'TEXT');
+        this.addColumnIfMissing('event_logs', columns, 'username', 'TEXT');
+        this.addColumnIfMissing('event_logs', columns, 'data', 'TEXT');
+        this.addColumnIfMissing('event_logs', columns, 'timestamp', 'DATETIME');
+    }
+
+    ensureFlowsSchema() {
+        const columns = this.getTableColumns('flows');
+        this.addColumnIfMissing('flows', columns, 'description', "TEXT DEFAULT ''");
+        this.addColumnIfMissing('flows', columns, 'priority', "TEXT DEFAULT 'normal'");
+        this.addColumnIfMissing('flows', columns, 'schema_version', 'INTEGER DEFAULT 1');
+        this.addColumnIfMissing('flows', columns, 'flow_graph', 'TEXT');
+    }
+
+    ensureHudElementsSchema() {
+        const columns = this.getTableColumns('hud_elements');
+        this.addColumnIfMissing('hud_elements', columns, 'element_id', 'TEXT');
+        this.addColumnIfMissing('hud_elements', columns, 'enabled', 'INTEGER DEFAULT 1');
+        this.addColumnIfMissing('hud_elements', columns, 'position_x', 'REAL DEFAULT 0');
+        this.addColumnIfMissing('hud_elements', columns, 'position_y', 'REAL DEFAULT 0');
+        this.addColumnIfMissing('hud_elements', columns, 'position_unit', "TEXT DEFAULT 'px'");
+        this.addColumnIfMissing('hud_elements', columns, 'width', 'REAL DEFAULT 0');
+        this.addColumnIfMissing('hud_elements', columns, 'height', 'REAL DEFAULT 0');
+        this.addColumnIfMissing('hud_elements', columns, 'anchor', "TEXT DEFAULT 'top-left'");
+        this.addColumnIfMissing('hud_elements', columns, 'created_at', 'DATETIME');
+        this.addColumnIfMissing('hud_elements', columns, 'updated_at', 'DATETIME');
+    }
+
+    ensureModernUserStatisticsColumns() {
+        const columns = this.getTableColumns('user_statistics');
+        this.addColumnIfMissing('user_statistics', columns, 'unique_id', 'TEXT');
+        this.addColumnIfMissing('user_statistics', columns, 'profile_picture_url', 'TEXT');
+        this.addColumnIfMissing('user_statistics', columns, 'total_coins_sent', 'INTEGER DEFAULT 0');
+        this.addColumnIfMissing('user_statistics', columns, 'total_gifts_sent', 'INTEGER DEFAULT 0');
+        this.addColumnIfMissing('user_statistics', columns, 'total_comments', 'INTEGER DEFAULT 0');
+        this.addColumnIfMissing('user_statistics', columns, 'total_likes', 'INTEGER DEFAULT 0');
+        this.addColumnIfMissing('user_statistics', columns, 'total_shares', 'INTEGER DEFAULT 0');
+        this.addColumnIfMissing('user_statistics', columns, 'total_follows', 'INTEGER DEFAULT 0');
+        this.addColumnIfMissing('user_statistics', columns, 'first_seen_at', 'DATETIME');
+        this.addColumnIfMissing('user_statistics', columns, 'last_seen_at', 'DATETIME');
+        this.addColumnIfMissing('user_statistics', columns, 'last_gift_at', 'DATETIME');
+        this.addColumnIfMissing('user_statistics', columns, 'created_at', 'DATETIME');
+        this.addColumnIfMissing('user_statistics', columns, 'updated_at', 'DATETIME');
+    }
+
+    migrateUserStatisticsSchema() {
+        const columns = this.getTableColumns('user_statistics');
+        if (columns.has('streamer_id')) {
+            this.ensureModernUserStatisticsColumns();
+            return;
+        }
+
+        console.log('Running migration: Adding streamer_id to user_statistics table for scoped profiles');
+        const defaultStreamerId = this.streamerId || 'default';
+        const select = name => this.selectLegacyColumn(columns, name, this.userStatisticsFallback(name));
+
+        const migrate = this.db.transaction(() => {
+            this.db.exec('DROP TABLE IF EXISTS user_statistics_new');
+            this.db.exec(`
+                CREATE TABLE user_statistics_new (
+                    user_id TEXT NOT NULL,
+                    streamer_id TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    unique_id TEXT,
+                    profile_picture_url TEXT,
+                    total_coins_sent INTEGER DEFAULT 0,
+                    total_gifts_sent INTEGER DEFAULT 0,
+                    total_comments INTEGER DEFAULT 0,
+                    total_likes INTEGER DEFAULT 0,
+                    total_shares INTEGER DEFAULT 0,
+                    total_follows INTEGER DEFAULT 0,
+                    first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_gift_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, streamer_id)
+                )
+            `);
+
+            this.db.prepare(`
+                INSERT OR REPLACE INTO user_statistics_new (
+                    user_id, streamer_id, username, unique_id, profile_picture_url,
+                    total_coins_sent, total_gifts_sent, total_comments, total_likes,
+                    total_shares, total_follows, first_seen_at, last_seen_at,
+                    last_gift_at, created_at, updated_at
+                )
+                SELECT
+                    CAST(user_id AS TEXT),
+                    ?,
+                    ${columns.has('username') ? "COALESCE(username, CAST(user_id AS TEXT), 'Unknown')" : "COALESCE(CAST(user_id AS TEXT), 'Unknown')"},
+                    ${select('unique_id')},
+                    ${select('profile_picture_url')},
+                    ${select('total_coins_sent')},
+                    ${select('total_gifts_sent')},
+                    ${select('total_comments')},
+                    ${select('total_likes')},
+                    ${select('total_shares')},
+                    ${select('total_follows')},
+                    ${select('first_seen_at')},
+                    ${select('last_seen_at')},
+                    ${select('last_gift_at')},
+                    ${select('created_at')},
+                    ${select('updated_at')}
+                FROM user_statistics
+                WHERE user_id IS NOT NULL
+            `).run(defaultStreamerId);
+
+            this.db.exec('DROP TABLE user_statistics');
+            this.db.exec('ALTER TABLE user_statistics_new RENAME TO user_statistics');
+        });
+
+        migrate();
+        console.log('Migration completed: user_statistics now scoped by streamer_id');
+    }
+
+    userStatisticsFallback(columnName) {
+        const fallbacks = {
+            unique_id: 'NULL',
+            profile_picture_url: 'NULL',
+            total_coins_sent: '0',
+            total_gifts_sent: '0',
+            total_comments: '0',
+            total_likes: '0',
+            total_shares: '0',
+            total_follows: '0',
+            first_seen_at: 'CURRENT_TIMESTAMP',
+            last_seen_at: 'CURRENT_TIMESTAMP',
+            last_gift_at: 'NULL',
+            created_at: 'CURRENT_TIMESTAMP',
+            updated_at: 'CURRENT_TIMESTAMP'
+        };
+
+        return fallbacks[columnName] || 'NULL';
+    }
+
+    ensureModernMilestoneUserStatsColumns() {
+        const columns = this.getTableColumns('milestone_user_stats');
+        this.addColumnIfMissing('milestone_user_stats', columns, 'last_tier_reached', 'INTEGER DEFAULT 0');
+        this.addColumnIfMissing('milestone_user_stats', columns, 'last_trigger_at', 'DATETIME');
+        this.addColumnIfMissing('milestone_user_stats', columns, 'created_at', 'DATETIME');
+        this.addColumnIfMissing('milestone_user_stats', columns, 'updated_at', 'DATETIME');
+    }
+
+    migrateMilestoneUserStatsSchema() {
+        const columns = this.getTableColumns('milestone_user_stats');
+        if (columns.has('streamer_id')) {
+            this.ensureModernMilestoneUserStatsColumns();
+            return;
+        }
+
+        console.log('Running migration: Adding streamer_id to milestone_user_stats table');
+        const defaultStreamerId = this.streamerId || 'default';
+        const select = name => this.selectLegacyColumn(columns, name, this.milestoneUserStatsFallback(name));
+
+        const migrate = this.db.transaction(() => {
+            this.db.exec('DROP TABLE IF EXISTS milestone_user_stats_new');
+            this.db.exec(`
+                CREATE TABLE milestone_user_stats_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    streamer_id TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    cumulative_coins INTEGER DEFAULT 0,
+                    current_milestone INTEGER DEFAULT 0,
+                    last_tier_reached INTEGER DEFAULT 0,
+                    last_trigger_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, streamer_id)
+                )
+            `);
+
+            this.db.prepare(`
+                INSERT OR REPLACE INTO milestone_user_stats_new (
+                    id, user_id, streamer_id, username, cumulative_coins,
+                    current_milestone, last_tier_reached, last_trigger_at,
+                    created_at, updated_at
+                )
+                SELECT
+                    ${columns.has('id') ? 'id' : 'NULL'},
+                    CAST(user_id AS TEXT),
+                    ?,
+                    ${columns.has('username') ? "COALESCE(username, CAST(user_id AS TEXT), 'Unknown')" : "COALESCE(CAST(user_id AS TEXT), 'Unknown')"},
+                    ${select('cumulative_coins')},
+                    ${select('current_milestone')},
+                    ${select('last_tier_reached')},
+                    ${select('last_trigger_at')},
+                    ${select('created_at')},
+                    ${select('updated_at')}
+                FROM milestone_user_stats
+                WHERE user_id IS NOT NULL
+            `).run(defaultStreamerId);
+
+            this.db.exec('DROP TABLE milestone_user_stats');
+            this.db.exec('ALTER TABLE milestone_user_stats_new RENAME TO milestone_user_stats');
+        });
+
+        migrate();
+        console.log('Migration completed: milestone_user_stats now scoped by streamer_id');
+    }
+
+    milestoneUserStatsFallback(columnName) {
+        const fallbacks = {
+            cumulative_coins: '0',
+            current_milestone: '0',
+            last_tier_reached: '0',
+            last_trigger_at: 'NULL',
+            created_at: 'CURRENT_TIMESTAMP',
+            updated_at: 'CURRENT_TIMESTAMP'
+        };
+
+        return fallbacks[columnName] || 'NULL';
+    }
+
     runMigrations() {
         // Migration: Add animation_volume column to gift_sounds table if it doesn't exist
         try {
@@ -620,111 +876,27 @@ class DatabaseManager {
             console.error('Migration error:', error);
         }
 
+        try {
+            this.ensureHudElementsSchema();
+        } catch (error) {
+            console.error('Migration error for hud_elements:', error);
+            throw error;
+        }
+
         // Migration: Add streamer_id to user_statistics for scoped user profiles
         try {
-            const userStatsTableInfo = this.db.prepare("PRAGMA table_info(user_statistics)").all();
-            const hasStreamerId = userStatsTableInfo.some(col => col.name === 'streamer_id');
-            
-            if (!hasStreamerId) {
-                console.log('Running migration: Adding streamer_id to user_statistics table for scoped profiles');
-                
-                // Create new table with streamer_id
-                this.db.exec(`
-                    CREATE TABLE user_statistics_new (
-                        user_id TEXT NOT NULL,
-                        streamer_id TEXT NOT NULL,
-                        username TEXT NOT NULL,
-                        unique_id TEXT,
-                        profile_picture_url TEXT,
-                        total_coins_sent INTEGER DEFAULT 0,
-                        total_gifts_sent INTEGER DEFAULT 0,
-                        total_comments INTEGER DEFAULT 0,
-                        total_likes INTEGER DEFAULT 0,
-                        total_shares INTEGER DEFAULT 0,
-                        total_follows INTEGER DEFAULT 0,
-                        first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        last_gift_at DATETIME,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (user_id, streamer_id)
-                    )
-                `);
-                
-                // Migrate existing data with default streamer_id
-                const defaultStreamerId = this.streamerId || 'default';
-                this.db.exec(`
-                    INSERT INTO user_statistics_new 
-                    SELECT user_id, '${defaultStreamerId}' as streamer_id, username, unique_id, 
-                           profile_picture_url, total_coins_sent, total_gifts_sent, 
-                           total_comments, total_likes, total_shares, total_follows,
-                           first_seen_at, last_seen_at, last_gift_at, created_at, updated_at
-                    FROM user_statistics
-                `);
-                
-                // Drop old table and rename new one
-                this.db.exec('DROP TABLE user_statistics');
-                this.db.exec('ALTER TABLE user_statistics_new RENAME TO user_statistics');
-                
-                // Recreate indexes
-                this.db.exec(`
-                    CREATE INDEX IF NOT EXISTS idx_user_stats_coins 
-                    ON user_statistics(streamer_id, total_coins_sent DESC)
-                `);
-                this.db.exec(`
-                    CREATE INDEX IF NOT EXISTS idx_user_stats_username 
-                    ON user_statistics(streamer_id, username)
-                `);
-                
-                console.log('Migration completed: user_statistics now scoped by streamer_id');
-            }
+            this.migrateUserStatisticsSchema();
         } catch (error) {
             console.error('Migration error for user_statistics:', error);
+            throw error;
         }
 
         // Migration: Add streamer_id to milestone_user_stats
         try {
-            const milestoneTableInfo = this.db.prepare("PRAGMA table_info(milestone_user_stats)").all();
-            const hasStreamerId = milestoneTableInfo.some(col => col.name === 'streamer_id');
-            
-            if (!hasStreamerId) {
-                console.log('Running migration: Adding streamer_id to milestone_user_stats table');
-                
-                // Create new table with streamer_id
-                this.db.exec(`
-                    CREATE TABLE milestone_user_stats_new (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id TEXT NOT NULL,
-                        streamer_id TEXT NOT NULL,
-                        username TEXT NOT NULL,
-                        cumulative_coins INTEGER DEFAULT 0,
-                        current_milestone INTEGER DEFAULT 0,
-                        last_tier_reached INTEGER DEFAULT 0,
-                        last_trigger_at DATETIME,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(user_id, streamer_id)
-                    )
-                `);
-                
-                // Migrate existing data
-                const defaultStreamerId = this.streamerId || 'default';
-                this.db.exec(`
-                    INSERT INTO milestone_user_stats_new 
-                    SELECT id, user_id, '${defaultStreamerId}' as streamer_id, username, 
-                           cumulative_coins, current_milestone, last_tier_reached,
-                           last_trigger_at, created_at, updated_at
-                    FROM milestone_user_stats
-                `);
-                
-                // Drop old table and rename
-                this.db.exec('DROP TABLE milestone_user_stats');
-                this.db.exec('ALTER TABLE milestone_user_stats_new RENAME TO milestone_user_stats');
-                
-                console.log('Migration completed: milestone_user_stats now scoped by streamer_id');
-            }
+            this.migrateMilestoneUserStatsSchema();
         } catch (error) {
             console.error('Migration error for milestone_user_stats:', error);
+            throw error;
         }
     }
 
@@ -735,7 +907,7 @@ class DatabaseManager {
             // Quick Actions Einstellungen
             'tts_enabled': 'true',
             'soundboard_enabled': 'true',
-            'flows_enabled': 'false',
+            'flows_enabled': 'true',
             // Soundboard Einstellungen
             'soundboard_play_mode': 'overlap', // overlap or sequential (managed in frontend)
             'soundboard_max_queue_length': '10',
@@ -832,51 +1004,53 @@ class DatabaseManager {
     }
 
     // ========== FLOWS ==========
-    getFlows() {
-        const stmt = this.db.prepare('SELECT * FROM flows ORDER BY created_at DESC');
-        const rows = stmt.all();
-        return rows.map(row => ({
+    parseFlowRow(row) {
+        return {
             ...row,
             trigger_condition: row.trigger_condition ? safeJsonParse(row.trigger_condition, null) : null,
             actions: safeJsonParse(row.actions, []),
-            enabled: Boolean(row.enabled)
-        }));
+            enabled: Boolean(row.enabled),
+            description: row.description || '',
+            priority: row.priority || 'normal',
+            schema_version: row.schema_version || 1,
+            flow_graph: row.flow_graph ? safeJsonParse(row.flow_graph, null) : null
+        };
+    }
+
+    getFlows() {
+        const stmt = this.db.prepare('SELECT * FROM flows ORDER BY created_at DESC');
+        const rows = stmt.all();
+        return rows.map(row => this.parseFlowRow(row));
     }
 
     getFlow(id) {
         const stmt = this.db.prepare('SELECT * FROM flows WHERE id = ?');
         const row = stmt.get(id);
         if (!row) return null;
-        return {
-            ...row,
-            trigger_condition: row.trigger_condition ? safeJsonParse(row.trigger_condition, null) : null,
-            actions: safeJsonParse(row.actions, []),
-            enabled: Boolean(row.enabled)
-        };
+        return this.parseFlowRow(row);
     }
 
     getEnabledFlows() {
         const stmt = this.db.prepare('SELECT * FROM flows WHERE enabled = 1 ORDER BY created_at ASC');
         const rows = stmt.all();
-        return rows.map(row => ({
-            ...row,
-            trigger_condition: row.trigger_condition ? safeJsonParse(row.trigger_condition, null) : null,
-            actions: safeJsonParse(row.actions, []),
-            enabled: Boolean(row.enabled)
-        }));
+        return rows.map(row => this.parseFlowRow(row));
     }
 
     createFlow(flow) {
         const stmt = this.db.prepare(`
-            INSERT INTO flows (name, trigger_type, trigger_condition, actions, enabled)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO flows (name, trigger_type, trigger_condition, actions, enabled, description, priority, schema_version, flow_graph)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const info = stmt.run(
             flow.name,
             flow.trigger_type,
             flow.trigger_condition ? JSON.stringify(flow.trigger_condition) : null,
             JSON.stringify(flow.actions),
-            flow.enabled ? 1 : 0
+            (flow.enabled === false || flow.enabled === 0 || flow.enabled === 'false') ? 0 : 1,
+            flow.description || '',
+            flow.priority || 'normal',
+            flow.schema_version || 1,
+            flow.flow_graph ? JSON.stringify(flow.flow_graph) : null
         );
         return info.lastInsertRowid;
     }
@@ -884,7 +1058,8 @@ class DatabaseManager {
     updateFlow(id, flow) {
         const stmt = this.db.prepare(`
             UPDATE flows
-            SET name = ?, trigger_type = ?, trigger_condition = ?, actions = ?, enabled = ?
+            SET name = ?, trigger_type = ?, trigger_condition = ?, actions = ?, enabled = ?,
+                description = ?, priority = ?, schema_version = ?, flow_graph = ?
             WHERE id = ?
         `);
         stmt.run(
@@ -892,7 +1067,11 @@ class DatabaseManager {
             flow.trigger_type,
             flow.trigger_condition ? JSON.stringify(flow.trigger_condition) : null,
             JSON.stringify(flow.actions),
-            flow.enabled ? 1 : 0,
+            (flow.enabled === false || flow.enabled === 0 || flow.enabled === 'false') ? 0 : 1,
+            flow.description || '',
+            flow.priority || 'normal',
+            flow.schema_version || 1,
+            flow.flow_graph ? JSON.stringify(flow.flow_graph) : null,
             id
         );
     }
@@ -943,11 +1122,22 @@ class DatabaseManager {
 
     // ========== EVENT LOGS ==========
     logEvent(eventType, username, data) {
+        if (this.isClosing || !this._isDbOpen()) {
+            return;
+        }
+
+        let serializedData = '{}';
+        try {
+            serializedData = JSON.stringify(data);
+        } catch (error) {
+            console.warn('[Database] Failed to serialize event log payload, using empty object:', error.message);
+        }
+
         // Add to batch queue
         this.eventBatchQueue.push({
             eventType,
             username,
-            data: JSON.stringify(data)
+            data: serializedData
         });
 
         // Check if batch is full
@@ -959,13 +1149,20 @@ class DatabaseManager {
                 clearTimeout(this.eventBatchTimer);
             }
             this.eventBatchTimer = setTimeout(() => {
-                this.flushEventBatch();
+                this.flushEventBatch().catch((error) => {
+                    console.error('[Database] Timer flush failed:', error);
+                });
             }, this.eventBatchTimeout);
         }
     }
 
     flushEventBatch() {
         if (this.eventBatchQueue.length === 0) {
+            return Promise.resolve();
+        }
+
+        if (!this._isDbOpen()) {
+            this.eventBatchQueue = [];
             return Promise.resolve();
         }
 
@@ -1010,7 +1207,9 @@ class DatabaseManager {
             } catch (error) {
                 console.error('Error flushing event batch:', error);
                 // Bei Fehler zurück in Queue
-                this.eventBatchQueue.unshift(...eventsToFlush);
+                if (!this.isClosing && !this.isClosed) {
+                    this.eventBatchQueue.unshift(...eventsToFlush);
+                }
                 reject(error);
             }
         });
@@ -1095,22 +1294,36 @@ class DatabaseManager {
      * @returns {number} Number of deleted entries
      */
     cleanupEventLogs(keepCount = 1000) {
-        // Use timestamp for reliable chronological cleanup (not id which may have gaps)
-        const thresholdStmt = this.db.prepare(`
-            SELECT timestamp FROM event_logs 
-            ORDER BY timestamp DESC 
-            LIMIT 1 OFFSET ?
-        `);
-        const threshold = thresholdStmt.get(keepCount - 1);
-        
-        if (!threshold) {
-            // Less than keepCount entries, nothing to delete
+        if (!this._isDbOpen()) {
             return 0;
         }
-        
-        const deleteStmt = this.db.prepare('DELETE FROM event_logs WHERE timestamp < ?');
-        const result = deleteStmt.run(threshold.timestamp);
-        return result.changes;
+
+        const normalizedKeepCount = Number.isInteger(keepCount) ? keepCount : parseInt(keepCount, 10);
+        if (!Number.isFinite(normalizedKeepCount) || normalizedKeepCount < 1) {
+            return 0;
+        }
+
+        try {
+            // Use timestamp for reliable chronological cleanup (not id which may have gaps)
+            const thresholdStmt = this.db.prepare(`
+                SELECT timestamp FROM event_logs 
+                ORDER BY timestamp DESC 
+                LIMIT 1 OFFSET ?
+            `);
+            const threshold = thresholdStmt.get(normalizedKeepCount - 1);
+            
+            if (!threshold) {
+                // Less than keepCount entries, nothing to delete
+                return 0;
+            }
+            
+            const deleteStmt = this.db.prepare('DELETE FROM event_logs WHERE timestamp < ?');
+            const result = deleteStmt.run(threshold.timestamp);
+            return result.changes;
+        } catch (error) {
+            console.error('[Database] Error during event log cleanup:', error);
+            return 0;
+        }
     }
 
     /**
@@ -1176,19 +1389,39 @@ class DatabaseManager {
     }
 
     updateGiftCatalog(gifts) {
+        if (!Array.isArray(gifts) || gifts.length === 0) {
+            return 0;
+        }
+
         const stmt = this.db.prepare(`
             INSERT OR REPLACE INTO gift_catalog (id, name, image_url, diamond_count, last_updated)
             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
 
         const transaction = this.db.transaction((giftsArray) => {
+            let savedCount = 0;
+
             for (const gift of giftsArray) {
-                stmt.run(gift.id, gift.name, gift.image_url || null, gift.diamond_count || 0);
+                if (!gift || typeof gift !== 'object') continue;
+
+                const id = Number(gift.id ?? gift.giftId ?? gift.gift_id);
+                const name = gift.name ?? gift.giftName ?? gift.gift_name;
+                if (!Number.isFinite(id) || id <= 0 || !name) continue;
+
+                const diamondCount = Number(gift.diamond_count ?? gift.diamondCount ?? gift.diamonds ?? 0);
+                stmt.run(
+                    id,
+                    String(name),
+                    gift.image_url || gift.imageUrl || gift.giftPictureUrl || null,
+                    Number.isFinite(diamondCount) ? diamondCount : 0
+                );
+                savedCount++;
             }
+
+            return savedCount;
         });
 
-        transaction(gifts);
-        return gifts.length;
+        return transaction(gifts);
     }
 
     clearGiftCatalog() {
@@ -1326,10 +1559,8 @@ class DatabaseManager {
             enable_particles: true,
             enable_depth: true,
             target_fps: 60,
-
-            // Standard Canvas Settings
-            width_px: 1280,
-            height_px: 720,
+            visual_mode: 'premium_stage',
+            pupcid_defaults_version: 2,
 
             // Emoji Set
             emoji_set: ["💧","💙","💚","💜","❤️","🩵","✨","🌟","🔥","🎉"],
@@ -1345,10 +1576,10 @@ class DatabaseManager {
             toaster_mode: false, // Reduces resource usage for weak PCs
 
             // Physics Settings
-            physics_gravity_y: 1.0,
-            physics_air: 0.02,
-            physics_friction: 0.1,
-            physics_restitution: 0.6,
+            physics_gravity_y: 0.88,
+            physics_air: 0.028,
+            physics_friction: 0.11,
+            physics_restitution: 0.62,
             physics_wind_strength: 0.0005,
             physics_wind_variation: 0.0003,
 
@@ -1360,12 +1591,12 @@ class DatabaseManager {
             // Bounce Physics
             floor_enabled: true,
             bounce_enabled: true,
-            bounce_height: 0.6,
-            bounce_damping: 0.1,
+            bounce_height: 0.62,
+            bounce_damping: 0.15,
 
             // Color Theme
-            color_mode: 'off',
-            color_intensity: 0.5,
+            color_mode: 'cool',
+            color_intensity: 0.4,
 
             // Rainbow Mode
             rainbow_enabled: false,
@@ -1377,7 +1608,7 @@ class DatabaseManager {
 
             // SuperFan Burst
             superfan_burst_enabled: true,
-            superfan_burst_intensity: 3.0,
+            superfan_burst_intensity: 3.8,
             superfan_burst_duration: 2000,
 
             // FPS Optimization
@@ -1385,24 +1616,47 @@ class DatabaseManager {
             fps_sensitivity: 0.8,
 
             // Appearance Settings
-            emoji_min_size_px: 40,
+            emoji_min_size_px: 38,
             emoji_max_size_px: 80,
-            emoji_rotation_speed: 0.05,
-            emoji_lifetime_ms: 8000,
-            emoji_fade_duration_ms: 1000,
-            max_emojis_on_screen: 200,
+            emoji_rotation_speed: 0.035,
+            emoji_lifetime_ms: 7600,
+            emoji_fade_duration_ms: 1100,
+            max_emojis_on_screen: 170,
 
             // Rate Limiting Queue
-            rate_limit_enabled: false,
-            rate_limit_emojis_per_second: 30,
+            rate_limit_enabled: true,
+            rate_limit_emojis_per_second: 26,
 
             // Scaling Rules
-            like_count_divisor: 10,
+            like_count_divisor: 22,
             like_min_emojis: 1,
-            like_max_emojis: 20,
-            gift_base_emojis: 3,
-            gift_coin_multiplier: 0.1,
-            gift_max_emojis: 50,
+            like_max_emojis: 10,
+            gift_base_emojis: 5,
+            gift_coin_multiplier: 0.09,
+            gift_max_emojis: 42,
+
+            // Gift ball overlay defaults
+            gift_balls_enabled: false,
+            gift_ball_min_size_px: 44,
+            gift_ball_max_size_px: 128,
+            gift_ball_price_reference_coins: 1000,
+            gift_ball_min_despawn_ms: 9000,
+            gift_ball_max_despawn_ms: 20000,
+            gift_ball_despawn_per_coin_ms: 25,
+            gift_ball_despawn_multiplier: 1,
+            gift_ball_base_count: 1,
+            gift_ball_series_count_divisor: 3,
+            gift_ball_max_count: 24,
+
+            // Herzballons for like events
+            heart_balloons_enabled: true,
+            heart_balloon_like_divisor: 2,
+            heart_balloon_min_hearts: 1,
+            heart_balloon_max_hearts: 16,
+            heart_balloon_profile_every: 4,
+            heart_balloon_pop_y: 0.5,
+            heart_balloon_wind_strength: 0.45,
+            heart_balloon_test_count: 8,
 
             // Sticker Rain Feature
             sticker_enabled: true,
@@ -1425,6 +1679,38 @@ class DatabaseManager {
             console.log('🔄 [DATABASE] Checking existing config for missing fields...');
             try {
                 const oldConfig = JSON.parse(existing.config_json);
+                const applyPupCidDefaults = oldConfig.pupcid_defaults_version === undefined;
+                const useTunedDefault = (field, legacyValue) => (
+                    oldConfig[field] === undefined ||
+                    (applyPupCidDefaults && oldConfig[field] === legacyValue)
+                );
+                const pupCidDefaultMigration = applyPupCidDefaults ? {
+                    visual_mode: defaultConfig.visual_mode,
+                    pupcid_defaults_version: defaultConfig.pupcid_defaults_version,
+                    ...(useTunedDefault('physics_gravity_y', 1.0) && { physics_gravity_y: defaultConfig.physics_gravity_y }),
+                    ...(useTunedDefault('physics_air', 0.02) && { physics_air: defaultConfig.physics_air }),
+                    ...(useTunedDefault('physics_friction', 0.1) && { physics_friction: defaultConfig.physics_friction }),
+                    ...(useTunedDefault('physics_restitution', 0.6) && { physics_restitution: defaultConfig.physics_restitution }),
+                    ...(useTunedDefault('bounce_height', 0.6) && { bounce_height: defaultConfig.bounce_height }),
+                    ...(useTunedDefault('bounce_damping', 0.1) && { bounce_damping: defaultConfig.bounce_damping }),
+                    ...(useTunedDefault('color_mode', 'off') && { color_mode: defaultConfig.color_mode }),
+                    ...(useTunedDefault('color_intensity', 0.5) && { color_intensity: defaultConfig.color_intensity }),
+                    ...(useTunedDefault('emoji_min_size_px', 40) && oldConfig.size_min_px === undefined && { emoji_min_size_px: defaultConfig.emoji_min_size_px }),
+                    ...(useTunedDefault('emoji_max_size_px', 80) && oldConfig.size_max_px === undefined && { emoji_max_size_px: defaultConfig.emoji_max_size_px }),
+                    ...(useTunedDefault('emoji_rotation_speed', 0.05) && { emoji_rotation_speed: defaultConfig.emoji_rotation_speed }),
+                    ...(useTunedDefault('emoji_lifetime_ms', 8000) && oldConfig.drop_despawn_s === undefined && { emoji_lifetime_ms: defaultConfig.emoji_lifetime_ms }),
+                    ...(useTunedDefault('emoji_fade_duration_ms', 1000) && { emoji_fade_duration_ms: defaultConfig.emoji_fade_duration_ms }),
+                    ...(useTunedDefault('max_emojis_on_screen', 200) && oldConfig.max_active === undefined && { max_emojis_on_screen: defaultConfig.max_emojis_on_screen }),
+                    ...(useTunedDefault('rate_limit_enabled', false) && { rate_limit_enabled: defaultConfig.rate_limit_enabled }),
+                    ...(useTunedDefault('rate_limit_emojis_per_second', 30) && { rate_limit_emojis_per_second: defaultConfig.rate_limit_emojis_per_second }),
+                    ...(useTunedDefault('like_count_divisor', 10) && { like_count_divisor: defaultConfig.like_count_divisor }),
+                    ...(useTunedDefault('like_max_emojis', 20) && { like_max_emojis: defaultConfig.like_max_emojis }),
+                    ...(useTunedDefault('gift_base_emojis', 3) && { gift_base_emojis: defaultConfig.gift_base_emojis }),
+                    ...(useTunedDefault('gift_coin_multiplier', 0.1) && { gift_coin_multiplier: defaultConfig.gift_coin_multiplier }),
+                    ...(useTunedDefault('gift_max_emojis', 50) && { gift_max_emojis: defaultConfig.gift_max_emojis }),
+                    ...(useTunedDefault('heart_balloon_like_divisor', 1) && { heart_balloon_like_divisor: defaultConfig.heart_balloon_like_divisor }),
+                    ...(useTunedDefault('heart_balloon_max_hearts', 24) && { heart_balloon_max_hearts: defaultConfig.heart_balloon_max_hearts })
+                } : {};
                 console.log('🔍 [DATABASE] Old config keys:', Object.keys(oldConfig).join(', '));
 
                 // Preserve all user settings and only add missing fields from defaults
@@ -1438,7 +1724,8 @@ class DatabaseManager {
                     ...(oldConfig.size_max_px !== undefined && oldConfig.emoji_max_size_px === undefined && { emoji_max_size_px: oldConfig.size_max_px }),
                     ...(oldConfig.drop_despawn_s !== undefined && oldConfig.emoji_lifetime_ms === undefined && { emoji_lifetime_ms: oldConfig.drop_despawn_s * 1000 }),
                     ...(oldConfig.max_active !== undefined && oldConfig.max_emojis_on_screen === undefined && { max_emojis_on_screen: oldConfig.max_active }),
-                    ...(oldConfig.physics_wind_force !== undefined && oldConfig.physics_wind_strength === undefined && { physics_wind_strength: oldConfig.physics_wind_force })
+                    ...(oldConfig.physics_wind_force !== undefined && oldConfig.physics_wind_strength === undefined && { physics_wind_strength: oldConfig.physics_wind_force }),
+                    ...pupCidDefaultMigration
                 };
 
                 const updateStmt = this.db.prepare(`
@@ -1874,6 +2161,11 @@ class DatabaseManager {
      * Update Milestone configuration
      */
     updateMilestoneConfig(config) {
+        const existing = this.getMilestoneConfig() || {};
+        const hasValue = (key) => Object.prototype.hasOwnProperty.call(config, key);
+        const value = (key, fallback) => hasValue(key) ? config[key] : (existing[key] ?? fallback);
+        const boolValue = (key, fallback) => hasValue(key) ? config[key] : (existing[key] ?? fallback);
+
         const stmt = this.db.prepare(`
             UPDATE milestone_config
             SET enabled = ?,
@@ -1891,17 +2183,17 @@ class DatabaseManager {
             WHERE id = 1
         `);
         stmt.run(
-            config.enabled ? 1 : 0,
-            config.threshold || 1000,
-            config.mode || 'auto_increment',
-            config.increment_step || 1000,
-            config.animation_gif_path || null,
-            config.animation_video_path || null,
-            config.animation_audio_path || null,
-            config.audio_volume || 80,
-            config.playback_mode || 'exclusive',
-            config.animation_duration || 0,
-            config.session_reset ? 1 : 0
+            boolValue('enabled', true) ? 1 : 0,
+            value('threshold', 1000),
+            value('mode', 'auto_increment'),
+            value('increment_step', 1000),
+            value('animation_gif_path', null),
+            value('animation_video_path', null),
+            value('animation_audio_path', null),
+            value('audio_volume', 80),
+            value('playback_mode', 'exclusive'),
+            value('animation_duration', 0),
+            boolValue('session_reset', false) ? 1 : 0
         );
     }
 
@@ -1950,7 +2242,11 @@ class DatabaseManager {
 
             // Calculate next milestone based on mode
             if (config.mode === 'auto_increment') {
-                newMilestone = currentMilestone + config.increment_step;
+                const incrementStep = config.increment_step || config.threshold || 1000;
+                newMilestone = currentMilestone + incrementStep;
+                while (newMilestone <= newCoins) {
+                    newMilestone += incrementStep;
+                }
             } else {
                 // Fixed mode - milestone stays the same
                 newMilestone = currentMilestone;
@@ -2401,7 +2697,31 @@ class DatabaseManager {
     }
 
     close() {
-        this.db.close();
+        if (this.isClosed || !this.db) {
+            return;
+        }
+
+        this.isClosing = true;
+
+        if (this.eventBatchTimer) {
+            clearTimeout(this.eventBatchTimer);
+            this.eventBatchTimer = null;
+        }
+
+        if (this.eventBatchQueue.length > 0 && this._isDbOpen()) {
+            const flushPromise = this.flushEventBatch();
+            if (flushPromise && typeof flushPromise.catch === 'function') {
+                flushPromise.catch((error) => {
+                    console.error('[Database] Error flushing events during close:', error);
+                });
+            }
+        }
+
+        if (this.db.open) {
+            this.db.close();
+        }
+
+        this.isClosed = true;
     }
 }
 

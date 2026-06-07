@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -16,12 +17,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/getlantern/systray"
 	"github.com/pkg/browser"
 )
 
@@ -31,7 +34,9 @@ const (
 	maxLogBytes    = 100000
 
 	// Node.js settings
-	nodeVersionFallback = "22.14.0"
+	nodeVersionFallback        = "22.14.0"
+	serverHealthTimeoutSeconds = 180
+	serverHealthTimeout        = time.Duration(serverHealthTimeoutSeconds) * time.Second
 
 	// GitHub API settings for auto-update
 	githubOwner    = "Loggableim"
@@ -57,6 +62,7 @@ type GitHubRelease struct {
 	Body        string    `json:"body"`
 	PublishedAt time.Time `json:"published_at"`
 	ZipballURL  string    `json:"zipball_url"`
+	Prerelease  bool      `json:"prerelease"`
 	Assets      []struct {
 		Name               string `json:"name"`
 		Size               int64  `json:"size"`
@@ -104,8 +110,13 @@ type Launcher struct {
 	clientsMu           sync.Mutex // Protects concurrent map access to clients
 	logFile             *os.File
 	logger              *log.Logger
+	logPath             string
 	envFileFixed        bool // Track if we auto-created .env file
 	serverPort          int  // Actual port the server responded on
+	preferredPort       int
+	startupInProgress   bool
+	serverStarted       bool
+	lastStartError      string
 	profiles            []ProfileInfo
 	profilesLoaded      time.Time // Last time profiles were loaded
 	selectedProfile     string
@@ -113,26 +124,244 @@ type Launcher struct {
 	translations        map[string]interface{}
 	nodeCmd             *exec.Cmd  // Referenz auf laufenden Node-Prozess
 	nodeMu              sync.Mutex // Schützt nodeCmd-Zugriff
-	resolvedNodeVersion string     // Node.js LTS version resolved at startup
+	startMu             sync.Mutex
+	resolvedNodeVersion string // Node.js LTS version resolved at startup
+	settings            LauncherSettings
+	pluginFailures      []PluginFailure
 }
 
 var allowedLocales = []string{"de", "en", "es", "fr"}
+
+const (
+	diagnosticOK      = "ok"
+	diagnosticWarning = "warning"
+	diagnosticError   = "error"
+	diagnosticInfo    = "info"
+
+	updateChannelLocal  = "local"
+	updateChannelStable = "stable"
+	updateChannelBeta   = "beta"
+
+	settingsFile = "runtime/launcher_settings.json"
+)
+
+type LauncherSettings struct {
+	Locale           string `json:"locale"`
+	Theme            string `json:"theme"`
+	PreferredPort    int    `json:"preferredPort"`
+	KeepLauncherOpen bool   `json:"keepLauncherOpen"`
+	SafeMode         bool   `json:"safeMode"`
+	UpdateChannel    string `json:"updateChannel"`
+	FirstRunComplete bool   `json:"firstRunComplete"`
+}
+
+type DiagnosticItem struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Status      string `json:"status"`
+	Message     string `json:"message"`
+	Details     string `json:"details,omitempty"`
+	FixAction   string `json:"fixAction,omitempty"`
+	FixLabel    string `json:"fixLabel,omitempty"`
+	Blocking    bool   `json:"blocking,omitempty"`
+	LastChecked string `json:"lastChecked"`
+}
+
+type NodeVersionRecommendation struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Major   int    `json:"major"`
+}
+
+type PluginFailure struct {
+	PluginID string `json:"pluginId"`
+	Message  string `json:"message"`
+}
 
 type ProfileInfo struct {
 	Username string    `json:"username"`
 	Modified time.Time `json:"modified"`
 }
 
+type ServerHealthInfo struct {
+	Status  string `json:"status"`
+	Success bool   `json:"success"`
+	Name    string `json:"name"`
+	PID     int    `json:"pid"`
+	Port    int    `json:"port"`
+}
+
+type VacuumResult struct {
+	Success         bool   `json:"success"`
+	Profile         string `json:"profile"`
+	DatabasePath    string `json:"databasePath"`
+	SizeBeforeBytes int64  `json:"sizeBeforeBytes"`
+	SizeAfterBytes  int64  `json:"sizeAfterBytes"`
+	FreedBytes      int64  `json:"freedBytes"`
+	DurationMillis  int64  `json:"durationMillis"`
+}
+
 func NewLauncher() *Launcher {
+	defaultSettings := defaultLauncherSettings()
 	return &Launcher{
 		status:          "Initialisiere...",
 		progress:        0,
 		clients:         make(map[chan string]bool),
 		envFileFixed:    false,
-		locale:          "de", // Default to German
+		preferredPort:   defaultSettings.PreferredPort,
+		locale:          defaultSettings.Locale, // Default to German
 		selectedProfile: "",
 		profiles:        []ProfileInfo{},
+		settings:        defaultSettings,
 	}
+}
+
+func defaultLauncherSettings() LauncherSettings {
+	return LauncherSettings{
+		Locale:           "de",
+		Theme:            "night",
+		PreferredPort:    3000,
+		KeepLauncherOpen: true,
+		SafeMode:         false,
+		UpdateChannel:    updateChannelLocal,
+		FirstRunComplete: false,
+	}
+}
+
+func validLocale(locale string) bool {
+	for _, allowed := range allowedLocales {
+		if locale == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func validTheme(theme string) bool {
+	switch theme {
+	case "night", "day", "highcontrast":
+		return true
+	default:
+		return false
+	}
+}
+
+func validUpdateChannel(channel string) bool {
+	switch channel {
+	case updateChannelLocal, updateChannelStable, updateChannelBeta:
+		return true
+	default:
+		return false
+	}
+}
+
+func sanitizeLauncherSettings(settings LauncherSettings) LauncherSettings {
+	defaults := defaultLauncherSettings()
+	if !validLocale(settings.Locale) {
+		settings.Locale = defaults.Locale
+	}
+	if !validTheme(settings.Theme) {
+		settings.Theme = defaults.Theme
+	}
+	settings.PreferredPort = normalizePort(settings.PreferredPort, defaults.PreferredPort)
+	if !validUpdateChannel(settings.UpdateChannel) {
+		settings.UpdateChannel = defaults.UpdateChannel
+	}
+	return settings
+}
+
+func (l *Launcher) settingsPath() string {
+	return filepath.Join(l.exeDir, settingsFile)
+}
+
+func (l *Launcher) loadSettings() LauncherSettings {
+	settings := defaultLauncherSettings()
+	if l.exeDir == "" {
+		l.settings = settings
+		return settings
+	}
+
+	data, err := os.ReadFile(l.settingsPath())
+	if err != nil {
+		l.settings = settings
+		return settings
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		if l.logger != nil {
+			l.logger.Printf("[WARNING] Could not parse launcher settings: %v\n", err)
+		}
+		settings = defaultLauncherSettings()
+	}
+	settings = sanitizeLauncherSettings(settings)
+	l.settings = settings
+	l.locale = settings.Locale
+	l.preferredPort = settings.PreferredPort
+	return settings
+}
+
+func (l *Launcher) saveSettings(settings LauncherSettings) error {
+	if l.exeDir == "" {
+		return fmt.Errorf("launcher executable directory is not configured")
+	}
+	settings = sanitizeLauncherSettings(settings)
+	settingsDir := filepath.Dir(l.settingsPath())
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(l.settingsPath(), data, 0644); err != nil {
+		return err
+	}
+	l.settings = settings
+	l.locale = settings.Locale
+	l.preferredPort = settings.PreferredPort
+	return nil
+}
+
+func repairMojibakeText(text string) string {
+	replacements := []struct {
+		bad  string
+		good string
+	}{
+		{"Ã„", "Ä"},
+		{"Ã–", "Ö"},
+		{"Ãœ", "Ü"},
+		{"Ã¤", "ä"},
+		{"Ã¶", "ö"},
+		{"Ã¼", "ü"},
+		{"ÃŸ", "ß"},
+		{"Ã©", "é"},
+		{"Ã¨", "è"},
+		{"Ã¡", "á"},
+		{"Ã³", "ó"},
+		{"â€“", "–"},
+		{"â€”", "—"},
+		{"â†’", "→"},
+		{"âœ…", "✅"},
+		{"âœ“", "✓"},
+		{"âš ï¸", "⚠️"},
+		{"âŒ", "❌"},
+		{"â„¹ï¸", "ℹ️"},
+		{"â±ï¸", "⏱️"},
+		{"ðŸ“‹", "📋"},
+		{"ðŸ“‚", "📂"},
+		{"ðŸ’¡", "💡"},
+		{"ðŸ”§", "🔧"},
+		{"ðŸ”„", "🔄"},
+		{"ðŸš€", "🚀"},
+		{"ðŸŽ‰", "🎉"},
+		{"ðŸ“¦", "📦"},
+		{"ðŸ’¬", "💬"},
+		{"ðŸ›", "🐛"},
+		{"ðŸŽ®", "🎮"},
+	}
+	for _, replacement := range replacements {
+		text = strings.ReplaceAll(text, replacement.bad, replacement.good)
+	}
+	return text
 }
 
 func getCurrentNodePort() int {
@@ -157,12 +386,264 @@ func getCurrentNodePort() int {
 	return port
 }
 
+func dashboardURL(port int) string {
+	if port <= 0 {
+		port = 3000
+	}
+	return fmt.Sprintf("http://localhost:%d/dashboard.html", port)
+}
+
+func serverReadyMessage(port int) string {
+	url := dashboardURL(port)
+	payload := map[string]interface{}{
+		"dashboardUrl": url,
+		"redirect":     url,
+		"serverReady":  true,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Sprintf(`{"dashboardUrl":"%s","redirect":"%s","serverReady":true}`, url, url)
+	}
+	return string(data)
+}
+
+func rootLogDirForApp(appDir string) string {
+	return filepath.Join(filepath.Dir(appDir), "logs")
+}
+
+func uniqueArchivePath(destination string) string {
+	if _, err := os.Stat(destination); os.IsNotExist(err) {
+		return destination
+	}
+
+	ext := filepath.Ext(destination)
+	base := strings.TrimSuffix(destination, ext)
+	for index := 1; index < 1000; index++ {
+		candidate := fmt.Sprintf("%s-%d%s", base, index, ext)
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+
+	return fmt.Sprintf("%s-%d%s", base, time.Now().UnixNano(), ext)
+}
+
+func archiveExistingLogFiles(logDir string) (int, error) {
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	archiveDir := filepath.Join(logDir, "archive", time.Now().Format("2006-01-02_15-04-05"), "root")
+	archived := 0
+	var firstErr error
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		sourcePath := filepath.Join(logDir, entry.Name())
+		if archived == 0 {
+			if err := os.MkdirAll(archiveDir, 0755); err != nil {
+				return archived, err
+			}
+		}
+
+		destinationPath := uniqueArchivePath(filepath.Join(archiveDir, entry.Name()))
+		if err := os.Rename(sourcePath, destinationPath); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		archived++
+	}
+
+	return archived, firstErr
+}
+
+func normalizePort(port int, fallback int) int {
+	if port >= 1 && port <= 65535 {
+		return port
+	}
+	return fallback
+}
+
+func hiddenCommand(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	}
+	return cmd
+}
+
+func (l *Launcher) runtimePortFilePath() string {
+	return filepath.Join(l.exeDir, ".ltth_port")
+}
+
+func (l *Launcher) clearRuntimePortFile() {
+	portFile := l.runtimePortFilePath()
+	if err := os.Remove(portFile); err != nil && !os.IsNotExist(err) {
+		l.logAndSync("[WARNING] Could not remove stale runtime port file %s: %v", portFile, err)
+		return
+	}
+	l.logAndSync("[INFO] Cleared stale runtime port file: %s", portFile)
+}
+
+func (l *Launcher) readRuntimePortFile() int {
+	content, err := os.ReadFile(l.runtimePortFilePath())
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(content)))
+	if err != nil {
+		return 0
+	}
+	return normalizePort(port, 0)
+}
+
+func (l *Launcher) candidatePorts() []int {
+	seen := map[int]bool{}
+	var ports []int
+	add := func(port int) {
+		port = normalizePort(port, 0)
+		if port == 0 || seen[port] {
+			return
+		}
+		seen[port] = true
+		ports = append(ports, port)
+	}
+
+	add(l.readRuntimePortFile())
+	add(l.serverPort)
+	add(l.preferredPort)
+
+	base := l.preferredPort
+	if base == 0 {
+		base = 3000
+	}
+	for port := base; port <= base+50 && port <= 65535; port++ {
+		add(port)
+	}
+	for port := 3000; port <= 3050; port++ {
+		add(port)
+	}
+
+	return ports
+}
+
+func isPortAvailable(port int) bool {
+	port = normalizePort(port, 0)
+	if port == 0 {
+		return false
+	}
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return false
+	}
+	listener.Close()
+	return true
+}
+
+func describePortOwner(port int) string {
+	if runtime.GOOS == "windows" {
+		output, err := hiddenCommand("netstat", "-ano", "-p", "tcp").CombinedOutput()
+		if err != nil {
+			return fmt.Sprintf("netstat failed: %v", err)
+		}
+		target := fmt.Sprintf(":%d", port)
+		var matches []string
+		for _, line := range strings.Split(string(output), "\n") {
+			trimmed := strings.TrimSpace(line)
+			fields := strings.Fields(trimmed)
+			if len(fields) >= 5 &&
+				strings.EqualFold(fields[0], "TCP") &&
+				strings.EqualFold(fields[len(fields)-2], "LISTENING") &&
+				strings.HasSuffix(fields[1], target) {
+				pid := fields[len(fields)-1]
+				matches = append(matches, fmt.Sprintf("%s (%s)", trimmed, windowsProcessName(pid)))
+			}
+		}
+		if len(matches) > 0 {
+			return strings.Join(matches, " | ")
+		}
+		return "no LISTENING owner found via netstat"
+	}
+
+	output, err := hiddenCommand("sh", "-c", fmt.Sprintf("lsof -nP -iTCP:%d -sTCP:LISTEN", port)).CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("lsof failed or no owner found: %v", err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func windowsProcessName(pid string) string {
+	if strings.TrimSpace(pid) == "" {
+		return "process unknown"
+	}
+	output, err := hiddenCommand("tasklist", "/FI", "PID eq "+pid, "/FO", "CSV", "/NH").CombinedOutput()
+	if err != nil {
+		return "process name unavailable"
+	}
+	line := strings.TrimSpace(string(output))
+	if line == "" || strings.Contains(line, "INFO:") {
+		return "process name unavailable"
+	}
+	parts := strings.Split(line, `","`)
+	if len(parts) == 0 {
+		return "process name unavailable"
+	}
+	return strings.Trim(parts[0], `"`)
+}
+
+func (l *Launcher) logPortDiagnostics() {
+	preferred := normalizePort(l.preferredPort, 3000)
+	if isPortAvailable(preferred) {
+		l.logAndSync("[INFO] Preferred port %d is available", preferred)
+		return
+	}
+
+	l.logAndSync("[WARNING] Preferred port %d is already in use", preferred)
+	l.logAndSync("[WARNING] Port owner details: %s", describePortOwner(preferred))
+	l.logAndSync("[INFO] Node.js backend will fall back to the next free port in range %d-%d", preferred, minInt(preferred+50, 65535))
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func clampProgress(value int) int {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
+}
+
+func waitingAttemptProgress(attemptCount int) int {
+	return minInt(99, 93+(attemptCount/5))
+}
+
+var (
+	terminateProcessTreeByPID  = terminateProcessTreeByPIDOS
+	waitForHealthyServerToStop = defaultWaitForHealthyServerToStop
+)
+
 // loadTranslations loads i18n strings from locale files
 func (l *Launcher) loadTranslations(locale string) error {
 	// Try build-src/locales first (for development), then locales (for installed version)
 	localesDir := filepath.Join(l.exeDir, "build-src", "locales")
 	localePath := filepath.Join(localesDir, locale+".json")
-	
+
 	// If build-src/locales doesn't exist, try the locales directory directly (installed version)
 	if _, err := os.Stat(localesDir); os.IsNotExist(err) {
 		localesDir = filepath.Join(l.exeDir, "locales")
@@ -209,7 +690,7 @@ func (l *Launcher) getTranslation(key string) string {
 		if val, ok := current[part]; ok {
 			if i == len(parts)-1 {
 				if str, ok := val.(string); ok {
-					return str
+					return repairMojibakeText(str)
 				}
 			} else if nested, ok := val.(map[string]interface{}); ok {
 				current = nested
@@ -350,8 +831,953 @@ func (l *Launcher) readProfilesFromDir(dir string) []ProfileInfo {
 	return profiles
 }
 
+func validateProfileName(profileName string) error {
+	name := strings.TrimSpace(profileName)
+	if name == "" {
+		return fmt.Errorf("no active profile selected")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("invalid profile name")
+	}
+	if strings.ContainsAny(name, `/\<>:"|?*`) || filepath.VolumeName(name) != "" {
+		return fmt.Errorf("invalid profile name")
+	}
+	for _, r := range name {
+		if r < 32 || r == 127 {
+			return fmt.Errorf("invalid profile name")
+		}
+	}
+	return nil
+}
+
+func resolveProfileDatabasePath(userConfigsDir string, profileName string) (string, error) {
+	if userConfigsDir == "" {
+		return "", fmt.Errorf("user config directory is not configured")
+	}
+
+	name := strings.TrimSpace(profileName)
+	if err := validateProfileName(name); err != nil {
+		return "", err
+	}
+
+	baseDir, err := filepath.Abs(userConfigsDir)
+	if err != nil {
+		return "", fmt.Errorf("could not resolve user config directory: %w", err)
+	}
+
+	dbPath, err := filepath.Abs(filepath.Join(baseDir, name+".db"))
+	if err != nil {
+		return "", fmt.Errorf("could not resolve profile database path: %w", err)
+	}
+
+	rel, err := filepath.Rel(baseDir, dbPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("profile database path escapes user config directory")
+	}
+
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		return "", fmt.Errorf("profile database not found: %w", err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("profile database path is a directory")
+	}
+
+	return dbPath, nil
+}
+
+func (l *Launcher) currentProfileName() string {
+	if name := strings.TrimSpace(l.selectedProfile); name != "" {
+		return name
+	}
+
+	if l.userConfigsDir != "" {
+		activeProfilePath := filepath.Join(l.userConfigsDir, ".active_profile")
+		data, err := os.ReadFile(activeProfilePath)
+		if err == nil {
+			if name := strings.TrimSpace(string(data)); name != "" {
+				return name
+			}
+		}
+	}
+
+	if len(l.profiles) == 1 {
+		return l.profiles[0].Username
+	}
+
+	return ""
+}
+
+func (l *Launcher) activeProfileDatabasePath() (string, string, error) {
+	profileName := l.currentProfileName()
+	if profileName == "" {
+		l.loadUserProfiles()
+		profileName = l.currentProfileName()
+	}
+	if profileName == "" {
+		return "", "", fmt.Errorf("no active profile selected")
+	}
+
+	dbPath, err := resolveProfileDatabasePath(l.userConfigsDir, profileName)
+	if err == nil {
+		return profileName, dbPath, nil
+	}
+
+	legacyDir := filepath.Join(l.appDir, "user_configs")
+	if l.appDir != "" && filepath.Clean(legacyDir) != filepath.Clean(l.userConfigsDir) {
+		if legacyPath, legacyErr := resolveProfileDatabasePath(legacyDir, profileName); legacyErr == nil {
+			return profileName, legacyPath, nil
+		}
+	}
+
+	return "", "", err
+}
+
+func databaseFootprintBytes(dbPath string) int64 {
+	var total int64
+	for _, path := range []string{dbPath, dbPath + "-wal", dbPath + "-shm", dbPath + "-journal"} {
+		info, err := os.Stat(path)
+		if err == nil && !info.IsDir() {
+			total += info.Size()
+		}
+	}
+	return total
+}
+
+func copyFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
+func (l *Launcher) createProfileBackup(profileName string, reason string) (string, error) {
+	if reason == "" {
+		reason = "maintenance"
+	}
+	if _, err := resolveProfileDatabasePath(l.userConfigsDir, profileName); err != nil {
+		return "", err
+	}
+
+	dbPath := filepath.Join(l.userConfigsDir, strings.TrimSpace(profileName)+".db")
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	backupDir := filepath.Join(l.configDir, "profile-backups", strings.TrimSpace(profileName), timestamp+"-"+reason)
+	backupPath := filepath.Join(backupDir, filepath.Base(dbPath))
+	if err := copyFile(dbPath, backupPath); err != nil {
+		return "", err
+	}
+
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		sidecar := dbPath + suffix
+		if info, err := os.Stat(sidecar); err == nil && !info.IsDir() {
+			if err := copyFile(sidecar, filepath.Join(backupDir, filepath.Base(sidecar))); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	metadata := map[string]interface{}{
+		"profile":   strings.TrimSpace(profileName),
+		"reason":    reason,
+		"createdAt": time.Now().Format(time.RFC3339),
+		"source":    dbPath,
+	}
+	if data, err := json.MarshalIndent(metadata, "", "  "); err == nil {
+		_ = os.WriteFile(filepath.Join(backupDir, "backup.json"), data, 0644)
+	}
+	return backupPath, nil
+}
+
+func (l *Launcher) latestProfileBackup(profileName string) (string, error) {
+	if err := validateProfileName(profileName); err != nil {
+		return "", err
+	}
+	root := filepath.Join(l.configDir, "profile-backups", strings.TrimSpace(profileName))
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+	var latest os.DirEntry
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if latest == nil || entry.Name() > latest.Name() {
+			latest = entry
+		}
+	}
+	if latest == nil {
+		return "", fmt.Errorf("no backup found for profile %s", profileName)
+	}
+	dbPath := filepath.Join(root, latest.Name(), strings.TrimSpace(profileName)+".db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return "", err
+	}
+	return dbPath, nil
+}
+
+func (l *Launcher) restoreLatestProfileBackup(profileName string) (map[string]interface{}, error) {
+	if l.startupInProgress || l.isNodeRunning() || l.serverStarted {
+		return nil, fmt.Errorf("stop the server before restoring a profile backup")
+	}
+	backupDB, err := l.latestProfileBackup(profileName)
+	if err != nil {
+		return nil, err
+	}
+	currentDB, err := resolveProfileDatabasePath(l.userConfigsDir, profileName)
+	if err != nil {
+		return nil, err
+	}
+	safetyBackup, err := l.createProfileBackup(profileName, "pre-restore")
+	if err != nil {
+		return nil, fmt.Errorf("pre-restore backup failed: %w", err)
+	}
+	if err := copyFile(backupDB, currentDB); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"success":      true,
+		"profile":      profileName,
+		"restoredFrom": backupDB,
+		"safetyBackup": safetyBackup,
+	}, nil
+}
+
+func (l *Launcher) repairActiveProfileDatabase() (map[string]interface{}, error) {
+	profileName, dbPath, err := l.activeProfileDatabasePath()
+	if err != nil {
+		return nil, err
+	}
+	backupPath, err := l.createProfileBackup(profileName, "repair")
+	if err != nil {
+		return nil, fmt.Errorf("backup before repair failed: %w", err)
+	}
+
+	nodePath := l.nodeExecutableForMaintenance()
+	if nodePath == "" {
+		return nil, fmt.Errorf("Node.js executable not available for database repair")
+	}
+	script := `
+const dbPath = process.env.LTTH_REPAIR_DB;
+const Database = require('better-sqlite3');
+const db = new Database(dbPath, { fileMustExist: true });
+try {
+  db.pragma('busy_timeout = 30000');
+  const integrity = db.pragma('quick_check', { simple: true });
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  db.pragma('optimize');
+  console.log(String(integrity || 'ok'));
+} finally {
+  db.close();
+}
+`
+	cmd := hiddenCommand(nodePath, "-e", script)
+	cmd.Dir = l.appDir
+	cmd.Env = sanitizeNodeEnvironment(append(os.Environ(), fmt.Sprintf("LTTH_REPAIR_DB=%s", dbPath)))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("database repair failed: %v\n%s", err, strings.TrimSpace(string(output)))
+	}
+	return map[string]interface{}{
+		"success":    true,
+		"profile":    profileName,
+		"database":   dbPath,
+		"backupPath": backupPath,
+		"integrity":  strings.TrimSpace(string(output)),
+	}, nil
+}
+
+func nodeVersionDiagnostic(version string) NodeVersionRecommendation {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(version, "v"))
+	parts := strings.Split(trimmed, ".")
+	if len(parts) == 0 || parts[0] == "" {
+		return NodeVersionRecommendation{Status: diagnosticError, Message: "Node.js Version konnte nicht gelesen werden.", Major: 0}
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return NodeVersionRecommendation{Status: diagnosticError, Message: "Node.js Version ist ungültig.", Major: 0}
+	}
+	if major < 18 {
+		return NodeVersionRecommendation{Status: diagnosticError, Message: "Node.js ist zu alt. Empfohlen ist Node.js 22 LTS.", Major: major}
+	}
+	if major >= 24 {
+		return NodeVersionRecommendation{Status: diagnosticWarning, Message: "Node.js ist sehr neu. Falls native Module brechen, Node.js 22 LTS verwenden.", Major: major}
+	}
+	return NodeVersionRecommendation{Status: diagnosticOK, Message: "Node.js Version ist im unterstützten Bereich.", Major: major}
+}
+
+func classifyPluginFailures(logText string) []PluginFailure {
+	var failures []PluginFailure
+	seen := map[string]bool{}
+	for _, line := range strings.Split(logText, "\n") {
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "plugin") || !(strings.Contains(lower, "failed") || strings.Contains(lower, "error")) {
+			continue
+		}
+
+		pluginID := ""
+		if strings.Contains(line, "Plugin ") {
+			after := strings.SplitN(line, "Plugin ", 2)[1]
+			pluginID = strings.Fields(after)[0]
+		}
+		if pluginID == "" && strings.Contains(line, "plugins/") {
+			after := strings.SplitN(line, "plugins/", 2)[1]
+			pluginID = strings.Split(after, "/")[0]
+		}
+		if pluginID == "" && strings.Contains(line, `plugins\`) {
+			after := strings.SplitN(line, `plugins\`, 2)[1]
+			pluginID = strings.Split(after, `\`)[0]
+		}
+		pluginID = strings.Trim(pluginID, ` "'():;,.`)
+		if pluginID == "" {
+			continue
+		}
+		key := pluginID + "|" + line
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		failures = append(failures, PluginFailure{
+			PluginID: pluginID,
+			Message:  repairMojibakeText(strings.TrimSpace(line)),
+		})
+	}
+	return failures
+}
+
+func selectReleaseForChannel(releases []GitHubRelease, channel string) (*GitHubRelease, error) {
+	if channel == updateChannelLocal {
+		return nil, fmt.Errorf("local snapshot channel does not use network releases")
+	}
+	for i := range releases {
+		release := releases[i]
+		if strings.TrimSpace(release.ZipballURL) == "" {
+			continue
+		}
+		if channel == updateChannelStable && !release.Prerelease {
+			return &release, nil
+		}
+		if channel == updateChannelBeta {
+			return &release, nil
+		}
+	}
+	return nil, fmt.Errorf("no release available for channel %s", channel)
+}
+
+func diagnosticTimestamp() string {
+	return time.Now().Format(time.RFC3339)
+}
+
+func (l *Launcher) collectDiagnostics() []DiagnosticItem {
+	now := diagnosticTimestamp()
+	items := []DiagnosticItem{}
+
+	nodeStatus := DiagnosticItem{
+		ID:          "node",
+		Label:       "Node.js",
+		Status:      diagnosticError,
+		Message:     "Node.js wurde nicht gefunden.",
+		FixAction:   "node-install",
+		FixLabel:    "Portable Node.js installieren",
+		Blocking:    true,
+		LastChecked: now,
+	}
+	if strings.TrimSpace(l.nodePath) != "" {
+		if _, err := os.Stat(l.nodePath); err == nil {
+			version := l.getNodeVersion()
+			recommendation := nodeVersionDiagnostic(version)
+			nodeStatus.Status = recommendation.Status
+			nodeStatus.Message = strings.TrimSpace(version)
+			nodeStatus.Details = recommendation.Message
+			nodeStatus.FixAction = "node-repair"
+			nodeStatus.FixLabel = "Node.js reparieren"
+			nodeStatus.Blocking = recommendation.Status == diagnosticError
+		} else {
+			nodeStatus.Details = err.Error()
+		}
+	}
+	items = append(items, nodeStatus)
+
+	deps := DiagnosticItem{
+		ID:          "dependencies",
+		Label:       "Dependencies",
+		Status:      diagnosticError,
+		Message:     "node_modules fehlt oder ist unvollständig.",
+		FixAction:   "dependencies-install",
+		FixLabel:    "Dependencies installieren",
+		Blocking:    true,
+		LastChecked: now,
+	}
+	if l.checkNodeModules() {
+		deps.Status = diagnosticOK
+		deps.Message = "Dependencies sind installiert."
+		deps.FixAction = "dependencies-install"
+		deps.FixLabel = "Dependencies neu installieren"
+		deps.Blocking = false
+	}
+	items = append(items, deps)
+
+	port := normalizePort(l.preferredPort, 3000)
+	portItem := DiagnosticItem{
+		ID:          "preferred_port",
+		Label:       "Port",
+		Status:      diagnosticOK,
+		Message:     fmt.Sprintf("Wunschport %d ist frei.", port),
+		LastChecked: now,
+	}
+	if !isPortAvailable(port) {
+		portItem.Status = diagnosticWarning
+		portItem.Message = fmt.Sprintf("Wunschport %d ist belegt. LTTH nutzt automatisch einen freien Folgeport.", port)
+		portItem.Details = describePortOwner(port)
+		portItem.FixAction = "port-auto"
+		portItem.FixLabel = "Freien Port wählen"
+	}
+	items = append(items, portItem)
+
+	profileName := l.currentProfileName()
+	profileItem := DiagnosticItem{
+		ID:          "profile",
+		Label:       "Profil",
+		Status:      diagnosticWarning,
+		Message:     "Kein aktives Profil ausgewählt.",
+		LastChecked: now,
+	}
+	if profileName != "" {
+		profileItem.Status = diagnosticOK
+		profileItem.Message = "Aktives Profil: " + profileName
+	}
+	items = append(items, profileItem)
+
+	dbItem := DiagnosticItem{
+		ID:          "database",
+		Label:       "Datenbank",
+		Status:      diagnosticWarning,
+		Message:     "Keine aktive Profildatenbank gefunden.",
+		FixAction:   "profile-repair",
+		FixLabel:    "Profil reparieren",
+		LastChecked: now,
+	}
+	if _, dbPath, err := l.activeProfileDatabasePath(); err == nil {
+		dbItem.Status = diagnosticOK
+		dbItem.Message = "Datenbank gefunden."
+		dbItem.Details = fmt.Sprintf("%s (%s)", dbPath, formatBytesForStatus(databaseFootprintBytes(dbPath)))
+		dbItem.FixAction = "profile-backup"
+		dbItem.FixLabel = "Backup erstellen"
+	} else {
+		dbItem.Details = err.Error()
+	}
+	items = append(items, dbItem)
+
+	if len(l.pluginFailures) > 0 {
+		items = append(items, DiagnosticItem{
+			ID:          "plugins",
+			Label:       "Plugins",
+			Status:      diagnosticWarning,
+			Message:     fmt.Sprintf("%d Plugin-Fehler erkannt.", len(l.pluginFailures)),
+			FixAction:   "safe-mode",
+			FixLabel:    "Safe Mode starten",
+			LastChecked: now,
+		})
+	} else {
+		items = append(items, DiagnosticItem{
+			ID:          "plugins",
+			Label:       "Plugins",
+			Status:      diagnosticOK,
+			Message:     "Keine Plugin-Startfehler erkannt.",
+			LastChecked: now,
+		})
+	}
+
+	return items
+}
+
+func formatBytesForStatus(bytes int64) string {
+	value := float64(bytes)
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+	if unit == 0 || value >= 10 {
+		return fmt.Sprintf("%.0f %s", value, units[unit])
+	}
+	return fmt.Sprintf("%.1f %s", value, units[unit])
+}
+
+func writeJSON(w http.ResponseWriter, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func methodAllowed(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method == method {
+		return true
+	}
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	return false
+}
+
+func addZipFileFromBytes(zw *zip.Writer, name string, data []byte) error {
+	header := &zip.FileHeader{
+		Name:   filepath.ToSlash(name),
+		Method: zip.Deflate,
+	}
+	header.SetModTime(time.Now())
+	writer, err := zw.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	_, err = writer.Write(data)
+	return err
+}
+
+func addZipFileFromPath(zw *zip.Writer, name string, sourcePath string) error {
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+	return addZipFileFromBytes(zw, name, data)
+}
+
+func (l *Launcher) refreshPluginFailuresFromLogs() {
+	var combined []string
+	if l.logPath != "" {
+		if content, err := l.readLogContent(l.logPath); err == nil {
+			combined = append(combined, content)
+		}
+	}
+	if serverLog := l.findLatestServerLog(); serverLog != "" {
+		if content, err := l.readLogContent(serverLog); err == nil {
+			combined = append(combined, content)
+		}
+	}
+	l.pluginFailures = classifyPluginFailures(strings.Join(combined, "\n"))
+}
+
+func (l *Launcher) exportDiagnosticPackage() (string, error) {
+	l.refreshPluginFailuresFromLogs()
+	diagnostics := map[string]interface{}{
+		"createdAt":      time.Now().Format(time.RFC3339),
+		"status":         l.statusPayload(),
+		"diagnostics":    l.collectDiagnostics(),
+		"pluginFailures": l.pluginFailures,
+		"settings":       l.settings,
+		"exeDir":         l.exeDir,
+		"appDir":         l.appDir,
+		"configDir":      l.configDir,
+	}
+
+	logDir := rootLogDirForApp(l.appDir)
+	diagnosticDir := filepath.Join(logDir, "diagnostics")
+	if err := os.MkdirAll(diagnosticDir, 0755); err != nil {
+		return "", err
+	}
+	zipPath := filepath.Join(diagnosticDir, fmt.Sprintf("ltth-diagnostics-%s.zip", time.Now().Format("2006-01-02_15-04-05")))
+	file, err := os.Create(zipPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	zw := zip.NewWriter(file)
+	defer zw.Close()
+
+	data, _ := json.MarshalIndent(diagnostics, "", "  ")
+	if err := addZipFileFromBytes(zw, "diagnostics.json", data); err != nil {
+		return "", err
+	}
+	if l.logPath != "" {
+		_ = addZipFileFromPath(zw, "logs/"+filepath.Base(l.logPath), l.logPath)
+	}
+	if serverLog := l.findLatestServerLog(); serverLog != "" {
+		_ = addZipFileFromPath(zw, "logs/"+filepath.Base(serverLog), serverLog)
+	}
+	if _, err := os.Stat(l.settingsPath()); err == nil {
+		_ = addZipFileFromPath(zw, "runtime/launcher_settings.json", l.settingsPath())
+	}
+	for _, name := range []string{"package.json", "package-lock.json"} {
+		path := filepath.Join(l.appDir, name)
+		if _, err := os.Stat(path); err == nil {
+			_ = addZipFileFromPath(zw, "app/"+name, path)
+		}
+	}
+	return zipPath, nil
+}
+
+func (l *Launcher) chooseFreePreferredPort() int {
+	start := normalizePort(l.preferredPort, 3000)
+	for port := start; port <= start+50 && port <= 65535; port++ {
+		if isPortAvailable(port) {
+			return port
+		}
+	}
+	for port := 3000; port <= 3050; port++ {
+		if isPortAvailable(port) {
+			return port
+		}
+	}
+	return start
+}
+
+func (l *Launcher) updateSettingsFromRequest(r *http.Request) (LauncherSettings, error) {
+	settings := l.settings
+	if settings.Locale == "" {
+		settings = l.loadSettings()
+	}
+
+	var payload LauncherSettings
+	if r.Body != nil {
+		decoder := json.NewDecoder(io.LimitReader(r.Body, 4096))
+		if err := decoder.Decode(&payload); err != nil && err != io.EOF {
+			return settings, err
+		}
+	}
+	if payload.Locale != "" {
+		settings.Locale = payload.Locale
+	}
+	if payload.Theme != "" {
+		settings.Theme = payload.Theme
+	}
+	if payload.PreferredPort != 0 {
+		settings.PreferredPort = payload.PreferredPort
+	}
+	settings.KeepLauncherOpen = payload.KeepLauncherOpen
+	settings.SafeMode = payload.SafeMode
+	if payload.UpdateChannel != "" {
+		settings.UpdateChannel = payload.UpdateChannel
+	}
+	settings.FirstRunComplete = payload.FirstRunComplete
+	return sanitizeLauncherSettings(settings), nil
+}
+
+func (l *Launcher) applyFixAction(action string) (map[string]interface{}, error) {
+	switch action {
+	case "dependencies-install":
+		if l.nodePath == "" {
+			if err := l.checkNodeJS(); err != nil {
+				return nil, err
+			}
+		}
+		if err := l.installDependencies(); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"success": true, "action": action}, nil
+	case "node-install":
+		nodePath, err := l.installNodePortable()
+		if err != nil {
+			return nil, err
+		}
+		l.nodePath = nodePath
+		return map[string]interface{}{"success": true, "action": action, "nodePath": nodePath}, nil
+	case "node-repair":
+		if err := l.removePortableNode(); err != nil {
+			return nil, err
+		}
+		nodePath, err := l.installNodePortable()
+		if err != nil {
+			return nil, err
+		}
+		l.nodePath = nodePath
+		return map[string]interface{}{"success": true, "action": action, "nodePath": nodePath}, nil
+	case "node-remove":
+		if err := l.removePortableNode(); err != nil {
+			return nil, err
+		}
+		l.nodePath = ""
+		return map[string]interface{}{"success": true, "action": action}, nil
+	case "port-auto":
+		port := l.chooseFreePreferredPort()
+		settings := l.settings
+		settings.PreferredPort = port
+		if err := l.saveSettings(settings); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"success": true, "action": action, "preferredPort": port}, nil
+	case "profile-backup":
+		profile := l.currentProfileName()
+		if profile == "" {
+			return nil, fmt.Errorf("no active profile selected")
+		}
+		backupPath, err := l.createProfileBackup(profile, "manual")
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"success": true, "action": action, "backupPath": backupPath}, nil
+	case "profile-repair":
+		result, err := l.repairActiveProfileDatabase()
+		if err != nil {
+			return nil, err
+		}
+		result["action"] = action
+		return result, nil
+	case "profile-restore":
+		profile := l.currentProfileName()
+		if profile == "" {
+			return nil, fmt.Errorf("no active profile selected")
+		}
+		result, err := l.restoreLatestProfileBackup(profile)
+		if err != nil {
+			return nil, err
+		}
+		result["action"] = action
+		return result, nil
+	case "safe-mode":
+		settings := l.settings
+		settings.SafeMode = true
+		if err := l.saveSettings(settings); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"success": true, "action": action, "safeMode": true}, nil
+	case "adopt-server":
+		port, ok := l.detectHealthyServerPort()
+		if !ok {
+			return nil, fmt.Errorf("no running LTTH server detected")
+		}
+		l.serverPort = port
+		l.serverStarted = true
+		l.startupInProgress = false
+		l.lastStartError = ""
+		return map[string]interface{}{"success": true, "action": action, "serverPort": port}, nil
+	default:
+		return nil, fmt.Errorf("unknown fix action: %s", action)
+	}
+}
+
+func (l *Launcher) removePortableNode() error {
+	nodeDir := filepath.Join(l.exeDir, "runtime", "node")
+	absRuntime, err := filepath.Abs(filepath.Join(l.exeDir, "runtime"))
+	if err != nil {
+		return err
+	}
+	absNode, err := filepath.Abs(nodeDir)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(absRuntime, absNode)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("portable node path escapes runtime directory")
+	}
+	return os.RemoveAll(absNode)
+}
+
+func fetchReleases() ([]GitHubRelease, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/releases", githubAPIURL, githubOwner, githubRepo)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "LTTH-Launcher")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+
+	var releases []GitHubRelease
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2*1024*1024)).Decode(&releases); err != nil {
+		return nil, err
+	}
+	return releases, nil
+}
+
+func (l *Launcher) checkUpdateForCurrentChannel() (map[string]interface{}, error) {
+	settings := l.settings
+	if settings.UpdateChannel == "" {
+		settings = l.loadSettings()
+	}
+	if settings.UpdateChannel == updateChannelLocal {
+		return map[string]interface{}{
+			"success":   true,
+			"channel":   updateChannelLocal,
+			"disabled":  true,
+			"available": false,
+			"message":   "Lokaler Snapshot: Netzwerk-Updates sind deaktiviert.",
+		}, nil
+	}
+	releases, err := fetchReleases()
+	if err != nil {
+		return nil, err
+	}
+	release, err := selectReleaseForChannel(releases, settings.UpdateChannel)
+	if err != nil {
+		return nil, err
+	}
+	localVersion, _ := getLocalVersion()
+	available := localVersion == "" || compareVersions(release.TagName, localVersion) > 0
+	return map[string]interface{}{
+		"success":        true,
+		"channel":        settings.UpdateChannel,
+		"available":      available,
+		"currentVersion": localVersion,
+		"latestVersion":  release.TagName,
+		"releaseName":    release.Name,
+		"publishedAt":    release.PublishedAt,
+		"prerelease":     release.Prerelease,
+	}, nil
+}
+
+func (l *Launcher) applyUpdateForCurrentChannel() (map[string]interface{}, error) {
+	settings := l.settings
+	if settings.UpdateChannel == "" {
+		settings = l.loadSettings()
+	}
+	if settings.UpdateChannel == updateChannelLocal {
+		return nil, fmt.Errorf("local snapshot channel does not apply network updates")
+	}
+	releases, err := fetchReleases()
+	if err != nil {
+		return nil, err
+	}
+	release, err := selectReleaseForChannel(releases, settings.UpdateChannel)
+	if err != nil {
+		return nil, err
+	}
+	if err := l.downloadAndApplyUpdate(release); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"success": true, "channel": settings.UpdateChannel, "version": release.TagName}, nil
+}
+
+func (l *Launcher) rollbackLastUpdate() (map[string]interface{}, error) {
+	backupRoot := filepath.Join(l.exeDir, "runtime", "update_backups")
+	entries, err := os.ReadDir(backupRoot)
+	if err != nil {
+		return nil, err
+	}
+	var latest os.DirEntry
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if latest == nil || entry.Name() > latest.Name() {
+			latest = entry
+		}
+	}
+	if latest == nil {
+		return nil, fmt.Errorf("no update backup found")
+	}
+	backupApp := filepath.Join(backupRoot, latest.Name(), "app")
+	if info, err := os.Stat(backupApp); err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("latest backup does not contain app directory")
+	}
+	failedApp := filepath.Join(l.exeDir, "runtime", "failed_update_app_"+time.Now().Format("2006-01-02_15-04-05"))
+	if _, err := os.Stat(l.appDir); err == nil {
+		if err := os.Rename(l.appDir, failedApp); err != nil {
+			return nil, fmt.Errorf("could not move current app before rollback: %w", err)
+		}
+	}
+	if err := os.Rename(backupApp, l.appDir); err != nil {
+		_ = os.Rename(failedApp, l.appDir)
+		return nil, fmt.Errorf("rollback restore failed: %w", err)
+	}
+	return map[string]interface{}{"success": true, "backup": latest.Name(), "failedApp": failedApp}, nil
+}
+
+func sqliteVacuumScript() string {
+	return `
+const dbPath = process.env.LTTH_VACUUM_DB;
+if (!dbPath) {
+  throw new Error('LTTH_VACUUM_DB is missing');
+}
+const Database = require('better-sqlite3');
+const db = new Database(dbPath, { fileMustExist: true });
+try {
+  db.pragma('busy_timeout = 30000');
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  db.exec('VACUUM');
+  db.pragma('optimize');
+} finally {
+  db.close();
+}
+`
+}
+
+func (l *Launcher) nodeExecutableForMaintenance() string {
+	if strings.TrimSpace(l.nodePath) != "" {
+		return l.nodePath
+	}
+	if nodePath := l.getNodeExecutable(); nodePath != "" {
+		return nodePath
+	}
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		return ""
+	}
+	return nodePath
+}
+
+func (l *Launcher) vacuumActiveProfileDatabase() (VacuumResult, error) {
+	result := VacuumResult{}
+
+	profileName, dbPath, err := l.activeProfileDatabasePath()
+	if err != nil {
+		return result, err
+	}
+
+	nodePath := l.nodeExecutableForMaintenance()
+	if nodePath == "" {
+		return result, fmt.Errorf("Node.js executable not found")
+	}
+	if l.appDir == "" {
+		return result, fmt.Errorf("app directory is not configured")
+	}
+
+	result.Profile = profileName
+	result.DatabasePath = dbPath
+	result.SizeBeforeBytes = databaseFootprintBytes(dbPath)
+	if backupPath, err := l.createProfileBackup(profileName, "vacuum"); err != nil {
+		return result, fmt.Errorf("backup before vacuum failed: %w", err)
+	} else {
+		l.logAndSync("[MAINTENANCE] Profile backup before VACUUM: %s", backupPath)
+	}
+
+	cmd := hiddenCommand(nodePath, "-e", sqliteVacuumScript())
+	cmd.Dir = l.appDir
+	cmd.Env = append(sanitizeNodeEnvironment(os.Environ()), "LTTH_VACUUM_DB="+dbPath)
+	setSysProcAttr(cmd)
+
+	startedAt := time.Now()
+	output, err := cmd.CombinedOutput()
+	result.DurationMillis = time.Since(startedAt).Milliseconds()
+	result.SizeAfterBytes = databaseFootprintBytes(dbPath)
+	result.FreedBytes = result.SizeBeforeBytes - result.SizeAfterBytes
+
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return result, fmt.Errorf("database vacuum failed: %s", detail)
+	}
+
+	result.Success = true
+	return result, nil
+}
+
 func (l *Launcher) findLatestServerLog() string {
-	logDir := filepath.Join(l.appDir, "logs")
+	logDir := rootLogDirForApp(l.appDir)
 	entries, err := os.ReadDir(logDir)
 	if err != nil {
 		return ""
@@ -391,7 +1817,7 @@ func (l *Launcher) readLogContent(path string) (string, error) {
 	}
 
 	data = truncateLogData(data, maxLogBytes)
-	return string(data), nil
+	return repairMojibakeText(string(data)), nil
 }
 
 // loadUserProfiles scans for user profiles in user_configs directory
@@ -414,12 +1840,13 @@ func (l *Launcher) loadUserProfiles() {
 	}
 }
 
-// setupLogging creates a log file in the app directory
+// setupLogging creates a log file in the root logs directory
 func (l *Launcher) setupLogging(appDir string) error {
-	logDir := filepath.Join(appDir, "logs")
+	logDir := rootLogDirForApp(appDir)
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %v", err)
 	}
+	archivedCount, archiveErr := archiveExistingLogFiles(logDir)
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	logPath := filepath.Join(logDir, fmt.Sprintf("launcher_%s.log", timestamp))
@@ -431,6 +1858,7 @@ func (l *Launcher) setupLogging(appDir string) error {
 	}
 
 	l.logFile = logFile
+	l.logPath = logPath
 
 	// Only write to file (not stdout) because in GUI mode stdout doesn't exist
 	// This prevents silent failures when built with -H windowsgui
@@ -442,6 +1870,13 @@ func (l *Launcher) setupLogging(appDir string) error {
 	l.logger.Printf("Log file: %s\n", logPath)
 	l.logger.Printf("Platform: %s\n", runtime.GOOS)
 	l.logger.Printf("Architecture: %s\n", runtime.GOARCH)
+	l.logger.Printf("Root log directory: %s\n", logDir)
+	if archivedCount > 0 {
+		l.logger.Printf("[INFO] Archived %d previous log file(s)\n", archivedCount)
+	}
+	if archiveErr != nil {
+		l.logger.Printf("[WARNING] Some previous log files could not be archived: %v\n", archiveErr)
+	}
 	l.logger.Println("========================================")
 
 	// Force sync to ensure header is written
@@ -468,7 +1903,7 @@ func (l *Launcher) closeLogging() {
 func (l *Launcher) logAndSync(format string, args ...interface{}) {
 	if l.logger != nil {
 		if len(args) > 0 {
-			l.logger.Printf(format, args...)
+			l.logger.Printf(format+"\n", args...)
 		} else {
 			l.logger.Println(format)
 		}
@@ -478,11 +1913,50 @@ func (l *Launcher) logAndSync(format string, args ...interface{}) {
 	}
 }
 
-func (l *Launcher) updateProgressRaw(value int, status string) {
-	l.progress = value
-	l.status = status
+func (l *Launcher) logStartupPreflight(templatePath string) {
+	l.logAndSync("Launcher started successfully")
+	l.logAndSync("Executable directory: %s", l.exeDir)
+	l.logAndSync("App directory: %s", l.appDir)
+	l.logAndSync("Working directory: %s", mustGetwd())
+	l.logAndSync("Template path: %s", templatePath)
 
-	statusJSON, _ := json.Marshal(status) // properly escaped
+	for _, requiredPath := range []string{
+		l.appDir,
+		filepath.Join(l.appDir, "launch.js"),
+		filepath.Join(l.appDir, "server.js"),
+		filepath.Join(l.appDir, "package.json"),
+		filepath.Join(l.appDir, "modules", "logger.js"),
+	} {
+		if info, err := os.Stat(requiredPath); err != nil {
+			l.logAndSync("[PREFLIGHT] MISSING: %s (%v)", requiredPath, err)
+		} else if info.IsDir() {
+			l.logAndSync("[PREFLIGHT] OK dir: %s", requiredPath)
+		} else {
+			l.logAndSync("[PREFLIGHT] OK file: %s (%d bytes)", requiredPath, info.Size())
+		}
+	}
+}
+
+func mustGetwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Sprintf("unknown (%v)", err)
+	}
+	return wd
+}
+
+func (l *Launcher) logFatalAndExit(message string, code int) {
+	l.logAndSync("[FATAL] %s", message)
+	l.closeLogging()
+	os.Exit(code)
+}
+
+func (l *Launcher) updateProgressRaw(value int, status string) {
+	value = clampProgress(value)
+	l.progress = value
+	l.status = repairMojibakeText(status)
+
+	statusJSON, _ := json.Marshal(l.status) // properly escaped
 	msg := fmt.Sprintf(`{"progress": %d, "status": %s}`, value, string(statusJSON))
 	l.clientsMu.Lock()
 	for client := range l.clients {
@@ -514,7 +1988,7 @@ func (l *Launcher) sendRedirect() {
 	if port == 0 {
 		port = getCurrentNodePort()
 	}
-	msg := fmt.Sprintf(`{"redirect": "http://localhost:%d/dashboard.html", "serverReady": true}`, port)
+	msg := serverReadyMessage(port)
 	l.clientsMu.Lock()
 	for client := range l.clients {
 		select {
@@ -544,7 +2018,7 @@ func (l *Launcher) checkNodeJS() error {
 }
 
 func (l *Launcher) getNodeVersion() string {
-	cmd := exec.Command(l.nodePath, "--version")
+	cmd := hiddenCommand(l.nodePath, "--version")
 	output, err := cmd.Output()
 	if err != nil {
 		return "unknown"
@@ -559,6 +2033,38 @@ func (l *Launcher) checkNodeModules() bool {
 		return false
 	}
 	return info.IsDir()
+}
+
+func sanitizeNodeEnvironment(env []string) []string {
+	sanitized := make([]string, 0, len(env))
+	for _, entry := range env {
+		upper := strings.ToUpper(entry)
+		if strings.HasPrefix(upper, "NODE_OPTIONS=") ||
+			strings.HasPrefix(upper, "NPM_CONFIG_NODE_OPTIONS=") {
+			continue
+		}
+		sanitized = append(sanitized, entry)
+	}
+	return sanitized
+}
+
+func (l *Launcher) verifyNativeModules() error {
+	if l.nodePath == "" {
+		return fmt.Errorf("Node.js path is empty")
+	}
+
+	script := "const Database = require('better-sqlite3'); const db = new Database(':memory:'); db.close(); console.log('native-modules-ok')"
+	cmd := hiddenCommand(l.nodePath, "-e", script)
+	cmd.Dir = l.appDir
+	cmd.Env = sanitizeNodeEnvironment(os.Environ())
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v\n%s", err, strings.TrimSpace(string(output)))
+	}
+
+	l.logAndSync("[SUCCESS] Native Node modules verified: %s", strings.TrimSpace(string(output)))
+	return nil
 }
 
 func (l *Launcher) installDependencies() error {
@@ -587,10 +2093,10 @@ func (l *Launcher) installDependencies() error {
 	cmd.Dir = l.appDir
 
 	// Set environment variables to skip problematic preinstall checks
-	cmd.Env = append(os.Environ(),
+	cmd.Env = sanitizeNodeEnvironment(append(os.Environ(),
 		"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
 		"PUPPETEER_SKIP_DOWNLOAD=true",
-	)
+	))
 
 	// Capture output for logging and progress updates
 	stdout, err := cmd.StdoutPipe()
@@ -708,10 +2214,10 @@ func (l *Launcher) installDependencies() error {
 			retryCmd = exec.Command(npmPath, "install")
 		}
 		retryCmd.Dir = l.appDir
-		retryCmd.Env = append(os.Environ(),
+		retryCmd.Env = sanitizeNodeEnvironment(append(os.Environ(),
 			"YOUTUBE_DL_SKIP_PYTHON_CHECK=1",
 			"PUPPETEER_SKIP_DOWNLOAD=true",
-		)
+		))
 		var retryStderr bytes.Buffer
 		retryCmd.Stderr = &retryStderr
 
@@ -732,8 +2238,9 @@ func (l *Launcher) installDependencies() error {
 
 func (l *Launcher) startTool() (*exec.Cmd, error) {
 	launchJS := filepath.Join(l.appDir, "launch.js")
-	cmd := exec.Command(l.nodePath, launchJS)
+	cmd := hiddenCommand(l.nodePath, launchJS)
 	cmd.Dir = l.appDir
+	preferredPort := normalizePort(l.preferredPort, 3000)
 
 	// Set environment variable to disable automatic browser opening
 	// The GUI launcher handles the redirect to dashboard after server is ready
@@ -744,9 +2251,34 @@ func (l *Launcher) startTool() (*exec.Cmd, error) {
 		if strings.HasPrefix(e, "OPEN_BROWSER=") {
 			continue
 		}
+		if strings.HasPrefix(e, "LTTH_PORT=") || strings.HasPrefix(e, "LTTH_MAX_PORT=") {
+			continue
+		}
+		if strings.HasPrefix(e, "LTTH_LOG_DIR=") || strings.HasPrefix(e, "LTTH_LOG_ARCHIVE_DONE=") || strings.HasPrefix(e, "LTTH_CURRENT_LAUNCHER_LOG=") {
+			continue
+		}
+		if strings.HasPrefix(e, "LTTH_SAFE_MODE=") || strings.HasPrefix(e, "DISABLE_PLUGINS=") {
+			continue
+		}
+		upper := strings.ToUpper(e)
+		if strings.HasPrefix(upper, "NODE_OPTIONS=") || strings.HasPrefix(upper, "NPM_CONFIG_NODE_OPTIONS=") {
+			continue
+		}
 		env = append(env, e)
 	}
+	rootLogDir := rootLogDirForApp(l.appDir)
 	env = append(env, "OPEN_BROWSER=false")
+	env = append(env, fmt.Sprintf("LTTH_PORT=%d", preferredPort))
+	env = append(env, fmt.Sprintf("LTTH_MAX_PORT=%d", minInt(preferredPort+50, 65535)))
+	env = append(env, fmt.Sprintf("LTTH_LOG_DIR=%s", rootLogDir))
+	env = append(env, "LTTH_LOG_ARCHIVE_DONE=true")
+	if l.logPath != "" {
+		env = append(env, fmt.Sprintf("LTTH_CURRENT_LAUNCHER_LOG=%s", l.logPath))
+	}
+	if l.settings.SafeMode {
+		env = append(env, "LTTH_SAFE_MODE=true", "DISABLE_PLUGINS=true", "DISABLE_SWAGGER=true")
+		l.logAndSync("[SAFE-MODE] Starting backend with plugins disabled.")
+	}
 	cmd.Env = env
 
 	// Redirect both stdout and stderr to log file only (not os.Stdout because GUI mode has no console)
@@ -760,6 +2292,11 @@ func (l *Launcher) startTool() (*exec.Cmd, error) {
 	l.logAndSync("Command: %s %s", l.nodePath, launchJS)
 	l.logAndSync("Working directory: %s", l.appDir)
 	l.logAndSync("OPEN_BROWSER environment variable set to: false")
+	l.logAndSync("LTTH_PORT environment variable set to: %d", preferredPort)
+	l.logAndSync("LTTH_MAX_PORT environment variable set to: %d", minInt(preferredPort+50, 65535))
+	l.logAndSync("LTTH_LOG_DIR environment variable set to: %s", rootLogDir)
+	l.clearRuntimePortFile()
+	l.logPortDiagnostics()
 	l.logAndSync("--- Node.js Server Output Start ---")
 
 	setSysProcAttr(cmd)
@@ -806,23 +2343,172 @@ func (l *Launcher) killNodeProcess() {
 
 // checkServerHealth checks if the server is responding
 func (l *Launcher) checkServerHealth() bool {
-	return l.checkServerHealthOnPort(getCurrentNodePort())
+	port, ok := l.detectHealthyServerPort()
+	if ok {
+		l.serverPort = port
+		return true
+	}
+	return false
 }
 
 // checkServerHealthOnPort checks if the server is responding on a specific port
 func (l *Launcher) checkServerHealthOnPort(port int) bool {
+	return l.checkServerHealthOnPortWithTimeout(port, 2*time.Second)
+}
+
+func (l *Launcher) checkServerHealthOnPortWithTimeout(port int, timeout time.Duration) bool {
+	_, ok := l.getServerHealthOnPortWithTimeout(port, timeout)
+	return ok
+}
+
+func (l *Launcher) getServerHealthOnPortWithTimeout(port int, timeout time.Duration) (ServerHealthInfo, bool) {
+	var payload ServerHealthInfo
 	client := &http.Client{
-		Timeout: 2 * time.Second,
+		Timeout: timeout,
 	}
 
-	url := fmt.Sprintf("http://localhost:%d/dashboard.html", port)
+	url := fmt.Sprintf("http://localhost:%d/api/health", port)
 	resp, err := client.Get(url)
 	if err != nil {
-		return false
+		return payload, false
 	}
 	defer resp.Body.Close()
 
-	return resp.StatusCode == 200
+	if resp.StatusCode != http.StatusOK {
+		return payload, false
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&payload); err != nil {
+		return payload, false
+	}
+
+	ok := payload.Success && payload.Status == "ok" && strings.Contains(payload.Name, "LTTH")
+	return payload, ok
+}
+
+func (l *Launcher) detectHealthyServerPort() (int, bool) {
+	for _, port := range l.candidatePorts() {
+		if l.checkServerHealthOnPortWithTimeout(port, 350*time.Millisecond) {
+			return port, true
+		}
+	}
+	return 0, false
+}
+
+func (l *Launcher) detectedLTTHServers() []ServerHealthInfo {
+	seen := map[string]bool{}
+	var servers []ServerHealthInfo
+
+	for _, port := range l.candidatePorts() {
+		health, ok := l.getServerHealthOnPortWithTimeout(port, 350*time.Millisecond)
+		if !ok {
+			continue
+		}
+		if health.Port == 0 {
+			health.Port = port
+		}
+
+		key := fmt.Sprintf("port:%d", health.Port)
+		if health.PID > 0 {
+			key = fmt.Sprintf("pid:%d", health.PID)
+		}
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
+		servers = append(servers, health)
+	}
+
+	return servers
+}
+
+func defaultWaitForHealthyServerToStop(l *Launcher, port int, timeout time.Duration) bool {
+	if port <= 0 {
+		return true
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !l.checkServerHealthOnPortWithTimeout(port, 250*time.Millisecond) {
+			return true
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	return false
+}
+
+func (l *Launcher) stopDetectedLTTHServers(source string) (bool, error) {
+	servers := l.detectedLTTHServers()
+	if len(servers) == 0 {
+		return false, nil
+	}
+
+	if source == "" {
+		source = "INFO"
+	}
+
+	stopped := false
+	var failures []string
+	for _, server := range servers {
+		if server.PID <= 0 {
+			failures = append(failures, fmt.Sprintf("LTTH server on port %d did not report a PID", server.Port))
+			continue
+		}
+
+		l.logAndSync("[%s] Existing LTTH server detected on port %d with PID %d. Stopping it before continuing.", source, server.Port, server.PID)
+		if err := terminateProcessTreeByPID(server.PID); err != nil {
+			failures = append(failures, fmt.Sprintf("could not stop LTTH server PID %d on port %d: %v", server.PID, server.Port, err))
+			continue
+		}
+
+		stopped = true
+		if !waitForHealthyServerToStop(l, server.Port, 15*time.Second) {
+			failures = append(failures, fmt.Sprintf("LTTH server PID %d on port %d did not stop in time", server.PID, server.Port))
+		}
+	}
+
+	if stopped {
+		l.clearRuntimePortFile()
+		l.startMu.Lock()
+		l.serverStarted = false
+		l.serverPort = 0
+		l.startupInProgress = false
+		l.startMu.Unlock()
+	}
+
+	if len(failures) > 0 {
+		return stopped, errors.New(strings.Join(failures, "; "))
+	}
+
+	return stopped, nil
+}
+
+func (l *Launcher) detectRuntimeServerPortSince(startedAt time.Time) (int, bool) {
+	portFile := l.runtimePortFilePath()
+	info, err := os.Stat(portFile)
+	if err != nil {
+		return 0, false
+	}
+
+	if info.ModTime().Before(startedAt.Add(-2 * time.Second)) {
+		return 0, false
+	}
+
+	port := l.readRuntimePortFile()
+	if port == 0 {
+		return 0, false
+	}
+
+	if health, ok := l.getServerHealthOnPortWithTimeout(port, 750*time.Millisecond); ok {
+		if health.Port != 0 && health.Port != port {
+			l.logAndSync("[WARNING] Health port mismatch: file=%d payload=%d", port, health.Port)
+			return 0, false
+		}
+		return port, true
+	}
+
+	return 0, false
 }
 
 // waitForServer waits for the server to be ready or timeout
@@ -837,6 +2523,170 @@ func (l *Launcher) waitForServer(timeout time.Duration) error {
 	}
 
 	return fmt.Errorf("Server did not start within %v", timeout)
+}
+
+func (l *Launcher) isNodeRunning() bool {
+	l.nodeMu.Lock()
+	defer l.nodeMu.Unlock()
+	return l.nodeCmd != nil && l.nodeCmd.Process != nil && l.nodeCmd.ProcessState == nil
+}
+
+func (l *Launcher) statusPayload() map[string]interface{} {
+	runtimePort := l.readRuntimePortFile()
+	nodeRunning := l.isNodeRunning()
+	detectedPort, detectedRunning := l.detectHealthyServerPort()
+	serverPort := l.serverPort
+	if detectedRunning {
+		serverPort = detectedPort
+	}
+	serverRunning := l.serverStarted || detectedRunning
+
+	if !serverRunning && !nodeRunning && !l.startupInProgress {
+		runtimePort = 0
+		serverPort = 0
+	}
+
+	return map[string]interface{}{
+		"progress":          l.progress,
+		"status":            l.currentStatus(),
+		"preferredPort":     l.preferredPort,
+		"runtimePort":       runtimePort,
+		"serverPort":        serverPort,
+		"serverRunning":     serverRunning,
+		"nodeRunning":       nodeRunning,
+		"startupInProgress": l.startupInProgress,
+		"lastStartError":    l.lastStartError,
+		"logPath":           l.logPath,
+		"activeProfile":     l.currentProfileName(),
+		"vacuumAvailable":   !l.startupInProgress && !nodeRunning && !serverRunning,
+		"settings":          l.settings,
+		"safeMode":          l.settings.SafeMode,
+		"updateChannel":     l.settings.UpdateChannel,
+		"firstRunComplete":  l.settings.FirstRunComplete,
+		"pluginFailures":    l.pluginFailures,
+	}
+}
+
+func (l *Launcher) setPreferredPort(port int) error {
+	port = normalizePort(port, 0)
+	if port == 0 {
+		return fmt.Errorf("invalid port")
+	}
+	l.startMu.Lock()
+	defer l.startMu.Unlock()
+	if l.isNodeRunning() && l.serverStarted {
+		return fmt.Errorf("server is already running on port %d", l.serverPort)
+	}
+	l.preferredPort = port
+	settings := l.settings
+	settings.PreferredPort = port
+	_ = l.saveSettings(settings)
+	l.logAndSync("[INFO] Preferred launcher port changed to %d", port)
+	l.updateProgressLocalized(l.progress, "status.port_selected", "Port %d ausgewählt", port)
+	return nil
+}
+
+func (l *Launcher) markServerStartDone(err error) {
+	l.startMu.Lock()
+	defer l.startMu.Unlock()
+	l.startupInProgress = false
+	if err != nil {
+		l.lastStartError = err.Error()
+		l.serverStarted = false
+	}
+}
+
+func (l *Launcher) manualStartServer(port int) error {
+	port = normalizePort(port, l.preferredPort)
+	if port == 0 {
+		port = 3000
+	}
+
+	l.startMu.Lock()
+	if l.startupInProgress {
+		l.startMu.Unlock()
+		return fmt.Errorf("server start is already in progress")
+	}
+	if l.isNodeRunning() {
+		l.startMu.Unlock()
+		return fmt.Errorf("server process is already running")
+	}
+	l.startMu.Unlock()
+
+	if stopped, err := l.stopDetectedLTTHServers("MANUAL"); err != nil {
+		return err
+	} else if stopped {
+		l.updateProgressLocalized(88, "status.old_instance_stopped", "Alte Server-Instanz gestoppt.")
+	}
+
+	l.startMu.Lock()
+	l.preferredPort = port
+	l.startupInProgress = true
+	l.serverStarted = false
+	l.lastStartError = ""
+	l.startMu.Unlock()
+
+	l.logAndSync("[MANUAL] Manual server start requested on preferred port %d", port)
+	l.updateProgressLocalized(90, "status.manual_starting", "Manueller Serverstart auf Port %d...", port)
+
+	startedAt := time.Now()
+	cmd, err := l.startTool()
+	if err != nil {
+		l.markServerStartDone(err)
+		l.updateProgressLocalized(95, "status.start_error", "FEHLER beim Starten: %v", err)
+		return err
+	}
+
+	processDied := make(chan error, 1)
+	go func(startedCmd *exec.Cmd) {
+		waitErr := startedCmd.Wait()
+		l.nodeMu.Lock()
+		if l.nodeCmd == startedCmd {
+			l.nodeCmd = nil
+		}
+		l.nodeMu.Unlock()
+		processDied <- waitErr
+	}(cmd)
+
+	go func() {
+		timeout := time.After(serverHealthTimeout)
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case waitErr := <-processDied:
+				err := fmt.Errorf("node process exited before ready: %v", waitErr)
+				l.logAndSync("[ERROR] Manual server start failed: %v", err)
+				l.updateProgressLocalized(95, "status.server_failed_start", "Server konnte nicht starten!")
+				l.markServerStartDone(err)
+				return
+			case <-ticker.C:
+				if port, ok := l.detectRuntimeServerPortSince(startedAt); ok {
+					l.serverPort = port
+					l.serverStarted = true
+					l.logAndSync("[SUCCESS] Manual server start healthy on port %d", port)
+					l.updateProgressLocalized(100, "status.server_started", "Server erfolgreich gestartet!")
+					l.markServerStartDone(nil)
+					l.sendRedirect()
+					go func() {
+						waitErr := <-processDied
+						l.logAndSync("[INFO] Manually started Node.js process exited: %v", waitErr)
+						l.serverStarted = false
+					}()
+					return
+				}
+			case <-timeout:
+				err := fmt.Errorf("manual server start timed out after %d seconds", serverHealthTimeoutSeconds)
+				l.logAndSync("[ERROR] %v", err)
+				l.updateProgressLocalized(95, "status.server_timeout", "Server-Start Timeout (%ds)", serverHealthTimeoutSeconds)
+				l.markServerStartDone(err)
+				return
+			}
+		}
+	}()
+
+	return nil
 }
 
 // autoFixEnvFile checks if .env exists and creates it from .env.example if missing
@@ -900,7 +2750,7 @@ func (l *Launcher) autoFixYtDlp() {
 
 	// Check if yt-dlp is already available in system PATH
 	for _, ytdlpCmd := range []string{"yt-dlp", "yt_dlp"} {
-		cmd := exec.Command(ytdlpCmd, "--version")
+		cmd := hiddenCommand(ytdlpCmd, "--version")
 		if output, err := cmd.CombinedOutput(); err == nil {
 			l.logger.Printf("[INFO] yt-dlp found in PATH: %s\n", strings.TrimSpace(string(output)))
 			return
@@ -912,10 +2762,36 @@ func (l *Launcher) autoFixYtDlp() {
 		"or set a custom path in Music Bot settings.")
 }
 
-// autoFixPort delegates port management to the Node.js backend.
+// autoFixPort selects a free preferred port before starting the backend.
 func (l *Launcher) autoFixPort() {
-	l.logger.Println("[INFO] Port-Management is delegated to Node.js with dynamic .ltth_port discovery.")
-	l.updateProgressLocalized(87, "status.port_delegated", "🔌 Port-Management wird an Node.js delegiert (.ltth_port)...")
+	preferred := normalizePort(l.preferredPort, 3000)
+
+	if existingPort, ok := l.detectHealthyServerPort(); ok {
+		l.logAndSync("[INFO] Existing LTTH server detected on port %d; startup will attach instead of starting a second backend.", existingPort)
+		l.updateProgressLocalized(87, "status.port_existing", "Bestehender LTTH-Server gefunden...")
+		return
+	}
+
+	if isPortAvailable(preferred) {
+		l.logAndSync("[INFO] Preferred backend port %d is available", preferred)
+		l.updateProgressLocalized(87, "status.port_available", "Port %d ist frei", preferred)
+		return
+	}
+
+	l.logAndSync("[WARNING] Preferred backend port %d is occupied; selecting fallback port.", preferred)
+	l.logAndSync("[WARNING] Port owner details: %s", describePortOwner(preferred))
+
+	for port := preferred + 1; port <= minInt(preferred+50, 65535); port++ {
+		if isPortAvailable(port) {
+			l.preferredPort = port
+			l.logAndSync("[INFO] Using fallback backend port %d", port)
+			l.updateProgressLocalized(87, "status.port_fallback", "Nutze freien Port %d", port)
+			return
+		}
+	}
+
+	l.logAndSync("[WARNING] No free fallback port found in range %d-%d; Node.js backend will try its own fallback handling.", preferred, minInt(preferred+50, 65535))
+	l.updateProgressLocalized(87, "status.port_delegated", "Port-Management wird an Node.js delegiert...")
 }
 
 // ============================================================
@@ -1097,9 +2973,9 @@ func extractZipWithFlatStructure(zipPath, destDir string) error {
 func extractTar(tarPath, destDir string) error {
 	var cmd *exec.Cmd
 	if strings.HasSuffix(tarPath, ".tar.xz") {
-		cmd = exec.Command("tar", "-xJf", tarPath, "-C", destDir, "--strip-components=1")
+		cmd = hiddenCommand("tar", "-xJf", tarPath, "-C", destDir, "--strip-components=1")
 	} else if strings.HasSuffix(tarPath, ".tar.gz") {
-		cmd = exec.Command("tar", "-xzf", tarPath, "-C", destDir, "--strip-components=1")
+		cmd = hiddenCommand("tar", "-xzf", tarPath, "-C", destDir, "--strip-components=1")
 	} else {
 		return fmt.Errorf("unsupported archive format: %s", tarPath)
 	}
@@ -1320,15 +3196,16 @@ func (l *Launcher) rebuildNativeModules() error {
 		cmd = exec.Command(npmPath, "rebuild", "better-sqlite3")
 	}
 	cmd.Dir = l.appDir
-	cmd.Env = append(os.Environ(), "PUPPETEER_SKIP_DOWNLOAD=true")
+	cmd.Env = sanitizeNodeEnvironment(append(os.Environ(), "PUPPETEER_SKIP_DOWNLOAD=true"))
 
 	var buf bytes.Buffer
+	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {
 		l.logAndSync("[WARNING] better-sqlite3 rebuild failed: %v\n%s", err, buf.String())
 		return err
 	}
-	l.logAndSync("[SUCCESS] better-sqlite3 rebuilt successfully")
+	l.logAndSync("[SUCCESS] better-sqlite3 rebuilt successfully\n%s", strings.TrimSpace(buf.String()))
 	return nil
 }
 
@@ -1455,9 +3332,84 @@ func compareVersions(v1, v2 string) int {
 	return 0
 }
 
+func extractAppSubdirFromGitHubZip(zipPath, destDir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	cleanDest, err := filepath.Abs(destDir)
+	if err != nil {
+		return err
+	}
+	foundApp := false
+	for _, f := range r.File {
+		name := filepath.ToSlash(f.Name)
+		parts := strings.SplitN(name, "/", 3)
+		if len(parts) < 3 || parts[1] != "app" {
+			continue
+		}
+		relPath := parts[2]
+		if relPath == "" {
+			continue
+		}
+		foundApp = true
+		targetPath, err := filepath.Abs(filepath.Join(cleanDest, filepath.FromSlash(relPath)))
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(cleanDest, targetPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+			return fmt.Errorf("illegal file path in update archive: %s", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(targetPath, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		closeErr := out.Close()
+		rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	if !foundApp {
+		return fmt.Errorf("update archive did not contain app/")
+	}
+	return nil
+}
+
 // downloadAndApplyUpdate downloads the zipball of the given release and applies
 // it by replacing the app/ directory (with backup + rollback on failure).
 func (l *Launcher) downloadAndApplyUpdate(release *GitHubRelease) error {
+	if release == nil {
+		return fmt.Errorf("release is required")
+	}
+	if strings.TrimSpace(release.ZipballURL) == "" {
+		return fmt.Errorf("release %s does not include a zipball URL", release.TagName)
+	}
+	if l.isNodeRunning() || l.serverStarted || l.startupInProgress {
+		return fmt.Errorf("stop the server before applying an update")
+	}
+
 	runtimeDir := filepath.Join(l.exeDir, "runtime")
 	os.MkdirAll(runtimeDir, 0755)
 
@@ -1474,11 +3426,14 @@ func (l *Launcher) downloadAndApplyUpdate(release *GitHubRelease) error {
 	l.updateProgressLocalized(8, "status.update_applying", "Installiere Update %s...", release.TagName)
 
 	appDir := l.appDir
-	backupDir := filepath.Join(l.exeDir, "app_backup")
+	backupDir := filepath.Join(runtimeDir, "update_backups", time.Now().Format("2006-01-02_15-04-05")+"-"+strings.TrimPrefix(release.TagName, "v"), "app")
 
 	// Backup existing app/
 	os.RemoveAll(backupDir)
 	if _, err := os.Stat(appDir); err == nil {
+		if err := os.MkdirAll(filepath.Dir(backupDir), 0755); err != nil {
+			return fmt.Errorf("backup directory creation failed: %v", err)
+		}
 		if err := os.Rename(appDir, backupDir); err != nil {
 			return fmt.Errorf("backup of app/ failed: %v", err)
 		}
@@ -1489,14 +3444,18 @@ func (l *Launcher) downloadAndApplyUpdate(release *GitHubRelease) error {
 		return fmt.Errorf("cannot create app/ dir: %v", err)
 	}
 
-	if err := extractZipWithFlatStructure(zipDest, appDir); err != nil {
+	if err := extractAppSubdirFromGitHubZip(zipDest, appDir); err != nil {
 		os.RemoveAll(appDir)
 		_ = os.Rename(backupDir, appDir)
 		return fmt.Errorf("update extraction failed: %v", err)
 	}
 
 	// Success – remove backup
-	os.RemoveAll(backupDir)
+	if _, err := os.Stat(filepath.Join(appDir, "package.json")); err != nil {
+		os.RemoveAll(appDir)
+		_ = os.Rename(backupDir, appDir)
+		return fmt.Errorf("update payload is missing app/package.json: %v", err)
+	}
 
 	// Write version
 	if err := writeLocalVersion(release.TagName); err != nil {
@@ -1540,41 +3499,108 @@ $s.Save()
 	if err := os.WriteFile(tmp, []byte(script), 0644); err != nil {
 		return
 	}
-	exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-NonInteractive", "-File", tmp).Run()
+	hiddenCommand("powershell", "-ExecutionPolicy", "Bypass", "-NonInteractive", "-File", tmp).Run()
 	os.Remove(tmp)
 	l.logAndSync("[INFO] Desktop shortcut created: %s", desktop)
+}
+
+func (l *Launcher) startTrayMenu(launcherURL string) {
+	if os.Getenv("LTTH_DISABLE_TRAY") == "true" {
+		l.logAndSync("[INFO] Tray menu disabled by LTTH_DISABLE_TRAY=true")
+		return
+	}
+
+	go systray.Run(func() {
+		systray.SetTitle("LTTH")
+		systray.SetTooltip("PupCid's Little TikTool Helper")
+		for _, iconPath := range []string{
+			filepath.Join(l.exeDir, "build-src", "icon.ico"),
+			filepath.Join(l.exeDir, "icon.ico"),
+		} {
+			if data, err := os.ReadFile(iconPath); err == nil {
+				systray.SetIcon(data)
+				break
+			}
+		}
+
+		openLauncher := systray.AddMenuItem("Launcher öffnen", "Launcher UI im Browser öffnen")
+		openDashboard := systray.AddMenuItem("Dashboard öffnen", "LTTH Dashboard öffnen")
+		startServer := systray.AddMenuItem("Server starten", "Server mit dem gespeicherten Port starten")
+		stopServer := systray.AddMenuItem("Server stoppen", "Node.js Server stoppen")
+		safeMode := systray.AddMenuItemCheckbox("Safe Mode", "Plugins beim Start deaktivieren", l.settings.SafeMode)
+		exportDiagnostics := systray.AddMenuItem("Diagnosepaket exportieren", "Logs und Status als ZIP schreiben")
+		systray.AddSeparator()
+		quit := systray.AddMenuItem("Beenden", "Launcher und verwalteten Server beenden")
+
+		go func() {
+			for {
+				select {
+				case <-openLauncher.ClickedCh:
+					_ = browser.OpenURL(launcherURL)
+				case <-openDashboard.ClickedCh:
+					port := l.serverPort
+					if port == 0 {
+						port = l.readRuntimePortFile()
+					}
+					if port == 0 {
+						if detected, ok := l.detectHealthyServerPort(); ok {
+							port = detected
+						}
+					}
+					if port > 0 {
+						_ = browser.OpenURL(dashboardURL(port))
+					} else {
+						_ = browser.OpenURL(launcherURL)
+					}
+				case <-startServer.ClickedCh:
+					go func() {
+						if err := l.manualStartServer(l.preferredPort); err != nil {
+							l.logAndSync("[TRAY] Server start failed: %v", err)
+						}
+					}()
+				case <-stopServer.ClickedCh:
+					l.killNodeProcess()
+					if _, err := l.stopDetectedLTTHServers("TRAY"); err != nil {
+						l.logAndSync("[TRAY] Server stop failed: %v", err)
+					}
+				case <-safeMode.ClickedCh:
+					settings := l.settings
+					settings.SafeMode = !settings.SafeMode
+					if err := l.saveSettings(settings); err != nil {
+						l.logAndSync("[TRAY] Could not save safe mode: %v", err)
+						continue
+					}
+					if settings.SafeMode {
+						safeMode.Check()
+					} else {
+						safeMode.Uncheck()
+					}
+				case <-exportDiagnostics.ClickedCh:
+					if path, err := l.exportDiagnosticPackage(); err != nil {
+						l.logAndSync("[TRAY] Diagnostic export failed: %v", err)
+					} else {
+						l.logAndSync("[TRAY] Diagnostic export written: %s", path)
+					}
+				case <-quit.ClickedCh:
+					l.killNodeProcess()
+					l.closeLogging()
+					systray.Quit()
+					os.Exit(0)
+				}
+			}
+		}()
+	}, func() {
+		l.logAndSync("[INFO] Tray menu stopped")
+	})
 }
 
 func (l *Launcher) runLauncher() {
 	time.Sleep(1 * time.Second) // Give browser time to load
 
-	// Phase 0: Update Check (0–10%)
-	l.updateProgressLocalized(0, "status.checking_updates", "Prüfe auf Updates...")
-	l.logAndSync("[Phase 0] Checking for app updates...")
+	// Phase 0: App auto-update is intentionally disabled.
+	l.updateProgressLocalized(0, "status.update_disabled", "App Auto-Update deaktiviert")
+	l.logAndSync("[Phase 0] App auto-update disabled; startup will not download GitHub releases.")
 	time.Sleep(300 * time.Millisecond)
-
-	if shouldCheckForUpdates() {
-		release, err := fetchLatestRelease()
-		if err != nil {
-			l.logAndSync("[WARNING] Update check failed: %v – continuing with installed version", err)
-		} else {
-			localVer, _ := getLocalVersion()
-			if compareVersions(release.TagName, localVer) > 0 {
-				l.logAndSync("[INFO] Update available: %s (installed: %s)", release.TagName, localVer)
-				l.updateProgressLocalized(5, "status.update_available", "Update %s verfügbar – wird installiert...", release.TagName)
-				if err := l.downloadAndApplyUpdate(release); err != nil {
-					l.logAndSync("[WARNING] Update failed: %v – continuing with installed version", err)
-				}
-			} else {
-				l.logAndSync("[INFO] App is up to date (%s)", localVer)
-				l.updateProgressLocalized(5, "status.up_to_date", "App ist aktuell (%s)", localVer)
-			}
-		}
-		updateLastCheckTime()
-	} else {
-		l.logAndSync("[INFO] Skipping update check (checked recently)")
-		l.updateProgressLocalized(5, "status.update_skipped", "Update-Check übersprungen (kürzlich geprüft)")
-	}
 	time.Sleep(300 * time.Millisecond)
 
 	// Phase 1: Check / Install / Update Node.js (10–30%)
@@ -1595,14 +3621,10 @@ func (l *Launcher) runLauncher() {
 	l.logAndSync("[SUCCESS] Node.js found at: %s", l.nodePath)
 	time.Sleep(300 * time.Millisecond)
 
-	// Check for portable Node.js update
+	// Do not auto-update the portable Node.js runtime on startup.
 	nodeWasUpdated := false
 	if strings.Contains(l.nodePath, filepath.Join("runtime", "node")) {
-		updated, updateErr := l.checkAndUpdateNodePortable()
-		if updateErr != nil {
-			l.logAndSync("[WARNING] Node.js update check failed: %v", updateErr)
-		}
-		nodeWasUpdated = updated
+		l.logAndSync("[INFO] Portable Node.js auto-update disabled; using installed Node.js.")
 	}
 
 	version := l.getNodeVersion()
@@ -1663,6 +3685,31 @@ func (l *Launcher) runLauncher() {
 	}
 	time.Sleep(300 * time.Millisecond)
 
+	l.updateProgressLocalized(81, "status.checking_native_modules", "Prüfe native Node-Module...")
+	l.logger.Println("[Phase 3.1] Verifying native Node modules...")
+	if err := l.verifyNativeModules(); err != nil {
+		l.logAndSync("[WARNING] Native module verification failed: %v", err)
+		l.updateProgressLocalized(82, "status.rebuilding_native", "Baue native Module neu (better-sqlite3)...")
+		if rebuildErr := l.rebuildNativeModules(); rebuildErr != nil {
+			l.logAndSync("[WARNING] Native module rebuild failed: %v", rebuildErr)
+			l.updateProgressLocalized(83, "status.reinstalling_dependencies", "Installiere Abhängigkeiten neu...")
+			if installErr := l.installDependencies(); installErr != nil {
+				l.logAndSync("[ERROR] Dependency reinstall after native module failure failed: %v", installErr)
+				l.updateProgressLocalized(95, "status.installation_failed", "FEHLER: %v", installErr)
+				time.Sleep(5 * time.Second)
+				l.closeLogging()
+				os.Exit(1)
+			}
+		}
+		if verifyErr := l.verifyNativeModules(); verifyErr != nil {
+			l.logAndSync("[ERROR] Native modules still fail after repair: %v", verifyErr)
+			l.updateProgressLocalized(95, "status.native_modules_failed", "Native Module konnten nicht repariert werden")
+			time.Sleep(5 * time.Second)
+			l.closeLogging()
+			os.Exit(1)
+		}
+	}
+
 	// Phase 3.5: Auto-fix common issues (80-89%)
 	l.updateProgressLocalized(82, "status.checking_config", "Prüfe Konfiguration...")
 	l.logger.Println("[Phase 3.5] Auto-fixing common issues...")
@@ -1687,30 +3734,69 @@ func (l *Launcher) runLauncher() {
 	l.logger.Println("[Phase 4] Starting Node.js server...")
 	time.Sleep(500 * time.Millisecond)
 
+	if servers := l.detectedLTTHServers(); len(servers) > 0 {
+		server := servers[0]
+		port := server.Port
+		if port == 0 {
+			port = l.preferredPort
+		}
+		l.serverPort = port
+		l.serverStarted = true
+		l.startupInProgress = false
+		l.lastStartError = ""
+		l.logAndSync("[INFO] Existing LTTH server detected on port %d with PID %d. Waiting for user action instead of stopping it automatically.", port, server.PID)
+		l.updateProgressLocalized(100, "status.server_already_running", "Server läuft bereits auf Port %d. Öffnen, stoppen oder übernehmen ist im Launcher möglich.", port)
+		l.sendRedirect()
+		return
+	}
+
+	if stopped, err := l.stopDetectedLTTHServers("STARTUP"); err != nil {
+		l.logAndSync("[ERROR] Could not stop existing LTTH server before startup: %v", err)
+		l.updateProgressLocalized(95, "status.stop_old_instance_failed", "Alte Server-Instanz konnte nicht gestoppt werden: %v", err)
+		l.updateProgressLocalized(100, "status.manual_start_available", "Manueller Start ist im Launcher verfÃ¼gbar. Logs prÃ¼fen und Port wÃ¤hlen.")
+		return
+	} else if stopped {
+		l.updateProgressLocalized(90, "status.old_instance_stopped", "Alte Server-Instanz gestoppt.")
+		time.Sleep(500 * time.Millisecond)
+	}
+
 	// Start the tool
+	l.startMu.Lock()
+	l.startupInProgress = true
+	l.lastStartError = ""
+	l.serverStarted = false
+	l.startMu.Unlock()
+
+	startedAt := time.Now()
 	cmd, err := l.startTool()
 	if err != nil {
 		l.logger.Printf("[ERROR] Failed to start server: %v\n", err)
+		l.markServerStartDone(err)
 		l.updateProgressLocalized(90, "status.start_error", "FEHLER beim Starten: %v", err)
-		l.updateProgressLocalized(90, "status.check_logs", "Prüfe bitte die Log-Datei in app/logs/ für Details.")
-		time.Sleep(30 * time.Second)
-		l.closeLogging()
-		os.Exit(1)
+		l.updateProgressLocalized(90, "status.check_logs", "Prüfe bitte die Log-Dateien im logs/ Ordner für Details.")
+		l.updateProgressLocalized(100, "status.manual_start_available", "Manueller Start ist im Launcher verfügbar. Logs prüfen und Port wählen.")
+		return
 	}
 
 	// Monitor if the process exits prematurely
 	processDied := make(chan error, 1)
 	go func() {
-		processDied <- cmd.Wait()
+		waitErr := cmd.Wait()
+		l.nodeMu.Lock()
+		if l.nodeCmd == cmd {
+			l.nodeCmd = nil
+		}
+		l.nodeMu.Unlock()
+		processDied <- waitErr
 	}()
 
 	// Wait for server to be ready
 	l.updateProgressLocalized(93, "status.waiting_for_server_start", "Warte auf Server-Start...")
-	l.logger.Println("[INFO] Waiting for server health check (60s timeout)...")
+	l.logger.Printf("[INFO] Waiting for server health check (%ds timeout)...\n", serverHealthTimeoutSeconds)
 	l.logger.Println("[INFO] Checking if server responds on current .ltth_port (fallback 3000)...")
 
 	// Check server health with process monitoring
-	healthCheckTimeout := time.After(60 * time.Second)
+	healthCheckTimeout := time.After(serverHealthTimeout)
 	healthCheckTicker := time.NewTicker(1 * time.Second)
 	defer healthCheckTicker.Stop()
 
@@ -1751,13 +3837,20 @@ func (l *Launcher) runLauncher() {
 				l.envFileFixed = false
 
 				// Start server again
+				startedAt = time.Now()
 				cmd, err = l.startTool()
 				if err != nil {
 					l.logAndSync("[ERROR] Retry failed to start server: %v", err)
 				} else {
 					// Monitor the restarted process
 					go func() {
-						processDied <- cmd.Wait()
+						waitErr := cmd.Wait()
+						l.nodeMu.Lock()
+						if l.nodeCmd == cmd {
+							l.nodeCmd = nil
+						}
+						l.nodeMu.Unlock()
+						processDied <- waitErr
 					}()
 
 					l.updateProgressLocalized(96, "status.server_restart_wait", "🔄 Server neugestartet - warte auf Antwort...")
@@ -1772,34 +3865,36 @@ func (l *Launcher) runLauncher() {
 			time.Sleep(2 * time.Second)
 			l.updateProgressLocalized(96, "status.auto_fixes_done", "📋 Alle Auto-Fixes wurden versucht")
 			time.Sleep(2 * time.Second)
-			l.updateProgressLocalized(97, "status.check_launcher_logs", "💡 Prüfe app/logs/launcher_*.log für Details")
+			l.updateProgressLocalized(97, "status.check_launcher_logs", "💡 Prüfe logs/launcher_*.log für Details")
 			time.Sleep(2 * time.Second)
 			l.updateProgressLocalized(98, "status.manual_install_hint", "💡 Oder führe manuell: cd app && npm install")
 			time.Sleep(2 * time.Second)
 			l.updateProgressLocalized(99, "status.port_check_hint", "💡 Oder prüfe ob Port 3000 frei ist")
 			time.Sleep(2 * time.Second)
-			l.updateProgressLocalized(100, "status.closing", "❌ Launcher wird in 15 Sekunden geschlossen...")
-			time.Sleep(15 * time.Second)
-			l.closeLogging()
-			os.Exit(1)
+			l.markServerStartDone(fmt.Errorf("node process exited before ready: %v", err))
+			l.updateProgressLocalized(100, "status.manual_start_available", "Manueller Start ist im Launcher verfügbar. Logs prüfen und Port wählen.")
+			return
 		case <-healthCheckTicker.C:
 			attemptCount++
 
 			// Log progress every 5 seconds
 			if time.Since(lastLogTime) >= 5*time.Second {
 				l.logger.Printf("[INFO] Health check attempt %d (waiting for server to respond)...\n", attemptCount)
-				l.updateProgressLocalized(93+(attemptCount/5), "status.waiting_attempt", "Warte auf Server... (Versuch %d)", attemptCount)
+				l.updateProgressLocalized(waitingAttemptProgress(attemptCount), "status.waiting_attempt", "Warte auf Server... (Versuch %d)", attemptCount)
 				lastLogTime = time.Now()
 			}
 
-			if l.checkServerHealth() {
-				resolvedPort := getCurrentNodePort()
+			if port, ok := l.detectRuntimeServerPortSince(startedAt); ok {
+				l.serverPort = port
+				resolvedPort := l.serverPort
 				l.logger.Printf("[SUCCESS] Server responded on port %d!\n", resolvedPort)
 				l.serverPort = resolvedPort
+				l.serverStarted = true
+				l.markServerStartDone(nil)
 				serverReady = true
 			}
 		case <-healthCheckTimeout:
-			l.logger.Println("[ERROR] Server health check timed out after 60 seconds")
+			l.logger.Printf("[ERROR] Server health check timed out after %d seconds\n", serverHealthTimeoutSeconds)
 			l.logger.Println("[ERROR] Server did not respond. Check the log above for error messages.")
 			l.logger.Println("[ERROR] ===========================================")
 			l.logger.Println("[ERROR] Mögliche Probleme:")
@@ -1809,18 +3904,17 @@ func (l *Launcher) runLauncher() {
 			l.logger.Println("[ERROR]  - Portbereich 3000-3050 ist blockiert durch Firewall")
 			l.logger.Println("[ERROR] ===========================================")
 
-			l.updateProgressLocalized(95, "status.server_timeout", "⏱️ Server-Start Timeout (60s)")
+			l.updateProgressLocalized(95, "status.server_timeout", "Server-Start Timeout (%ds)", serverHealthTimeoutSeconds)
 			time.Sleep(2 * time.Second)
-			l.updateProgressLocalized(96, "status.server_no_response", "📋 Server antwortet nicht - prüfe app/logs/")
+			l.updateProgressLocalized(96, "status.server_no_response", "📋 Server antwortet nicht - prüfe logs/")
 			time.Sleep(2 * time.Second)
 			l.updateProgressLocalized(97, "status.server_maybe_running", "💡 Server läuft evtl. noch im Hintergrund")
 			time.Sleep(2 * time.Second)
 			l.updateProgressLocalized(98, "status.wait_manual_open", fmt.Sprintf("💡 Warte 2-3 Minuten und öffne localhost:%d", getCurrentNodePort()))
 			time.Sleep(2 * time.Second)
-			l.updateProgressLocalized(100, "status.closing", "❌ Launcher wird in 15 Sekunden geschlossen...")
-			time.Sleep(15 * time.Second)
-			l.closeLogging()
-			os.Exit(1)
+			l.markServerStartDone(fmt.Errorf("server health check timed out after %d seconds", serverHealthTimeoutSeconds))
+			l.updateProgressLocalized(100, "status.manual_start_available", "Manueller Start ist im Launcher verfügbar. Logs prüfen und Port wählen.")
+			return
 		}
 	}
 
@@ -1844,6 +3938,7 @@ func (l *Launcher) runLauncher() {
 	if l.logger != nil {
 		l.logger.Printf("[INFO] Node.js process exited: %v\n", exitStatus)
 	}
+	l.serverStarted = false
 
 	l.closeLogging()
 	os.Exit(0)
@@ -1944,6 +4039,16 @@ func parseChangelogToHTML(markdown string) string {
 
 func main() {
 	launcher := NewLauncher()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if launcher.logger != nil {
+				launcher.logAndSync("[FATAL] Launcher panic: %v", recovered)
+				launcher.logAndSync("[FATAL] Stack trace:\n%s", string(debug.Stack()))
+				launcher.closeLogging()
+			}
+			os.Exit(1)
+		}
+	}()
 
 	// Get executable directory
 	exePath, err := os.Executable()
@@ -1968,13 +4073,19 @@ func main() {
 		launcher.logger = log.New(io.Discard, "", log.LstdFlags)
 	}
 
-	launcher.logAndSync("Launcher started successfully")
-	launcher.logAndSync("Executable directory: %s", exeDir)
-	launcher.logAndSync("App directory: %s", launcher.appDir)
+	launcher.logStartupPreflight(templatePath)
+	launcher.loadSettings()
+	launcher.logAndSync("[INFO] Launcher settings loaded: locale=%s theme=%s port=%d safeMode=%v updateChannel=%s",
+		launcher.settings.Locale,
+		launcher.settings.Theme,
+		launcher.settings.PreferredPort,
+		launcher.settings.SafeMode,
+		launcher.settings.UpdateChannel)
 
-	// Resolve the current LTS version once at startup
-	launcher.resolvedNodeVersion = fetchNodeLTSVersion(launcher.logger)
-	launcher.logAndSync("[INFO] Node.js LTS version resolved: %s", launcher.resolvedNodeVersion)
+	// Keep startup offline and deterministic. Portable Node auto-update is disabled,
+	// so resolving the latest LTS from the network only delays diagnostics on broken systems.
+	launcher.resolvedNodeVersion = nodeVersionFallback
+	launcher.logAndSync("[INFO] Node.js fallback/runtime version target: %s", launcher.resolvedNodeVersion)
 
 	// Resolve persistent config paths and ensure user_configs exists
 	launcher.initConfigPaths()
@@ -1993,7 +4104,7 @@ func main() {
 		// Get language from query parameter or use default
 		lang := r.URL.Query().Get("lang")
 		if lang == "" {
-			lang = launcher.locale
+			lang = launcher.settings.Locale
 		} else {
 			valid := false
 			for _, l := range allowedLocales {
@@ -2004,6 +4115,9 @@ func main() {
 			}
 			if valid {
 				launcher.locale = lang
+				settings := launcher.settings
+				settings.Locale = lang
+				_ = launcher.saveSettings(settings)
 			} else {
 				lang = launcher.locale
 			}
@@ -2013,14 +4127,20 @@ func main() {
 		theme := r.URL.Query().Get("theme")
 		switch theme {
 		case "day", "night", "highcontrast":
+			settings := launcher.settings
+			settings.Theme = theme
+			_ = launcher.saveSettings(settings)
 		default:
-			theme = "night"
+			theme = launcher.settings.Theme
+			if !validTheme(theme) {
+				theme = "night"
+			}
 		}
 
 		// Load translations
 		launcher.loadTranslations(lang)
 		launcher.status = launcher.currentStatus()
-		
+
 		// Reload profiles if they haven't been loaded recently (cache for 5 seconds)
 		if time.Since(launcher.profilesLoaded) > 5*time.Second {
 			launcher.loadUserProfiles()
@@ -2090,6 +4210,10 @@ func main() {
 			"LogsEmpty":          launcher.getTranslation("logs.empty"),
 			"LogsError":          launcher.getTranslation("logs.error"),
 			"CurrentTheme":       theme,
+			"KeepLauncherOpen":   launcher.settings.KeepLauncherOpen,
+			"SafeMode":           launcher.settings.SafeMode,
+			"UpdateChannel":      launcher.settings.UpdateChannel,
+			"FirstRunComplete":   launcher.settings.FirstRunComplete,
 		}
 
 		tmpl.Execute(w, data)
@@ -2157,6 +4281,247 @@ func main() {
 		}
 
 		w.Write([]byte(strings.Join(parts, "\n\n")))
+	})
+
+	http.HandleFunc("/api/launcher/status", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, launcher.statusPayload())
+	})
+
+	http.HandleFunc("/api/launcher/settings", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			writeJSON(w, map[string]interface{}{"success": true, "settings": launcher.settings})
+		case "POST":
+			settings, err := launcher.updateSettingsFromRequest(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := launcher.saveSettings(settings); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]interface{}{"success": true, "settings": launcher.settings})
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	http.HandleFunc("/api/launcher/diagnostics", func(w http.ResponseWriter, r *http.Request) {
+		if !methodAllowed(w, r, "GET") {
+			return
+		}
+		launcher.refreshPluginFailuresFromLogs()
+		writeJSON(w, map[string]interface{}{
+			"success":        true,
+			"diagnostics":    launcher.collectDiagnostics(),
+			"pluginFailures": launcher.pluginFailures,
+		})
+	})
+
+	http.HandleFunc("/api/launcher/fix", func(w http.ResponseWriter, r *http.Request) {
+		if !methodAllowed(w, r, "POST") {
+			return
+		}
+		action := strings.TrimSpace(r.URL.Query().Get("action"))
+		if action == "" {
+			http.Error(w, "missing action", http.StatusBadRequest)
+			return
+		}
+		result, err := launcher.applyFixAction(action)
+		if err != nil {
+			launcher.logAndSync("[FIX] Action %s failed: %v", action, err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, result)
+	})
+
+	http.HandleFunc("/api/launcher/export-diagnostics", func(w http.ResponseWriter, r *http.Request) {
+		if !methodAllowed(w, r, "POST") {
+			return
+		}
+		zipPath, err := launcher.exportDiagnosticPackage()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]interface{}{"success": true, "path": zipPath})
+	})
+
+	http.HandleFunc("/api/launcher/adopt-server", func(w http.ResponseWriter, r *http.Request) {
+		if !methodAllowed(w, r, "POST") {
+			return
+		}
+		result, err := launcher.applyFixAction("adopt-server")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, result)
+	})
+
+	http.HandleFunc("/api/launcher/update/check", func(w http.ResponseWriter, r *http.Request) {
+		if !methodAllowed(w, r, "POST") {
+			return
+		}
+		result, err := launcher.checkUpdateForCurrentChannel()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, result)
+	})
+
+	http.HandleFunc("/api/launcher/update/apply", func(w http.ResponseWriter, r *http.Request) {
+		if !methodAllowed(w, r, "POST") {
+			return
+		}
+		result, err := launcher.applyUpdateForCurrentChannel()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, result)
+	})
+
+	http.HandleFunc("/api/launcher/update/rollback", func(w http.ResponseWriter, r *http.Request) {
+		if !methodAllowed(w, r, "POST") {
+			return
+		}
+		result, err := launcher.rollbackLastUpdate()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, result)
+	})
+
+	http.HandleFunc("/api/launcher/port", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		port, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("port")))
+		if err != nil {
+			http.Error(w, "Invalid port", http.StatusBadRequest)
+			return
+		}
+		if err := launcher.setPreferredPort(port); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "preferredPort": launcher.preferredPort})
+	})
+
+	http.HandleFunc("/api/launcher/start-server", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		port := launcher.preferredPort
+		if rawPort := strings.TrimSpace(r.URL.Query().Get("port")); rawPort != "" {
+			if parsedPort, err := strconv.Atoi(rawPort); err == nil {
+				port = parsedPort
+			}
+		}
+
+		if err := launcher.manualStartServer(port); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "preferredPort": launcher.preferredPort})
+	})
+
+	http.HandleFunc("/api/launcher/stop-server", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		launcher.logAndSync("[MANUAL] Stop server requested from launcher UI")
+		launcher.killNodeProcess()
+		if _, err := launcher.stopDetectedLTTHServers("MANUAL"); err != nil {
+			launcher.logAndSync("[ERROR] Stop server request could not stop all LTTH instances: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		launcher.clearRuntimePortFile()
+		launcher.serverStarted = false
+		launcher.serverPort = 0
+		launcher.markServerStartDone(fmt.Errorf("server stopped manually"))
+		launcher.updateProgressLocalized(100, "status.manual_start_available", "Server gestoppt. Manueller Start ist verfügbar.")
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	})
+
+	http.HandleFunc("/api/launcher/open-app", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		port := launcher.serverPort
+		if port == 0 {
+			port = launcher.readRuntimePortFile()
+		}
+		if port == 0 {
+			if detectedPort, ok := launcher.detectHealthyServerPort(); ok {
+				port = detectedPort
+			}
+		}
+		if port == 0 {
+			http.Error(w, "server is not reachable", http.StatusBadRequest)
+			return
+		}
+
+		url := fmt.Sprintf("http://localhost:%d/dashboard.html", port)
+		launcher.logAndSync("[MANUAL] Opening dashboard: %s", url)
+		_ = browser.OpenURL(url)
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "url": url})
+	})
+
+	http.HandleFunc("/api/launcher/vacuum-database", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if launcher.startupInProgress || launcher.isNodeRunning() || launcher.serverStarted {
+			http.Error(w, "Server vor VACUUM stoppen, damit die Datenbank nicht gesperrt ist.", http.StatusConflict)
+			return
+		}
+		if detectedPort, ok := launcher.detectHealthyServerPort(); ok {
+			http.Error(w, fmt.Sprintf("Server laeuft noch auf Port %d. Bitte vor VACUUM stoppen.", detectedPort), http.StatusConflict)
+			return
+		}
+
+		launcher.logAndSync("[MAINTENANCE] SQLite VACUUM requested for active profile")
+		result, err := launcher.vacuumActiveProfileDatabase()
+		if err != nil {
+			launcher.logAndSync("[ERROR] SQLite VACUUM failed: %v", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		launcher.logAndSync("[MAINTENANCE] SQLite VACUUM finished for profile %s: before=%d after=%d freed=%d duration=%dms",
+			result.Profile,
+			result.SizeBeforeBytes,
+			result.SizeAfterBytes,
+			result.FreedBytes,
+			result.DurationMillis)
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(result)
 	})
 
 	http.HandleFunc("/api/select-profile", func(w http.ResponseWriter, r *http.Request) {
@@ -2235,8 +4600,7 @@ func main() {
 	if err != nil {
 		listener, err = net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
-			launcher.logAndSync("[ERROR] Cannot bind launcher UI server: %v", err)
-			os.Exit(1)
+			launcher.logFatalAndExit(fmt.Sprintf("Cannot bind launcher UI server: %v", err), 1)
 		}
 		launcher.logAndSync("[WARNING] Port 58734 in use, falling back to port %s", listener.Addr().String())
 	}
@@ -2256,6 +4620,7 @@ func main() {
 
 	// Open browser
 	browser.OpenURL(launcherURL)
+	launcher.startTrayMenu(launcherURL)
 
 	// Create desktop shortcut (Windows, once)
 	launcher.createDesktopShortcut()

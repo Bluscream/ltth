@@ -112,9 +112,11 @@ class GlobalChatCommandEngine {
             };
 
             // Initialize core components
-            this.permissionChecker = new PermissionChecker(this.api);
+            this.permissionChecker = new PermissionChecker(logger);
             this.registry = new CommandRegistry(logger);
-            this.parser = new CommandParser(this.registry, this.permissionChecker, this.api);
+            this.parser = new CommandParser(this.registry, this.permissionChecker, logger, {
+                commandPrefix: this.pluginConfig.commandPrefix
+            });
             
             // P5: Initialize User Data Cache
             this.userDataCache = new UserDataCache(300000, 1000); // 5 min TTL, max 1000 users
@@ -202,12 +204,24 @@ class GlobalChatCommandEngine {
                 commandPrefix: config.COMMAND_PREFIX,
                 ...this.pluginConfig
             };
+            this.pluginConfig.commandPrefix = this.normalizeCommandPrefix(this.pluginConfig.commandPrefix);
 
             await this.api.setConfig('gcce_config', this.pluginConfig);
         } catch (error) {
             this.api.log(`[GCCE] Config load error: ${error.message}`, 'error');
             this.pluginConfig = { enabled: true };
         }
+    }
+
+    /**
+     * Normalize command prefix configuration.
+     * @param {string} prefix - Configured prefix
+     * @returns {string} Single-character command prefix
+     */
+    normalizeCommandPrefix(prefix) {
+        return typeof prefix === 'string' && prefix.trim().length > 0
+            ? prefix.trim().charAt(0)
+            : config.COMMAND_PREFIX;
     }
 
     /**
@@ -364,9 +378,9 @@ class GlobalChatCommandEngine {
         // Stats command - show GCCE statistics
         this.registry.registerCommand({
             pluginId: 'gcce',
-            name: 'stats',
+            name: 'gcstats',
             description: 'Show GCCE system statistics',
-            syntax: '/stats',
+            syntax: '/gcstats',
             permission: 'all',
             enabled: true,
             minArgs: 0,
@@ -790,6 +804,10 @@ class GlobalChatCommandEngine {
         this.api.registerRoute('POST', '/api/gcce/config', async (req, res) => {
             try {
                 this.pluginConfig = { ...this.pluginConfig, ...req.body };
+                this.pluginConfig.commandPrefix = this.normalizeCommandPrefix(this.pluginConfig.commandPrefix);
+                if (this.parser && typeof this.parser.setCommandPrefix === 'function') {
+                    this.parser.setCommandPrefix(this.pluginConfig.commandPrefix);
+                }
                 await this.api.setConfig('gcce_config', this.pluginConfig);
                 
                 res.json({
@@ -1695,7 +1713,7 @@ class GlobalChatCommandEngine {
                 source: 'flow'
             };
             
-            const result = await this.parser.parseAndExecute(command, context);
+            const result = await this.parser.parse(command, context);
             return { success: result.success, message: result.message, data: result.data };
         });
         
@@ -1781,7 +1799,7 @@ class GlobalChatCommandEngine {
                     source: 'ifttt'
                 };
                 
-                const result = await this.parser.parseAndExecute(command, cmdContext);
+                const result = await this.parser.parse(command, cmdContext);
                 services.logger?.info(`🎯 GCCE: Executed command: ${command}`);
                 
                 return { success: result.success, message: result.message, data: result.data };

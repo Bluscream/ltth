@@ -1,5 +1,4 @@
-const osc = require('osc');
-const fs = require('fs').promises;
+﻿const fs = require('fs').promises;
 const path = require('path');
 
 // Import modular components
@@ -7,80 +6,13 @@ const OSCQueryClient = require('./modules/OSCQueryClient');
 const AvatarStateStore = require('./modules/AvatarStateStore');
 const ExpressionController = require('./modules/ExpressionController');
 const PhysBonesController = require('./modules/PhysBonesController');
-
-/**
- * Message Batching & Queuing System
- * Bundles multiple OSC messages within a time window for better performance
- */
-class MessageBatcher {
-    constructor(batchWindow = 10) {
-        this.queue = [];
-        this.timer = null;
-        this.batchWindow = batchWindow; // ms
-        this.udpPort = null;
-    }
-
-    setUDPPort(udpPort) {
-        this.udpPort = udpPort;
-    }
-
-    add(message) {
-        this.queue.push(message);
-        if (!this.timer) {
-            this.timer = setTimeout(() => this.flush(), this.batchWindow);
-        }
-    }
-
-    flush() {
-        if (this.queue.length > 0 && this.udpPort) {
-            // Send as OSC bundle for batch sending
-            const bundle = {
-                timeTag: osc.timeTag(0),
-                packets: this.queue
-            };
-            this.udpPort.send(bundle);
-            this.queue = [];
-        }
-        this.timer = null;
-    }
-
-    clear() {
-        if (this.timer) {
-            clearTimeout(this.timer);
-            this.timer = null;
-        }
-        this.queue = [];
-    }
-}
-
-/**
- * Parameter Cache with TTL
- * Skips redundant messages for unchanged values
- */
-class ParameterCache {
-    constructor(ttl = 5000) {
-        this.cache = new Map();
-        this.ttl = ttl;
-    }
-
-    shouldSend(address, value) {
-        const cached = this.cache.get(address);
-        if (!cached) return true;
-        
-        if (Date.now() - cached.timestamp > this.ttl) return true;
-        if (cached.value !== value) return true;
-        
-        return false; // Skip redundant send
-    }
-
-    update(address, value) {
-        this.cache.set(address, { value, timestamp: Date.now() });
-    }
-
-    clear() {
-        this.cache.clear();
-    }
-}
+const OscUdpTransport = require('./modules/OscUdpTransport');
+const OscSendService = require('./modules/OscSendService');
+const {
+    normalizeConfig,
+    validateConfig,
+    deepMerge
+} = require('./modules/OscBridgeConfig');
 
 /**
  * Parameter Presets System
@@ -141,58 +73,20 @@ class ParameterPresetManager {
  * Token Bucket Rate Limiter
  * Limits OSC message rate to prevent overload
  */
-class RateLimiter {
-    constructor(maxPerSecond = 100) {
-        this.maxTokens = maxPerSecond;
-        this.tokens = maxPerSecond;
-        this.lastRefill = Date.now();
-        this.refillRate = maxPerSecond / 1000; // tokens per ms
-    }
-
-    tryConsume(count = 1) {
-        this._refill();
-        
-        if (this.tokens >= count) {
-            this.tokens -= count;
-            return true;
-        }
-        
-        return false;
-    }
-
-    _refill() {
-        const now = Date.now();
-        const elapsed = now - this.lastRefill;
-        const tokensToAdd = elapsed * this.refillRate;
-        
-        this.tokens = Math.min(this.maxTokens, this.tokens + tokensToAdd);
-        this.lastRefill = now;
-    }
-
-    getRemainingTokens() {
-        this._refill();
-        return Math.floor(this.tokens);
-    }
-
-    getCapacity() {
-        return this.maxTokens;
-    }
-}
-
 /**
- * OSC-Bridge Plugin für VRChat-Integration
+ * OSC-Bridge Plugin fÃ¼r VRChat-Integration
  *
- * Permanente OSC-Brücke zwischen TikTok-Events und VRChat-Avataren.
- * Unterstützt bidirektionale Kommunikation mit konfigurierbaren Parametern.
+ * Permanente OSC-BrÃ¼cke zwischen TikTok-Events und VRChat-Avataren.
+ * UnterstÃ¼tzt bidirektionale Kommunikation mit konfigurierbaren Parametern.
  *
  * Features:
  * - Dauerhaft aktiv (kein Auto-Shutdown)
  * - VRChat-Standard-Parameter (/avatar/parameters/*, /world/*)
  * - Sicherheit: Nur lokale IPs erlaubt
- * - Vollständiges Logging mit oscBridge.log
- * - Event-Bus-Integration für eingehende OSC-Signale
- * - Flow-System-Integration für automatische Trigger
- * - Message Batching & Queuing für bessere Performance
+ * - VollstÃ¤ndiges Logging mit oscBridge.log
+ * - Event-Bus-Integration fÃ¼r eingehende OSC-Signale
+ * - Flow-System-Integration fÃ¼r automatische Trigger
+ * - Message Batching & Queuing fÃ¼r bessere Performance
  * - OSCQuery Auto-Discovery
  * - Live Parameter Monitoring
  * - PhysBones Control
@@ -210,9 +104,14 @@ class OSCBridgePlugin {
         this.isRunning = false;
         this.config = null;
 
-        // Logging - use persistent storage in user profile directory
-        const configPathManager = api.getConfigPathManager();
-        this.logDir = path.join(configPathManager.getUserDataDir(), 'logs');
+        // Logging - use persistent storage in user profile directory when available.
+        const configPathManager = typeof api.getConfigPathManager === 'function'
+            ? api.getConfigPathManager()
+            : null;
+        const userDataDir = configPathManager && typeof configPathManager.getUserDataDir === 'function'
+            ? configPathManager.getUserDataDir()
+            : path.join(__dirname, 'data');
+        this.logDir = path.join(userDataDir, 'logs');
         this.logFile = path.join(this.logDir, 'oscBridge.log');
 
         // Statistiken
@@ -225,6 +124,28 @@ class OSCBridgePlugin {
             startTime: null,
             batchedMessages: 0
         };
+        this.resetTimers = new Set();
+
+        this.transport = new OscUdpTransport({ logger: this.logger });
+        this.transport.on('message', (oscMessage, timeTag, info) => {
+            this.handleIncomingMessage(oscMessage, info);
+        });
+        this.transport.on('transport_error', (error) => {
+            if (this.transport.state !== 'starting') {
+                this.stats.errors++;
+                this.logger.error('OSC-Bridge transport error:', error);
+                this.logToFile('ERROR', `${error.message}`);
+                this.emitStatus();
+            }
+        });
+        this.sendService = new OscSendService({
+            getConfig: () => this.config || this.getDefaultConfig(),
+            getTransport: () => this.transport,
+            logger: this.logger,
+            emit: (event, payload) => this.api.emit(event, payload),
+            logToFile: (level, message) => this.logToFile(level, message),
+            stats: this.stats
+        });
 
         // Sicherheit: Erlaubte IP-Adressen
         this.ALLOWED_IPS = ['127.0.0.1', 'localhost', '::1', '0.0.0.0'];
@@ -236,10 +157,9 @@ class OSCBridgePlugin {
         };
 
         // New Performance & Feature Components
-        this.messageBatcher = new MessageBatcher(10); // 10ms batch window
-        this.parameterCache = new ParameterCache(5000); // 5s TTL
         this.presetManager = new ParameterPresetManager(api);
-        this.rateLimiter = new RateLimiter(100); // 100 messages per second default
+        this.animazingPalIntentHandler = null;
+        this.animazingPalBridgeRegistered = false;
         
         // Modular components (initialized later)
         this.oscQueryClient = null; // OSCQueryClient instance
@@ -276,14 +196,14 @@ class OSCBridgePlugin {
             await this.initLogDir();
 
             // Config laden
-            this.config = await this.api.getConfig('config') || this.getDefaultConfig();
+            this.config = normalizeConfig(await this.api.getConfig('config') || this.getDefaultConfig());
 
-            // Early-init OSCQueryClient if enabled — prevents race condition with auto-detect endpoint
+            // Early-init OSCQueryClient if enabled â€” prevents race condition with auto-detect endpoint
             if (this.config.oscQuery?.enabled) {
                 const host = this.config.oscQuery.host || '127.0.0.1';
                 const port = this.config.oscQuery.port || 9001;
                 this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
-                this.logger.info(`📡 OSCQuery client pre-initialized: ${host}:${port}`);
+                this.logger.info(`ðŸ“¡ OSCQuery client pre-initialized: ${host}:${port}`);
             }
 
             // Initialize modular components
@@ -308,8 +228,11 @@ class OSCBridgePlugin {
             // Socket.IO Events registrieren
             this.registerSocketEvents();
 
-            // TikTok Gift Event registrieren für Gift-Mappings
+            // TikTok Gift Event registrieren fÃ¼r Gift-Mappings
             this.registerTikTokGiftHandler();
+
+            // AnimazingPal intent bridge
+            this.registerAnimazingPalBridge();
 
             // GCCE Commands registrieren
             this.registerGCCECommands();
@@ -319,7 +242,7 @@ class OSCBridgePlugin {
                 await this.start();
             }
 
-            this.logger.info('📡 OSC-Bridge Plugin initialized with enhanced modular features');
+            this.logger.info('ðŸ“¡ OSC-Bridge Plugin initialized with enhanced modular features');
 
             return true;
         } catch (error) {
@@ -330,6 +253,14 @@ class OSCBridgePlugin {
 
     async initLogDir() {
         try {
+            if (typeof this.api.ensurePluginDataDir === 'function') {
+                const dataDir = await this.api.ensurePluginDataDir();
+                this.logDir = path.join(dataDir, 'logs');
+                this.logFile = path.join(this.logDir, 'oscBridge.log');
+            } else if (typeof this.api.getPluginDataDir === 'function') {
+                this.logDir = path.join(this.api.getPluginDataDir(), 'logs');
+                this.logFile = path.join(this.logDir, 'oscBridge.log');
+            }
             await fs.mkdir(this.logDir, { recursive: true });
         } catch (error) {
             this.logger.error('Failed to create OSC log directory:', error);
@@ -337,75 +268,11 @@ class OSCBridgePlugin {
     }
 
     getDefaultConfig() {
-        return {
-            enabled: false,
-            sendHost: '127.0.0.1',
-            sendPort: 9000,
-            receivePort: 9001,
-            verboseMode: false,
-            allowedIPs: ['127.0.0.1', '::1'],
-            autoRetryOnError: true,
-            retryDelay: 5000,
-            maxPacketSize: 65536,
-            giftMappings: [], // Array of {giftId, giftName, action, params}
-            avatars: [], // Array of {id, name, avatarId, description}
-            favorites: {
-                avatars: [],
-                maxFavorites: 10
-            },
-            // Performance features
-            messageBatching: {
-                enabled: true,
-                batchWindow: 10 // ms
-            },
-            parameterCaching: {
-                enabled: true,
-                ttl: 5000 // ms
-            },
-            // Rate Limiting
-            rateLimiting: {
-                enabled: true,
-                maxPerSecond: 100 // Max OSC messages per second
-            },
-            // OSCQuery Auto-Discovery
-            oscQuery: {
-                enabled: false,
-                host: '127.0.0.1',
-                port: 9002,
-                autoSubscribe: true
-            },
-            // Live Parameter Monitoring
-            liveMonitoring: {
-                enabled: false,
-                updateInterval: 100, // ms
-                historyDuration: 60000 // ms (60s)
-            },
-            // PhysBones Control
-            physBones: {
-                enabled: false,
-                bones: [] // Array of {name, path, animations}
-            },
-            // Chatbox Integration
-            chatbox: {
-                enabled: false,
-                mirrorTikTokChat: false,
-                prefix: '[TikTok]',
-                showTyping: true
-            },
+        return normalizeConfig({
             chatCommands: {
-                enabled: true,           // Chat-Befehle aktivieren
-                requireOSCConnection: true, // Nur wenn OSC verbunden
-                cooldownSeconds: 3,      // Cooldown zwischen Commands
-                rateLimitPerMinute: 10,  // Max Commands pro Minute pro User
-                commands: this.getDefaultCommands(), // Configurable command list
-                avatarSwitch: {
-                    enabled: false,           // Avatar switching via chat commands
-                    cooldownType: 'global',   // 'global' or 'perUser'
-                    cooldownSeconds: 60,      // Cooldown in seconds
-                    permission: 'subscriber'  // 'all', 'subscriber', 'moderator'
-                }
+                commands: this.getDefaultCommands()
             }
-        };
+        });
     }
 
     getDefaultCommands() {
@@ -487,6 +354,26 @@ class OSCBridgePlugin {
         ];
     }
 
+    buildOSCQueryDiagnostics(overrides = {}) {
+        const host = overrides.host || this.config?.oscQuery?.host || '127.0.0.1';
+        const startPort = overrides.startPort || this.config?.oscQuery?.scanStartPort || 9001;
+        const endPort = overrides.endPort || this.config?.oscQuery?.scanEndPort || 9020;
+
+        return {
+            host,
+            port: overrides.port || this.config?.oscQuery?.port || 9001,
+            scannedRange: `${startPort}-${endPort}`,
+            summary: 'VRChat OSCQuery was not reachable on the scanned localhost TCP ports.',
+            actions: [
+                'Start VRChat and load into a world with an avatar.',
+                'Enable OSC in VRChat via Action Menu > OSC > Enabled.',
+                'Keep OSC Bridge sendHost at 127.0.0.1, sendPort at 9000, receivePort at 9001.',
+                'Use OSCQuery port 9001 first; if another VRChat OSCQuery port is shown, run scan and save that port.',
+                'If discovery still fails, restart VRChat after enabling OSC and check local firewall rules for localhost TCP.'
+            ]
+        };
+    }
+
     registerRoutes() {
         // UI route
         this.api.registerRoute('GET', '/osc-bridge/ui', (req, res) => {
@@ -525,11 +412,11 @@ class OSCBridgePlugin {
             }
 
             const argsArray = Array.isArray(args) ? args : [args];
-            const success = this.send(address, ...argsArray);
+            const result = this.sendMessage(address, argsArray);
 
             res.json({
-                success,
-                message: success ? 'OSC message sent' : 'Failed to send OSC message',
+                ...result,
+                message: result.success ? 'OSC message sent' : 'Failed to send OSC message',
                 address,
                 args: argsArray
             });
@@ -544,7 +431,7 @@ class OSCBridgePlugin {
 
         // GET /api/osc/config - Config abrufen
         this.api.registerRoute('get', '/api/osc/config', async (req, res) => {
-            const config = await this.api.getConfig('config') || this.getDefaultConfig();
+            const config = normalizeConfig(await this.api.getConfig('config') || this.getDefaultConfig());
             res.json({
                 success: true,
                 config
@@ -561,38 +448,38 @@ class OSCBridgePlugin {
         // VRChat Helper-Endpoints
         this.api.registerRoute('post', '/api/osc/vrchat/wave', (req, res) => {
             const duration = req.body.duration || 2000;
-            this.wave(duration);
-            res.json({ success: true, action: 'wave', duration });
+            const success = this.wave(duration);
+            res.json({ success, action: 'wave', duration, error: success ? undefined : 'OSC action failed: wave' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/celebrate', (req, res) => {
             const duration = req.body.duration || 3000;
-            this.celebrate(duration);
-            res.json({ success: true, action: 'celebrate', duration });
+            const success = this.celebrate(duration);
+            res.json({ success, action: 'celebrate', duration, error: success ? undefined : 'OSC action failed: celebrate' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/dance', (req, res) => {
             const duration = req.body.duration || 5000;
-            this.dance(duration);
-            res.json({ success: true, action: 'dance', duration });
+            const success = this.dance(duration);
+            res.json({ success, action: 'dance', duration, error: success ? undefined : 'OSC action failed: dance' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/hearts', (req, res) => {
             const duration = req.body.duration || 2000;
-            this.hearts(duration);
-            res.json({ success: true, action: 'hearts', duration });
+            const success = this.hearts(duration);
+            res.json({ success, action: 'hearts', duration, error: success ? undefined : 'OSC action failed: hearts' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/confetti', (req, res) => {
             const duration = req.body.duration || 3000;
-            this.confetti(duration);
-            res.json({ success: true, action: 'confetti', duration });
+            const success = this.confetti(duration);
+            res.json({ success, action: 'confetti', duration, error: success ? undefined : 'OSC action failed: confetti' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/emote', (req, res) => {
             const { slot, duration } = req.body;
-            this.triggerEmote(slot || 0, duration || 2000);
-            res.json({ success: true, action: 'emote', slot, duration });
+            const success = this.triggerEmote(slot || 0, duration || 2000);
+            res.json({ success, action: 'emote', slot, duration, error: success ? undefined : 'OSC action failed: emote' });
         });
 
         // Avatar switching
@@ -601,8 +488,8 @@ class OSCBridgePlugin {
             if (!avatarId) {
                 return res.status(400).json({ success: false, error: 'Avatar ID is required' });
             }
-            this.switchAvatar(avatarId, avatarName);
-            res.json({ success: true, action: 'avatar_switch', avatarId, avatarName });
+            const success = this.switchAvatar(avatarId, avatarName);
+            res.json({ success, action: 'avatar_switch', avatarId, avatarName, error: success ? undefined : 'OSC action failed: avatar_switch' });
         });
 
         // GoGo Loco Helper Endpoints
@@ -611,8 +498,8 @@ class OSCBridgePlugin {
             if (velocity === undefined || velocity < 0 || velocity > 1) {
                 return res.status(400).json({ success: false, error: 'Velocity must be between 0 and 1' });
             }
-            this.setGoGoLocoVelocity(velocity);
-            res.json({ success: true, action: 'gogoloco_velocity', velocity });
+            const success = this.setGoGoLocoVelocity(velocity);
+            res.json({ success, action: 'gogoloco_velocity', velocity, error: success ? undefined : 'OSC action failed: gogoloco_velocity' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/gogoloco/turn', (req, res) => {
@@ -620,31 +507,31 @@ class OSCBridgePlugin {
             if (angle === undefined || angle < -1 || angle > 1) {
                 return res.status(400).json({ success: false, error: 'Turn angle must be between -1 and 1' });
             }
-            this.setGoGoLocoTurn(angle);
-            res.json({ success: true, action: 'gogoloco_turn', angle });
+            const success = this.setGoGoLocoTurn(angle);
+            res.json({ success, action: 'gogoloco_turn', angle, error: success ? undefined : 'OSC action failed: gogoloco_turn' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/gogoloco/grounded', (req, res) => {
             const { grounded } = req.body;
-            this.setGoGoLocoGrounded(grounded);
-            res.json({ success: true, action: 'gogoloco_grounded', grounded });
+            const success = this.setGoGoLocoGrounded(grounded);
+            res.json({ success, action: 'gogoloco_grounded', grounded, error: success ? undefined : 'OSC action failed: gogoloco_grounded' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/gogoloco/fly', (req, res) => {
             const { flying } = req.body;
-            this.setGoGoLocoFly(flying);
-            res.json({ success: true, action: 'gogoloco_fly', flying });
+            const success = this.setGoGoLocoFly(flying);
+            res.json({ success, action: 'gogoloco_fly', flying, error: success ? undefined : 'OSC action failed: gogoloco_fly' });
         });
 
         this.api.registerRoute('post', '/api/osc/vrchat/gogoloco/swim', (req, res) => {
             const { swimming } = req.body;
-            this.setGoGoLocoSwim(swimming);
-            res.json({ success: true, action: 'gogoloco_swim', swimming });
+            const success = this.setGoGoLocoSwim(swimming);
+            res.json({ success, action: 'gogoloco_swim', swimming, error: success ? undefined : 'OSC action failed: gogoloco_swim' });
         });
 
         // Gift Mappings Management
         this.api.registerRoute('get', '/api/osc/gift-mappings', async (req, res) => {
-            const config = await this.api.getConfig('config') || this.getDefaultConfig();
+            const config = normalizeConfig(await this.api.getConfig('config') || this.getDefaultConfig());
             res.json({
                 success: true,
                 mappings: config.giftMappings || []
@@ -661,13 +548,13 @@ class OSCBridgePlugin {
             this.config.giftMappings = mappings;
             await this.api.setConfig('config', this.config);
             
-            this.logger.info(`✅ Updated ${mappings.length} gift mappings`);
+            this.logger.info(`âœ… Updated ${mappings.length} gift mappings`);
             res.json({ success: true, mappings });
         });
 
         // Avatar Management
         this.api.registerRoute('get', '/api/osc/avatars', async (req, res) => {
-            const config = await this.api.getConfig('config') || this.getDefaultConfig();
+            const config = normalizeConfig(await this.api.getConfig('config') || this.getDefaultConfig());
             res.json({
                 success: true,
                 avatars: config.avatars || []
@@ -684,13 +571,13 @@ class OSCBridgePlugin {
             this.config.avatars = avatars;
             await this.api.setConfig('config', this.config);
             
-            this.logger.info(`✅ Updated ${avatars.length} avatars`);
+            this.logger.info(`âœ… Updated ${avatars.length} avatars`);
             res.json({ success: true, avatars });
         });
 
         // Chat Command Management
         this.api.registerRoute('get', '/api/osc/commands', async (req, res) => {
-            const config = await this.api.getConfig('config') || this.getDefaultConfig();
+            const config = normalizeConfig(await this.api.getConfig('config') || this.getDefaultConfig());
             res.json({
                 success: true,
                 commands: config.chatCommands?.commands || this.getDefaultCommands()
@@ -715,7 +602,7 @@ class OSCBridgePlugin {
             this.unregisterGCCECommands();
             this.registerGCCECommands();
             
-            this.logger.info(`✅ Updated ${commands.length} chat commands`);
+            this.logger.info(`âœ… Updated ${commands.length} chat commands`);
             res.json({ success: true, commands });
         });
 
@@ -724,13 +611,17 @@ class OSCBridgePlugin {
             try {
                 if (!this.oscQueryClient) {
                     const host = this.config.oscQuery?.host || '127.0.0.1';
-                    const port = this.config.oscQuery?.port || 9002;
+                    const port = this.config.oscQuery?.port || 9001;
                     this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
                 }
                 const result = await this.oscQueryClient.discover();
                 res.json({ success: true, ...result });
             } catch (error) {
-                res.status(500).json({ success: false, error: error.message });
+                res.status(500).json({
+                    success: false,
+                    error: error.message,
+                    diagnostics: this.buildOSCQueryDiagnostics()
+                });
             }
         });
 
@@ -792,11 +683,20 @@ class OSCBridgePlugin {
                     success: false,
                     error: 'No VRChat OSCQuery server found',
                     scannedPorts: scanResult.scannedPorts,
-                    candidates: scanResult.candidates
+                    candidates: scanResult.candidates,
+                    diagnostics: this.buildOSCQueryDiagnostics({
+                        host,
+                        startPort: scanOptions.startPort || 9001,
+                        endPort: scanOptions.endPort || 9020
+                    })
                 });
             } catch (error) {
                 this.logger.error('OSCQuery port scan error:', error);
-                res.status(500).json({ success: false, error: error.message });
+                res.status(500).json({
+                    success: false,
+                    error: error.message,
+                    diagnostics: this.buildOSCQueryDiagnostics()
+                });
             }
         });
 
@@ -804,7 +704,7 @@ class OSCBridgePlugin {
             try {
                 if (!this.oscQueryClient) {
                     const host = this.config.oscQuery?.host || '127.0.0.1';
-                    const port = this.config.oscQuery?.port || 9002;
+                    const port = this.config.oscQuery?.port || 9001;
                     this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
                 }
                 const success = this.oscQueryClient.subscribe((update) => {
@@ -1069,9 +969,9 @@ class OSCBridgePlugin {
                 // On-demand client init if oscQuery is enabled but client not yet created (race condition fallback)
                 if (!this.oscQueryClient && this.config.oscQuery?.enabled) {
                     const host = this.config.oscQuery.host || '127.0.0.1';
-                    const port = this.config.oscQuery.port || 9002;
+                    const port = this.config.oscQuery.port || 9001;
                     this.oscQueryClient = new OSCQueryClient(host, port, this.logger);
-                    this.logger.info('📡 OSCQuery client on-demand initialized for auto-detect');
+                    this.logger.info('ðŸ“¡ OSCQuery client on-demand initialized for auto-detect');
                 }
 
                 if (!this.oscQueryClient) {
@@ -1092,14 +992,20 @@ class OSCBridgePlugin {
                         this.config.oscQuery.port = scanResult.port;
                         this.config.oscQuery.enabled = true;
                         await this.api.setConfig('config', this.config);
-                        this.logger.info(`📡 Auto-scan found VRChat OSCQuery on port ${scanResult.port}`);
+                        this.logger.info(`ðŸ“¡ Auto-scan found VRChat OSCQuery on port ${scanResult.port}`);
                     }
                 }
 
                 if (!this.oscQueryClient) {
+                    const diagnostics = this.buildOSCQueryDiagnostics({
+                        host: this.config.oscQuery?.host || '127.0.0.1',
+                        startPort: 9000,
+                        endPort: 9020
+                    });
                     return res.status(400).json({
                         success: false,
-                        error: 'OSCQuery not configured and auto-scan found no VRChat OSCQuery server. Make sure VRChat is running with OSC enabled.'
+                        error: 'OSCQuery not configured and auto-scan found no VRChat OSCQuery server.',
+                        diagnostics
                     });
                 }
                 
@@ -1117,7 +1023,8 @@ class OSCBridgePlugin {
                 if (!avatarId) {
                     return res.json({
                         success: false,
-                        error: 'No avatar detected. Make sure VRChat is running and you are in-game with an avatar.'
+                        error: 'No avatar detected. Make sure VRChat is running and you are in-game with an avatar.',
+                        diagnostics: this.buildOSCQueryDiagnostics()
                     });
                 }
                 
@@ -1145,7 +1052,7 @@ class OSCBridgePlugin {
                     this.config.avatars.push(newAvatar);
                     await this.api.setConfig('config', this.config);
                     
-                    this.logger.info(`✅ Auto-detected and added new avatar: ${avatarId}`);
+                    this.logger.info(`âœ… Auto-detected and added new avatar: ${avatarId}`);
                 }
                 
                 res.json({
@@ -1164,17 +1071,30 @@ class OSCBridgePlugin {
 
         // Feature #11: Health Check Endpoint
         this.api.registerRoute('get', '/api/osc/health', (req, res) => {
-            const uptime = this.stats.startTime ? Date.now() - this.stats.startTime : 0;
-            const messageRate = uptime > 0 ? (this.stats.messagesSent / (uptime / 1000)) : 0;
+            const running = this.isRunning && this.transport?.state === 'running';
+            const uptime = running && this.stats.startTime ? Date.now() - this.stats.startTime : 0;
+            const messageRate = running && uptime > 0 ? (this.stats.messagesSent / (uptime / 1000)) : 0;
             const memUsage = process.memoryUsage();
+            const configValidation = validateConfig(normalizeConfig(this.config || this.getDefaultConfig()));
             
             res.json({
-                status: this.isRunning ? 'healthy' : 'stopped',
+                success: true,
+                status: running ? 'healthy' : 'stopped',
+                state: this.transport?.state || (running ? 'running' : 'stopped'),
                 uptime: uptime,
-                latency: this.stats.lastMessageSent ? Date.now() - this.stats.lastMessageSent.timestamp : null,
+                latency: running && this.stats.lastMessageSent ? Date.now() - this.stats.lastMessageSent.timestamp : null,
                 messageRate: Math.round(messageRate * 100) / 100,
                 memoryUsage: Math.round(memUsage.heapUsed / 1024 / 1024 * 100) / 100, // MB
-                vrchatConnected: this.isRunning && this.udpPort !== null
+                vrchatConnected: running && this.udpPort !== null,
+                transport: this.transport?.getStatus ? this.transport.getStatus() : null,
+                oscQuery: this.oscQueryClient?.getStatus ? this.oscQueryClient.getStatus() : null,
+                configValidation,
+                timers: {
+                    resetTimers: this.resetTimers.size,
+                    oscQueryReconnect: this.oscQueryClient?.reconnectTimer ? 1 : 0,
+                    oscQueryAvatarWatcher: this.oscQueryClient?.avatarWatcher ? 1 : 0
+                },
+                stats: this.stats
             });
         });
 
@@ -1228,7 +1148,7 @@ class OSCBridgePlugin {
 
         // Feature #13: Avatar Favorites System
         this.api.registerRoute('get', '/api/osc/favorites', async (req, res) => {
-            const config = await this.api.getConfig('config') || this.getDefaultConfig();
+            const config = normalizeConfig(await this.api.getConfig('config') || this.getDefaultConfig());
             const favorites = config.favorites?.avatars || [];
             res.json({ success: true, favorites: favorites });
         });
@@ -1262,7 +1182,7 @@ class OSCBridgePlugin {
                 this.config.favorites.avatars.push(avatarId);
                 await this.api.setConfig('config', this.config);
                 
-                this.logger.info(`⭐ Added avatar ${avatarId} to favorites`);
+                this.logger.info(`â­ Added avatar ${avatarId} to favorites`);
                 res.json({ 
                     success: true, 
                     favorites: this.config.favorites.avatars 
@@ -1293,7 +1213,7 @@ class OSCBridgePlugin {
                 this.config.favorites.avatars.splice(index, 1);
                 await this.api.setConfig('config', this.config);
                 
-                this.logger.info(`❌ Removed avatar ${avatarId} from favorites`);
+                this.logger.info(`âŒ Removed avatar ${avatarId} from favorites`);
                 res.json({ 
                     success: true, 
                     favorites: this.config.favorites.avatars 
@@ -1313,67 +1233,12 @@ class OSCBridgePlugin {
     }
 
     async start() {
-        if (this.isRunning) {
+        if (this.isRunning || this.transport.state === 'running') {
             return { success: false, error: 'Already running' };
         }
 
         try {
-            this.udpPort = new osc.UDPPort({
-                localAddress: '0.0.0.0',
-                localPort: this.config.receivePort,
-                remoteAddress: this.config.sendHost,
-                remotePort: this.config.sendPort,
-                metadata: true
-            });
-
-            // Initialize message batcher with UDP port
-            if (this.config.messageBatching?.enabled) {
-                this.messageBatcher.setUDPPort(this.udpPort);
-            }
-
-            this.udpPort.on('ready', () => {
-                this.isRunning = true;
-                this.stats.startTime = new Date();
-
-                const info = `OSC-Bridge started - Receive: ${this.config.receivePort}, Send: ${this.config.sendHost}:${this.config.sendPort}`;
-                this.logger.info(`📡 ${info} (Batching: ${this.config.messageBatching?.enabled ? 'ON' : 'OFF'})`);
-                this.logToFile('INFO', info);
-
-                // Auto-discover OSCQuery if enabled
-                if (this.config.oscQuery?.enabled) {
-                    this.autoDiscoverOSCQuery();
-                }
-
-                this.emitStatus();
-            });
-
-            this.udpPort.on('message', (oscMessage, timeTag, info) => {
-                this.handleIncomingMessage(oscMessage, info);
-            });
-
-            this.udpPort.on('error', (error) => {
-                this.stats.errors++;
-                this.logger.error('OSC-Bridge error:', error);
-                this.logToFile('ERROR', `${error.message}`);
-
-                // Auto-Retry bei Port-Kollision
-                if (error.code === 'EADDRINUSE' && this.config.autoRetryOnError) {
-                    this.logger.info(`Port ${this.config.receivePort} in use, trying ${this.config.receivePort + 1}...`);
-                    this.config.receivePort++;
-                    this.api.setConfig('config', this.config);
-
-                    setTimeout(() => {
-                        this.start();
-                    }, this.config.retryDelay);
-                }
-
-                this.emitStatus();
-            });
-
-            this.udpPort.open();
-
-            return { success: true };
-
+            return await this.startWithTransport();
         } catch (error) {
             this.logger.error('Failed to start OSC-Bridge:', error);
             this.logToFile('ERROR', `Start failed: ${error.message}`);
@@ -1381,35 +1246,68 @@ class OSCBridgePlugin {
         }
     }
 
+    async startWithTransport() {
+        this.config = normalizeConfig(this.config || this.getDefaultConfig());
+        const validation = validateConfig(this.config);
+        if (!validation.valid) {
+            return { success: false, error: validation.errors.join('; '), errors: validation.errors };
+        }
+
+        const result = await this.transport.start(this.config);
+        if (!result.success) {
+            this.isRunning = false;
+            this.udpPort = null;
+            this.stats.errors++;
+            this.logger.error(`Failed to start OSC-Bridge: ${result.error}`);
+            this.logToFile('ERROR', `Start failed: ${result.error}`);
+            this.emitStatus();
+            return result;
+        }
+
+        this.udpPort = this.transport.port;
+        this.isRunning = true;
+        this.stats.startTime = new Date();
+
+        const info = `OSC-Bridge started - Receive: ${this.config.receivePort}, Send: ${this.config.sendHost}:${this.config.sendPort}`;
+        this.logger.info(`OSC-Bridge ${info} (Batching: ${this.config.messageBatching?.enabled ? 'ON' : 'OFF'})`);
+        this.logToFile('INFO', info);
+
+        if (this.config.oscQuery?.enabled) {
+            this.autoDiscoverOSCQuery();
+        }
+
+        this.emitStatus();
+
+        return { success: true };
+    }
+
     async stop() {
         if (!this.isRunning) {
-            return { success: false, error: 'Not running' };
+            const result = await this.transport.stop();
+            this.udpPort = null;
+            this.isRunning = false;
+            this.stats.startTime = null;
+            this.emitStatus();
+            return result.success ? { success: true } : result;
         }
 
         try {
-            // Clear message batcher
-            if (this.messageBatcher) {
-                this.messageBatcher.clear();
-            }
+            this.sendService.clear();
 
-            // Disconnect OSCQuery
             if (this.oscQueryClient) {
                 this.oscQueryClient.disconnect();
             }
 
-            if (this.udpPort) {
-                this.udpPort.close();
-                this.udpPort = null;
-            }
-
+            const result = await this.transport.stop();
+            this.udpPort = null;
             this.isRunning = false;
-            this.logger.info('📡 OSC-Bridge stopped');
-            this.logToFile('INFO', 'OSC-Bridge stopped');
+            this.stats.startTime = null;
 
+            this.logger.info('OSC-Bridge stopped');
+            this.logToFile('INFO', 'OSC-Bridge stopped');
             this.emitStatus();
 
-            return { success: true };
-
+            return result.success ? { success: true } : result;
         } catch (error) {
             this.logger.error('Failed to stop OSC-Bridge:', error);
             return { success: false, error: error.message };
@@ -1417,77 +1315,28 @@ class OSCBridgePlugin {
     }
 
     send(address, ...args) {
-        if (!this.isRunning) {
-            this.logger.warn('OSC-Bridge not running, cannot send message');
-            return false;
-        }
+        return this.sendMessage(address, args).success;
+    }
 
-        try {
-            if (!this.isValidAddress(address)) {
-                this.logger.warn(`Blocked OSC send to suspicious address: ${address}`);
-                return false;
-            }
+    sendMessage(address, args = []) {
+        const result = this.sendService.sendMessage(address, Array.isArray(args) ? args : [args]);
 
-            // Apply rate limiting
-            if (!this.rateLimiter.tryConsume(1)) {
-                this.logger.warn('Rate limit exceeded, message dropped');
-                return false;
-            }
-
-            // Check parameter cache to skip redundant sends
-            const value = args[0];
-            if (this.config.parameterCaching?.enabled && !this.parameterCache.shouldSend(address, value)) {
-                // Skip redundant send
-                return true;
-            }
-
-            const message = {
-                address: address,
-                args: args.map(arg => this.convertToOSCArg(arg))
-            };
-
-            // Use message batching if enabled
-            if (this.config.messageBatching?.enabled) {
-                this.messageBatcher.add(message);
-                this.stats.batchedMessages++;
-            } else {
-                this.udpPort.send(message);
-            }
-
-            // Update cache
-            if (this.config.parameterCaching?.enabled) {
-                this.parameterCache.update(address, value);
-            }
-
-            // Update avatar state store
+        if (result.success && !result.skipped) {
+            const value = result.args[0];
             if (this.config.liveMonitoring?.enabled && this.avatarStateStore) {
                 this.avatarStateStore.updateParameter(address, value);
             }
 
-            this.stats.messagesSent++;
-            this.stats.lastMessageSent = { address, args, timestamp: new Date() };
-
-            const logMsg = `SEND → ${address} ${JSON.stringify(args)}`;
-            this.logToFile('SEND', logMsg);
-
             if (this.config.verboseMode) {
-                this.logger.debug(`📡 ${logMsg}`);
+                this.logger.debug(`OSC SEND -> ${address} ${JSON.stringify(result.args)}`);
             }
-
-            this.api.emit('osc:sent', {
-                address,
-                args,
-                timestamp: new Date()
-            });
-
-            return true;
-
-        } catch (error) {
-            this.stats.errors++;
-            this.logger.error('OSC send error:', error);
-            this.logToFile('ERROR', `Send failed: ${error.message}`);
-            return false;
         }
+
+        if (!result.success) {
+            this.logToFile('ERROR', `Send failed: ${result.error}`);
+        }
+
+        return result;
     }
 
     handleIncomingMessage(oscMessage, info) {
@@ -1498,62 +1347,35 @@ class OSCBridgePlugin {
             this.stats.lastMessageReceived = { address, args, timestamp: new Date() };
 
             const values = args.map(arg => arg.value);
-            
-            // Update avatar state store for incoming messages
+
             if (this.config.liveMonitoring?.enabled && values.length > 0 && this.avatarStateStore) {
                 this.avatarStateStore.updateParameter(address, values[0]);
             }
 
-            const logMsg = `RECV ← ${address} ${JSON.stringify(values)} from ${info.address}:${info.port}`;
-            this.logToFile('RECV', logMsg);
+            const source = info ? `${info.address}:${info.port}` : 'unknown';
+            this.logToFile('RECV', `RECV <- ${address} ${JSON.stringify(values)} from ${source}`);
 
             if (this.config.verboseMode) {
-                this.logger.debug(`📡 ${logMsg}`);
+                this.logger.debug(`OSC RECV <- ${address} ${JSON.stringify(values)} from ${source}`);
             }
 
             this.api.emit('osc:received', {
                 address,
                 args: values,
-                source: `${info.address}:${info.port}`,
+                source,
                 timestamp: new Date()
             });
 
-            // Event für Flow-System
             this.api.emit(`osc.in${address}`, {
                 address,
                 values,
-                source: info.address
+                source: info?.address
             });
-
         } catch (error) {
             this.stats.errors++;
             this.logger.error('OSC message handling error:', error);
             this.logToFile('ERROR', `Message handling failed: ${error.message}`);
         }
-    }
-
-    convertToOSCArg(value) {
-        if (typeof value === 'number') {
-            return Number.isInteger(value) ? { type: 'i', value } : { type: 'f', value };
-        } else if (typeof value === 'string') {
-            return { type: 's', value };
-        } else if (typeof value === 'boolean') {
-            return { type: value ? 'T' : 'F' };
-        } else {
-            return { type: 's', value: String(value) };
-        }
-    }
-
-    isValidAddress(address) {
-        if (!address.startsWith('/')) {
-            return false;
-        }
-
-        if (address.includes('..') || address.includes('\\')) {
-            return false;
-        }
-
-        return true;
     }
 
     async logToFile(level, message) {
@@ -1574,7 +1396,12 @@ class OSCBridgePlugin {
                 await this.stop();
             }
 
-            this.config = { ...this.config, ...newConfig };
+            this.config = normalizeConfig(deepMerge(this.config || this.getDefaultConfig(), newConfig || {}));
+
+            const validation = validateConfig(this.config);
+            if (!validation.valid) {
+                return { success: false, error: validation.errors.join('; '), errors: validation.errors };
+            }
 
             // Sync oscQueryClient with updated config
             const oscCfg = this.config.oscQuery;
@@ -1588,11 +1415,11 @@ class OSCBridgePlugin {
                     oscCfg.port || 9001,
                     this.logger
                 );
-                this.logger.info('📡 OSCQuery client re-initialized after config update');
+                this.logger.info('ðŸ“¡ OSCQuery client re-initialized after config update');
             } else if (!oscCfg?.enabled && this.oscQueryClient) {
                 this.oscQueryClient.disconnect();
                 this.oscQueryClient = null;
-                this.logger.info('📡 OSCQuery client removed (disabled in config)');
+                this.logger.info('ðŸ“¡ OSCQuery client removed (disabled in config)');
             }
 
             await this.api.setConfig('config', this.config);
@@ -1600,7 +1427,7 @@ class OSCBridgePlugin {
             if (wasRunning && this.config.enabled) {
                 await this.start();
             } else if (!this.config.enabled && wasRunning) {
-                this.logger.info('📡 OSC-Bridge disabled');
+                this.logger.info('ðŸ“¡ OSC-Bridge disabled');
             } else if (this.config.enabled && !wasRunning) {
                 await this.start();
             }
@@ -1621,11 +1448,17 @@ class OSCBridgePlugin {
     }
 
     getStatus() {
+        const configValidation = validateConfig(normalizeConfig(this.config || this.getDefaultConfig()));
+        const running = this.isRunning && this.transport?.state === 'running';
         return {
-            isRunning: this.isRunning,
+            isRunning: running,
+            state: this.transport?.state || (running ? 'running' : 'stopped'),
             config: this.config,
             stats: this.stats,
-            uptime: this.stats.startTime ? Date.now() - this.stats.startTime.getTime() : 0
+            transport: this.transport?.getStatus ? this.transport.getStatus() : null,
+            configValidation,
+            oscQuery: this.oscQueryClient?.getStatus ? this.oscQueryClient.getStatus() : null,
+            uptime: running && this.stats.startTime ? Date.now() - this.stats.startTime.getTime() : 0
         };
     }
 
@@ -1636,7 +1469,7 @@ class OSCBridgePlugin {
 
         try {
             this.send(address, value);
-            this.logger.info(`📡 OSC Test signal sent: ${address} = ${value}`);
+            this.logger.info(`ðŸ“¡ OSC Test signal sent: ${address} = ${value}`);
 
             return {
                 success: true,
@@ -1652,68 +1485,76 @@ class OSCBridgePlugin {
     // VRChat Helper-Methoden
     triggerAvatarParameter(paramName, value = 1, duration = 1000) {
         const address = `/avatar/parameters/${paramName}`;
-        this.send(address, value);
+        const success = this.send(address, value);
 
-        if (duration > 0) {
-            setTimeout(() => {
+        if (success && duration > 0) {
+            const timer = setTimeout(() => {
+                this.resetTimers.delete(timer);
                 this.send(address, 0);
             }, duration);
+            this.resetTimers.add(timer);
+            if (typeof timer.unref === 'function') {
+                timer.unref();
+            }
         }
+
+        return success;
     }
 
     wave(duration = 2000) {
-        this.triggerAvatarParameter('Wave', 1, duration);
+        return this.triggerAvatarParameter('Wave', 1, duration);
     }
 
     celebrate(duration = 3000) {
-        this.triggerAvatarParameter('Celebrate', 1, duration);
+        return this.triggerAvatarParameter('Celebrate', 1, duration);
     }
 
     dance(duration = 5000) {
-        this.triggerAvatarParameter('DanceTrigger', 1, duration);
+        return this.triggerAvatarParameter('DanceTrigger', 1, duration);
     }
 
     hearts(duration = 2000) {
-        this.triggerAvatarParameter('Hearts', 1, duration);
+        return this.triggerAvatarParameter('Hearts', 1, duration);
     }
 
     confetti(duration = 3000) {
-        this.triggerAvatarParameter('Confetti', 1, duration);
+        return this.triggerAvatarParameter('Confetti', 1, duration);
     }
 
     triggerEmote(slotNumber, duration = 2000) {
         if (slotNumber >= 0 && slotNumber <= 7) {
-            this.triggerAvatarParameter(`EmoteSlot${slotNumber}`, 1, duration);
+            return this.triggerAvatarParameter(`EmoteSlot${slotNumber}`, 1, duration);
         }
+        return false;
     }
 
     // GoGo Loco Helper Methods
     setGoGoLocoVelocity(velocity) {
         // velocity: 0-1 float
-        this.send('/avatar/parameters/GGLVelocity', velocity);
+        return this.send('/avatar/parameters/GGLVelocity', velocity);
     }
 
     setGoGoLocoTurn(angle) {
         // angle: -1 to 1 float
-        this.send('/avatar/parameters/GGLTurn', angle);
+        return this.send('/avatar/parameters/GGLTurn', angle);
     }
 
     setGoGoLocoGrounded(grounded) {
         // grounded: boolean
-        this.send('/avatar/parameters/GGLGrounded', grounded ? 1 : 0);
+        return this.send('/avatar/parameters/GGLGrounded', grounded ? 1 : 0);
     }
 
     setGoGoLocoFly(flying) {
         // flying: boolean
-        this.send('/avatar/parameters/GGLFly', flying ? 1 : 0);
+        return this.send('/avatar/parameters/GGLFly', flying ? 1 : 0);
     }
 
     setGoGoLocoSwim(swimming) {
         // swimming: boolean
-        this.send('/avatar/parameters/GGLSwim', swimming ? 1 : 0);
+        return this.send('/avatar/parameters/GGLSwim', swimming ? 1 : 0);
     }
 
-    // Expose für Flow-System
+    // Expose fÃ¼r Flow-System
     getOSCBridge() {
         return this;
     }
@@ -1726,7 +1567,7 @@ class OSCBridgePlugin {
             this.api.registerTikTokEvent('gift', (giftData) => {
                 this.handleGiftEvent(giftData);
             });
-            this.logger.info('✅ TikTok gift event handler registered for OSC-Bridge');
+            this.logger.info('âœ… TikTok gift event handler registered for OSC-Bridge');
 
             // Register chat event handler for chatbox mirroring
             this.api.registerTikTokEvent('chat', (chatData) => {
@@ -1734,7 +1575,7 @@ class OSCBridgePlugin {
                     this.mirrorTikTokChatToChatbox(chatData.comment, chatData.uniqueId);
                 }
             });
-            this.logger.info('✅ TikTok chat event handler registered for chatbox mirroring');
+            this.logger.info('âœ… TikTok chat event handler registered for chatbox mirroring');
         } catch (error) {
             this.logger.error('Failed to register TikTok event handlers. TikTok integration may not be available:', error);
         }
@@ -1792,7 +1633,7 @@ class OSCBridgePlugin {
             return; // No mapping for this gift
         }
 
-        this.logger.info(`🎁 Gift mapping triggered: ${giftName} (${giftId}) → ${mapping.action}`);
+        this.logger.info(`ðŸŽ Gift mapping triggered: ${giftName} (${giftId}) â†’ ${mapping.action}`);
         this.logToFile('GIFT', `Gift ${giftName} (${giftId}) triggered action ${mapping.action}`);
 
         try {
@@ -1880,7 +1721,7 @@ class OSCBridgePlugin {
                 ? `Avatar switched to: ${avatarName} (${avatarId})`
                 : `Avatar switched to: ${avatarId}`;
             
-            this.logger.info(`👤 ${logMsg}`);
+            this.logger.info(`ðŸ‘¤ ${logMsg}`);
             this.logToFile('AVATAR', logMsg);
 
             this.api.emit('osc:avatar-switched', {
@@ -1973,11 +1814,11 @@ class OSCBridgePlugin {
         const result = gcce.registerCommandsForPlugin('osc-bridge', commands);
         
         if (result.registered.length > 0) {
-            this.logger.info(`✅ Registered ${result.registered.length} OSC-Bridge commands with GCCE: ${result.registered.join(', ')}`);
+            this.logger.info(`âœ… Registered ${result.registered.length} OSC-Bridge commands with GCCE: ${result.registered.join(', ')}`);
         }
         
         if (result.failed.length > 0) {
-            this.logger.warn(`⚠️ Failed to register ${result.failed.length} commands: ${result.failed.join(', ')}`);
+            this.logger.warn(`âš ï¸ Failed to register ${result.failed.length} commands: ${result.failed.join(', ')}`);
         }
     }
 
@@ -1999,6 +1840,64 @@ class OSCBridgePlugin {
     /**
      * Handle predefined command (wave, celebrate, dance, etc.)
      */
+    async handleWaveCommand(context = {}) {
+        return this.handlePredefinedCommand(
+            { action: 'wave', params: { duration: 2000 } },
+            [],
+            context
+        );
+    }
+
+    async handleCelebrateCommand(context = {}) {
+        return this.handlePredefinedCommand(
+            { action: 'celebrate', params: { duration: 3000 } },
+            [],
+            context
+        );
+    }
+
+    async handleDanceCommand(context = {}) {
+        return this.handlePredefinedCommand(
+            { action: 'dance', params: { duration: 5000 } },
+            [],
+            context
+        );
+    }
+
+    async handleHeartsCommand(context = {}) {
+        return this.handlePredefinedCommand(
+            { action: 'hearts', params: { duration: 2000 } },
+            [],
+            context
+        );
+    }
+
+    async handleConfettiCommand(context = {}) {
+        return this.handlePredefinedCommand(
+            { action: 'confetti', params: { duration: 3000 } },
+            [],
+            context
+        );
+    }
+
+    async handleEmoteCommand(args = [], context = {}) {
+        const connectionError = this.checkOSCConnectionRequired();
+        if (connectionError) return connectionError;
+
+        const slotNumber = parseInt(args[0]);
+        if (isNaN(slotNumber) || slotNumber < 0 || slotNumber > 7) {
+            return {
+                success: false,
+                error: 'Invalid emote slot',
+                message: 'Please specify an emote slot between 0 and 7. Usage: /emote <0-7>'
+            };
+        }
+
+        this.triggerEmote(slotNumber);
+        this.logger.info(`Emote ${slotNumber} triggered by ${context.username || 'unknown'} via GCCE`);
+        return { success: true, message: `Emote slot ${slotNumber} triggered!` };
+    }
+
     async handlePredefinedCommand(cmd, args, context) {
         const connectionError = this.checkOSCConnectionRequired();
         if (connectionError) return connectionError;
@@ -2009,28 +1908,28 @@ class OSCBridgePlugin {
         switch (action) {
             case 'wave':
                 this.wave(params.duration || 2000);
-                this.logger.info(`👋 Wave triggered by ${context.username} via GCCE`);
-                return { success: true, message: '👋 Wave animation triggered!' };
+                this.logger.info(`ðŸ‘‹ Wave triggered by ${context.username} via GCCE`);
+                return { success: true, message: 'ðŸ‘‹ Wave animation triggered!' };
             
             case 'celebrate':
                 this.celebrate(params.duration || 3000);
-                this.logger.info(`🎉 Celebrate triggered by ${context.username} via GCCE`);
-                return { success: true, message: '🎉 Celebrate animation triggered!' };
+                this.logger.info(`ðŸŽ‰ Celebrate triggered by ${context.username} via GCCE`);
+                return { success: true, message: 'ðŸŽ‰ Celebrate animation triggered!' };
             
             case 'dance':
                 this.dance(params.duration || 5000);
-                this.logger.info(`💃 Dance triggered by ${context.username} via GCCE`);
-                return { success: true, message: '💃 Dance animation triggered!' };
+                this.logger.info(`ðŸ’ƒ Dance triggered by ${context.username} via GCCE`);
+                return { success: true, message: 'ðŸ’ƒ Dance animation triggered!' };
             
             case 'hearts':
                 this.hearts(params.duration || 2000);
-                this.logger.info(`❤️ Hearts triggered by ${context.username} via GCCE`);
-                return { success: true, message: '❤️ Hearts effect triggered!' };
+                this.logger.info(`â¤ï¸ Hearts triggered by ${context.username} via GCCE`);
+                return { success: true, message: 'â¤ï¸ Hearts effect triggered!' };
             
             case 'confetti':
                 this.confetti(params.duration || 3000);
-                this.logger.info(`🎊 Confetti triggered by ${context.username} via GCCE`);
-                return { success: true, message: '🎊 Confetti effect triggered!' };
+                this.logger.info(`ðŸŽŠ Confetti triggered by ${context.username} via GCCE`);
+                return { success: true, message: 'ðŸŽŠ Confetti effect triggered!' };
             
             case 'emote':
                 const slotNumber = parseInt(args[0]);
@@ -2042,8 +1941,8 @@ class OSCBridgePlugin {
                     };
                 }
                 this.triggerEmote(slotNumber, params.duration || 2000);
-                this.logger.info(`😀 Emote ${slotNumber} triggered by ${context.username} via GCCE`);
-                return { success: true, message: `😀 Emote slot ${slotNumber} triggered!` };
+                this.logger.info(`ðŸ˜€ Emote ${slotNumber} triggered by ${context.username} via GCCE`);
+                return { success: true, message: `ðŸ˜€ Emote slot ${slotNumber} triggered!` };
             
             case 'avatar':
                 // Avatar switching via chat command
@@ -2086,10 +1985,10 @@ class OSCBridgePlugin {
                 // Switch avatar
                 this.switchAvatar(avatar.avatarId, avatar.name);
                 this.updateAvatarSwitchCooldown(context.username);
-                this.logger.info(`👤 Avatar switched to '${avatar.name}' by ${context.username} via GCCE`);
+                this.logger.info(`ðŸ‘¤ Avatar switched to '${avatar.name}' by ${context.username} via GCCE`);
                 return { 
                     success: true, 
-                    message: `👤 Switched to avatar: ${avatar.name}` 
+                    message: `ðŸ‘¤ Switched to avatar: ${avatar.name}` 
                 };
             
             default:
@@ -2115,7 +2014,7 @@ class OSCBridgePlugin {
 
         // Send the OSC message
         this.send(oscAddress, oscValue);
-        this.logger.info(`🎯 Custom command '${cmd.name}' triggered by ${context.username} via GCCE - sent ${oscAddress} = ${oscValue}`);
+        this.logger.info(`ðŸŽ¯ Custom command '${cmd.name}' triggered by ${context.username} via GCCE - sent ${oscAddress} = ${oscValue}`);
 
         // Auto-reset if duration is set
         if (duration > 0) {
@@ -2126,7 +2025,7 @@ class OSCBridgePlugin {
 
         return { 
             success: true, 
-            message: `✅ Custom command '${cmd.name}' triggered!` 
+            message: `âœ… Custom command '${cmd.name}' triggered!` 
         };
     }
 
@@ -2219,7 +2118,7 @@ class OSCBridgePlugin {
             }
 
             const result = await this.oscQueryClient.discover();
-            this.logger.info(`✅ OSCQuery discovered ${result.parameters.length} parameters`);
+            this.logger.info(`âœ… OSCQuery discovered ${result.parameters.length} parameters`);
             
             // Auto-discover PhysBones if enabled
             if (this.config.physBones?.enabled && this.physBonesController) {
@@ -2238,7 +2137,7 @@ class OSCBridgePlugin {
                 
                 // Watch for avatar changes
                 this.oscQueryClient.startAvatarWatcher(5000, (avatarInfo) => {
-                    this.logger.info(`👤 Avatar changed: ${avatarInfo.id}`);
+                    this.logger.info(`ðŸ‘¤ Avatar changed: ${avatarInfo.id}`);
                     
                     if (this.avatarStateStore) {
                         this.avatarStateStore.setCurrentAvatar(avatarInfo.id);
@@ -2305,7 +2204,7 @@ class OSCBridgePlugin {
             }, duration);
         }
 
-        this.logger.info(`🦴 PhysBone animation: ${boneName} - ${animation}`);
+        this.logger.info(`ðŸ¦´ PhysBone animation: ${boneName} - ${animation}`);
     }
 
     /**
@@ -2330,7 +2229,7 @@ class OSCBridgePlugin {
             // VRChat chatbox takes string and boolean (true = send immediately)
             this.send(this.VRCHAT_PARAMS.CHATBOX_INPUT, message, true);
             
-            this.logger.info(`💬 Sent to VRChat chatbox: ${message}`);
+            this.logger.info(`ðŸ’¬ Sent to VRChat chatbox: ${message}`);
             return true;
         } catch (error) {
             this.logger.error('Chatbox send error:', error);
@@ -2351,6 +2250,121 @@ class OSCBridgePlugin {
         this.sendToChatbox(formatted, true);
     }
 
+    registerAnimazingPalBridge() {
+        if (typeof this.api.on !== 'function') {
+            this.logger.debug('Plugin event bus not available, skipping AnimazingPal bridge');
+            return;
+        }
+
+        if (this.animazingPalBridgeRegistered) {
+            return;
+        }
+
+        if (!this.animazingPalIntentHandler) {
+            this.animazingPalIntentHandler = (intent) => {
+                this.handleAnimazingPalIntent(intent);
+            };
+        }
+
+        this.api.on('animazingpal:vrchat-intent', this.animazingPalIntentHandler);
+        this.animazingPalBridgeRegistered = true;
+        this.logger.info('✅ AnimazingPal VRChat intent bridge registered');
+    }
+
+    handleAnimazingPalIntent(intent) {
+        if (!intent || typeof intent !== 'object') {
+            return false;
+        }
+
+        if (intent.targetPluginId && intent.targetPluginId !== 'osc-bridge') {
+            return false;
+        }
+
+        if (!this.isRunning) {
+            return false;
+        }
+
+        const kind = intent.kind || intent.type || 'chatbox';
+        const message = intent.message || intent.text || '';
+        const username = intent.username || 'Someone';
+        const rawGesture = (intent.gesture || intent.action || '').toString().toLowerCase();
+
+        try {
+            switch (kind) {
+                case 'chatbox':
+                    if (message) {
+                        this.sendToChatbox(message, intent.showTyping !== false);
+                    }
+                    break;
+                case 'gesture':
+                    switch (rawGesture) {
+                        case 'wave':
+                            this.wave(intent.duration || 2000);
+                            break;
+                        case 'celebrate':
+                            this.celebrate(intent.duration || 3000);
+                            break;
+                        case 'dance':
+                            this.dance(intent.duration || 5000);
+                            break;
+                        case 'hearts':
+                            this.hearts(intent.duration || 2000);
+                            break;
+                        case 'confetti':
+                            this.confetti(intent.duration || 3000);
+                            break;
+                        default:
+                            if (intent.parameters?.parameterName) {
+                                this.triggerAvatarParameter(
+                                    intent.parameters.parameterName,
+                                    intent.parameters.value !== undefined ? intent.parameters.value : 1,
+                                    intent.parameters.duration || intent.duration || 1000
+                                );
+                            }
+                            break;
+                    }
+                    break;
+                case 'emote':
+                    this.triggerEmote(
+                        intent.slot !== undefined ? intent.slot : intent.emoteSlot || 0,
+                        intent.duration || 2000
+                    );
+                    break;
+                case 'parameter':
+                    if (intent.parameters?.parameterName) {
+                        this.triggerAvatarParameter(
+                            intent.parameters.parameterName,
+                            intent.parameters.value !== undefined ? intent.parameters.value : 1,
+                            intent.parameters.duration || intent.duration || 1000
+                        );
+                    }
+                    break;
+                case 'avatar':
+                    if (intent.avatarId) {
+                        this.switchAvatar(intent.avatarId, intent.avatarName || username);
+                    }
+                    break;
+                default:
+                    if (message) {
+                        this.sendToChatbox(message, intent.showTyping !== false);
+                    }
+                    break;
+            }
+
+            this.api.emit('osc:animazingpal-intent-handled', {
+                kind,
+                eventType: intent.eventType || null,
+                username,
+                timestamp: new Date()
+            });
+
+            return true;
+        } catch (error) {
+            this.logger.error(`Failed to handle AnimazingPal intent: ${error.message}`);
+            return false;
+        }
+    }
+
     /**
      * Expression Menu Integration (8 emote slots) - delegated to ExpressionController
      */
@@ -2368,7 +2382,7 @@ class OSCBridgePlugin {
         const address = `/avatar/parameters/EmoteSlot${slot}`;
         this.send(address, hold ? 1 : 0);
         
-        this.logger.info(`😀 Expression slot ${slot} triggered (hold: ${hold})`);
+        this.logger.info(`ðŸ˜€ Expression slot ${slot} triggered (hold: ${hold})`);
         return true;
     }
 
@@ -2418,7 +2432,7 @@ class OSCBridgePlugin {
                 });
                 
                 if (response.data && response.data.VALUE) {
-                    this.logger.info(`✅ Avatar ID detected: ${response.data.VALUE}`);
+                    this.logger.info(`âœ… Avatar ID detected: ${response.data.VALUE}`);
                     // Cache it
                     this.oscQueryClient.avatarInfo = { 
                         id: response.data.VALUE, 
@@ -2434,7 +2448,7 @@ class OSCBridgePlugin {
             if (this.oscQueryClient.parameters && this.oscQueryClient.parameters.size > 0) {
                 const avatarChangeParam = this.oscQueryClient.parameters.get('/avatar/change');
                 if (avatarChangeParam && avatarChangeParam.value) {
-                    this.logger.info(`✅ Avatar ID from parameters: ${avatarChangeParam.value}`);
+                    this.logger.info(`[OK] Avatar ID from parameters: ${avatarChangeParam.value}`);
                     // Cache it
                     this.oscQueryClient.avatarInfo = { 
                         id: avatarChangeParam.value, 
@@ -2575,21 +2589,28 @@ class OSCBridgePlugin {
             this.physBonesController.destroy();
         }
 
+        if (this.animazingPalIntentHandler && typeof this.api.removeListener === 'function') {
+            try {
+                this.api.removeListener('animazingpal:vrchat-intent', this.animazingPalIntentHandler);
+            } catch (error) {
+                this.logger.debug(`Failed to remove AnimazingPal intent bridge listener: ${error.message}`);
+            }
+        }
+        this.animazingPalBridgeRegistered = false;
+
+        for (const timer of this.resetTimers) {
+            clearTimeout(timer);
+        }
+        this.resetTimers.clear();
+
         // Disconnect OSCQuery
         if (this.oscQueryClient) {
             this.oscQueryClient.destroy();
         }
 
-        // Clear caches
-        if (this.parameterCache) {
-            this.parameterCache.clear();
-        }
+        await this.stop();
 
-        if (this.isRunning) {
-            await this.stop();
-        }
-
-        this.logger.info('📡 OSC-Bridge Plugin destroyed');
+        this.logger.info('ðŸ“¡ OSC-Bridge Plugin destroyed');
     }
 }
 

@@ -426,6 +426,38 @@ describe('Event TTS System', () => {
         });
     });
 
+    describe('Periodic Reminders', () => {
+        test('should not announce periodic reminders when TikTok stream is inactive', () => {
+            jest.useFakeTimers();
+
+            try {
+                mockAPI.tiktok = {
+                    isActive: jest.fn(() => false)
+                };
+                mockTTS.config.eventTTS.advanced = {
+                    periodicReminder: {
+                        enabled: true,
+                        intervalMinutes: 0.001,
+                        messages: ['Stream reminder should wait for live mode'],
+                        voiceId: null
+                    }
+                };
+
+                handler.destroy();
+                handler = new EventTTSHandler(mockTTS);
+                handler.init();
+
+                jest.advanceTimersByTime(60);
+
+                expect(mockTTS.speakCalls.length).toBe(0);
+                expect(mockAPI.tiktok.isActive).toHaveBeenCalled();
+            } finally {
+                handler.destroy();
+                jest.useRealTimers();
+            }
+        });
+    });
+
     describe('Cooldown System', () => {
         test('should track cooldowns per user and event type separately', (done) => {
             mockAPI.simulateTikTokEvent('gift', {

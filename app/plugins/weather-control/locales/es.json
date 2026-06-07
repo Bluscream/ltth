@@ -1,64 +1,70 @@
 {
   "weather_control": {
-    "title": "Weather Control",
-    "subtitle": "Stream Weather Effects",
+    "title": "Control del Clima",
+    "subtitle": "Efectos climaticos para stream",
     "config": {
-      "title": "Configuración",
-      "enabled": "Enable Weather Effects",
-      "default_weather": "Default Weather",
-      "transition_duration": "Transition Duration (seconds)",
-      "save": "Guardar Configuración"
+      "title": "Configuracion",
+      "enabled": "Activar efectos climaticos",
+      "default_weather": "Clima predeterminado",
+      "transition_duration": "Duracion de transicion (segundos)",
+      "save": "Guardar configuracion"
     },
     "chat_commands": {
-      "title": "Chat Commands",
-      "enabled": "Enable Chat Commands",
-      "require_permission": "Require Permissions",
-      "allow_intensity": "Allow Intensity Control",
-      "allow_duration": "Allow Duration Control",
-      "description": "Allow viewers to trigger weather effects via chat commands"
+      "title": "Comandos de chat",
+      "enabled": "Activar comandos de chat",
+      "require_permission": "Requerir permisos",
+      "allow_intensity": "Permitir control de intensidad",
+      "allow_duration": "Permitir control de duracion",
+      "description": "Permite a los espectadores activar efectos climaticos por chat"
     },
     "weather_types": {
-      "clear": "☀️ Clear",
-      "rain": "🌧️ Rain",
-      "snow": "❄️ Snow",
-      "storm": "⛈️ Storm",
-      "fog": "🌫️ Fog",
-      "wind": "💨 Wind",
-      "thunder": "⚡ Thunder",
-      "sunbeam": "☀️ Sunbeam",
-      "glitchclouds": "☁️ Glitch Clouds"
+      "clear": "Claro",
+      "rain": "Lluvia",
+      "snow": "Nieve",
+      "storm": "Tormenta",
+      "fog": "Niebla",
+      "wind": "Viento",
+      "thunder": "Trueno",
+      "sunbeam": "Rayo de sol",
+      "glitchclouds": "Nubes glitch",
+      "aurora": "Aurora",
+      "fireflies": "Luciernagas",
+      "meteors": "Meteoros",
+      "sakura": "Petalos de sakura",
+      "embers": "Brasas",
+      "heatwave": "Ola de calor"
     },
     "commands": {
       "weather": {
-        "description": "Trigger weather effects on the stream",
-        "syntax": "/weather <effect> [intensity] [duration]",
+        "description": "Activa efectos climaticos en el stream",
+        "syntax": "/weather <efecto> [intensidad] [duracion]",
         "examples": "/weather rain, /weather storm 0.8"
       },
       "weatherlist": {
-        "description": "List all available weather effects",
+        "description": "Lista todos los efectos disponibles",
         "syntax": "/weatherlist"
       },
       "weatherstop": {
-        "description": "Stop all active weather effects",
-        "syntax": "/weatherstop"
+        "description": "Detiene todos los efectos activos o un efecto especifico",
+        "syntax": "/weatherstop [efecto]"
       }
     },
     "triggers": {
-      "title": "Event Triggers",
-      "gift_trigger": "Activar con Regalo",
-      "follow_trigger": "Activar con Seguimiento",
-      "weather_map": "Gift → Weather Mapping"
+      "title": "Disparadores de eventos",
+      "gift_trigger": "Activar con regalo",
+      "follow_trigger": "Activar con seguimiento",
+      "weather_map": "Asignacion de regalo a clima"
     },
     "overlay": {
       "title": "Overlay",
-      "url": "URL del Overlay",
+      "url": "URL del overlay",
       "copy": "Copiar URL",
-      "open": "Abrir Overlay",
-      "test": "Test Weather Effect"
+      "open": "Abrir overlay",
+      "test": "Probar efecto climatico"
     },
     "controls": {
-      "set_weather": "Set Weather",
-      "clear_weather": "Clear All Effects"
+      "set_weather": "Establecer clima",
+      "clear_weather": "Borrar todos los efectos"
     }
   }
 }

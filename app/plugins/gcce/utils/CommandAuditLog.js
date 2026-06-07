@@ -66,6 +66,25 @@ class CommandAuditLog {
   }
 
   /**
+   * Compatibility wrapper for older HUD integrations.
+   * @param {string} userId - User ID
+   * @param {string} command - Command name
+   * @param {Array} args - Command arguments
+   * @param {Object} metadata - Extra metadata
+   */
+  logCommand(userId, command, args = [], metadata = {}) {
+    this.log({
+      userId,
+      username: metadata.username || userId,
+      command,
+      args,
+      success: metadata.success !== false,
+      error: metadata.error || null,
+      metadata
+    });
+  }
+
+  /**
    * Update indexes with new entry
    * @param {Object} entry - Log entry
    */

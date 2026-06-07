@@ -1,0 +1,17 @@
+{
+  "paths": [
+    ".codex-server-logs",
+    ".env",
+    "coverage",
+    "docs",
+    "logs",
+    "test",
+    "test_user_configs",
+    "user_configs",
+    "user_data",
+    "quiz-show-expansion-server-3001.err.log",
+    "quiz-show-expansion-server-3001.log",
+    "quiz-show-expansion-server.err.log",
+    "quiz-show-expansion-server.log"
+  ]
+}

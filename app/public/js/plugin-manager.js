@@ -18,9 +18,11 @@ class PluginManager {
         this.searchQuery = '';
         this.compactMode = false;
         this.devStatusFilters = {
+            'stable': true,
             'working-beta': true,
             'development-beta': true,
-            'early-version': true
+            'early-version': true,
+            'non-working-beta': true
         };
         this.init();
     }
@@ -151,6 +153,8 @@ class PluginManager {
         filtered = filtered.filter(plugin => {
             // If plugin has no devStatus, always show it
             if (!plugin.devStatus) return true;
+            // Unknown statuses should not make installed plugins disappear.
+            if (!(plugin.devStatus in this.devStatusFilters)) return true;
             // Otherwise check if this status is enabled in filters
             return this.devStatusFilters[plugin.devStatus] === true;
         });
@@ -180,7 +184,8 @@ class PluginManager {
      */
     async loadPlugins() {
         try {
-            const response = await fetch('/api/plugins');
+            const locale = window.i18n?.currentLocale || localStorage.getItem('app_locale') || 'en';
+            const response = await fetch(`/api/plugins?locale=${encodeURIComponent(locale)}`);
             const data = await response.json();
 
             if (data.success) {

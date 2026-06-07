@@ -88,7 +88,6 @@ This glossary ensures consistent terminology across:
 | Chatango | Chatango | Chatango | Chatango |
 | ClarityHUD | ClarityHUD | ClarityHUD | ClarityHUD |
 | Coin Battle | Münz-Schlacht | Batalla de Monedas | Bataille de Pièces |
-| Vulkan Rockets | Vulkan Rockets | Vulkan Rockets | Vulkan Rockets |
 | GCCE (Global Chat Command Engine) | Globale Chat-Befehls-Engine | Motor de Comandos de Chat Global | Moteur de Commandes de Chat Global |
 | GCCE HUD Overlay | GCCE HUD Overlay | GCCE HUD Overlay | GCCE HUD Overlay |
 | Gift Milestone | Geschenk-Meilenstein | Hito de Regalo | Jalon de Cadeau |

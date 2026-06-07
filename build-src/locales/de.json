@@ -56,7 +56,11 @@
     "env_creating": "🔧 Auto-Fix: Erstelle .env Datei...",
     "env_created": "✅ .env Datei erstellt!",
     "port_in_use": "⚠️ Port 3000 belegt - Server wird alternativen Port nutzen",
-    "server_already_running": "ℹ️ Server läuft bereits auf Port 3000"
+    "server_already_running": "ℹ️ Server läuft bereits auf Port 3000",
+    "port_delegated": "🔌 Port-Management wird an Node.js delegiert (.ltth_port)...",
+    "port_selected": "Port %d ausgewählt",
+    "manual_starting": "Manueller Serverstart auf Port %d...",
+    "manual_start_available": "Manueller Start ist im Launcher verfügbar. Logs prüfen und Port wählen."
   },
   "api_keys": {
     "title": "API Key Informationen",

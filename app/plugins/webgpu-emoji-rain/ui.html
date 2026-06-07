@@ -465,6 +465,24 @@
             </div>
         </div>
 
+        <!-- TikTok Visual Mode Settings -->
+        <div class="config-section section-success">
+            <h2>TikTok Visual Effects Overlay</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="visual_mode">Visueller Modus</label>
+                    <select id="visual_mode">
+                        <option value="premium_stage" selected>Premium Stage</option>
+                        <option value="pupcid_balanced">PupCid Standard</option>
+                        <option value="glow_burst">Glow Burst</option>
+                        <option value="rainbow_live">Rainbow Live</option>
+                        <option value="retro_pixel">Retro Pixel</option>
+                    </select>
+                    <div class="help-text">Preset fuer Look, Intensitaet und Performance</div>
+                </div>
+            </div>
+        </div>
+
         <!-- Toaster Mode (Low-End PC Mode) -->
         <div class="config-section section-warning">
             <h2>🍞 Toaster Modus (Schwache PCs)</h2>
@@ -578,29 +596,14 @@
                 <div class="code-block">
                     1. In OBS: Neue Browser Source hinzufügen<br>
                     2. URL eingeben: <span class="highlight">http://localhost:3000/webgpu-emoji-rain/obs-hud</span><br>
+                    Komplett: <span class="highlight">http://localhost:3000/webgpu-emoji-rain/obs-hud</span><br>
+                    Emoji + Geschenke: <span class="highlight">http://localhost:3000/webgpu-emoji-rain/obs-hud/emojiregen-geschenkeregen</span><br>
+                    Nur Emojiregen: <span class="highlight">http://localhost:3000/webgpu-emoji-rain/obs-hud/emojiregen</span><br>
+                    Nur Herzballons: <span class="highlight">http://localhost:3000/webgpu-emoji-rain/obs-hud/herzballons</span><br>
+                    Nur Geschenkeregen: <span class="highlight">http://localhost:3000/webgpu-emoji-rain/obs-hud/geschenkeregen</span><br>
                     3. Breite & Höhe auf gewählte Auflösung setzen<br>
                     4. "Shutdown source when not visible" aktivieren (für bessere Performance)<br>
                     5. "Refresh browser when scene becomes active" aktivieren
-                </div>
-            </div>
-        </div>
-
-        <!-- Canvas Settings (Standard Overlay) -->
-        <div class="config-section">
-            <h2>📐 Canvas Einstellungen (Standard Overlay)</h2>
-            <div class="help-text" style="margin-bottom: 15px;">
-                Diese Einstellungen gelten für das Standard-Overlay (/webgpu-emoji-rain/overlay)
-            </div>
-            <div class="form-grid">
-                <div class="form-group">
-                    <label for="width_px">Breite (px)</label>
-                    <input type="number" id="width_px" min="640" max="3840" step="1">
-                    <div class="help-text">Empfohlen: 1280 (720p) oder 1920 (1080p)</div>
-                </div>
-                <div class="form-group">
-                    <label for="height_px">Höhe (px)</label>
-                    <input type="number" id="height_px" min="360" max="2160" step="1">
-                    <div class="help-text">Empfohlen: 720 (720p) oder 1080 (1080p)</div>
                 </div>
             </div>
         </div>
@@ -1007,6 +1010,116 @@
             </div>
         </div>
 
+        <!-- Geschenk-Kugeln Configuration -->
+        <div class="config-section">
+            <h2>🎁 Geschenk-Kugeln</h2>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="gift_balls_enabled">
+                    Geschenke als bounceende Kugeln anzeigen
+                </label>
+                <div class="help-text">Bei Gift-Events faellt zusaetzlich zum Emoji-Regen eine runde Kugel mit dem Geschenkbild aus dem Geschenkekatalog herunter.</div>
+            </div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="gift_ball_min_size_px">Min. Kugelgroesse (px)</label>
+                    <input type="number" id="gift_ball_min_size_px" min="20" max="300" step="1">
+                    <div class="help-text">Groesse fuer sehr guenstige Geschenke</div>
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_max_size_px">Max. Kugelgroesse (px)</label>
+                    <input type="number" id="gift_ball_max_size_px" min="20" max="400" step="1">
+                    <div class="help-text">Obergrenze fuer teure Geschenke</div>
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_price_reference_coins">Preisreferenz</label>
+                    <input type="number" id="gift_ball_price_reference_coins" min="1" max="100000" step="1">
+                    <div class="help-text">Ab diesem Geschenkpreis wird die Maximalgroesse erreicht</div>
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_min_despawn_ms">Min. Despawn (ms)</label>
+                    <input type="number" id="gift_ball_min_despawn_ms" min="1000" max="60000" step="500">
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_max_despawn_ms">Max. Despawn (ms)</label>
+                    <input type="number" id="gift_ball_max_despawn_ms" min="1000" max="120000" step="500">
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_despawn_per_coin_ms">Despawns pro Coin (ms)</label>
+                    <input type="number" id="gift_ball_despawn_per_coin_ms" min="0" max="1000" step="1">
+                    <div class="help-text">Preis verlaengert die sichtbare Zeit bis zur Maximalgrenze</div>
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_despawn_multiplier">Despawn Multiplikator</label>
+                    <input type="number" id="gift_ball_despawn_multiplier" min="0.1" max="10" step="0.1">
+                    <div class="help-text">Allgemeiner Regler fuer alle Geschenk-Kugel-Zeiten</div>
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_base_count">Basis-Drops</label>
+                    <input type="number" id="gift_ball_base_count" min="1" max="50" step="1">
+                    <div class="help-text">Anzahl Geschenkbilder bei Einzelgeschenken</div>
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_series_count_divisor">Serie pro Extra-Drop</label>
+                    <input type="number" id="gift_ball_series_count_divisor" min="1" max="100" step="1">
+                    <div class="help-text">Jede so grosse Serien-Stufe erzeugt ein weiteres Geschenkbild</div>
+                </div>
+                <div class="form-group">
+                    <label for="gift_ball_max_count">Max. Geschenk-Drops</label>
+                    <input type="number" id="gift_ball_max_count" min="1" max="100" step="1">
+                    <div class="help-text">Obergrenze fuer grosse Seriengeschenke</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Herzballons Configuration -->
+        <div class="config-section">
+            <h2>&hearts; Herzballons</h2>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="heart_balloons_enabled">
+                    Likes als Herzballons anzeigen
+                </label>
+                <div class="help-text">Jeder Like-User bekommt eine feste Herzfarbe. Die Ballons steigen von unten hoch und platzen in der Bildschirmmitte.</div>
+            </div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="heart_balloon_like_divisor">Like Divisor</label>
+                    <input type="number" id="heart_balloon_like_divisor" min="1" max="100" step="1">
+                    <div class="help-text">Likes / Divisor = Anzahl Herzballons</div>
+                </div>
+                <div class="form-group">
+                    <label for="heart_balloon_min_hearts">Min. Herzen</label>
+                    <input type="number" id="heart_balloon_min_hearts" min="1" max="50" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="heart_balloon_max_hearts">Max. Herzen</label>
+                    <input type="number" id="heart_balloon_max_hearts" min="1" max="100" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="heart_balloon_profile_every">Profilbild alle X Herzen</label>
+                    <input type="number" id="heart_balloon_profile_every" min="1" max="20" step="1">
+                    <div class="help-text">Standard: 4. Jedes vierte Herz ist das Profilbild des Users.</div>
+                </div>
+                <div class="form-group">
+                    <label for="heart_balloon_pop_y">Platz-Hoehe</label>
+                    <input type="range" id="heart_balloon_pop_y" min="0.25" max="0.75" step="0.05">
+                    <span class="range-value" id="heart_balloon_pop_y_value">0.5</span>
+                    <div class="help-text">0.5 = Bildschirmmitte</div>
+                </div>
+                <div class="form-group">
+                    <label for="heart_balloon_wind_strength">Leichter Wind</label>
+                    <input type="range" id="heart_balloon_wind_strength" min="0" max="1" step="0.05">
+                    <span class="range-value" id="heart_balloon_wind_strength_value">0.45</span>
+                    <div class="help-text">Seitliche Luftballon-Bewegung</div>
+                </div>
+                <div class="form-group">
+                    <label for="heart_balloon_test_count">Test Anzahl</label>
+                    <input type="number" id="heart_balloon_test_count" min="1" max="50" step="1">
+                </div>
+            </div>
+        </div>
+
         <!-- Sticker Rain Configuration -->
         <div class="config-section">
             <h2>🎭 Sticker Regen Konfiguration</h2>
@@ -1057,6 +1170,8 @@
         <div class="button-group">
             <button id="save-config-btn">💾 Konfiguration speichern</button>
             <button class="secondary" id="test-emoji-rain-btn">🧪 Emoji Rain testen</button>
+            <button class="secondary" id="test-gift-ball-btn">🎁 Geschenk-Kugel testen</button>
+            <button class="secondary" id="test-heart-balloons-btn">&hearts; Herzballons testen</button>
         </div>
     </div>
 

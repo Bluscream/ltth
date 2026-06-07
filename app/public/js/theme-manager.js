@@ -6,23 +6,41 @@
 
 class ThemeManager {
     constructor() {
-        this.currentTheme = 'night'; // Default theme
+        this.currentTheme = 'aurora'; // Default theme
         this.monitoredIframes = new WeakSet(); // Track iframes to avoid duplicate listeners
         this.themes = {
+            aurora: {
+                name: 'Aurora',
+                icon: 'sparkles',
+                description: 'Fresh default theme',
+                badge: 'Recommended',
+                swatches: ['#22d3ee', '#34d399', '#8b5cf6']
+            },
+            'vision-impaired': {
+                name: 'Vision Impaired',
+                icon: 'accessibility',
+                description: 'Large text and extreme contrast',
+                badge: 'Accessibility',
+                swatches: ['#ffffff', '#fbbf24', '#000000']
+            },
             night: {
                 name: 'Night Mode',
                 icon: 'moon',
-                description: 'Dark theme (default)'
+                description: 'Legacy dark theme',
+                swatches: ['#3b82f6', '#8b5cf6', '#12a116']
             },
             day: {
                 name: 'Day Mode',
                 icon: 'sun',
-                description: 'Light theme'
+                description: 'Bright light theme',
+                swatches: ['#ffffff', '#2563eb', '#12a116']
             },
             contrast: {
                 name: 'High Contrast',
                 icon: 'eye',
-                description: 'For vision impaired'
+                description: 'Legacy high contrast',
+                badge: 'Legacy',
+                swatches: ['#000000', '#fbbf24', '#ffffff']
             }
         };
         
@@ -122,17 +140,28 @@ class ThemeManager {
         const themeToggleContainer = document.createElement('div');
         themeToggleContainer.style.position = 'relative';
         themeToggleContainer.innerHTML = `
-            <button id="theme-toggle-btn" class="theme-toggle-btn" title="Change theme">
-                <i data-lucide="${this.themes[this.currentTheme].icon}"></i>
+            <button id="theme-toggle-btn" class="theme-toggle-btn" title="Change theme" aria-haspopup="menu" aria-expanded="false">
+                <span class="theme-toggle-icon-wrap">
+                    <i data-lucide="${this.themes[this.currentTheme].icon}"></i>
+                </span>
+                <span class="theme-toggle-label">${this.themes[this.currentTheme].name}</span>
             </button>
             <div id="theme-dropdown" class="theme-dropdown">
                 ${Object.entries(this.themes).map(([key, theme]) => `
                     <div class="theme-option ${key === this.currentTheme ? 'active' : ''}" data-theme="${key}">
+                        <div class="theme-option-preview" aria-hidden="true">
+                            <span style="background:${theme.swatches?.[0] || 'var(--brand-primary)'}"></span>
+                            <span style="background:${theme.swatches?.[1] || 'var(--color-accent-primary)'}"></span>
+                            <span style="background:${theme.swatches?.[2] || 'var(--color-accent-secondary)'}"></span>
+                        </div>
                         <div class="theme-option-icon">
                             <i data-lucide="${theme.icon}"></i>
                         </div>
                         <div class="theme-option-content">
-                            <div class="theme-option-name">${theme.name}</div>
+                            <div class="theme-option-name">
+                                ${theme.name}
+                                ${theme.badge ? `<span class="theme-option-badge">${theme.badge}</span>` : ''}
+                            </div>
                             <div class="theme-option-description">${theme.description}</div>
                         </div>
                         <i data-lucide="check" class="theme-option-check"></i>
@@ -212,6 +241,8 @@ class ThemeManager {
         const miniIcon = document.getElementById('sidebar-mini-icon');
         
         const miniLogoMap = {
+            aurora: '/ltthmini_nightmode.png',
+            'vision-impaired': '/ltthmini_highcontrast.png',
             day: '/ltthmini_daymode.png',
             contrast: '/ltthmini_highcontrast.png',
             night: '/ltthmini_nightmode.png'
@@ -225,12 +256,7 @@ class ThemeManager {
 
     applyThemeToDocument(doc, theme) {
         // Remove all theme classes
-        doc.documentElement.removeAttribute('data-theme');
-
-        // Apply new theme (only for non-default)
-        if (theme !== 'night') {
-            doc.documentElement.setAttribute('data-theme', theme);
-        }
+        doc.documentElement.setAttribute('data-theme', theme);
     }
 
     applyThemeToIframes(theme) {
@@ -259,11 +285,15 @@ class ThemeManager {
         const toggleBtn = document.getElementById('theme-toggle-btn');
         if (toggleBtn) {
             const icon = toggleBtn.querySelector('i');
+            const label = toggleBtn.querySelector('.theme-toggle-label');
             if (icon) {
                 icon.setAttribute('data-lucide', this.themes[theme].icon);
-                if (window.lucide) {
-                    window.lucide.createIcons();
-                }
+            }
+            if (label) {
+                label.textContent = this.themes[theme].name;
+            }
+            if (window.lucide) {
+                window.lucide.createIcons();
             }
         }
 

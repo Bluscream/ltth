@@ -1,7 +1,7 @@
 // ===========================================================================
-// ELECTRON MODE BOOTSTRAP (FALLBACK)
-// Primary bootstrap is done via electron-bootstrap.js preloaded with -r flag.
-// This is a fallback in case the preload doesn't work or for direct execution.
+// EMBEDDED NODE RUNTIME BOOTSTRAP
+// Keeps module resolution stable when the server is started by a packaged
+// launcher or another embedded Node runtime.
 // ===========================================================================
 if (process.env.ELECTRON === 'true' || process.env.ELECTRON_RUN_AS_NODE === '1') {
   const path = require('path');
@@ -57,6 +57,7 @@ const { IFTTTEngine } = require('./modules/ifttt'); // IFTTT Engine (replaces ol
 const { GoalManager } = require('./modules/goals');
 const ConfigPathManager = require('./modules/config-path-manager');
 const UserProfileManager = require('./modules/user-profiles');
+const ConfigRepair = require('./modules/config-repair');
 // PERFORMANCE OPTIMIZATION: VDONinjaManager is loaded via plugin system, removed direct import
 // const VDONinjaManager = require('./modules/vdoninja'); // PATCH: VDO.Ninja Integration
 
@@ -114,6 +115,8 @@ const getAutoStartManager = require('./modules/auto-start');
 const PresetManager = require('./modules/preset-manager');
 const BackupManager = require('./modules/backup-manager');
 const CloudSyncEngine = require('./modules/cloud-sync');
+const { createAdminAuth } = require('./modules/admin-auth');
+const { getAnimationFilePath } = require('./modules/animation-files');
 
 // ========== EXPRESS APP ==========
 const app = express();
@@ -139,8 +142,7 @@ const io = socketIO(server, {
             if (networkManager.isOriginAllowed(origin, PORT || 3000)) {
                 callback(null, true);
             } else {
-                // For OBS BrowserSource and other local contexts, allow null origin
-                callback(null, true);
+                callback(new Error('Not allowed by Socket.IO CORS'));
             }
         },
         methods: ['GET', 'POST'],
@@ -196,7 +198,7 @@ app.use((req, res, next) => {
     }
 
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-LTTH-Admin-Token');
 
     // Dashboard and plugin UIs need CSP policy
     const isDashboard = req.path === '/' || req.path.includes('/dashboard.html');
@@ -247,7 +249,6 @@ app.use((req, res, next) => {
             `'sha256-5glbgXYCBUSMRmOhuA2aNQ4eOtGpx+JvzWrRF5yqu8w=' 'sha256-Zv9umbrL9etIXXf8h4Tn2ZxuKtNawP2FWmnDyd98SoQ=' 'sha256-CD1bRL7x9KCE4rebgiB2VJkyQhr1MatT/FO9KY9cVIw=' ` +
             `'sha256-8ma2zXygpXCcq3kiJv4rS0k32SKVcMSL3R+NJdxoVjo=' 'sha256-/tlEW4dBeTXnKAtOeyarIXN7OLveaWQ4JyoQJIEpsHQ=' 'sha256-xu3YClpWdm0JUcsxMW/B0+Lk3vovecXUA4vWkTi/mgA=' ` +
             `'sha256-JIPGJRCq83TqVvN3m7kkxylwHWo0b79G40zWfnZbrQw=' 'sha256-AdSuaVgmlfGgsCXjbD31dRAR3hljDmdiX0yJiFmG55A=' ` +
-            `'sha256-pkIZTNQY7BAA6zzvdEQOswJQVdWjCCJ1kfPGeTNsf7I=' 'sha256-NLOkSEP75l2qahhI8V8waw8g5W+9Zf51oD/q4a/qGUQ=' 'sha256-D/hVuFkLXG80cISOvW06JGm4tZkFXx4l076EvvbhR7c=' 'sha256-95XKTDnFGaz2BCZfpSens5prP2Lv+5i+tOn158I8V40=' ` +  // Flame overlay inline handlers
             `'sha256-K5uNRn2aLxLeK0fjnkWTYWN1J4Vdf92BTAKxjxfz/nQ=' 'sha256-3ymA831yuAiigbGNakMhiy5HDRlr4NxqwATjV/Nn01I=' ` +  // Additional inline event handlers
             `https://st.chatango.com; ` +  // Socket.IO hash + admin-panel hash + viewer-xp inline handlers + Chatango eval
             `script-src-elem 'self' 'unsafe-inline' https://st.chatango.com https://cdnjs.cloudflare.com https://cdn.tailwindcss.com https://www.youtube.com; ` +  // Allow Chatango inline script elements with JSON config + GSAP from cdnjs + TailwindCSS + YouTube IFrame API
@@ -274,7 +275,6 @@ app.use((req, res, next) => {
             `'sha256-5glbgXYCBUSMRmOhuA2aNQ4eOtGpx+JvzWrRF5yqu8w=' 'sha256-Zv9umbrL9etIXXf8h4Tn2ZxuKtNawP2FWmnDyd98SoQ=' 'sha256-CD1bRL7x9KCE4rebgiB2VJkyQhr1MatT/FO9KY9cVIw=' ` +
             `'sha256-8ma2zXygpXCcq3kiJv4rS0k32SKVcMSL3R+NJdxoVjo=' 'sha256-/tlEW4dBeTXnKAtOeyarIXN7OLveaWQ4JyoQJIEpsHQ=' 'sha256-xu3YClpWdm0JUcsxMW/B0+Lk3vovecXUA4vWkTi/mgA=' ` +
             `'sha256-JIPGJRCq83TqVvN3m7kkxylwHWo0b79G40zWfnZbrQw=' 'sha256-AdSuaVgmlfGgsCXjbD31dRAR3hljDmdiX0yJiFmG55A=' ` +
-            `'sha256-pkIZTNQY7BAA6zzvdEQOswJQVdWjCCJ1kfPGeTNsf7I=' 'sha256-NLOkSEP75l2qahhI8V8waw8g5W+9Zf51oD/q4a/qGUQ=' 'sha256-D/hVuFkLXG80cISOvW06JGm4tZkFXx4l076EvvbhR7c=' 'sha256-95XKTDnFGaz2BCZfpSens5prP2Lv+5i+tOn158I8V40=' ` +  // Flame overlay inline handlers
             `'sha256-K5uNRn2aLxLeK0fjnkWTYWN1J4Vdf92BTAKxjxfz/nQ=' 'sha256-3ymA831yuAiigbGNakMhiy5HDRlr4NxqwATjV/Nn01I=' ` +  // Additional inline event handlers
             `https://st.chatango.com; ` +  // Socket.IO hash + admin-panel hash + viewer-xp inline handlers + Chatango eval
             `script-src-elem 'self' 'unsafe-inline' https://st.chatango.com https://cdnjs.cloudflare.com https://cdn.tailwindcss.com; ` +  // Allow Chatango inline script elements with JSON config + GSAP from cdnjs + TailwindCSS
@@ -294,10 +294,23 @@ app.use((req, res, next) => {
     next();
 });
 
+const adminAuth = createAdminAuth();
+app.use('/api', (req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        return next();
+    }
+
+    return adminAuth(req, res, next);
+});
+
 app.use(express.static('public'));
 
 // Serve GSAP library for overlays
 app.use('/gsap', express.static(path.join(__dirname, 'node_modules', 'gsap', 'dist')));
+
+// Serve local game rendering/physics libraries for OBS overlays.
+app.use('/vendor/pixi', express.static(path.join(__dirname, 'node_modules', 'pixi.js', 'dist')));
+app.use('/vendor/rapier2d', express.static(path.join(__dirname, 'node_modules', '@dimforge', 'rapier2d-compat')));
 
 // Serve TTS UI files (legacy support)
 app.use('/tts', express.static(path.join(__dirname, 'tts')));
@@ -353,6 +366,8 @@ const upload = multer({
 const profileManager = new UserProfileManager(configPathManager);
 
 logger.info('🔧 Initializing User Profile Manager...');
+const configRepair = new ConfigRepair(configPathManager, profileManager, logger);
+configRepair.runStartupRepair({ repairProfileDatabases: false });
 
 // Startup-Logik für User-Profile
 let activeProfile = profileManager.getActiveProfile();
@@ -401,7 +416,13 @@ const initState = require('./modules/initialization-state');
 
 // ========== DATABASE INITIALISIEREN ==========
 const dbPath = profileManager.getProfilePath(activeProfile);
-const db = new Database(dbPath, activeProfile); // Pass streamer_id as activeProfile
+let db;
+try {
+    db = new Database(dbPath, activeProfile); // Pass streamer_id as activeProfile
+} catch (error) {
+    logger.error(`❌ Database initialization failed for profile "${activeProfile}" at ${dbPath}: ${error.stack || error.message}`);
+    process.exit(1);
+}
 logger.info(`✅ Database initialized: ${dbPath}`);
 logger.info(`💡 All settings (including API keys) are stored here and will survive app updates!`);
 logger.info(`👤 Streamer ID for scoped data: ${activeProfile}`);
@@ -462,6 +483,8 @@ pluginLoader.setTikTokModule(tiktok);
 
 // Set IFTTT engine reference for dynamic IFTTT component registration
 pluginLoader.setIFTTTEngine(iftttEngine);
+iftttEngine.services.pluginLoader = pluginLoader;
+iftttEngine.services.obs = obs;
 
 // Initialise the BackupManager and wire it to the PluginLoader
 const packageVersion = (() => {
@@ -472,7 +495,8 @@ const backupManager = new BackupManager({
     configPathManager,
     pluginLoader,
     logger,
-    appVersion: packageVersion
+    appVersion: packageVersion,
+    activeProfile
 });
 pluginLoader.setBackupManager(backupManager);
 logger.info('💾 Backup Manager initialized');
@@ -487,7 +511,7 @@ alerts.setPluginLoader(pluginLoader);
 let updateManager;
 try {
     updateManager = new UpdateManager(logger);
-    logger.info('🔄 Update Manager initialized');
+    logger.info('Update Manager initialized (auto-update disabled)');
 } catch (error) {
     logger.warn(`⚠️  Update Manager konnte nicht initialisiert werden: ${error.message}`);
     logger.info('   Update-Funktionen sind nicht verfügbar, aber der Server läuft normal weiter.');
@@ -495,8 +519,8 @@ try {
     updateManager = {
         currentVersion: '1.0.3',
         isGitRepo: false,
-        checkForUpdates: async () => ({ success: false, error: 'Update Manager nicht verfügbar' }),
-        performUpdate: async () => ({ success: false, error: 'Update Manager nicht verfügbar' }),
+        checkForUpdates: async () => ({ success: true, disabled: true, available: false, error: 'Auto-update disabled' }),
+        performUpdate: async () => ({ success: false, disabled: true, error: 'Auto-update disabled' }),
         startAutoCheck: () => {},
         stopAutoCheck: () => {}
     };
@@ -623,7 +647,7 @@ app.post('/api/i18n/locale', (req, res) => {
 // ========== UPDATE API ROUTES ==========
 
 /**
- * GET /api/update/check - Prüft auf neue Versionen
+ * GET /api/update/check - Update system is disabled for local snapshots
  */
 app.get('/api/update/check', apiLimiter, async (req, res) => {
     try {
@@ -649,12 +673,12 @@ app.get('/api/update/current', apiLimiter, (req, res) => {
 });
 
 /**
- * POST /api/update/download - Führt Update durch (Git Pull oder ZIP Download)
+ * POST /api/update/download - Refuses update downloads for local snapshots
  */
 app.post('/api/update/download', authLimiter, async (req, res) => {
     try {
         const result = await updateManager.performUpdate();
-        res.json(result);
+        res.status(result.disabled ? 403 : 200).json(result);
     } catch (error) {
         logger.error(`Update download failed: ${error.message}`);
         res.status(500).json({
@@ -665,27 +689,15 @@ app.post('/api/update/download', authLimiter, async (req, res) => {
 });
 
 /**
- * GET /api/update/instructions - Gibt Anleitung für manuelles Update
+ * GET /api/update/instructions - Reports that auto-update is disabled
  */
 app.get('/api/update/instructions', apiLimiter, (req, res) => {
-    // Manual update instructions
     const instructions = {
-        method: updateManager.isGitRepo ? 'git' : 'download',
-        steps: updateManager.isGitRepo
-            ? [
-                '1. Stoppe den Server (Ctrl+C)',
-                '2. Führe "git pull" im Projektverzeichnis aus',
-                '3. Falls package.json geändert wurde: "npm install"',
-                '4. Starte den Server neu mit "npm start" oder "node launch.js"'
-              ]
-            : [
-                '1. Lade die neueste Version von GitHub herunter',
-                `2. https://github.com/${updateManager.githubRepo}/releases/latest`,
-                '3. Entpacke das Archiv',
-                '4. Kopiere deine "user_data" und "user_configs" Ordner',
-                '5. Führe "npm install" aus',
-                '6. Starte den Server mit "npm start" oder "node launch.js"'
-              ]
+        method: 'disabled',
+        steps: [
+            'Auto-update is disabled for this local snapshot.',
+            'Use backup export/import for settings migration instead of release ZIP updates.'
+        ]
     };
 
     res.json({
@@ -1008,6 +1020,46 @@ app.post('/api/cloud-sync/validate-path', authLimiter, (req, res) => {
 
 // ========== ROUTES ==========
 
+let serverRestartScheduled = false;
+
+function scheduleServerRestart(reason = 'api request') {
+    if (serverRestartScheduled) {
+        logger.warn(`♻️  Server restart already scheduled, ignoring duplicate request (${reason})`);
+        return false;
+    }
+
+    serverRestartScheduled = true;
+    logger.info(`♻️  Server restart scheduled (${reason})`);
+
+    setTimeout(() => {
+        logger.info(`♻️  Server restart starting (${reason})`);
+
+        try { db.flushEventBatch(); } catch (err) { logger.debug(`flushEventBatch skipped: ${err.message}`); }
+        try { io.emit('server:restarting', { reason }); } catch (err) { logger.debug(`server:restarting emit skipped: ${err.message}`); }
+        try { io.disconnectSockets(true); } catch (err) { logger.debug(`socket disconnect skipped: ${err.message}`); }
+        try { db.close(); } catch (err) { logger.debug(`db.close skipped: ${err.message}`); }
+
+        server.close(() => {
+            logger.info('♻️  Exiting with restart code 75...');
+            process.exit(75);
+        });
+
+        const forceTimer = setTimeout(() => {
+            logger.warn('♻️  Force exiting with restart code 75...');
+            process.exit(75);
+        }, 3000);
+        forceTimer.unref();
+    }, 250);
+
+    return true;
+}
+
+function scheduleServerRestartAfterResponse(res, reason) {
+    res.on('finish', () => {
+        scheduleServerRestart(reason);
+    });
+}
+
 // Haupt-Seite
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
@@ -1055,8 +1107,10 @@ app.post('/api/connect', authLimiter, async (req, res) => {
                 from: loadedProfile,
                 to: aliasMatchedProfile,
                 aliasMatch: username,
-                requiresRestart: true
+                requiresRestart: true,
+                restartScheduled: true
             });
+            scheduleServerRestartAfterResponse(res, `profile alias switch to ${aliasMatchedProfile}`);
             return res.json({
                 success: true,
                 profileSwitched: true,
@@ -1064,6 +1118,7 @@ app.post('/api/connect', authLimiter, async (req, res) => {
                 originalUsername: username,
                 message: `Profil "${aliasMatchedProfile}" wurde über Alias "${username}" gefunden. Neustart erforderlich.`,
                 requiresRestart: true,
+                restartScheduled: true,
                 newProfile: aliasMatchedProfile
             });
         }
@@ -1087,10 +1142,12 @@ app.post('/api/connect', authLimiter, async (req, res) => {
             io.emit('profile:switched', {
                 from: loadedProfile,
                 to: username,
-                requiresRestart: true
+                requiresRestart: true,
+                restartScheduled: true
             });
             
             logger.info(`✅ Profile switched to: ${username} (restart required to activate)`);
+            scheduleServerRestartAfterResponse(res, `profile switch to ${username}`);
             
             // Return early with profile switch notification
             return res.json({
@@ -1098,6 +1155,7 @@ app.post('/api/connect', authLimiter, async (req, res) => {
                 profileSwitched: true,
                 message: `Profile switched to "${username}". Restarting application to activate new profile...`,
                 requiresRestart: true,
+                restartScheduled: true,
                 newProfile: username
             });
         }
@@ -1538,6 +1596,8 @@ app.post('/api/settings', apiLimiter, (req, res) => {
             throw new ValidationError('Too many settings (max 200)', 'settings');
         }
 
+        let shouldReloadTimers = false;
+
         // Validate each key and value
         Object.entries(settings).forEach(([key, value]) => {
             // Validate key format
@@ -1554,7 +1614,14 @@ app.post('/api/settings', apiLimiter, (req, res) => {
             }
 
             db.setSetting(validKey, value);
+            if (validKey === 'flows_enabled') {
+                shouldReloadTimers = true;
+            }
         });
+
+        if (shouldReloadTimers) {
+            reloadIFTTTTimers();
+        }
 
         logger.info('⚙️ Settings updated');
         res.json({ success: true });
@@ -1715,7 +1782,8 @@ app.get('/api/profiles/active', apiLimiter, (req, res) => {
         res.json({ 
             activeProfile: loadedProfile, // Currently loaded profile
             pendingProfile: hasPendingProfile ? activeProfileFile : undefined, // Profile pending restart
-            requiresRestart: hasPendingProfile
+            requiresRestart: hasPendingProfile,
+            port: PORT
         });
     } catch (error) {
         logger.error('Error getting active profile:', error);
@@ -1786,20 +1854,35 @@ app.post('/api/profiles/switch', apiLimiter, (req, res) => {
             return res.status(404).json({ success: false, error: 'Profile not found' });
         }
 
-        profileManager.setActiveProfile(username);
-        logger.info(`🔄 Switched to profile: ${username} (restart required)`);
+        if (username.toLowerCase() === loadedProfile.toLowerCase()) {
+            return res.json({
+                success: true,
+                message: 'Profile is already active.',
+                requiresRestart: false,
+                activeProfile: loadedProfile
+            });
+        }
 
-        // Emit socket event to notify frontend for auto-restart functionality
+        profileManager.setActiveProfile(username);
+        logger.info(`🔄 Switched to profile: ${username} (restart scheduled)`);
+
+        // Emit socket event to notify frontend for restart overlay.
         io.emit('profile:switched', {
             from: loadedProfile,
             to: username,
-            requiresRestart: true
+            requiresRestart: true,
+            restartScheduled: true
         });
+
+        scheduleServerRestartAfterResponse(res, `profile switch to ${username}`);
 
         res.json({
             success: true,
-            message: 'Profile switched. Please restart the application.',
-            requiresRestart: true
+            message: 'Profile switched. Server restart scheduled.',
+            requiresRestart: true,
+            restartScheduled: true,
+            activeProfile: loadedProfile,
+            newProfile: username
         });
     } catch (error) {
         if (error instanceof ValidationError) {
@@ -1815,40 +1898,19 @@ app.post('/api/profiles/switch', apiLimiter, (req, res) => {
 
 /**
  * POST /api/server/restart
- * Löst einen sauberen Server-Neustart via Exit Code 75 aus.
- * Der Launcher-Auto-Restart-Loop fängt diesen Exit Code ab und startet den Server neu.
- * Wird nach Profilwechseln verwendet, um das neue Profil ohne manuellen Eingriff zu aktivieren.
+ * Schedules a clean server restart via exit code 75.
+ * The launcher wrapper catches this code and starts the server again.
  */
-app.post('/api/server/restart', authLimiter, (req, res) => {
+app.post('/api/server/restart', apiLimiter, (req, res) => {
     logger.info('♻️  Server restart requested via API');
 
-    // Antwort senden bevor der Prozess beendet wird
-    res.json({ success: true, message: 'Server is restarting...' });
-
-    // Nach dem Senden der Antwort sauber herunterfahren
-    res.on('finish', () => {
-        // DB-Batch-Queue leeren falls vorhanden
-        try { db.flushEventBatch(); } catch (err) { logger.debug(`flushEventBatch skipped: ${err.message}`); }
-
-        // Socket.io-Verbindungen sofort trennen, damit Port schnell freigegeben wird
-        io.disconnectSockets(true);
-
-        // DB schließen
-        db.close();
-
-        // Server schließen, dann Exit
-        server.close(() => {
-            logger.info('♻️  Exiting with restart code 75...');
-            process.exit(75);
-        });
-
-        // Fallback: Force-Exit nach 3 Sekunden
-        const forceTimer = setTimeout(() => {
-            logger.warn('♻️  Force exiting with restart code 75...');
-            process.exit(75);
-        }, 3000);
-        forceTimer.unref();
+    res.json({
+        success: true,
+        message: serverRestartScheduled ? 'Server restart is already scheduled.' : 'Server is restarting...',
+        restartScheduled: true
     });
+
+    scheduleServerRestartAfterResponse(res, 'manual restart API');
 });
 
 // Profil-Backup erstellen
@@ -2102,6 +2164,22 @@ app.post('/api/hud-config/element/:elementId/toggle', apiLimiter, (req, res) => 
 
 // ========== FLOWS ROUTES ==========
 
+function normalizeFlowCooldown(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        return 0;
+    }
+    return Math.min(3600, Math.max(0, Math.round(parsed)));
+}
+
+function reloadIFTTTTimers() {
+    try {
+        iftttEngine.reloadTimerTriggers();
+    } catch (error) {
+        logger.error('Error reloading IFTTT timer triggers:', error);
+    }
+}
+
 app.get('/api/flows', apiLimiter, (req, res) => {
     const flows = db.getFlows();
     // Enrich each flow with its cooldown setting
@@ -2137,8 +2215,9 @@ app.post('/api/flows', apiLimiter, (req, res) => {
         const id = db.createFlow(flow);
         // Store cooldown setting if provided
         if (flow.cooldown !== undefined && flow.cooldown !== null) {
-            db.setSetting(`flow_cooldown_${id}`, String(parseInt(flow.cooldown) || 0));
+            db.setSetting(`flow_cooldown_${id}`, String(normalizeFlowCooldown(flow.cooldown)));
         }
+        reloadIFTTTTimers();
         logger.info(`➕ Created flow: ${flow.name}`);
         res.json({ success: true, id });
     } catch (error) {
@@ -2154,8 +2233,9 @@ app.put('/api/flows/:id', apiLimiter, (req, res) => {
         db.updateFlow(req.params.id, flow);
         // Update cooldown setting if provided
         if (flow.cooldown !== undefined && flow.cooldown !== null) {
-            db.setSetting(`flow_cooldown_${req.params.id}`, String(parseInt(flow.cooldown) || 0));
+            db.setSetting(`flow_cooldown_${req.params.id}`, String(normalizeFlowCooldown(flow.cooldown)));
         }
+        reloadIFTTTTimers();
         logger.info(`✏️ Updated flow: ${req.params.id}`);
         res.json({ success: true });
     } catch (error) {
@@ -2169,6 +2249,7 @@ app.delete('/api/flows/:id', apiLimiter, (req, res) => {
         db.deleteFlow(req.params.id);
         // Clean up cooldown setting to avoid orphaned data
         db.deleteSetting(`flow_cooldown_${req.params.id}`);
+        reloadIFTTTTimers();
         logger.info(`🗑️ Deleted flow: ${req.params.id}`);
         res.json({ success: true });
     } catch (error) {
@@ -2182,6 +2263,7 @@ app.post('/api/flows/:id/toggle', apiLimiter, (req, res) => {
 
     try {
         db.toggleFlow(req.params.id, enabled);
+        reloadIFTTTTimers();
         logger.info(`🔄 Toggled flow ${req.params.id}: ${enabled}`);
         res.json({ success: true });
     } catch (error) {
@@ -2829,9 +2911,9 @@ app.get('/api/animations/list', apiLimiter, (req, res) => {
 
 app.delete('/api/animations/:filename', apiLimiter, (req, res) => {
     const { filename } = req.params;
-    const filePath = path.join(uploadDir, filename);
 
     try {
+        const filePath = getAnimationFilePath(uploadDir, filename);
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({ success: false, error: 'Animation not found' });
         }
@@ -2846,7 +2928,7 @@ app.delete('/api/animations/:filename', apiLimiter, (req, res) => {
 });
 
 // Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(configPathManager.getUploadsDir()));
 
 // ========== MINIGAMES ROUTES ==========
 
@@ -3413,15 +3495,51 @@ app.delete('/api/network/external-url', apiLimiter, (req, res) => {
 
 // ========== PORT RESOLUTION ==========
 const PortManager = require('./modules/port-manager');
+
+function parsePortEnv(value, fallback) {
+    const port = Number.parseInt(value, 10);
+    if (Number.isInteger(port) && port >= 1 && port <= 65535) {
+        return port;
+    }
+    return fallback;
+}
+
+const PREFERRED_PORT = parsePortEnv(process.env.LTTH_PORT || process.env.PORT, 3000);
+const MAX_PORT = parsePortEnv(process.env.LTTH_MAX_PORT, Math.min(PREFERRED_PORT + 50, 65535));
 const portManager = new PortManager({
-    preferredPort: 3000,
-    maxPort: 3050,
+    preferredPort: PREFERRED_PORT,
+    maxPort: Math.max(PREFERRED_PORT, MAX_PORT),
     appIdentifier: 'ltth'
 });
 
 let PORT; // resolved at startup in the async IIFE below
 const LTTH_PORT_FILE_PATH = path.join(__dirname, '..', '.ltth_port');
 const OBS_WRAPPER_FILE_PATH = path.join(__dirname, '..', 'obs-overlay-wrapper.html');
+let deferredConfigRepairScheduled = false;
+
+function scheduleDeferredConfigRepair() {
+    if (deferredConfigRepairScheduled || process.env.LTTH_SKIP_DEFERRED_CONFIG_REPAIR === 'true') {
+        return;
+    }
+
+    deferredConfigRepairScheduled = true;
+    const delayMs = parsePortEnv(process.env.LTTH_CONFIG_REPAIR_DELAY_MS, 30000);
+    const maxBytes = Number.parseInt(process.env.LTTH_CONFIG_REPAIR_MAX_DB_BYTES || `${250 * 1024 * 1024}`, 10);
+
+    const timer = setTimeout(() => {
+        logger.info('🔧 Starting deferred profile database repair');
+        configRepair.runStartupRepair({
+            profileDatabaseOptions: {
+                maxBytes,
+                skipUsernames: [loadedProfile]
+            }
+        });
+    }, delayMs);
+
+    if (typeof timer.unref === 'function') {
+        timer.unref();
+    }
+}
 
 /**
  * Persist current running server port for launchers and helper tools.
@@ -3499,12 +3617,13 @@ const pluginCacheControl = (req, res, next) => {
 (async () => {
     // ========== PORT RESOLUTION (VOR Plugin-Loading) ==========
     PORT = portManager.preferredPort;
+    const pluginsDisabledByLauncher = process.env.DISABLE_PLUGINS === 'true' || process.env.LTTH_SAFE_MODE === 'true';
     logger.info(`🔌 Port binding starts at ${PORT} (range ${portManager.preferredPort}-${portManager.maxPort})`);
 
     // Plugins laden VOR Server-Start, damit alle Routen verfügbar sind
     logger.info('🔌 Loading plugins...');
     try {
-        const plugins = await pluginLoader.loadAllPlugins();
+        const plugins = pluginsDisabledByLauncher ? [] : await pluginLoader.loadAllPlugins();
         const loadedCount = pluginLoader.plugins.size;
 
         initState.setPluginsLoaded(loadedCount);
@@ -3517,7 +3636,11 @@ const pluginCacheControl = (req, res, next) => {
         });
 
         // TikTok-Events für Plugins registrieren
-        pluginLoader.registerPluginTikTokEvents(tiktok);
+        if (!pluginsDisabledByLauncher) {
+            pluginLoader.registerPluginTikTokEvents(tiktok);
+        } else {
+            logger.warn('[SAFE-MODE] Plugin loading disabled by launcher environment.');
+        }
 
         // ========== PLUGIN STATIC FILES ==========
         // Register static file serving AFTER plugins are loaded
@@ -3578,6 +3701,8 @@ const pluginCacheControl = (req, res, next) => {
             // Reuse the same cache control middleware
             app.use('/plugins', pluginCacheControl);
             app.use('/plugins', express.static(path.join(__dirname, 'plugins')));
+            iftttEngine.setupTimerTriggers();
+            logger.info('IFTTT timer triggers initialized');
             logger.info('📂 Plugin static files served from /plugins/* with conservative cache headers');
             
             initState.setPluginsLoaded(0);
@@ -3619,6 +3744,8 @@ const pluginCacheControl = (req, res, next) => {
             logger.error(`❌ Failed to write OBS local wrapper: ${error.message}`);
         }
 
+        scheduleDeferredConfigRepair();
+
         const accessURLs = networkManager.getAccessURLs(PORT);
 
         logger.info('\n' + '='.repeat(50));
@@ -3632,8 +3759,8 @@ const pluginCacheControl = (req, res, next) => {
             logger.info('\n🌐 LAN Access:');
             accessURLs.lan.forEach(l => logger.info(`   ${l.label}: ${l.url}/dashboard.html`));
         }
-        if (PORT !== 3000) {
-            logger.info(`\n⚠️  ACHTUNG: Server läuft auf Port ${PORT} statt 3000!`);
+        if (PORT !== PREFERRED_PORT) {
+            logger.info(`\n⚠️  ACHTUNG: Server läuft auf Port ${PORT} statt ${PREFERRED_PORT}!`);
             logger.info(`   Overlay-URLs in OBS müssen ggf. angepasst werden.`);
         }
         logger.info('\n' + '='.repeat(50));
@@ -3725,8 +3852,7 @@ const pluginCacheControl = (req, res, next) => {
             });
         }
 
-        // Auto-Update-Check starten (alle 24 Stunden)
-        // Nur wenn Update-Manager verfügbar ist
+        // Auto-update is disabled in UpdateManager; this call is kept as a no-op.
         try {
             if (updateManager && typeof updateManager.startAutoCheck === 'function') {
                 updateManager.startAutoCheck(24);
@@ -4035,8 +4161,6 @@ const pluginCacheControl = (req, res, next) => {
         }
     };
 
-    server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: true }, onServerListening);
-
     server.on('error', (err) => {
         if (err.code === 'EADDRINUSE') {
             const nextPort = portManager.getNextPort(PORT);
@@ -4057,6 +4181,8 @@ const pluginCacheControl = (req, res, next) => {
         logger.error(`❌ Server error: ${err.message}`);
         process.exit(1);
     });
+
+    server.listen({ port: PORT, host: BIND_ADDRESS, exclusive: true }, onServerListening);
 })(); // Schließe async IIFE
 
 // Graceful Shutdown (shared handler for SIGINT and SIGTERM)

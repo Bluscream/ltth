@@ -1,25 +1,70 @@
 # AnimazingPal Plugin
 
-Integration mit der Animaze Desktop API für VTuber Avatar-Steuerung über TikTok LIVE Events.
+Multi-platform VTuber avatar control over TikTok LIVE events.
 
 ## 📋 Übersicht
 
-Dieses Plugin verbindet PupCid's Little TikTool Helper mit der Animaze Desktop Anwendung über die WebSocket API. Damit können TikTok LIVE Events (Geschenke, Follows, Chat, etc.) automatisch Animationen, Emotes und ChatPal-Nachrichten in deinem VTuber Avatar auslösen.
+Dieses Plugin verbindet PupCid's Little TikTool Helper mit VTubing-Zielen über eine Plattform-Abstraktion. Standardmäßig bleibt Animaze aktiv, zusätzlich werden VTube Studio und VSeeFace unterstützt. TikTok LIVE Events (Geschenke, Follows, Chat, etc.) lösen so automatisch Reaktionen, Bewegungen und optional ChatPal-Nachrichten aus.
 
 ## ✨ Features
 
-- **WebSocket-Verbindung** zu Animaze (Standard: `ws://localhost:8008`)
-- **TikTok Events → Animaze Aktionen**:
-  - Geschenke → Emotes, Spezialaktionen, Posen, Idle-Animationen
+- **Plattform-Auswahl** zwischen Animaze, VTube Studio und VSeeFace
+- **TikTok Events → Avatar-Aktionen**:
+  - Geschenke → Emotes, Hotkeys, Expressions, Motions, Posen oder Idle-Reset
   - Follows → Avatar-Reaktionen
   - Shares → Dankesnachrichten
-  - Subscribes → Spezielle Animationen
+  - Subscribes → Spezielle Aktionen
   - Likes → Reaktionen bei vielen Likes
 - **ChatPal Integration**:
   - TikTok Chat an ChatPal weiterleiten
   - KI-Antworten oder nur TTS (Echo-Modus)
+- **VRChat OSC Bridge**:
+  - High-Level-Intents an OSC-Bridge senden
+  - Viewer-Chats, Brain-Antworten und Stream-Reactions als VRChat Chatbox/Gesten ausgeben
 - **Gift Mappings**: Verknüpfe spezifische Geschenke mit spezifischen Aktionen
 - **Admin UI**: Vollständige Konfigurationsoberfläche
+- **Stream-Ready Preset**: Schnellere Reaktionen und unterhaltsamere Standardwerte per Klick
+- **Viewerbase**: Lokale Zuschauerbasis mit Top-Supportern, Chattern und optionalem Sync-Export
+
+## Unterstützte Plattformen
+
+- **Animaze**: Legacy WebSocket-Anbindung, vollständig rückwärtskompatibel
+- **VTube Studio**: WebSocket API für Hotkeys und Model-Load
+- **VSeeFace**: VMC/OSC-basierte Expressions, Motions und Reset-Bewegungen
+
+## VRChat OSC Bridge
+
+AnimazingPal kann Viewer-Interaktionen zusätzlich als VRChat-Intents an `osc-bridge` senden. Das ist kein Ersatz für den lokalen Avatar-Controller, sondern ein zusätzlicher Ausgabekanal.
+
+### Verhalten
+
+- Chat-Nachrichten werden als VRChat-Chatbox-Text weitergereicht
+- Gift-, Follow-, Share-, Like- und Subscribe-Events können VRChat-Gesten oder Emotes auslösen
+- Brain- und Standalone-Antworten können ebenfalls in die Chatbox laufen
+- Wenn keine lokale Avatar-Verbindung besteht, kann der VRChat-Kanal trotzdem aktiv sein
+
+### Konfiguration
+
+Im AnimazingPal-Settings-Tab gibt es die Sektion `VRChat OSC Bridge`.
+
+```json
+{
+  "vrchatIntegration": {
+    "enabled": true,
+    "targetPluginId": "osc-bridge",
+    "forwardChatToChatbox": true,
+    "forwardBrainResponses": true,
+    "forwardStandaloneResponses": true,
+    "sendTypingIndicator": true
+  }
+}
+```
+
+### Voraussetzungen
+
+- OSC-Bridge Plugin läuft
+- VRChat läuft lokal mit aktivem OSC
+- AnimazingPal ist aktiviert und verarbeitet TikTok LIVE Events
 
 ## 🧠 Brain Engine - KI-Intelligenz System
 
@@ -220,6 +265,46 @@ Response:
 }
 ```
 
+## Viewerbase
+
+AnimazingPal führt eine interne Viewerbase als lokale Source of Truth pro Streamer-Profil:
+
+- speichert Zuschauerprofile mit Interaktionsverlauf
+- führt Top-Supporter- und Frequent-Chatter-Listen
+- zeigt letzte Erinnerungen und Stream-Kontext in der UI
+- kann optional als Snapshot an eine externe Viewerbase oder ein Dashboard exportieren
+
+### Viewerbase API
+
+| Methode | Endpoint | Beschreibung |
+|---------|----------|--------------|
+| GET | `/api/animazingpal/viewerbase` | Viewerbase-Snapshot und Sync-Status |
+| POST | `/api/animazingpal/viewerbase/config` | Viewerbase- und Sync-Einstellungen speichern |
+| POST | `/api/animazingpal/viewerbase/sync` | Snapshot sofort an den externen Sync-Endpunkt senden |
+
+### Viewerbase Konfiguration
+
+```javascript
+viewerbase: {
+  enabled: true,
+  showInUI: true,
+  recentLimit: 12,
+  supporterLimit: 10,
+  chatterLimit: 10,
+  syncOnEvents: ['chat', 'gift', 'follow', 'share', 'like', 'subscribe', 'connected', 'disconnected'],
+  externalSync: {
+    enabled: false,
+    endpointUrl: '',
+    authToken: '',
+    timeoutMs: 5000,
+    retryLimit: 3,
+    includeRecentMemories: true,
+    includeTopSupporters: true,
+    includeFrequentChatters: true
+  }
+}
+```
+
 ## 🚀 Setup
 
 ### Voraussetzungen
@@ -310,6 +395,8 @@ Wenn aktiviert, werden TikTok Chat-Nachrichten an ChatPal weitergeleitet:
 |---------|----------|------|--------------|
 | GET | `/api/animazingpal/avatars` | - | Verfügbare Avatare |
 | POST | `/api/animazingpal/avatar/load` | `{name}` | Avatar laden |
+| GET | `/api/animazingpal/presets` | - | Verfügbare Presets abrufen |
+| POST | `/api/animazingpal/presets/apply` | `{preset}` | Preset anwenden |
 | GET | `/api/animazingpal/emotes` | - | Verfügbare Emotes |
 | POST | `/api/animazingpal/emote` | `{itemName}` | Emote auslösen |
 | GET | `/api/animazingpal/special-actions` | - | Spezialaktionen |

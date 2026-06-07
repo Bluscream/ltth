@@ -27,13 +27,18 @@ class UpdateUI {
         // Fetch and display current version in title
         this.updateTitleWithVersion();
 
-        // Update-Check beim Laden
-        this.checkForUpdates();
+        this.disableUpdateControls();
+    }
 
-        // Periodisch prüfen (alle 6 Stunden)
-        setInterval(() => {
-            this.checkForUpdates();
-        }, 6 * 60 * 60 * 1000);
+    disableUpdateControls() {
+        if (this.updateBanner) {
+            this.updateBanner.classList.add('hidden');
+        }
+
+        if (this.updateDownloadBtn) {
+            this.updateDownloadBtn.disabled = true;
+            this.updateDownloadBtn.textContent = 'Auto-Update deaktiviert';
+        }
     }
     
     /**
@@ -68,17 +73,7 @@ class UpdateUI {
      * Prüft auf neue Versionen
      */
     async checkForUpdates() {
-        try {
-            const response = await fetch('/api/update/check');
-            const data = await response.json();
-
-            if (data.success && data.available) {
-                this.currentUpdateInfo = data;
-                this.showUpdateBanner(data);
-            }
-        } catch (error) {
-            console.error('Update check failed:', error);
-        }
+        this.disableUpdateControls();
     }
 
     /**
@@ -121,49 +116,8 @@ class UpdateUI {
      * Lädt das Update herunter
      */
     async handleDownload() {
-        if (!this.currentUpdateInfo) {
-            this.showNotification('Keine Update-Informationen verfügbar', 'error');
-            return;
-        }
-
-        // Bestätigung
-        const confirmMsg = `Update auf Version ${this.currentUpdateInfo.latestVersion} installieren?\n\n` +
-                          `Der Server wird nach dem Download neu gestartet werden müssen.`;
-
-        if (!confirm(confirmMsg)) {
-            return;
-        }
-
-        try {
-            this.updateDownloadBtn.disabled = true;
-            this.updateDownloadBtn.textContent = '⏳ Lädt herunter...';
-
-            const response = await fetch('/api/update/download', {
-                method: 'POST'
-            });
-            const data = await response.json();
-
-            if (data.success) {
-                this.showNotification(
-                    'Update erfolgreich heruntergeladen! Bitte starte den Server neu.',
-                    'success'
-                );
-
-                // Update-Anleitung anzeigen
-                this.showRestartInstructions();
-            } else {
-                // Fehler - zeige manuelle Anleitung
-                this.showNotification(`Fehler: ${data.error}`, 'error');
-                await this.showManualInstructions();
-            }
-        } catch (error) {
-            console.error('Update download failed:', error);
-            this.showNotification(`Fehler beim Herunterladen: ${error.message}`, 'error');
-            await this.showManualInstructions();
-        } finally {
-            this.updateDownloadBtn.disabled = false;
-            this.updateDownloadBtn.textContent = '📥 Update installieren';
-        }
+        this.disableUpdateControls();
+        this.showNotification('Auto-Update ist deaktiviert.', 'info');
     }
 
     /**

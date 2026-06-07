@@ -50,6 +50,10 @@ class LastEventSpotlightPlugin {
       totalCoins: 0
     };
     this.longestStreak = null;
+    this.sessionId = this.createSessionId();
+    this.chatterPersistDelayMs = 1000;
+    this.pendingPersistTimers = new Map();
+    this.highVolumeEventTypes = new Set(['chatter', 'like']);
 
     this.defaultSettings = this.getDefaultSettings();
   }
@@ -118,6 +122,8 @@ class LastEventSpotlightPlugin {
   async init() {
     this.api.log('LastEvent Spotlight plugin loading...');
 
+    await this.loadSession();
+
     // Initialize settings for all types if not exist
     await this.initializeSettings();
 
@@ -142,10 +148,31 @@ class LastEventSpotlightPlugin {
       const existing = await this.api.getConfig(key);
 
       if (!existing) {
-        await this.api.setConfig(key, this.defaultSettings);
+        await this.persistConfig(key, this.defaultSettings);
         this.api.log(`Initialized default settings for ${type}`);
       }
     }
+  }
+
+  createSessionId() {
+    return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  async persistConfig(key, value) {
+    const result = await this.api.setConfig(key, value);
+    if (result === false) {
+      throw new Error(`Failed to save ${key}`);
+    }
+  }
+
+  async loadSession() {
+    const existingSessionId = await this.api.getConfig('session:id');
+    if (typeof existingSessionId === 'string' && existingSessionId.trim()) {
+      this.sessionId = existingSessionId;
+      return;
+    }
+
+    await this.persistConfig('session:id', this.sessionId);
   }
 
   /**
@@ -155,9 +182,43 @@ class LastEventSpotlightPlugin {
     for (const type of Object.keys(this.eventTypes)) {
       const key = `lastuser:${type}`;
       const user = await this.api.getConfig(key);
-      if (user) {
+      if (user && this.isCurrentSessionUser(user)) {
         this.lastUsers[type] = user;
       }
+    }
+
+    this.restoreDerivedSessionState();
+  }
+
+  isCurrentSessionUser(user) {
+    return !user || !user.sessionId || user.sessionId === this.sessionId;
+  }
+
+  restoreDerivedSessionState() {
+    const topGift = this.lastUsers.topgift;
+    if (topGift && topGift.metadata) {
+      this.topGift = topGift;
+    }
+
+    const giftStreak = this.lastUsers.giftstreak;
+    if (giftStreak && giftStreak.metadata) {
+      const restoredStreak = {
+        giftName: giftStreak.metadata.giftName || null,
+        giftPictureUrl: this.normalizeImageUrl(giftStreak.metadata.giftPictureUrl),
+        count: Number(giftStreak.metadata.streakLength || giftStreak.metadata.giftCount || 0),
+        user: giftStreak.uniqueId || null,
+        userData: {
+          uniqueId: giftStreak.uniqueId,
+          nickname: giftStreak.nickname,
+          profilePictureUrl: giftStreak.profilePictureUrl
+        },
+        startTime: giftStreak.timestamp || new Date().toISOString(),
+        lastActivity: giftStreak.timestamp || new Date().toISOString(),
+        totalCoins: Number(giftStreak.metadata.coins || 0)
+      };
+
+      this.longestStreak = { ...restoredStreak };
+      this.currentStreak = { ...restoredStreak };
     }
   }
 
@@ -165,9 +226,209 @@ class LastEventSpotlightPlugin {
    * Save last user for a type
    */
   async saveLastUser(type, userData) {
-    this.lastUsers[type] = userData;
+    const dataToSave = userData && typeof userData === 'object'
+      ? { ...userData, sessionId: userData.sessionId || this.sessionId }
+      : userData;
+
+    this.lastUsers[type] = dataToSave;
     const key = `lastuser:${type}`;
-    await this.api.setConfig(key, userData);
+
+    if (this.highVolumeEventTypes.has(type) && dataToSave) {
+      this.schedulePersist(key, dataToSave);
+      return;
+    }
+
+    await this.persistConfig(key, dataToSave);
+  }
+
+  schedulePersist(key, value) {
+    this.cancelPendingPersist(key);
+
+    const timer = setTimeout(async () => {
+      this.pendingPersistTimers.delete(key);
+      try {
+        await this.persistConfig(key, value);
+      } catch (error) {
+        this.api.log(`Error saving debounced config ${key}: ${error.message}`, 'error');
+      }
+    }, this.chatterPersistDelayMs);
+
+    this.pendingPersistTimers.set(key, timer);
+  }
+
+  cancelPendingPersist(key) {
+    const timer = this.pendingPersistTimers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingPersistTimers.delete(key);
+    }
+  }
+
+  cancelAllPendingPersists() {
+    for (const key of this.pendingPersistTimers.keys()) {
+      this.cancelPendingPersist(key);
+    }
+  }
+
+  /**
+   * Get valid event types selected for the Multi-HUD rotation.
+   */
+  getSelectedMultihudEvents(selectedEvents) {
+    const configuredEvents = Array.isArray(selectedEvents)
+      ? selectedEvents
+      : this.defaultSettings.selectedEvents;
+
+    return configuredEvents.filter((type, index) => {
+      return type !== 'multihud' &&
+        this.eventTypes[type] &&
+        configuredEvents.indexOf(type) === index;
+    });
+  }
+
+  getDisplayEventTypes(selectedEvents = null) {
+    const candidates = selectedEvents
+      ? this.getSelectedMultihudEvents(selectedEvents)
+      : Object.keys(this.eventTypes).filter(type => type !== 'multihud');
+
+    return candidates.filter(type => type !== 'multihud' && this.eventTypes[type]);
+  }
+
+  parseSelectedEvents(value) {
+    if (Array.isArray(value)) {
+      return this.getDisplayEventTypes(value);
+    }
+
+    if (typeof value !== 'string' || value.trim() === '') {
+      return null;
+    }
+
+    return this.getDisplayEventTypes(value.split(',').map(type => type.trim()));
+  }
+
+  isCssLength(value) {
+    return typeof value === 'string' &&
+      /^-?\d+(\.\d+)?(px|em|rem|%|vh|vw)?$/i.test(value.trim());
+  }
+
+  isCssDuration(value) {
+    return typeof value === 'string' &&
+      /^\d+(\.\d+)?(ms|s)$/i.test(value.trim());
+  }
+
+  isColorValue(value) {
+    return typeof value === 'string' &&
+      (/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(value.trim()) ||
+        /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(\s*,\s*(0|1|0?\.\d+))?\s*\)$/i.test(value.trim()));
+  }
+
+  sanitizeString(value, fallback, pattern) {
+    if (typeof value !== 'string') return fallback;
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    if (pattern && !pattern.test(trimmed)) return fallback;
+    return trimmed;
+  }
+
+  sanitizeChoice(value, allowed, fallback) {
+    return allowed.includes(value) ? value : fallback;
+  }
+
+  sanitizeBoolean(value, fallback) {
+    return typeof value === 'boolean' ? value : fallback;
+  }
+
+  sanitizeInteger(value, fallback, min, max) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(Math.max(parsed, min), max);
+  }
+
+  normalizeSettings(type, rawSettings = {}, options = {}) {
+    const raw = rawSettings && typeof rawSettings === 'object' ? rawSettings : {};
+    const defaults = this.defaultSettings;
+    const selectedEvents = Array.isArray(raw.selectedEvents)
+      ? this.getSelectedMultihudEvents(raw.selectedEvents)
+      : defaults.selectedEvents;
+
+    if (type === 'multihud' && options.rejectEmptyMultihudSelection && selectedEvents.length === 0) {
+      return {
+        settings: null,
+        error: 'Select at least one event for Multi-HUD rotation'
+      };
+    }
+
+    const settings = {
+      designVariant: this.sanitizeChoice(raw.designVariant, ['default', 'minimal', 'compact', 'neon', 'glassmorphism', 'retro'], defaults.designVariant),
+      fontFamily: this.sanitizeString(raw.fontFamily, defaults.fontFamily, /^[\w\s"',-]+$/),
+      fontSize: this.isCssLength(raw.fontSize) ? raw.fontSize.trim() : defaults.fontSize,
+      fontLineSpacing: this.sanitizeString(raw.fontLineSpacing, defaults.fontLineSpacing, /^\d+(\.\d+)?$/),
+      fontLetterSpacing: raw.fontLetterSpacing === 'normal' || this.isCssLength(raw.fontLetterSpacing) ? raw.fontLetterSpacing : defaults.fontLetterSpacing,
+      fontColor: this.isColorValue(raw.fontColor) ? raw.fontColor.trim() : defaults.fontColor,
+      usernameEffect: this.sanitizeChoice(raw.usernameEffect, ['none', 'wave', 'wave-slow', 'wave-fast', 'jitter', 'bounce'], defaults.usernameEffect),
+      usernameWave: this.sanitizeBoolean(raw.usernameWave, defaults.usernameWave),
+      usernameWaveSpeed: this.sanitizeChoice(raw.usernameWaveSpeed, ['slow', 'medium', 'fast'], defaults.usernameWaveSpeed),
+      usernameGlow: this.sanitizeBoolean(raw.usernameGlow, defaults.usernameGlow),
+      usernameGlowColor: this.isColorValue(raw.usernameGlowColor) ? raw.usernameGlowColor.trim() : defaults.usernameGlowColor,
+      enableBorder: this.sanitizeBoolean(raw.enableBorder, defaults.enableBorder),
+      borderColor: this.isColorValue(raw.borderColor) ? raw.borderColor.trim() : defaults.borderColor,
+      borderWidth: this.isCssLength(raw.borderWidth) ? raw.borderWidth.trim() : defaults.borderWidth,
+      borderRadius: raw.borderRadius === '50%' || this.isCssLength(raw.borderRadius) ? raw.borderRadius : defaults.borderRadius,
+      enableBackground: this.sanitizeBoolean(raw.enableBackground, defaults.enableBackground),
+      backgroundColor: this.isColorValue(raw.backgroundColor) ? raw.backgroundColor.trim() : defaults.backgroundColor,
+      showProfilePicture: this.sanitizeBoolean(raw.showProfilePicture, defaults.showProfilePicture),
+      profilePictureSize: this.isCssLength(raw.profilePictureSize) ? raw.profilePictureSize.trim() : defaults.profilePictureSize,
+      showUsername: this.sanitizeBoolean(raw.showUsername, defaults.showUsername),
+      alignCenter: this.sanitizeBoolean(raw.alignCenter, defaults.alignCenter),
+      inAnimationType: this.sanitizeChoice(raw.inAnimationType, ['fade', 'slide', 'pop', 'zoom', 'glow', 'bounce', 'none'], defaults.inAnimationType),
+      outAnimationType: this.sanitizeChoice(raw.outAnimationType, ['fade', 'slide', 'pop', 'zoom', 'glow', 'bounce', 'none'], defaults.outAnimationType),
+      animationSpeed: this.sanitizeChoice(raw.animationSpeed, ['slow', 'medium', 'fast'], defaults.animationSpeed),
+      fadeDuration: this.isCssDuration(raw.fadeDuration) ? raw.fadeDuration.trim() : defaults.fadeDuration,
+      refreshIntervalSeconds: this.sanitizeInteger(raw.refreshIntervalSeconds, defaults.refreshIntervalSeconds, 0, 3600),
+      hideOnNullUser: this.sanitizeBoolean(raw.hideOnNullUser, defaults.hideOnNullUser),
+      preloadImages: this.sanitizeBoolean(raw.preloadImages, defaults.preloadImages),
+      selectedEvents,
+      rotationIntervalSeconds: this.sanitizeInteger(raw.rotationIntervalSeconds, defaults.rotationIntervalSeconds, 1, 60)
+    };
+
+    return { settings, error: null };
+  }
+
+  /**
+   * Generate representative test user data for an overlay type.
+   */
+  createTestUser(type) {
+    const isGiftType = type === 'gifter' || type === 'topgift' || type === 'giftstreak';
+
+    return {
+      uniqueId: `testuser_${Date.now()}`,
+      nickname: `Test ${this.eventTypes[type].label}`,
+      profilePictureUrl: 'https://via.placeholder.com/150/0000FF/FFFFFF?text=Test',
+      timestamp: new Date().toISOString(),
+      eventType: type,
+      label: this.eventTypes[type].label,
+      sessionId: this.sessionId,
+      metadata: {
+        giftName: isGiftType ? 'Rose' : null,
+        giftPictureUrl: isGiftType ? 'https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648db945cc9b2~tplv-obj.image' : null,
+        giftCount: type === 'giftstreak' ? 10 : 1,
+        coins: type === 'gifter' || type === 'topgift' ? 100 : 0,
+        streakLength: type === 'giftstreak' ? 10 : null
+      }
+    };
+  }
+
+  /**
+   * Save and broadcast test user data for an overlay type.
+   */
+  async publishTestUser(type) {
+    const testUser = this.createTestUser(type);
+
+    await this.saveLastUser(type, testUser);
+
+    this.api.emit(`lastevent.update.${type}`, testUser);
+    this.api.emit('lastevent.multihud.update', { type, user: testUser });
+
+    return testUser;
   }
 
   /**
@@ -218,13 +479,19 @@ class LastEventSpotlightPlugin {
       res.sendFile(libPath);
     });
 
+    this.api.registerRoute('GET', '/plugins/lastevent-spotlight/overlays/single-overlay.js', (req, res) => {
+      const jsPath = path.join(__dirname, 'overlays', 'single-overlay.js');
+      res.sendFile(jsPath);
+    });
+
     // Get all settings
     this.api.registerRoute('GET', '/api/lastevent/settings', async (req, res) => {
       try {
         const allSettings = {};
         for (const type of Object.keys(this.eventTypes)) {
           const key = `settings:${type}`;
-          allSettings[type] = await this.api.getConfig(key) || this.defaultSettings;
+          const storedSettings = await this.api.getConfig(key);
+          allSettings[type] = this.normalizeSettings(type, storedSettings || this.defaultSettings).settings;
         }
         res.json({ success: true, settings: allSettings });
       } catch (error) {
@@ -242,7 +509,8 @@ class LastEventSpotlightPlugin {
         }
 
         const key = `settings:${type}`;
-        const settings = await this.api.getConfig(key) || this.defaultSettings;
+        const storedSettings = await this.api.getConfig(key);
+        const settings = this.normalizeSettings(type, storedSettings || this.defaultSettings).settings;
         res.json({ success: true, settings });
       } catch (error) {
         this.api.log(`Error getting settings for ${req.params.type}: ${error.message}`);
@@ -261,15 +529,20 @@ class LastEventSpotlightPlugin {
         const newSettings = req.body;
         const key = `settings:${type}`;
 
-        // Merge with defaults to ensure all fields exist
-        const mergedSettings = { ...this.defaultSettings, ...newSettings };
+        const normalized = this.normalizeSettings(type, newSettings, {
+          rejectEmptyMultihudSelection: true
+        });
 
-        await this.api.setConfig(key, mergedSettings);
+        if (normalized.error) {
+          return res.status(400).json({ success: false, error: normalized.error });
+        }
+
+        await this.persistConfig(key, normalized.settings);
 
         // Broadcast settings update to all overlays
-        this.api.emit(`lastevent.settings.${type}`, mergedSettings);
+        this.api.emit(`lastevent.settings.${type}`, normalized.settings);
 
-        res.json({ success: true, settings: mergedSettings });
+        res.json({ success: true, settings: normalized.settings });
       } catch (error) {
         this.api.log(`Error updating settings for ${req.params.type}: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
@@ -285,7 +558,7 @@ class LastEventSpotlightPlugin {
         }
 
         const userData = this.lastUsers[type];
-        res.json({ success: true, type, user: userData });
+        res.json({ success: true, type, sessionId: this.sessionId, user: userData });
       } catch (error) {
         this.api.log(`Error getting last user for ${req.params.type}: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
@@ -295,14 +568,13 @@ class LastEventSpotlightPlugin {
     // Get all last users (for multihud rotation)
     this.api.registerRoute('GET', '/api/lastevent/all', async (req, res) => {
       try {
+        const selectedEvents = this.parseSelectedEvents(req.query.selected || req.query.selectedEvents || req.query.events);
+        const eventTypes = selectedEvents || this.getDisplayEventTypes();
         const allUsers = {};
-        for (const type of Object.keys(this.eventTypes)) {
-          // Skip multihud itself
-          if (type !== 'multihud') {
-            allUsers[type] = this.lastUsers[type];
-          }
+        for (const type of eventTypes) {
+          allUsers[type] = this.lastUsers[type];
         }
-        res.json({ success: true, users: allUsers });
+        res.json({ success: true, sessionId: this.sessionId, users: allUsers });
       } catch (error) {
         this.api.log(`Error getting all last users: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
@@ -317,27 +589,20 @@ class LastEventSpotlightPlugin {
           return res.status(404).json({ success: false, error: 'Invalid event type' });
         }
 
-        // Generate test user data
-        const testUser = {
-          uniqueId: `testuser_${Date.now()}`,
-          nickname: `Test ${this.eventTypes[type].label}`,
-          profilePictureUrl: 'https://via.placeholder.com/150/0000FF/FFFFFF?text=Test',
-          timestamp: new Date().toISOString(),
-          eventType: type,
-          label: this.eventTypes[type].label,
-          metadata: {
-            giftName: type === 'gifter' || type === 'topgift' || type === 'giftstreak' ? 'Rose' : null,
-            giftPictureUrl: type === 'gifter' || type === 'topgift' || type === 'giftstreak' ? 'https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648db945cc9b2~tplv-obj.image' : null,
-            giftCount: type === 'giftstreak' ? 10 : 1,
-            coins: type === 'gifter' || type === 'topgift' ? 100 : 0,
-            streakLength: type === 'giftstreak' ? 10 : null
+        if (type === 'multihud') {
+          const storedSettings = await this.api.getConfig('settings:multihud');
+          const settings = this.normalizeSettings('multihud', storedSettings || this.defaultSettings).settings;
+          const selectedEvents = this.getSelectedMultihudEvents(settings.selectedEvents);
+          const users = {};
+
+          for (const eventType of selectedEvents) {
+            users[eventType] = await this.publishTestUser(eventType);
           }
-        };
 
-        await this.saveLastUser(type, testUser);
+          return res.json({ success: true, users });
+        }
 
-        // Broadcast update
-        this.api.emit(`lastevent.update.${type}`, testUser);
+        const testUser = await this.publishTestUser(type);
 
         res.json({ success: true, user: testUser });
       } catch (error) {
@@ -350,7 +615,7 @@ class LastEventSpotlightPlugin {
     this.api.registerRoute('POST', '/api/lastevent/reset-session', async (req, res) => {
       try {
         await this.resetSession();
-        res.json({ success: true, message: 'Stream session reset successfully' });
+        res.json({ success: true, sessionId: this.sessionId, message: 'Stream session reset successfully' });
       } catch (error) {
         this.api.log(`Error resetting session: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
@@ -400,33 +665,37 @@ class LastEventSpotlightPlugin {
    * Clears last users, top gift, and streaks
    */
   async resetSession() {
-    try {
-      // Reset in-memory tracking
-      this.topGift = null;
-      this.currentStreak = {
-        giftName: null,
-        count: 0,
-        user: null,
-        userData: null,
-        startTime: null,
-        lastActivity: null,
-        totalCoins: 0
-      };
-      this.longestStreak = null;
-      
-      // Clear all last user data
-      for (const type of Object.keys(this.eventTypes)) {
-        this.lastUsers[type] = null;
-        await this.api.setConfig(`lastuser:${type}`, null);
-      }
-      
-      // Notify all overlay clients to clear their displays
-      this.api.emit('lastevent.session.reset', { timestamp: new Date().toISOString() });
-      
-      this.api.log('Session data reset successfully');
-    } catch (error) {
-      this.api.log(`Error resetting session: ${error.message}`);
+    this.cancelAllPendingPersists();
+
+    this.sessionId = this.createSessionId();
+    await this.persistConfig('session:id', this.sessionId);
+
+    // Reset in-memory tracking
+    this.topGift = null;
+    this.currentStreak = {
+      giftName: null,
+      count: 0,
+      user: null,
+      userData: null,
+      startTime: null,
+      lastActivity: null,
+      totalCoins: 0
+    };
+    this.longestStreak = null;
+
+    // Clear all last user data
+    for (const type of Object.keys(this.eventTypes)) {
+      this.lastUsers[type] = null;
+      await this.persistConfig(`lastuser:${type}`, null);
     }
+
+    // Notify all overlay clients to clear their displays
+    this.api.emit('lastevent.session.reset', {
+      sessionId: this.sessionId,
+      timestamp: new Date().toISOString()
+    });
+
+    this.api.log('Session data reset successfully');
   }
 
   /**
@@ -451,7 +720,8 @@ class LastEventSpotlightPlugin {
       // Also broadcast to multihud overlay if it's tracking this event type
       this.api.emit('lastevent.multihud.update', { type: overlayType, user: userData });
 
-      this.api.log(`Updated last ${overlayType}: ${userData.nickname}`);
+      const logLevel = this.highVolumeEventTypes.has(overlayType) ? 'debug' : 'info';
+      this.api.log(`Updated last ${overlayType}: ${userData.nickname}`, logLevel);
 
       // Handle gift-specific tracking (top gift and streak)
       if (eventName === 'gift' && userData.metadata.coins) {
@@ -542,6 +812,7 @@ class LastEventSpotlightPlugin {
         timestamp: streakToDisplay.lastActivity,
         eventType: 'giftstreak',
         label: 'Gift Streak',
+        sessionId: this.sessionId,
         metadata: {
           giftName: streakToDisplay.giftName,
           giftPictureUrl: streakToDisplay.giftPictureUrl,
@@ -569,22 +840,47 @@ class LastEventSpotlightPlugin {
     // Try various fields that might contain the profile picture
     // Order matches tiktok.js module for consistency
     const pictureData = user.profilePictureUrl || user.profilePicture || user.avatarThumb || user.avatarLarger || user.avatarUrl;
-    
-    if (!pictureData) return '';
 
-    // If it's already a string URL, return it
-    if (typeof pictureData === 'string') {
-      return pictureData;
+    return this.normalizeImageUrl(pictureData) || '';
+  }
+
+  normalizeImageUrl(value) {
+    if (!value) return '';
+
+    if (typeof value === 'string') {
+      return value.trim();
     }
 
-    // If it's an object with url array (Eulerstream format), extract the first URL
-    if (pictureData.url && Array.isArray(pictureData.url) && pictureData.url.length > 0) {
-      return pictureData.url[0];
+    if (Array.isArray(value)) {
+      const firstString = value.find(item => typeof item === 'string' && item.trim());
+      return firstString ? firstString.trim() : '';
     }
 
-    // If it's an object with urlList array (alternative format)
-    if (pictureData.urlList && Array.isArray(pictureData.urlList) && pictureData.urlList.length > 0) {
-      return pictureData.urlList[0];
+    if (typeof value === 'object') {
+      const candidates = [
+        value.url,
+        value.urlList,
+        value.url_list,
+        value.urls,
+        value.imageUrl,
+        value.image_url,
+        value.giftPictureUrl,
+        value.picture_url,
+        value.uri,
+        value.image?.url,
+        value.image?.urlList,
+        value.image?.url_list,
+        value.image?.urls,
+        value.icon?.url,
+        value.icon?.urlList,
+        value.icon?.url_list,
+        value.icon?.urls
+      ];
+
+      for (const candidate of candidates) {
+        const normalized = this.normalizeImageUrl(candidate);
+        if (normalized) return normalized;
+      }
     }
 
     return '';
@@ -609,7 +905,7 @@ class LastEventSpotlightPlugin {
     }
 
     // Get gift picture URL, with fallback to GiftCatalogue
-    let giftPictureUrl = data.giftPictureUrl;
+    let giftPictureUrl = this.normalizeImageUrl(data.giftPictureUrl);
     const giftId = data.giftId;
     
     // If no giftPictureUrl but we have a giftId, look up from GiftCatalogue
@@ -635,6 +931,7 @@ class LastEventSpotlightPlugin {
       timestamp: new Date().toISOString(),
       eventType: overlayType,
       label: this.eventTypes[overlayType].label,
+      sessionId: this.sessionId,
       // Additional event-specific data
       metadata: {
         giftName: data.giftName,
@@ -644,7 +941,7 @@ class LastEventSpotlightPlugin {
         message: data.comment || data.message,
         // FIX: Use data.coins (already calculated), only fallback to 0 if not present
         // Don't fallback to diamondCount as it's the raw diamond value, not coins
-        coins: data.coins || 0
+        coins: Number(data.coins) || 0
       }
     };
   }
@@ -654,6 +951,7 @@ class LastEventSpotlightPlugin {
    */
   async destroy() {
     this.api.log('LastEvent Spotlight plugin unloading...');
+    this.cancelAllPendingPersists();
   }
 }
 

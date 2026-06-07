@@ -22,6 +22,11 @@ class SafetyManager {
         maxDuration: 5000,
         maxCommandsPerMinute: 30
       },
+      defaultCooldowns: {
+        global: 500,
+        perDevice: 3000,
+        perUser: 10000
+      },
       deviceLimits: {},
       userLimits: {
         minFollowerAge: 7,
@@ -69,6 +74,10 @@ class SafetyManager {
       globalLimits: {
         ...this.config.globalLimits,
         ...(config.globalLimits || {})
+      },
+      defaultCooldowns: {
+        ...this.config.defaultCooldowns,
+        ...(config.defaultCooldowns || {})
       },
       deviceLimits: {
         ...this.config.deviceLimits,
@@ -209,6 +218,16 @@ class SafetyManager {
     }
 
     // Device cooldown check
+    const defaultCooldownCheck = this.checkDefaultCooldowns(userId, deviceId);
+    if (!defaultCooldownCheck.allowed) {
+      return {
+        allowed: false,
+        reason: defaultCooldownCheck.reason,
+        modifiedCommand: null
+      };
+    }
+
+    // Device-specific limit cooldown check
     const cooldownCheck = this.checkDeviceCooldown(deviceId);
     if (!cooldownCheck.allowed) {
       return {
@@ -320,6 +339,72 @@ class SafetyManager {
     }
 
     return { allowed: true, reason: 'Cooldown expired', remainingMs: 0 };
+  }
+
+  /**
+   * Check default global, device, and user cooldowns.
+   * @param {string} userId - User ID
+   * @param {string} deviceId - Device ID
+   * @returns {Object} { allowed: boolean, reason: string, remainingMs: number }
+   */
+  checkDefaultCooldowns(userId, deviceId) {
+    const cooldowns = this.config.defaultCooldowns || {};
+    const now = Date.now();
+
+    if (cooldowns.global > 0 && this.commandHistory.length > 0) {
+      const lastCommand = this.commandHistory[this.commandHistory.length - 1];
+      const remainingMs = cooldowns.global - (now - lastCommand.timestamp);
+      if (remainingMs > 0) {
+        return {
+          allowed: false,
+          reason: `Global cooldown active. Wait ${Math.ceil(remainingMs / 1000)}s`,
+          remainingMs
+        };
+      }
+    }
+
+    if (cooldowns.perDevice > 0 && deviceId) {
+      const lastDeviceCommand = this.deviceCooldowns.get(deviceId);
+      if (lastDeviceCommand) {
+        const remainingMs = cooldowns.perDevice - (now - lastDeviceCommand);
+        if (remainingMs > 0) {
+          return {
+            allowed: false,
+            reason: `Device cooldown active. Wait ${Math.ceil(remainingMs / 1000)}s`,
+            remainingMs
+          };
+        }
+      }
+    }
+
+    if (cooldowns.perUser > 0 && userId) {
+      const lastUserCommand = this._getLastUserCommandTimestamp(userId);
+      if (lastUserCommand) {
+        const remainingMs = cooldowns.perUser - (now - lastUserCommand);
+        if (remainingMs > 0) {
+          return {
+            allowed: false,
+            reason: `User cooldown active. Wait ${Math.ceil(remainingMs / 1000)}s`,
+            remainingMs
+          };
+        }
+      }
+    }
+
+    return { allowed: true, reason: 'Default cooldowns clear', remainingMs: 0 };
+  }
+
+  /**
+   * Get the most recent command timestamp for a user.
+   * @private
+   */
+  _getLastUserCommandTimestamp(userId) {
+    for (let i = this.commandHistory.length - 1; i >= 0; i--) {
+      if (this.commandHistory[i].userId === userId) {
+        return this.commandHistory[i].timestamp;
+      }
+    }
+    return null;
   }
 
   /**

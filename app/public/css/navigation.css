@@ -422,6 +422,7 @@ body {
 /* Sidebar Category */
 .sidebar-category {
     margin-top: 0.75rem;
+    min-width: 0;
 }
 
 .sidebar-category:first-child {
@@ -433,11 +434,12 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem;
-    margin: 0 -0.5rem 0.25rem -0.5rem;
+    margin: 0 0 0.25rem 0;
     cursor: pointer;
     border-radius: 8px;
     transition: all 0.2s ease;
     user-select: none;
+    min-width: 0;
 }
 
 .sidebar-category-header:hover {
@@ -523,7 +525,7 @@ body {
     transition: all 0.2s ease;
     cursor: pointer;
     position: relative;
-    white-space: nowrap;
+    min-width: 0;
 }
 
 .sidebar-item:hover {
@@ -544,10 +546,15 @@ body {
 }
 
 .sidebar-item-text {
+    display: block;
+    flex: 1;
     font-size: 0.875rem;
     font-weight: 500;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: normal;
+    line-height: 1.25;
     opacity: 1;
     transition: opacity var(--transition-speed) ease;
 }
@@ -620,6 +627,10 @@ body {
 
 .topbar-left {
     flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
     z-index: 1;
     -webkit-app-region: no-drag;
 }
@@ -628,12 +639,14 @@ body {
     font-size: 1.25rem;
     font-weight: 700;
     color: var(--color-text-primary);
+    min-width: 0;
 }
 
 .topbar-right {
     display: flex;
     align-items: center;
     gap: 1rem;
+    min-width: 0;
     z-index: 1;
     -webkit-app-region: no-drag;
 }
@@ -2106,6 +2119,38 @@ input:checked + .toggle-slider:before {
         width: 100% !important;
     }
 
+    .topbar {
+        height: auto;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+    }
+
+    .topbar-left,
+    .topbar-right {
+        width: 100%;
+    }
+
+    .topbar-title {
+        overflow-wrap: anywhere;
+        line-height: 1.25;
+    }
+
+    .topbar-right {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .topbar-status .status-badge,
+    .topbar-language-select,
+    .topbar-profile-btn,
+    .topbar-icon-btn,
+    .theme-toggle-btn {
+        max-width: 100%;
+    }
+
     .stats-grid,
     .resource-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -2123,11 +2168,16 @@ input:checked + .toggle-slider:before {
     }
 
     .topbar {
-        padding: 0 1rem;
+        padding: 0.75rem 1rem;
     }
 
     .topbar-title {
         font-size: 1rem;
+    }
+
+    .topbar-status .status-badge span,
+    .topbar-profile-btn span {
+        display: none;
     }
 
     .content-view {

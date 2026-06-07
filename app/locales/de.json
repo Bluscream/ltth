@@ -24,7 +24,7 @@
     "soundboard": "Soundboard",
     "emoji_rain": "Emoji-Regen",
     "fireworks": "Feuerwerk",
-    "fireworks_webgpu": "Vulkan Rockets",
+    "fireworks_dev": "Feuerwerk Dev",
     "flame_overlay": "Flammen-Overlay",
     "webgpu_emoji_rain": "WebGPU Emoji-Regen",
     "multi_guest": "Multi-Gast",
@@ -54,9 +54,13 @@
     "chatango": "Chatango",
     "thermal_printer": "Thermaldrucker",
     "config_import": "Konfiguration Importieren",
+    "animazingpal": "AnimazingPal",
     "plugins": "Plugin-Manager",
     "wiki": "Wiki",
     "settings": "Einstellungen"
+  },
+  "chatango": {
+    "loading": "Community-Chat wird geladen..."
   },
   "talking_heads_ui": {
     "title": "Talking Heads - AI Avatar Animation",
@@ -316,7 +320,8 @@
     "like_threshold_sound": "Like-Schwellenwert-Sound",
     "max_queue_length": "Maximale Warteschlangenlänge",
     "search_myinstants": "MyInstants durchsuchen",
-    "audio_debug_log": "Audio-Debug-Log"
+    "audio_debug_log": "Audio-Debug-Log",
+    "sequential": "Sequenziell"
   },
   "plugins": {
     "title": "Plugin-Manager",
@@ -400,6 +405,7 @@
     "auto_update_check": "Beim Start nach Updates suchen",
     "show_debug_info": "Debug-Informationen anzeigen",
     "enable_notifications": "Desktop-Benachrichtigungen aktivieren",
+    "show_update_notifications": "Update-Benachrichtigungen anzeigen",
     "notification_volume": "Benachrichtigungslautstärke",
     "ui_settings": "UI-Einstellungen",
     "advanced_settings": "Erweiterte Einstellungen",
@@ -408,6 +414,7 @@
     "export_settings": "Einstellungen exportieren",
     "import_settings": "Einstellungen importieren",
     "auto_start_title": "Autostart-Einstellungen",
+    "enable_auto_start": "Autostart aktivieren",
     "language_settings": "Spracheinstellungen",
     "global_settings": "Globale Einstellungen",
     "select_language": "Sprache auswählen",
@@ -470,6 +477,9 @@
     "manual_restart_prompt": "Profil wurde zu \"{{profile}}\" gewechselt.\n\nBitte starten Sie die Anwendung neu, um das neue Profil zu aktivieren.",
     "auto_switched": "Profil automatisch zu \"{{profile}}\" gewechselt basierend auf TikTok-Verbindung.\n\nDie Anwendung wird neu geladen um das neue Profil zu aktivieren...",
     "switched_notification": "Profil wurde zu \"{{profile}}\" gewechselt.\n\nDie Anwendung wird neu geladen um das neue Profil zu aktivieren...",
+    "restarting": "Server wird neu gestartet...",
+    "restart_wait": "Bitte warten - die Seite lädt automatisch neu.",
+    "restart_failed": "Server-Neustart fehlgeschlagen",
     "integrity_healthy": "Profil-Integrität: Gesund",
     "integrity_warning": "Profil-Integrität: Warnung",
     "integrity_error": "Profil-Integrität: Fehler",
@@ -489,7 +499,8 @@
     "light": "Tag-Modus",
     "dark": "Nacht-Modus",
     "auto": "Auto (System)",
-    "high_contrast": "Hoher Kontrast"
+    "high_contrast": "Hoher Kontrast",
+    "vision_impaired": "Modus für Sehbehinderte"
   },
   "common": {
     "loading": "Laden...",
@@ -919,6 +930,62 @@
     "overlay": "📺 Overlay",
     "copy_overlay_url": "📋 Overlay-URL kopieren",
     "open_in_new_tab": "🔗 In neuem Tab öffnen",
-    "test_firework": "🧪 Feuerwerk testen"
+    "test_firework": "🧪 Feuerwerk testen",
+    "tab_settings": "Einstellungen",
+    "tab_presets": "Voreinstellungen",
+    "tab_benchmark": "Benchmark",
+    "toaster_mode": {
+      "title": "🍞 Toaster-Modus (schwache PCs)",
+      "description": "Nutzt Canvas 2D statt WebGL für maximale Kompatibilität",
+      "enabled": "Toaster-Modus aktivieren",
+      "help": "Optimiert für schwache Systeme und maximale Kompatibilität",
+      "changes_title": "🔧 Was wird geändert:",
+      "renderer": "Renderer: WebGL -> Canvas 2D",
+      "gpu": "GPU-Beschleunigung: Deaktiviert",
+      "compatibility": "Kompatibilität: Maximum",
+      "performance": "Performance: Reduziert, aber stabil",
+      "effects": "Visuelle Effekte: Alle beibehalten",
+      "tip_title": "Tipp:",
+      "tip": "Nutzen Sie den Toaster-Modus, wenn der PC beim Feuerwerk langsamer wird oder Rendering-Probleme in OBS auftreten."
+    },
+    "performance_limits": "⚡ Performance-Limits",
+    "performance_info": "Diese Einstellungen schützen vor Freezes bei vielen gleichzeitigen Events. Niedrigere Werte bedeuten mehr Stabilität.",
+    "max_concurrent_fireworks": "Max. gleichzeitige Feuerwerke",
+    "max_total_particles": "Max. Partikel gesamt",
+    "emergency_cleanup_threshold": "Emergency-Cleanup-Schwelle",
+    "adaptive_performance": "Adaptive Performance",
+    "min_target_fps": "Minimale Ziel-FPS",
+    "frame_skip_info": "Frame Skip wird aktiviert, wenn die FPS unter diesen Wert fallen",
+    "enable_frame_skip": "Frame Skip aktivieren",
+    "use_this_url_in_obs": "Nutzen Sie diese URL in OBS als Browser Source. Die Vorschau ist direkt in OBS verfügbar.",
+    "presets": {
+      "title": "Voreinstellungen",
+      "description": "Wählen Sie eine Voreinstellung basierend auf der System-Performance. Nutzen Sie den Benchmark, um die optimalen Einstellungen zu finden.",
+      "apply": "Anwenden",
+      "tip": "Tipp:",
+      "tip_text": "Nutzen Sie den Benchmark-Tab, um automatisch die besten 2 Voreinstellungen für Ihr System zu ermitteln.",
+      "not_found": "Preset nicht gefunden",
+      "applied": "Voreinstellung angewendet!",
+      "warning_title": "Warnung: Diese Voreinstellung könnte auf Ihrem System laggen!",
+      "warning_fps": "Der Benchmark hat durchschnittlich {fps} FPS gemessen.",
+      "warning_confirm": "Möchten Sie diese Einstellung trotzdem verwenden?"
+    },
+    "benchmark": {
+      "title": "Performance-Benchmark",
+      "description": "Führen Sie einen automatischen Performance-Test durch, um die optimalen Einstellungen für Ihr System zu finden.",
+      "start": "Benchmark starten",
+      "stop": "Stoppen",
+      "running": "Benchmark läuft...",
+      "current_test": "Aktueller Test:",
+      "results": "Benchmark-Ergebnisse",
+      "recommendations": "Empfehlungen",
+      "info": "Hinweis:",
+      "info_text": "Der Benchmark öffnet das OBS-Overlay-Fenster und führt mehrere Szenarien durch. Das dauert etwa 1-2 Minuten. Schließen Sie das Fenster während des Tests nicht.",
+      "popup_blocked": "Benchmark-Fenster konnte nicht geöffnet werden. Bitte Pop-ups erlauben.",
+      "cancelled": "Benchmark abgebrochen",
+      "no_good_presets": "Keine Voreinstellung erreicht 30 FPS. Wir empfehlen die \"Potato\"-Voreinstellung für Ihr System.",
+      "best_choice": "Beste Wahl",
+      "alternative": "Alternative"
+    }
   }
 }

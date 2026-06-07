@@ -49,7 +49,8 @@ describe('Profile Switch Socket Event', () => {
     mockIO.emit('profile:switched', {
       from: loadedProfile,
       to: targetProfile,
-      requiresRestart: true
+      requiresRestart: true,
+      restartScheduled: true
     });
 
     // Verify the event was emitted
@@ -61,6 +62,7 @@ describe('Profile Switch Socket Event', () => {
     expect(event.data).toHaveProperty('from', loadedProfile);
     expect(event.data).toHaveProperty('to', targetProfile);
     expect(event.data).toHaveProperty('requiresRestart', true);
+    expect(event.data).toHaveProperty('restartScheduled', true);
   });
 
   test('socket event data should match frontend expectations', () => {
@@ -78,7 +80,8 @@ describe('Profile Switch Socket Event', () => {
     mockIO.emit('profile:switched', {
       from: from,
       to: to,
-      requiresRestart: true
+      requiresRestart: true,
+      restartScheduled: true
     });
 
     // Verify emit was called
@@ -86,7 +89,8 @@ describe('Profile Switch Socket Event', () => {
     expect(mockIO.emit).toHaveBeenCalledWith('profile:switched', {
       from: 'alice',
       to: 'bob',
-      requiresRestart: true
+      requiresRestart: true,
+      restartScheduled: true
     });
   });
 
@@ -96,7 +100,7 @@ describe('Profile Switch Socket Event', () => {
     
     let profileSwitchPending = false;
     let selectedProfile = null;
-    let restartConfirmationShown = false;
+    let restartStarted = false;
 
     // Mock frontend handler (simplified version of profile-manager.js)
     function handleProfileSwitch(data) {
@@ -104,7 +108,7 @@ describe('Profile Switch Socket Event', () => {
       
       if (data.requiresRestart) {
         profileSwitchPending = true;
-        restartConfirmationShown = true;
+        restartStarted = true;
       }
     }
 
@@ -112,7 +116,8 @@ describe('Profile Switch Socket Event', () => {
     const eventData = {
       from: 'profile1',
       to: 'profile2',
-      requiresRestart: true
+      requiresRestart: true,
+      restartScheduled: true
     };
 
     handleProfileSwitch(eventData);
@@ -120,24 +125,14 @@ describe('Profile Switch Socket Event', () => {
     // Verify frontend state was updated correctly
     expect(selectedProfile).toBe('profile2');
     expect(profileSwitchPending).toBe(true);
-    expect(restartConfirmationShown).toBe(true);
+    expect(restartStarted).toBe(true);
   });
 
-  test('auto-restart should be triggered when enabled', () => {
-    // This test verifies auto-restart countdown logic
-    // Simulates showRestartConfirmation function from profile-manager.js
-    
+  test('auto-restart should be triggered for every profile switch', () => {
     let restartCalled = false;
-    const mockLocalStorage = {
-      profile_autoRestart: 'true'
-    };
 
     function showRestartConfirmation(data) {
-      const autoRestartEnabled = mockLocalStorage.profile_autoRestart === 'true';
-      
-      if (autoRestartEnabled) {
-        // In real implementation, this would start a countdown
-        // For test, we just verify the condition works
+      if (data.requiresRestart) {
         restartCalled = true;
       }
     }
@@ -145,7 +140,8 @@ describe('Profile Switch Socket Event', () => {
     const eventData = {
       from: 'profile1',
       to: 'profile2',
-      requiresRestart: true
+      requiresRestart: true,
+      restartScheduled: true
     };
 
     showRestartConfirmation(eventData);
@@ -154,33 +150,26 @@ describe('Profile Switch Socket Event', () => {
     expect(restartCalled).toBe(true);
   });
 
-  test('manual restart should be shown when auto-restart disabled', () => {
-    // This test verifies manual restart prompt is shown
-    // when auto-restart is disabled
-    
-    let manualRestartShown = false;
-    const mockLocalStorage = {
-      profile_autoRestart: 'false'
-    };
+  test('localStorage toggle must not disable profile restarts', () => {
+    let restartCalled = false;
+    const mockLocalStorage = { profile_autoRestart: 'false' };
 
     function showRestartConfirmation(data) {
-      const autoRestartEnabled = mockLocalStorage.profile_autoRestart === 'true';
-      
-      if (!autoRestartEnabled) {
-        // Show manual restart prompt
-        manualRestartShown = true;
+      if (data.requiresRestart) {
+        restartCalled = true;
       }
     }
 
     const eventData = {
       from: 'profile1',
       to: 'profile2',
-      requiresRestart: true
+      requiresRestart: true,
+      restartScheduled: true
     };
 
     showRestartConfirmation(eventData);
 
-    // Verify manual restart prompt would be shown
-    expect(manualRestartShown).toBe(true);
+    expect(mockLocalStorage.profile_autoRestart).toBe('false');
+    expect(restartCalled).toBe(true);
   });
 });

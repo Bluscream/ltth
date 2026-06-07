@@ -88,6 +88,9 @@ class SlotGame {
   startCleanupTimer() {
     if (this.cleanupTimer) return;
     this.cleanupTimer = setInterval(() => this._cleanupStaleSpins(), CLEANUP_INTERVAL_MS);
+    if (typeof this.cleanupTimer.unref === 'function') {
+      this.cleanupTimer.unref();
+    }
   }
 
   destroy() {
@@ -441,7 +444,7 @@ class SlotGame {
     const rewardDelay = spinDuration + (reelStopDelay * 2) + 800; // 800ms covers stop animation
 
     spinData.status = 'animating';
-    setTimeout(async () => {
+    const rewardTimer = setTimeout(async () => {
       try {
         await this._dispatchRewards(rewardActions, spinData, outcome, config);
         spinData.status = 'completed';
@@ -451,9 +454,15 @@ class SlotGame {
       } catch (err) {
         this.logger.error(`[SLOT] Reward dispatch error for spin #${spinId}: ${err.message}`);
       } finally {
-        setTimeout(() => this.activeSpins.delete(spinId), MAX_SPIN_AGE_MS);
+        const cleanupTimer = setTimeout(() => this.activeSpins.delete(spinId), MAX_SPIN_AGE_MS);
+        if (typeof cleanupTimer.unref === 'function') {
+          cleanupTimer.unref();
+        }
       }
     }, rewardDelay);
+    if (typeof rewardTimer.unref === 'function') {
+      rewardTimer.unref();
+    }
 
     return { success: true, spinId, category: outcome.category, isWin: outcome.isWin };
   }
@@ -606,7 +615,10 @@ class SlotGame {
     } catch (err) {
       this.logger.error(`[SLOT] Reward dispatch error for spin #${spinId}: ${err.message}`);
     } finally {
-      setTimeout(() => this.activeSpins.delete(spinId), MAX_SPIN_AGE_MS);
+      const cleanupTimer = setTimeout(() => this.activeSpins.delete(spinId), MAX_SPIN_AGE_MS);
+      if (typeof cleanupTimer.unref === 'function') {
+        cleanupTimer.unref();
+      }
     }
 
     // Release the unified queue so the next item can be processed
@@ -1102,7 +1114,7 @@ class SlotGame {
 
     // Fire after display delay
     const logger = this.logger;
-    setTimeout(() => {
+    const shockTimer = setTimeout(() => {
       (async () => {
         try {
           const plugin = this.api.pluginLoader?.loadedPlugins?.get('openshock');
@@ -1146,6 +1158,9 @@ class SlotGame {
         }
       })();
     }, OPENSHOCK_DISPLAY_DELAY_MS);
+    if (typeof shockTimer.unref === 'function') {
+      shockTimer.unref();
+    }
   }
 
   /** @private */

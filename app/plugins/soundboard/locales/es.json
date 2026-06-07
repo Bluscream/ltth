@@ -30,7 +30,14 @@
       "manual": "Manual Only",
       "automatic": "Automatic on Events",
       "master_volume": "Master Volume",
-      "save": "Guardar Configuración"
+      "save": "Guardar Configuración",
+      "audio_target": "Audio Playback Target",
+      "audio_target_dashboard": "Dashboard Only",
+      "audio_target_obs": "OBS Overlay Only",
+      "audio_target_both": "Both (Dashboard + OBS)",
+      "audio_target_help_dashboard": "Audio plays directly in your browser (recommended if OBS audio not working)",
+      "audio_target_help_obs": "Audio plays in the OBS browser source",
+      "audio_target_help_both": "Audio plays in both locations"
     },
     "categories": {
       "all": "All Sounds",

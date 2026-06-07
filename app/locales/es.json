@@ -39,7 +39,23 @@
     "effects": "Efectos Interactivos",
     "vdoninja": "VDO.Ninja",
     "wiki": "Wiki",
-    "settings": "Configuración"
+    "settings": "Configuración",
+    "advanced_timer": "Advanced Timer",
+    "core_functions": "Core Functions",
+    "automations_goals": "Automations & Goals",
+    "audio_voice": "Audio & Voice",
+    "visual_fx": "Visual FX",
+    "games_engagement": "Games & Engagement",
+    "integrations": "Integrations",
+    "management": "Management",
+    "music_bot": "Music Bot",
+    "talking_heads": "Talking Heads",
+    "fireworks": "Fireworks",
+    "flame_overlay": "Flame Overlay",
+    "webgpu_emoji_rain": "WebGPU Emoji Rain",
+    "interactive_story": "Interactive Story",
+    "gcce_hud": "GCCE HUD Overlay",
+    "chatango": "Chatango"
   },
   "dashboard": {
     "title": "Panel",
@@ -69,7 +85,53 @@
       "report_issues": "¿Encontró un error o tiene una solicitud de función?",
       "report_link": "Repórtelo en GitHub",
       "dismiss": "Entendido"
-    }
+    },
+    "connection_info": "Connection Information",
+    "live_statistics": "Live Statistics",
+    "event_feed": "Event Feed",
+    "recent_activity": "Recent Activity",
+    "stream_time_debug_info": "Stream Time Debug Info",
+    "stream_start_time": "Stream Start Time",
+    "current_duration": "Current Duration",
+    "detection_method": "Detection Method",
+    "connection_diagnostics": "Connection Diagnostics",
+    "run_diagnostics": "Run Connection Diagnostics",
+    "tts_action": "TTS",
+    "soundboard_action": "Soundboard",
+    "flows_action": "Flows",
+    "emoji_rain_action": "Emoji Rain",
+    "osc_bridge_action": "OSC-Bridge",
+    "live_stats": "Live Statistics",
+    "updates_available": "Updates Available",
+    "dismiss_updates": "Dismiss",
+    "show_more_changelog": "Show More",
+    "show_less_changelog": "Show Less",
+    "init_status": "Initialization Status",
+    "recent_events": "Recent Events",
+    "clear_events": "Clear",
+    "profile": "Profile",
+    "global_settings": "Global Settings",
+    "diagnostics_result": "Diagnostics Result",
+    "connection_health": "Connection Health",
+    "stats": {
+      "runtime": "Stream Runtime",
+      "viewers": "Viewers",
+      "likes": "Likes",
+      "coins": "Coins",
+      "followers": "Followers",
+      "gifts": "Gifts"
+    },
+    "extract_session": "Extract SessionID",
+    "import_session": "Import SessionID",
+    "import_session_title": "Import SessionID from Browser",
+    "import_session_desc": "How to find your SessionID in your browser:\n1. Open TikTok.com in your browser and log in\n2. Press F12 (or Right-click → Inspect)\n3. Go to the \"Application\" or \"Storage\" tab\n4. Under \"Cookies\" → \"https://www.tiktok.com\" find \"sessionid\"\n5. Copy the value and paste it below",
+    "import_now": "Import Now",
+    "cancel": "Cancel",
+    "extract_session_manual": "Manual Login (Browser)",
+    "extract_session_help": "Use \"Extract SessionID\" for automatic extraction with saved login, or \"Import SessionID\" to copy the SessionID directly from your browser (recommended if you encounter login issues or browser security warnings).",
+    "session_status": "TikTok SessionID Status",
+    "session_method": "Extraction Method",
+    "session_extracted": "Extracted At"
   },
   "tabs": {
     "events": "Eventos",
@@ -113,7 +175,20 @@
     "active": "Activo",
     "inactive": "Inactivo",
     "on": "Encendido",
-    "off": "Apagado"
+    "off": "Apagado",
+    "actions": "Actions",
+    "details": "Details",
+    "description": "Description",
+    "label": "Label",
+    "name": "Name",
+    "value": "Value",
+    "status": "Status",
+    "type": "Type",
+    "network": "Network",
+    "animation": "Animation",
+    "no_animation": "No Animation",
+    "image": "Image",
+    "selected_node": "Selected Node"
   },
   "settings": {
     "title": "Configuración",
@@ -122,7 +197,25 @@
     "theme": "Tema",
     "save": "Guardar Configuración",
     "saved": "¡Configuración guardada con éxito!",
-    "select_language": "Seleccionar Idioma"
+    "select_language": "Seleccionar Idioma",
+    "obs": "OBS Integration",
+    "auto_connect": "Auto-connect to last TikTok user on startup",
+    "auto_update_check": "Check for updates on startup",
+    "show_debug_info": "Show debug information",
+    "enable_notifications": "Enable desktop notifications",
+    "notification_volume": "Notification Volume",
+    "ui_settings": "UI Settings",
+    "advanced_settings": "Advanced Settings",
+    "apply_changes": "Apply Changes",
+    "reset_to_defaults": "Reset to Defaults",
+    "export_settings": "Export Settings",
+    "import_settings": "Import Settings",
+    "auto_start_title": "Auto-Start Settings",
+    "language_settings": "Language Settings",
+    "global_settings": "Global Settings",
+    "diagnostics": "System Diagnostics & Logging",
+    "diagnostics_desc": "Monitor system performance, GPU status, and view application logs for debugging.",
+    "enable_logging": "Enable Comprehensive Logging"
   },
   "errors": {
     "connection_failed": "Conexión fallida. ¡Asegúrate de estar EN VIVO en TikTok!",
@@ -145,7 +238,12 @@
     "enabling_plugin": "Activando...",
     "plugin_enabled_success": "¡Plugin activado! Redirigiendo...",
     "plugin_enabled_error": "Error al activar el plugin. Por favor, inténtalo de nuevo.",
-    "go_to_plugin_manager": "Ir al Gestor de Plugins"
+    "go_to_plugin_manager": "Ir al Gestor de Plugins",
+    "rate_limit": "Too many requests. Please wait a moment.",
+    "plugin_load_failed_title": "Plugin Failed to Load",
+    "plugin_load_failed_heading": "⚠️ Plugin Failed to Load",
+    "plugin_load_failed_message": "The \"{pluginName}\" plugin is enabled but failed to load.",
+    "plugin_load_failed_reason": "Check the server logs for errors. Try reloading the plugin or restart the application."
   },
   "wiki": {
     "title": "Wiki y Documentación",
@@ -216,7 +314,12 @@
     "like_threshold_sound": "Sonido de Umbral de Me Gusta",
     "max_queue_length": "Longitud Máxima de Cola",
     "search_myinstants": "Buscar MyInstants",
-    "audio_debug_log": "Registro de Depuración de Audio"
+    "audio_debug_log": "Registro de Depuración de Audio",
+    "queue_all": "Queue All (global sequential)",
+    "queue_per_gift": "Queue Per Gift",
+    "play_mode_description_overlap": "All sounds play immediately.",
+    "play_mode_description_queue_all": "All sounds play one after another.",
+    "play_mode_description_queue_per_gift": "Same gift types wait, different gifts can play simultaneously."
   },
   "plugins": {
     "title": "Gestor de Plugins",
@@ -332,7 +435,34 @@
     "switch_profile": "Cambiar Perfil",
     "delete_profile": "Eliminar Perfil",
     "profile_name": "Nombre del Perfil",
-    "default_profile": "Perfil Predeterminado"
+    "default_profile": "Perfil Predeterminado",
+    "restarting": "El servidor se está reiniciando...",
+    "restart_wait": "Espere - la página se recargará automáticamente.",
+    "restart_failed": "Error al reiniciar el servidor",
+    "restart_required": "Restart Required!",
+    "restart_now": "Restart Now",
+    "current_profile_tooltip": "Current Profile: {{profile}}",
+    "switch_pending_tooltip": "Current: {{current}} | Selected: {{selected}}\nRestart required to activate new profile",
+    "switch_pending_title": "Profile Switch Pending",
+    "switch_pending_message": "You switched to profile \"{{selected}}\" but the application is still using \"{{current}}\". Restart required to activate the new profile.",
+    "auto_restart_countdown": "Profile switched to \"{{profile}}\".\n\nAuto-restart in {{seconds}} seconds...",
+    "manual_restart_prompt": "Profile switched to \"{{profile}}\".\n\nPlease restart the application to activate the new profile.",
+    "auto_switched": "Profile automatically switched to \"{{profile}}\" based on TikTok connection.\n\nThe application will reload to activate the new profile...",
+    "switched_notification": "Profile switched to \"{{profile}}\".\n\nThe application will reload to activate the new profile...",
+    "integrity_healthy": "Profile Integrity: Healthy",
+    "integrity_warning": "Profile Integrity: Warning",
+    "integrity_error": "Profile Integrity: Error",
+    "migration_completed": "Migration Completed",
+    "migration_pending": "Migration Pending",
+    "view_documentation": "View Documentation",
+    "profile_help": "Profile System Help",
+    "integrity_check": "Check Profile Integrity",
+    "migration_check": "Check Migration Status",
+    "faq_title": "Frequently Asked Questions",
+    "faq_restart": "Why do I need to restart after switching profiles?",
+    "faq_persist": "Will my viewer XP data persist after updates?",
+    "faq_shared": "Is viewer XP data shared between profiles?",
+    "faq_autorestart": "Can I enable auto-restart after profile switch?"
   },
   "theme": {
     "light": "Modo Día",
@@ -465,7 +595,9 @@
         "users": "Gestión de Usuarios",
         "queue": "Cola y Reproducción",
         "stats": "Estadísticas",
-        "debug": "Registros de Depuración"
+        "debug": "Registros de Depuración",
+        "event_triggers": "Event Triggers",
+        "voice_clones": "Clones de voz"
       },
       "config": {
         "engine_settings": "Configuración del Motor",
@@ -585,6 +717,32 @@
         "search_placeholder": "Buscar voces...",
         "select_voice": "Seleccionar Voz",
         "cancel": "Cancelar"
+      },
+      "voice_clones": {
+        "info_title": "Informaci?n sobre clonaci?n de voz",
+        "info_text": "Crea voces de IA personalizadas con la tecnolog?a de clonaci?n de voz de Speechify. Sube una muestra de audio de 10 a 30 segundos para generar una copia de voz ?nica para tu sistema TTS.",
+        "info_requirements": "Requisitos: audio claro, ruido de fondo m?nimo, duraci?n de 10 a 30 segundos y menos de 5 MB. Formatos compatibles: MP3, WAV, OGG.",
+        "warning_title": "Se requiere clave API de Speechify",
+        "warning_text": "La clonaci?n de voz requiere una clave API de Speechify. Configura tu clave API en la pesta?a de configuraci?n para usar esta funci?n.",
+        "create_title": "Crear clon de voz",
+        "voice_name": "Nombre de la voz",
+        "voice_name_hint": "Elige un nombre descriptivo para identificar este clon de voz",
+        "language": "Idioma",
+        "language_hint": "Selecciona el idioma de la muestra de voz",
+        "audio_sample": "Muestra de audio",
+        "audio_hint": "Sube una muestra de audio clara de 10 a 30 segundos (m?x. 5 MB). Habla de forma natural con el menor ruido de fondo posible.",
+        "consent": "Confirmo que esta es mi voz o que tengo permiso expl?cito para usar y clonar esta voz",
+        "consent_warning": "Crear clones de voz sin el consentimiento adecuado puede infringir leyes y condiciones de uso.",
+        "create_button": "Crear clon de voz",
+        "creating": "Clonando voz... Esto puede tardar hasta un minuto.",
+        "manage_title": "Mis clones de voz",
+        "refresh": "Actualizar",
+        "no_clones": "A?n no hay clones de voz. Crea el primero.",
+        "sample_guide_title": "Gu?a para grabar muestras",
+        "best_practices": "Buenas pr?cticas",
+        "avoid": "Evita",
+        "sample_text_title": "Texto de muestra sugerido:",
+        "sample_text": "Hola, me llamo [tu nombre]. Estoy creando una voz personalizada para texto a voz. Esta tecnolog?a es fant?stica y ayudar? a que las interacciones sean m?s personales y atractivas. Puedo usar esta voz para streaming, creaci?n de contenido y funciones de accesibilidad."
       }
     }
   },
@@ -657,5 +815,113 @@
     "copy_overlay_url": "📋 Copiar URL del Overlay",
     "open_in_new_tab": "🔗 Abrir en Nueva Pestaña",
     "test_firework": "🧪 Probar Fuego Artificial"
+  },
+  "talking_heads_ui": {
+    "title": "Talking Heads - AI Avatar Animation",
+    "subtitle": "Dynamic 2D avatars for TikTok users with TTS-synced animation",
+    "sections": {
+      "status": "Status & Settings",
+      "style": "Avatar Style",
+      "permissions": "Permissions",
+      "animation": "Animation Settings",
+      "cache": "Cache Management",
+      "active_animations": "Active Animations",
+      "debug_log": "Debug Log"
+    },
+    "labels": {
+      "plugin_enabled": "Plugin enabled",
+      "debug_logging": "Debug logging",
+      "api_status_checking": "Checking...",
+      "image_provider": "Image engine",
+      "select_style": "Choose a style for avatar generation",
+      "permission_question": "Who gets Talking Heads?",
+      "min_team_level": "Minimum team level",
+      "fade_in": "Fade-in duration (ms)",
+      "fade_out": "Fade-out duration (ms)",
+      "blink_interval": "Blink interval (ms)",
+      "obs_enabled": "Enable OBS integration",
+      "cached_avatars": "Cached avatars",
+      "active_animations": "Active animations",
+      "cache_enabled": "Enable avatar caching",
+      "cache_duration": "Cache duration (days)"
+    },
+    "options": {
+      "provider_auto": "Auto (OpenAI preferred, SiliconFlow as fallback)",
+      "provider_openai": "OpenAI (DALL-E 3)",
+      "provider_siliconflow": "SiliconFlow (FLUX.1)",
+      "permission_all": "All viewers",
+      "permission_team": "Team members only",
+      "permission_subscriber": "Subscribers/Superfans only",
+      "permission_custom_voice": "Users with TTS voice only",
+      "permission_moderator": "Moderators only",
+      "permission_top_gifter": "Top gifters only"
+    },
+    "help": {
+      "image_provider": "Choose your preferred image generator. Auto tries OpenAI first when an API key is configured.",
+      "min_team_level": "Level 0-6 (0 = all team members)",
+      "cache_duration": "Avatars are removed after this duration"
+    },
+    "alerts": {
+      "api_key_warning": "<strong>⚠️ No API key configured!</strong><br>Configure the correct key for the selected engine:<br>- <strong>OpenAI</strong>: Dashboard → Settings → OpenAI API Configuration<br>- <strong>SiliconFlow</strong>: Dashboard → Settings → TTS API Keys → SiliconFlow API Key<br><small>The API key is managed centrally and shared with other plugins.</small>",
+      "image_generation_info": "<strong>ℹ️ Image generation</strong><br>The plugin supports <strong>OpenAI (DALL-E 3)</strong> and <strong>SiliconFlow (FLUX.1)</strong>. Store the API key in the global settings and select your preferred engine here.",
+      "debug_log": "<strong>ℹ️ Debug log</strong><br>Live logs appear below when debug logging is enabled. Disable debug logging after troubleshooting to avoid noise."
+    },
+    "buttons": {
+      "test_api": "Test API",
+      "test_generate": "Generate test avatar",
+      "save_config": "Save configuration",
+      "clear_cache": "Clear entire cache",
+      "testing": "Testing...",
+      "generating": "Generating..."
+    },
+    "styles": {
+      "names": {
+        "furry": "Furry",
+        "tech": "Tech",
+        "medieval": "Medieval",
+        "noble": "Noble",
+        "cartoon": "Cartoon",
+        "whimsical": "Whimsical",
+        "realistic": "Realistic"
+      },
+      "descriptions": {
+        "furry": "Animal-inspired, soft and lively",
+        "tech": "Futuristic neon/metallic look",
+        "medieval": "Fantasy/medieval armor styling",
+        "noble": "Elegant, aristocratic portrait",
+        "cartoon": "Comic-style with bold colors",
+        "whimsical": "Playful, fairytale vibe",
+        "realistic": "Realistic portrait look"
+      }
+    },
+    "providers": {
+      "openai": "OpenAI",
+      "siliconflow": "SiliconFlow",
+      "auto": "Auto"
+    },
+    "notifications": {
+      "load_failed": "Failed to load configuration: {{error}}",
+      "debug_enabled": "Debug logging enabled",
+      "save_success": "Configuration saved",
+      "save_failed": "Failed to save configuration: {{error}}",
+      "config_loading": "Please wait until the configuration has finished loading...",
+      "api_test_success": "API connection successful",
+      "api_test_failed": "API connection failed: {{error}}",
+      "api_test_error": "API test failed: {{error}}",
+      "generate_start": "Starting test generation... (can take 15-30 seconds)",
+      "generate_success": "Test avatar generated successfully ({{sprites}} sprites created)",
+      "generate_failed": "Avatar generation failed: {{error}}",
+      "generate_error": "Test generation failed: {{error}}",
+      "cache_clear_confirm": "Are you sure you want to delete all cached avatars?",
+      "cache_cleared": "{{count}} avatars deleted",
+      "cache_clear_failed": "Failed to clear cache"
+    },
+    "status": {
+      "api_configured": "API configured ({{provider}})",
+      "api_missing": "No API key ({{provider}})"
+    },
+    "logs": {
+      "empty": "No log entries yet."
+    }
   }
 }

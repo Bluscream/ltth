@@ -72,14 +72,7 @@ class TextEffects {
    * Apply wave effect to text
    */
   applyWaveEffect(element, speed = 'wave') {
-    const text = element.textContent;
-    const chars = text.split('');
-
-    // Wrap each character in a span
-    element.innerHTML = chars.map((char, index) => {
-      if (char === ' ') return '<span style="display: inline-block;">&nbsp;</span>';
-      return `<span class="wave-char" data-index="${index}" style="display: inline-block;">${char}</span>`;
-    }).join('');
+    const effectState = this.wrapCharacters(element, 'wave-char');
 
     // Determine animation duration based on speed
     const durations = {
@@ -94,6 +87,7 @@ class TextEffects {
     let startTime = null;
 
     const animate = (timestamp) => {
+      if (!this.activeEffects.has(element)) return;
       if (!startTime) startTime = timestamp;
       const elapsed = timestamp - startTime;
 
@@ -103,39 +97,30 @@ class TextEffects {
         char.style.transform = `translateY(${y}px)`;
       });
 
-      const animationId = requestAnimationFrame(animate);
-      this.activeEffects.set(element, animationId);
+      effectState.frame = requestAnimationFrame(animate);
     };
 
-    const animationId = requestAnimationFrame(animate);
-    this.activeEffects.set(element, animationId);
+    effectState.frame = requestAnimationFrame(animate);
   }
 
   /**
    * Apply jitter effect to text
    */
   applyJitterEffect(element) {
-    const text = element.textContent;
-    const chars = text.split('');
-
-    // Wrap each character in a span
-    element.innerHTML = chars.map((char, index) => {
-      if (char === ' ') return '<span style="display: inline-block;">&nbsp;</span>';
-      return `<span class="jitter-char" data-index="${index}" style="display: inline-block;">${char}</span>`;
-    }).join('');
+    const effectState = this.wrapCharacters(element, 'jitter-char');
 
     const jitterChars = element.querySelectorAll('.jitter-char');
 
     const animate = () => {
+      if (!this.activeEffects.has(element)) return;
       jitterChars.forEach((char) => {
         const x = (Math.random() - 0.5) * 2;
         const y = (Math.random() - 0.5) * 2;
         char.style.transform = `translate(${x}px, ${y}px)`;
       });
 
-      const timeoutId = setTimeout(() => {
-        const animationId = requestAnimationFrame(animate);
-        this.activeEffects.set(element, animationId);
+      effectState.timeout = setTimeout(() => {
+        effectState.frame = requestAnimationFrame(animate);
       }, 50);
     };
 
@@ -146,19 +131,13 @@ class TextEffects {
    * Apply bounce effect to text
    */
   applyBounceEffect(element) {
-    const text = element.textContent;
-    const chars = text.split('');
-
-    // Wrap each character in a span
-    element.innerHTML = chars.map((char, index) => {
-      if (char === ' ') return '<span style="display: inline-block;">&nbsp;</span>';
-      return `<span class="bounce-char" data-index="${index}" style="display: inline-block;">${char}</span>`;
-    }).join('');
+    const effectState = this.wrapCharacters(element, 'bounce-char');
 
     const bounceChars = element.querySelectorAll('.bounce-char');
     let startTime = null;
 
     const animate = (timestamp) => {
+      if (!this.activeEffects.has(element)) return;
       if (!startTime) startTime = timestamp;
       const elapsed = timestamp - startTime;
 
@@ -168,12 +147,36 @@ class TextEffects {
         char.style.transform = `translateY(${y}px)`;
       });
 
-      const animationId = requestAnimationFrame(animate);
-      this.activeEffects.set(element, animationId);
+      effectState.frame = requestAnimationFrame(animate);
     };
 
-    const animationId = requestAnimationFrame(animate);
-    this.activeEffects.set(element, animationId);
+    effectState.frame = requestAnimationFrame(animate);
+  }
+
+  /**
+   * Wrap text characters using DOM APIs so user text is never re-parsed as HTML.
+   */
+  wrapCharacters(element, className) {
+    const text = element.textContent;
+    element.textContent = '';
+
+    const effectState = {
+      frame: null,
+      timeout: null,
+      originalText: text
+    };
+    this.activeEffects.set(element, effectState);
+
+    text.split('').forEach((char, index) => {
+      const span = document.createElement('span');
+      span.className = className;
+      span.dataset.index = String(index);
+      span.style.display = 'inline-block';
+      span.textContent = char === ' ' ? '\u00a0' : char;
+      element.appendChild(span);
+    });
+
+    return effectState;
   }
 
   /**
@@ -181,16 +184,25 @@ class TextEffects {
    */
   clearEffects(element) {
     if (this.activeEffects.has(element)) {
-      cancelAnimationFrame(this.activeEffects.get(element));
+      const effectState = this.activeEffects.get(element);
+      if (effectState.frame) {
+        cancelAnimationFrame(effectState.frame);
+      }
+      if (effectState.timeout) {
+        clearTimeout(effectState.timeout);
+      }
+      if (effectState.originalText !== undefined) {
+        element.textContent = effectState.originalText;
+      }
       this.activeEffects.delete(element);
     }
 
     // Reset text shadow
     element.style.textShadow = 'none';
 
-    // Reset to plain text if it was split into spans
+    // Reset to plain text if it was split into spans by an older effect instance.
     if (element.querySelector('.wave-char, .jitter-char, .bounce-char')) {
-      element.textContent = element.textContent; // This strips all HTML
+      element.textContent = element.textContent;
     }
   }
 
@@ -198,8 +210,16 @@ class TextEffects {
    * Clear all active effects
    */
   clearAll() {
-    for (const animationId of this.activeEffects.values()) {
-      cancelAnimationFrame(animationId);
+    for (const [element, effectState] of this.activeEffects.entries()) {
+      if (effectState.frame) {
+        cancelAnimationFrame(effectState.frame);
+      }
+      if (effectState.timeout) {
+        clearTimeout(effectState.timeout);
+      }
+      if (effectState.originalText !== undefined && element.isConnected) {
+        element.textContent = effectState.originalText;
+      }
     }
     this.activeEffects.clear();
   }

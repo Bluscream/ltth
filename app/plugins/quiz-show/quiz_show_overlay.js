@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 // Quiz Show Overlay - Professional HUD System
 // Vollständig konfigurierbar mit Drag & Drop
 // ============================================
@@ -11,6 +11,37 @@
     // ============================================
 
     const socket = io();
+
+    function isSplitscreenOverlay() {
+        return window.location.pathname.toLowerCase().includes('/quiz-show/overlay/splitscreen');
+    }
+
+    function applyOverlayMode() {
+        const overlay = document.getElementById('overlay-container');
+        if (!overlay) return;
+
+        if (isSplitscreenOverlay()) {
+            overlay.setAttribute('data-overlay-mode', 'splitscreen');
+            overlay.removeAttribute('data-custom-layout');
+            overlay.removeAttribute('data-ultra-kompakt');
+        } else if (overlay.getAttribute('data-overlay-mode') === 'splitscreen') {
+            overlay.removeAttribute('data-overlay-mode');
+        }
+    }
+
+    function getEffectiveTimerVariant(variant) {
+        if (isSplitscreenOverlay()) {
+            return 'bar';
+        }
+        return variant;
+    }
+
+    function getEffectiveAnswersLayout(layout) {
+        if (isSplitscreenOverlay()) {
+            return 'grid';
+        }
+        return layout;
+    }
 
     // State Machine States
     const States = {
@@ -104,9 +135,12 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         syncApplicationTheme();
+        applyOverlayMode();
         initializeSocketListeners();
         loadHUDConfig();
-        loadActiveLayout(); // NEW: Load active layout on startup
+        if (!isSplitscreenOverlay()) {
+            loadActiveLayout(); // NEW: Load active layout on startup
+        }
         initializeDragAndDrop();
         preloadAnimations();
         console.log('Quiz Show Overlay initialized');
@@ -188,6 +222,7 @@
     function applyHUDConfig() {
         const root = document.documentElement;
         const overlay = document.getElementById('overlay-container');
+        applyOverlayMode();
 
         // Apply Theme - Only apply HUD-specific themes (neon, gold)
         // For standard themes (dark, day, contrast), let the application theme take precedence
@@ -206,6 +241,13 @@
             };
             overlay.setAttribute('data-theme', themeMapping[appTheme] || 'dark');
         }
+
+        applyExpansionOverlaySettings({
+            themePreset: hudConfig.themePreset,
+            reducedMotion: hudConfig.reducedMotion,
+            highContrast: hudConfig.highContrast,
+            voterIconsConfig: hudConfig.avatarPerformance
+        });
 
         // Apply Colors
         if (hudConfig.colors) {
@@ -231,14 +273,15 @@
         applyElementPositions();
 
         // Apply Timer Variant
-        switchTimerVariant(hudConfig.timerVariant);
+        switchTimerVariant(getEffectiveTimerVariant(hudConfig.timerVariant));
 
         // Apply Answers Layout
         const answersGrid = document.getElementById('answersGrid');
         answersGrid.className = 'answers-grid';
-        if (hudConfig.answersLayout === 'vertical') {
+        const effectiveAnswersLayout = getEffectiveAnswersLayout(hudConfig.answersLayout);
+        if (effectiveAnswersLayout === 'vertical') {
             answersGrid.classList.add('layout-vertical');
-        } else if (hudConfig.answersLayout === 'horizontal') {
+        } else if (effectiveAnswersLayout === 'horizontal') {
             answersGrid.classList.add('layout-horizontal');
         }
 
@@ -450,6 +493,13 @@
         // NEW: Slot machine events
         socket.on('quiz-show:slot-machine-start', handleSlotMachineStart);
         socket.on('quiz-show:slot-machine-stop', handleSlotMachineStop);
+
+        socket.on('quiz-show:category-vote-started', handleCategoryVoteUpdate);
+        socket.on('quiz-show:category-vote-update', handleCategoryVoteUpdate);
+        socket.on('quiz-show:category-vote-ended', handleCategoryVoteEnded);
+        socket.on('quiz-show:duel-update', handleDuelUpdate);
+        socket.on('quiz-show:duel-ended', handleDuelUpdate);
+        socket.on('quiz-show:achievement-unlocked', handleAchievementUnlocked);
     }
 
     function handleQuizError(data) {
@@ -643,10 +693,18 @@
                 ultraKompaktAnswerDelay: state.ultraKompaktAnswerDelay || 3
             };
 
+            applyExpansionOverlaySettings(state);
+            if (state.duel) {
+                handleDuelUpdate(state.duel);
+            }
+
             // Apply ultra-kompakt mode to overlay container
             const overlay = document.getElementById('overlay-container');
             if (overlay) {
-                if (gameData.ultraKompaktModus) {
+                if (isSplitscreenOverlay()) {
+                    overlay.setAttribute('data-overlay-mode', 'splitscreen');
+                    overlay.removeAttribute('data-ultra-kompakt');
+                } else if (gameData.ultraKompaktModus) {
                     overlay.setAttribute('data-ultra-kompakt', 'true');
                 } else {
                     overlay.removeAttribute('data-ultra-kompakt');
@@ -1111,12 +1169,12 @@
         const user = document.getElementById('jokerUser');
 
         const jokerData = {
-            '50': { icon: '✂️', title: '50:50 Joker' },
-            'info': { icon: '💡', title: 'Info Joker' },
-            'time': { icon: '⏰', title: 'Zeit Joker' }
+            '50': { icon: '', title: '50:50 Joker' },
+            'info': { icon: '', title: 'Info Joker' },
+            'time': { icon: '', title: 'Zeit Joker' }
         };
 
-        const data = jokerData[joker.type] || { icon: '✨', title: 'Joker' };
+        const data = jokerData[joker.type] || { icon: '', title: 'Joker' };
 
         icon.textContent = data.icon;
         title.textContent = data.title;
@@ -1213,7 +1271,7 @@
 
         mvpOverlay.innerHTML = `
             <div style="text-align: center; transform: scale(0); transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);">
-                <div style="font-size: 4em; margin-bottom: 20px;">👑</div>
+                <div style="font-size: 4em; margin-bottom: 20px;"></div>
                 <h1 style="font-size: 3em; color: gold; margin-bottom: 10px; text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);">MVP</h1>
                 <h2 style="font-size: 2.5em; color: white; margin-bottom: 10px;">${escapeHtml(mvp.username)}</h2>
                 <div style="font-size: 2em; color: #10b981;">
@@ -1268,7 +1326,7 @@
 
         errorOverlay.innerHTML = `
             <div class="error-content" style="transform: scale(0); transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);">
-                <div style="font-size: 3em; margin-bottom: 15px;">⚠️</div>
+                <div style="font-size: 3em; margin-bottom: 15px;"> </div>
                 <h2 style="font-size: 2em; margin-bottom: 10px; font-weight: bold;">${escapeHtml(message)}</h2>
                 <p style="font-size: 1.2em; opacity: 0.9;">Bitte fügen Sie neue Fragen hinzu und starten Sie erneut.</p>
             </div>
@@ -1567,7 +1625,7 @@
                 const rank = document.createElement('div');
                 rank.className = `leaderboard-rank rank-${index + 1}`;
                 // Add medal emoji for top 3
-                const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`;
+                const medal = index === 0 ? '' : index === 1 ? '' : index === 2 ? '' : `#${index + 1}`;
                 rank.textContent = medal;
 
                 const username = document.createElement('div');
@@ -1668,10 +1726,10 @@
 
             // Define available jokers
             const availableJokers = [
-                { type: '25', label: '25% Joker', icon: '🎯', used: false },
-                { type: '50', label: '50:50 Joker', icon: '⚖️', used: false },
-                { type: 'info', label: 'Info Joker', icon: 'ℹ️', used: false },
-                { type: 'time', label: 'Zeit Joker', icon: '⏱️', used: false }
+                { type: '25', label: '25% Joker', icon: '', used: false },
+                { type: '50', label: '50:50 Joker', icon: '', used: false },
+                { type: 'info', label: 'Info Joker', icon: '', used: false },
+                { type: 'time', label: 'Zeit Joker', icon: '', used: false }
             ];
 
             // Mark used jokers
@@ -1799,10 +1857,15 @@
     function handleLayoutUpdated(data) {
         try {
             const { layout, customLayoutEnabled } = data;
+            if (isSplitscreenOverlay()) {
+                applyOverlayMode();
+                return;
+            }
 
             if (!customLayoutEnabled || !layout) {
                 // Disable custom layout
                 document.getElementById('overlay-container').removeAttribute('data-custom-layout');
+                document.getElementById('overlay-container').removeAttribute('data-overlay-mode');
                 return;
             }
 
@@ -1814,6 +1877,12 @@
             const config = typeof layout.layout_config === 'string' 
                 ? JSON.parse(layout.layout_config) 
                 : layout.layout_config;
+
+            if (config.mode === 'splitscreen') {
+                overlayContainer.setAttribute('data-overlay-mode', 'splitscreen');
+            } else {
+                overlayContainer.removeAttribute('data-overlay-mode');
+            }
 
             const root = document.documentElement;
             
@@ -1902,7 +1971,10 @@
             
             // Update ultra-kompakt mode attribute for real-time CSS changes
             if (config.ultraKompaktModus !== undefined) {
-                if (config.ultraKompaktModus) {
+                if (isSplitscreenOverlay()) {
+                    overlay.setAttribute('data-overlay-mode', 'splitscreen');
+                    overlay.removeAttribute('data-ultra-kompakt');
+                } else if (config.ultraKompaktModus) {
                     overlay.setAttribute('data-ultra-kompakt', 'true');
                     console.log('Ultra-kompakt mode enabled');
                 } else {
@@ -1923,10 +1995,109 @@
             if (config.answerDisplayDuration !== undefined && gameData) {
                 gameData.answerDisplayDuration = config.answerDisplayDuration;
             }
+
+            applyExpansionOverlaySettings(config);
             
         } catch (error) {
             console.error('Error handling config update:', error);
         }
+    }
+
+    function applyExpansionOverlaySettings(config = {}) {
+        const overlay = document.getElementById('overlay-container');
+        if (!overlay) return;
+
+        if (config.themePreset) {
+            overlay.setAttribute('data-theme-preset', config.themePreset);
+        }
+        if (config.highContrast) {
+            overlay.setAttribute('data-high-contrast', 'true');
+        } else {
+            overlay.removeAttribute('data-high-contrast');
+        }
+        if (config.reducedMotion) {
+            overlay.setAttribute('data-reduced-motion', 'true');
+        } else {
+            overlay.removeAttribute('data-reduced-motion');
+        }
+        const voterConfig = config.voterIconsConfig || {};
+        if (voterConfig.performanceMode) {
+            overlay.setAttribute('data-avatar-performance', voterConfig.performanceMode);
+        }
+    }
+
+    function handleCategoryVoteUpdate(vote) {
+        const overlay = document.getElementById('categoryVoteOverlay');
+        const list = document.getElementById('categoryVoteList');
+        const countdown = document.getElementById('categoryVoteCountdown');
+        if (!overlay || !list || !vote) return;
+
+        const votes = vote.votesByCategory || {};
+        const maxVotes = Math.max(1, ...Object.values(votes));
+        list.innerHTML = (vote.options || []).map((category, index) => {
+            const count = votes[category] || 0;
+            const width = Math.round((count / maxVotes) * 100);
+            return `
+                <div class="category-vote-row">
+                    <div class="category-vote-meta">
+                        <span>${index + 1}. ${escapeHtml(category)}</span>
+                        <strong>${count}</strong>
+                    </div>
+                    <div class="category-vote-bar"><span style="width:${width}%"></span></div>
+                </div>
+            `;
+        }).join('');
+        if (countdown) {
+            const remaining = vote.endsAt ? Math.max(0, Math.ceil((vote.endsAt - Date.now()) / 1000)) : 0;
+            countdown.textContent = remaining ? `${remaining}s` : '';
+        }
+        overlay.classList.remove('hidden');
+    }
+
+    function handleCategoryVoteEnded(data) {
+        const overlay = document.getElementById('categoryVoteOverlay');
+        const countdown = document.getElementById('categoryVoteCountdown');
+        if (countdown) {
+            countdown.textContent = data.selectedCategory ? `Gewaehlte Kategorie: ${data.selectedCategory}` : 'Voting beendet';
+        }
+        setTimeout(() => {
+            if (overlay) overlay.classList.add('hidden');
+        }, 3500);
+    }
+
+    function handleDuelUpdate(duel) {
+        const overlay = document.getElementById('duelOverlay');
+        if (!overlay || !duel) return;
+        if (!duel.active && !duel.winner) {
+            overlay.classList.add('hidden');
+            return;
+        }
+
+        const setText = (id, text) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = text;
+        };
+        setText('duelLeftLabel', duel.left.label);
+        setText('duelLeftScore', duel.left.score);
+        setText('duelLeftStreak', `Serie ${duel.left.streak || 0}`);
+        setText('duelRightLabel', duel.right.label);
+        setText('duelRightScore', duel.right.score);
+        setText('duelRightStreak', `Serie ${duel.right.streak || 0}`);
+        overlay.classList.remove('hidden');
+    }
+
+    function handleAchievementUnlocked(award) {
+        const overlay = document.getElementById('achievementOverlay');
+        const title = document.getElementById('achievementTitle');
+        const user = document.getElementById('achievementUser');
+        if (!overlay || !title || !user || !award) return;
+
+        title.textContent = award.label || award.id || 'Achievement';
+        user.textContent = award.username || award.userId || '';
+        overlay.classList.remove('hidden');
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+        }, 5000);
     }
 
     // ============================================
@@ -2031,3 +2202,5 @@
 
     console.log('Quiz Show Overlay loaded successfully');
 })();
+
+
