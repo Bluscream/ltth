@@ -4,6 +4,46 @@ LTTH is a local TikTok LIVE helper for stream overlays, alerts, TTS, soundboard 
 
 This workspace is a local snapshot, not a Git checkout. We are treating `app/` as the maintained runtime and `build-src/` as the Windows launcher source. The older Electron main-process folder is not present in this snapshot, so Electron build scripts were removed from the active root package metadata.
 
+## Windows One-Line Install
+
+Install LTTH on Windows with a single PowerShell command (no admin required):
+
+```powershell
+irm https://raw.githubusercontent.com/Loggableim/ltth_desktop2/main/install.ps1 | iex
+```
+
+**Requirements:**
+- Windows 10/11 (64-bit)
+- PowerShell 5.1 or later (built into Windows 10+)
+- Internet connection
+
+**What it does:**
+- Downloads the latest LTTH release from GitHub
+- Installs to `%LOCALAPPDATA%\LTTH\current\` (no admin rights needed)
+- Creates Start Menu and Desktop shortcuts ("Little TikTool Helper")
+- Creates a launcher script at `%LOCALAPPDATA%\LTTH\LTTH.cmd`
+- Preserves your user data in `%LOCALAPPDATA%\pupcidslittletiktokhelper\`
+
+**Updating:** Re-run the same command. User data is preserved automatically.
+
+**Uninstall:**
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\LTTH"
+Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Little TikTool Helper.lnk"
+Remove-Item "$env:USERPROFILE\Desktop\Little TikTool Helper.lnk"
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\pupcidslittletiktokhelper"  # only if you want to delete user data too
+```
+
+**Troubleshooting:**
+- If the command fails with "Execution Policy Restricted", use `irm ... | iex` (piping bypasses restrictions) or run `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` first.
+- If a release asset is missing, the installer shows exactly what's needed and links to the release page.
+
+**For maintainers:** To publish a release with Windows installer assets:
+```bash
+git tag v<VERSION> && git push origin v<VERSION>
+```
+The CI workflow in `.github/workflows/release.yml` builds the bootstrapper, payload, and manifest automatically.
+
 ## Current Runtime
 
 - Backend: Node.js, Express, Socket.IO
