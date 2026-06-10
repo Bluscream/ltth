@@ -200,20 +200,45 @@ try {
 Write-Status "Downloading $assetName ..." Section
 $downloadPath = "$TempRoot\$assetName"
 try {
-    $retries = 0
-    $maxRetries = 3
-    while ($retries -lt $maxRetries) {
-        try {
-            if ($retries -gt 0) {
-                Write-Status "Retry $retries of $maxRetries..." Warn
-                Start-Sleep -Seconds 2
+    # Prefer curl.exe (built into Win10/11, HTTP/2, much faster than Invoke-WebRequest)
+    $curlPath = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
+    if ($curlPath -and $curlPath.Path -like '*\curl.exe') {
+        Write-Status 'Using curl (HTTP/2 download)...' Info
+        $retries = 0
+        $maxRetries = 3
+        while ($retries -lt $maxRetries) {
+            try {
+                if ($retries -gt 0) {
+                    Write-Status "Retry $retries of $maxRetries..." Warn
+                    Start-Sleep -Seconds 2
+                }
+                # curl --progress-bar shows a nice progress meter (stderr, so PS output stays clean)
+                & $curlPath.Path --fail --location --progress-bar -o "$downloadPath" "$assetUrl"
+                if ($LASTEXITCODE -ne 0) { throw "curl exited with code $LASTEXITCODE" }
+                break
+            } catch {
+                $retries++
+                if ($retries -ge $maxRetries) { throw }
+                Write-Status "Attempt $retries failed: $($_.Exception.Message)" Warn
             }
-            Invoke-WebRequest -Uri $assetUrl -OutFile $downloadPath -UseBasicParsing -UserAgent 'LTTH-Installer/1.0' -TimeoutSec 600
-            break
-        } catch {
-            $retries++
-            if ($retries -ge $maxRetries) { throw }
-            Write-Status "Attempt $retries failed: $($_.Exception.Message)" Warn
+        }
+    } else {
+        Write-Status 'Using Invoke-WebRequest...' Info
+        $retries = 0
+        $maxRetries = 3
+        while ($retries -lt $maxRetries) {
+            try {
+                if ($retries -gt 0) {
+                    Write-Status "Retry $retries of $maxRetries..." Warn
+                    Start-Sleep -Seconds 2
+                }
+                Invoke-WebRequest -Uri $assetUrl -OutFile $downloadPath -UseBasicParsing -UserAgent 'LTTH-Installer/1.0' -TimeoutSec 600
+                break
+            } catch {
+                $retries++
+                if ($retries -ge $maxRetries) { throw }
+                Write-Status "Attempt $retries failed: $($_.Exception.Message)" Warn
+            }
         }
     }
     Write-Status 'Download complete' OK
