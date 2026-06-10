@@ -260,6 +260,18 @@ if ($installMode -eq 'bootstrapper') {
 
     $bootstrapperDst = "$InstallDir\ltth-bootstrapper.exe"
 
+    # Kill any running LTTH bootstrapper or launcher processes
+    foreach ($proc in @('ltth-bootstrapper', 'launcher')) {
+        try {
+            $p = Get-Process -Name $proc -ErrorAction SilentlyContinue
+            if ($p) {
+                Write-Status "Stopping existing $proc process(es)..." Warn
+                $p | Stop-Process -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Milliseconds 500
+            }
+        } catch { }
+    }
+
     # Copy bootstrapper to install dir
     try {
         Copy-Item -Path $downloadPath -Destination $bootstrapperDst -Force
