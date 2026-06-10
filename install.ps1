@@ -350,9 +350,18 @@ if ($manifestAsset) {
     Write-Status 'No stable.json in release — skipping checksum' Warn
 }
 
-# Backup old
+# Backup old — preserve user configs/data from old install
 Write-Status 'Backing up existing installation...' Section
+$preserveDirs = @()
 if (Test-Path $PayloadDir) {
+    # Save any user configs/data from old install before replacing
+    foreach ($relPath in @('app\user_configs', 'app\user_data', 'app\uploads')) {
+        $src = "$PayloadDir\$relPath"
+        if (Test-Path $src) {
+            $preserveDirs += @{ Source = $src; Relative = $relPath }
+            Write-Status "Found existing data: $relPath (will preserve)" OK
+        }
+    }
     Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue
     try {
         Rename-Item -Path $PayloadDir -NewName 'current-backup' -ErrorAction Stop
@@ -407,6 +416,22 @@ try {
         Rename-Item -Path $BackupDir -NewName 'current' -ErrorAction SilentlyContinue
     }
     exit 1
+}
+
+# Restore preserved user configs/data from old install
+if ($preserveDirs.Count -gt 0) {
+    Write-Status 'Restoring user configs/data from previous installation...' Section
+    foreach ($entry in $preserveDirs) {
+        $target = "$PayloadDir\$($entry.Relative)"
+        try {
+            $parent = Split-Path $target -Parent
+            if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+            Copy-Item -Recurse -Path $entry.Source -Destination $target -Force -ErrorAction Stop
+            Write-Status "Restored: $($entry.Relative)" OK
+        } catch {
+            Write-Status "Could not restore $($entry.Relative): $_" Warn
+        }
+    }
 }
 
 # Remove backup
