@@ -506,7 +506,7 @@ if (-not $SkipShortcuts -and $installMode -eq 'payload') {
     # Start Menu shortcut
     if ($startMenuDir) {
         $smPath = "$startMenuDir\$ShortcutName.lnk"
-        if (New-Shortcut -TargetPath $launcherExe -ShortcutPath $smPath -Description 'PupCid\'s Little TikTool Helper') {
+        if (New-Shortcut -TargetPath $launcherExe -ShortcutPath $smPath -IconPath "$PayloadDir\icon.ico" -Description 'PupCid\'s Little TikTool Helper') {
             Write-Status "Start Menu shortcut created: $ShortcutName" OK
         } else {
             Write-Status 'Could not create Start Menu shortcut' Warn
@@ -516,7 +516,7 @@ if (-not $SkipShortcuts -and $installMode -eq 'payload') {
     # Desktop shortcut
     if ($desktopDir) {
         $dtPath = "$desktopDir\$ShortcutName.lnk"
-        if (New-Shortcut -TargetPath $launcherExe -ShortcutPath $dtPath -Description 'PupCid\'s Little TikTool Helper') {
+        if (New-Shortcut -TargetPath $launcherExe -ShortcutPath $dtPath -IconPath "$PayloadDir\icon.ico" -Description 'PupCid\'s Little TikTool Helper') {
             Write-Status "Desktop shortcut created: $ShortcutName" OK
         } else {
             Write-Status 'Could not create desktop shortcut' Warn
